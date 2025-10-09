@@ -1,0 +1,12 @@
+numpy>=1.18.0
+scipy>=1.4.0
+
+[io]
+pymatgen>=2020.0.0
+
+[test]
+pytest>=6.0.0
+
+[vis]
+nglview
+py3Dmol
