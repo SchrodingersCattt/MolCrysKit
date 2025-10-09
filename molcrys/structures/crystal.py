@@ -7,6 +7,13 @@ for molecular crystals.
 
 import numpy as np
 from typing import List, Tuple
+try:
+    from ase import Atoms
+    ASE_AVAILABLE = True
+except ImportError:
+    ASE_AVAILABLE = False
+    Atoms = object  # Placeholder for type hints
+
 from .molecule import Molecule
 import itertools
 
@@ -19,13 +26,13 @@ class MolecularCrystal:
     ----------
     lattice : np.ndarray
         3x3 array representing the lattice vectors as rows.
-    molecules : List[Molecule]
-        List of molecules in the crystal.
+    molecules : List[Atoms]
+        List of molecules in the crystal, each represented as an ASE Atoms object.
     pbc : Tuple[bool, bool, bool]
         Periodic boundary conditions along each lattice vector.
     """
     
-    def __init__(self, lattice: np.ndarray, molecules: List[Molecule], 
+    def __init__(self, lattice: np.ndarray, molecules: List[Atoms], 
                  pbc: Tuple[bool, bool, bool] = (True, True, True)):
         """
         Initialize a MolecularCrystal.
@@ -34,8 +41,8 @@ class MolecularCrystal:
         ----------
         lattice : np.ndarray
             3x3 array representing the lattice vectors as rows.
-        molecules : List[Molecule]
-            List of molecules in the crystal.
+        molecules : List[Atoms]
+            List of molecules in the crystal, each represented as an ASE Atoms object.
         pbc : Tuple[bool, bool, bool], default=(True, True, True)
             Periodic boundary conditions along each lattice vector.
         """
@@ -57,6 +64,9 @@ class MolecularCrystal:
         MolecularCrystal
             New crystal representing the supercell.
         """
+        if not ASE_AVAILABLE:
+            raise ImportError("ASE is required for supercell generation. Please install it with 'pip install ase'")
+        
         # Create new lattice vectors
         new_lattice = np.array([
             self.lattice[0] * n1,
@@ -69,20 +79,18 @@ class MolecularCrystal:
         for i, j, k in itertools.product(range(n1), range(n2), range(n3)):
             # Translation vector for this cell
             translation = np.array([
-                float(i) / n1,
-                float(j) / n2,
-                float(k) / n3
+                float(i),
+                float(j),
+                float(k)
             ])
             
             # Copy all molecules and translate them
-            for molecule in self.molecules:
-                new_molecule = Molecule(
-                    atoms=[atom.copy() for atom in molecule.atoms],
-                    center_of_mass=molecule.center_of_mass + translation,
-                    rotation_matrix=molecule.rotation_matrix.copy() if molecule.rotation_matrix is not None else None
-                )
-                new_molecule.translate(translation)
-                new_molecules.append(new_molecule)
+            for atoms in self.molecules:
+                # Create a copy of the ASE Atoms object
+                new_atoms = atoms.copy()
+                # Apply translation
+                new_atoms.positions += np.dot(translation, self.lattice)
+                new_molecules.append(new_atoms)
         
         return MolecularCrystal(new_lattice, new_molecules, self.pbc)
     
@@ -134,7 +142,7 @@ class MolecularCrystal:
         summary_str += f"  Number of molecules: {len(self.molecules)}\n"
         summary_str += f"  PBC: {self.pbc}\n"
         
-        total_atoms = sum(len(mol.atoms) for mol in self.molecules)
+        total_atoms = sum(len(atoms) for atoms in self.molecules)
         summary_str += f"  Total atoms: {total_atoms}\n"
         
         return summary_str

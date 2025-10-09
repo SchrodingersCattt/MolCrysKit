@@ -4,7 +4,16 @@ Example: Extract molecular units from a crystal structure.
 """
 
 import numpy as np
-from molcrys.structures import Atom, Molecule, MolecularCrystal
+
+try:
+    from ase import Atoms
+    from ase.visualize import view
+    ASE_AVAILABLE = True
+except ImportError:
+    ASE_AVAILABLE = False
+    print("Warning: ASE not available. Install with 'pip install ase' for full functionality.")
+
+from molcrys.structures import MolecularCrystal
 from molcrys.analysis import identify_molecules
 
 
@@ -17,24 +26,24 @@ def create_water_crystal():
         [0.0, 0.0, 5.0]
     ])
     
+    if not ASE_AVAILABLE:
+        print("ASE not available, cannot create water molecules")
+        return None
+    
     # Create water molecule 1
-    atoms1 = [
-        Atom("O", np.array([0.1, 0.1, 0.1])),  # Oxygen
-        Atom("H", np.array([0.2, 0.1, 0.1])),  # Hydrogen
-        Atom("H", np.array([0.1, 0.2, 0.1])),  # Hydrogen
-    ]
-    molecule1 = Molecule(atoms1)
+    atoms1 = Atoms('OH2', 
+                   positions=[[0.1, 0.1, 0.1],
+                              [1.2, 0.1, 0.1],
+                              [0.1, 1.2, 0.1]])
     
     # Create water molecule 2
-    atoms2 = [
-        Atom("O", np.array([0.6, 0.6, 0.6])),  # Oxygen
-        Atom("H", np.array([0.7, 0.6, 0.6])),  # Hydrogen
-        Atom("H", np.array([0.6, 0.7, 0.6])),  # Hydrogen
-    ]
-    molecule2 = Molecule(atoms2)
+    atoms2 = Atoms('OH2', 
+                   positions=[[3.1, 3.1, 3.1],
+                              [4.2, 3.1, 3.1],
+                              [3.1, 4.2, 3.1]])
     
     # Create crystal
-    crystal = MolecularCrystal(lattice, [molecule1, molecule2])
+    crystal = MolecularCrystal(lattice, [atoms1, atoms2])
     return crystal
 
 
@@ -43,8 +52,15 @@ def main():
     print("MolCrysKit Example: Molecular Unit Extraction")
     print("=" * 50)
     
+    if not ASE_AVAILABLE:
+        print("This example requires ASE. Please install it with 'pip install ase'")
+        return
+    
     # Create example crystal
     crystal = create_water_crystal()
+    
+    if crystal is None:
+        return
     
     # Print initial crystal summary
     print("Initial crystal:")
@@ -56,17 +72,10 @@ def main():
     
     print(f"\nFound {len(molecules)} molecular units:")
     for i, molecule in enumerate(molecules):
-        print(f"  Molecule {i+1}: {len(molecule.atoms)} atoms")
-        for atom in molecule.atoms:
-            print(f"    {atom.symbol} at {atom.frac_coords}")
-    
-    # Show bonds within each molecule
-    print("\nBonds within molecules:")
-    for i, molecule in enumerate(molecules):
-        bonds = molecule.get_bonds()
-        print(f"  Molecule {i+1}: {len(bonds)} bonds")
-        for bond in bonds:
-            print(f"    Atom {bond[0]} - Atom {bond[1]}: {bond[2]:.3f}")
+        symbols = molecule.get_chemical_symbols()
+        print(f"  Molecule {i+1}: {len(molecule)} atoms")
+        print(f"    Chemical symbols: {symbols}")
+        print(f"    Center of mass: {molecule.get_center_of_mass()}")
 
 
 if __name__ == "__main__":

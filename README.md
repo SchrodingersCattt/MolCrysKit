@@ -33,6 +33,11 @@ pip install .
 - `Molecule`: Rigid body of atoms with transformation capabilities
 - `MolecularCrystal`: Main container for molecular crystal structures
 
+### Constants and Properties
+- Atomic masses for over 100 elements (in atomic mass units)
+- Atomic radii for over 90 elements (in Angstroms)
+- Functions to access and check availability of atomic properties
+
 ### File I/O
 - CIF parsing (using `pymatgen` or `ASE`)
 - Export to visualization formats (XYZ, VESTA, etc.)
@@ -51,14 +56,31 @@ pip install .
 ## Usage Examples
 
 ```python
-from molcrys import MolecularCrystal
-from molcrys.io import parse_cif
-from molcrys.analysis import identify_molecules
+from molcrys.structures import Atom, Molecule, MolecularCrystal
+from molcrys.constants import get_atomic_mass, get_atomic_radius
+
+# Access atomic properties
+print(f"Mass of Carbon: {get_atomic_mass('C')} amu")
+print(f"Radius of Oxygen: {get_atomic_radius('O')} Angstroms")
+
+# Create atoms with real properties
+atoms = [
+    Atom("O", [0.0, 0.0, 0.0]),
+    Atom("H", [0.757, 0.586, 0.0]),
+    Atom("H", [-0.757, 0.586, 0.0])
+]
+
+# Create a water molecule (mass-aware center of mass calculation)
+water = Molecule(atoms)
+center_of_mass = water.compute_center_of_mass()
+print(f"Water center of mass: {center_of_mass}")
 
 # Parse a CIF file
+from molcrys.io import parse_cif
 crystal = parse_cif("structure.cif")
 
 # Identify molecular units
+from molcrys.analysis import identify_molecules
 molecules = identify_molecules(crystal)
 
 # Print crystal summary

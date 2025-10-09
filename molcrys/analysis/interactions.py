@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Tuple
 from ..structures.molecule import Molecule
 from ..structures.crystal import MolecularCrystal
+from ..constants import get_atomic_radius, has_atomic_radius
 
 
 class Interaction:
@@ -92,15 +93,20 @@ def detect_hydrogen_bonds(crystal: MolecularCrystal, max_distance: float = 3.5,
                 com2 = mol2.center_of_mass
                 distance = np.linalg.norm(com1 - com2)
                 
+                # Convert to Cartesian for proper distance measurement
+                cart_com1 = crystal.fractional_to_cartesian(com1)
+                cart_com2 = crystal.fractional_to_cartesian(com2)
+                cartesian_distance = np.linalg.norm(cart_com1 - cart_com2)
+                
                 # Only consider molecules that are close enough
-                if distance < max_distance / 5.0:  # Simplified check
+                if cartesian_distance < max_distance:
                     # Dummy angle
                     angle = 150.0
                     
                     interaction = Interaction(
                         donor=mol1,
                         acceptor=mol2,
-                        distance=distance * 5.0,  # Convert to Angstrom-like scale
+                        distance=cartesian_distance,
                         angle=angle,
                         type="hydrogen_bond"
                     )
@@ -111,7 +117,7 @@ def detect_hydrogen_bonds(crystal: MolecularCrystal, max_distance: float = 3.5,
 
 def detect_vdw_contacts(crystal: MolecularCrystal, threshold_factor: float = 1.2) -> List[Interaction]:
     """
-    Detect van der Waals contacts between molecules.
+    Detect van der Waals contacts between molecules using actual atomic radii.
     
     Parameters
     ----------
@@ -127,23 +133,35 @@ def detect_vdw_contacts(crystal: MolecularCrystal, threshold_factor: float = 1.2
     """
     interactions = []
     
-    # Simplified implementation
-    # A real implementation would use actual van der Waals radii
-    
     if len(crystal.molecules) > 1:
         for i, mol1 in enumerate(crystal.molecules[:-1]):
+            com1 = mol1.center_of_mass
+            cart_com1 = crystal.fractional_to_cartesian(com1)
+            
+            # Estimate vdW radius of molecule 1 as average of atomic radii
+            mol1_radii = [get_atomic_radius(atom.symbol) for atom in mol1.atoms 
+                         if has_atomic_radius(atom.symbol)]
+            mol1_vdw_radius = np.mean(mol1_radii) if mol1_radii else 1.0
+            
             for mol2 in crystal.molecules[i+1:]:
-                # Calculate distance between centers of mass
-                com1 = mol1.center_of_mass
                 com2 = mol2.center_of_mass
-                distance = np.linalg.norm(com1 - com2)
+                cart_com2 = crystal.fractional_to_cartesian(com2)
                 
-                # Dummy vdW contact detection
-                if distance < 0.3 * threshold_factor:  # Simplified check
+                # Estimate vdW radius of molecule 2
+                mol2_radii = [get_atomic_radius(atom.symbol) for atom in mol2.atoms 
+                             if has_atomic_radius(atom.symbol)]
+                mol2_vdw_radius = np.mean(mol2_radii) if mol2_radii else 1.0
+                
+                # Calculate distance between centers of mass
+                distance = np.linalg.norm(cart_com1 - cart_com2)
+                
+                # Check for contact based on vdW radii
+                contact_threshold = (mol1_vdw_radius + mol2_vdw_radius) * threshold_factor
+                if distance < contact_threshold:
                     interaction = Interaction(
                         donor=mol1,
                         acceptor=mol2,
-                        distance=distance * 5.0,  # Convert to Angstrom-like scale
+                        distance=distance,
                         angle=180.0,  # Dummy angle
                         type="vdw"
                     )

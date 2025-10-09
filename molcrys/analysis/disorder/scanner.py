@@ -1,41 +1,68 @@
 """
-Disorder scanning for molecular crystals.
+Disorder site scanning.
 
-This module identifies atoms with partial occupancy in crystal structures.
+This module scans molecular crystals for disordered atomic sites.
 """
 
-from typing import List, Dict
+import numpy as np
 from collections import defaultdict
-from ...structures.atom import Atom
-from ...structures.molecule import Molecule
-from ...structures.crystal import MolecularCrystal
+from typing import List, Dict, Tuple
+try:
+    from ase import Atoms
+    ASE_AVAILABLE = True
+except ImportError:
+    ASE_AVAILABLE = False
+    Atoms = object  # Placeholder
+
+from ..structures.atom import Atom
+from ..structures.crystal import MolecularCrystal
 
 
-def identify_disordered_atoms(crystal: MolecularCrystal) -> List[Atom]:
+def scan_disordered_atoms(crystal: MolecularCrystal) -> List[Atoms]:
     """
-    Identify atoms with partial occupancy.
+    Scan the crystal for atoms with partial occupancy.
     
     Parameters
     ----------
     crystal : MolecularCrystal
-        The crystal to analyze.
+        The crystal to scan.
         
     Returns
     -------
-    List[Atom]
+    List[Atoms]
         List of atoms with occupancy < 1.0.
     """
+    if not ASE_AVAILABLE:
+        raise ImportError("ASE is required for disorder scanning. Please install it with 'pip install ase'")
+    
     disordered_atoms = []
     
     for molecule in crystal.molecules:
-        for atom in molecule.atoms:
-            if atom.occupancy < 1.0:
-                disordered_atoms.append(atom)
+        # Filter atoms with partial occupancy
+        partial_occupancy_atoms = []
+        for atom in molecule:
+            if hasattr(atom, 'occupancy') and atom.occupancy < 1.0:
+                partial_occupancy_atoms.append(atom)
+            elif not hasattr(atom, 'occupancy'):
+                # Default to full occupancy
+                atom.occupancy = 1.0
+                partial_occupancy_atoms.append(atom)
+        
+        if partial_occupancy_atoms:
+            # Create a new Atoms object with only the partially occupied atoms
+            symbols = [atom.symbol for atom in partial_occupancy_atoms]
+            positions = [atom.position for atom in partial_occupancy_atoms]
+            occupancies = [atom.occupancy for atom in partial_occupancy_atoms]
+            
+            disordered_molecule = Atoms(symbols=symbols, positions=positions)
+            # Store occupancies as an array attribute
+            disordered_molecule.set_array('occupancies', np.array(occupancies))
+            disordered_atoms.append(disordered_molecule)
     
     return disordered_atoms
 
 
-def group_disordered_atoms(crystal: MolecularCrystal) -> Dict[str, List[Atom]]:
+def group_disordered_atoms(crystal: MolecularCrystal) -> Dict[str, List[Atoms]]:
     """
     Group disordered atoms by site.
     
@@ -46,39 +73,48 @@ def group_disordered_atoms(crystal: MolecularCrystal) -> Dict[str, List[Atom]]:
         
     Returns
     -------
-    Dict[str, List[Atom]]
+    Dict[str, List[Atoms]]
         Dictionary mapping site identifiers to lists of atoms.
     """
-    # In a real implementation, we would use CIF disorder labels
-    # For now, we group atoms by their fractional coordinates (rounded)
-    disordered_groups = defaultdict(list)
+    disordered = scan_disordered_atoms(crystal)
     
-    for molecule in crystal.molecules:
-        for atom in molecule.atoms:
-            if atom.occupancy < 1.0:
-                # Create a site identifier based on rounded coordinates
-                site_id = f"{atom.symbol}_{round(atom.frac_coords[0]*100)}_{round(atom.frac_coords[1]*100)}_{round(atom.frac_coords[2]*100)}"
-                disordered_groups[site_id].append(atom)
+    # Group by rounded fractional coordinates
+    site_groups = defaultdict(list)
     
-    return dict(disordered_groups)
+    for molecule in disordered:
+        for atom in molecule:
+            # Create a site identifier based on rounded coordinates
+            coords = atom.position
+            site_id = f"{coords[0]:.3f}_{coords[1]:.3f}_{coords[2]:.3f}"
+            site_groups[site_id].append(atom)
+    
+    return dict(site_groups)
 
 
-def has_disorder(crystal: MolecularCrystal) -> bool:
+def enumerate_disorder_configurations(crystal: MolecularCrystal, 
+                                    max_configurations: int = 100) -> List[MolecularCrystal]:
     """
-    Check if a crystal structure contains disorder.
+    Enumerate possible disorder configurations.
     
     Parameters
     ----------
     crystal : MolecularCrystal
-        The crystal to check.
+        The crystal to enumerate configurations for.
+    max_configurations : int, default=100
+        Maximum number of configurations to generate.
         
     Returns
     -------
-    bool
-        True if the crystal contains disordered atoms, False otherwise.
+    List[MolecularCrystal]
+        List of possible crystal configurations.
     """
-    for molecule in crystal.molecules:
-        for atom in molecule.atoms:
-            if atom.occupancy < 1.0:
-                return True
-    return False
+    # This is a simplified implementation
+    # A full implementation would systematically enumerate all valid combinations
+    
+    configurations = []
+    
+    # For demonstration, we'll just return the original crystal
+    # A real implementation would generate multiple configurations
+    configurations.append(crystal)
+    
+    return configurations[:max_configurations]

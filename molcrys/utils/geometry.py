@@ -6,6 +6,7 @@ This module provides coordinate transformations and geometric calculations.
 
 import numpy as np
 from typing import Tuple
+from ..constants import get_atomic_mass, has_atomic_mass
 
 
 def frac_to_cart(frac: np.ndarray, lattice: np.ndarray) -> np.ndarray:
@@ -191,3 +192,33 @@ def volume_of_cell(lattice: np.ndarray) -> float:
     """
     a, b, c = lattice[0], lattice[1], lattice[2]
     return abs(np.dot(a, np.cross(b, c)))
+
+
+def calculate_center_of_mass(atom_coords: np.ndarray, atom_symbols: list) -> np.ndarray:
+    """
+    Calculate the center of mass of a group of atoms.
+    
+    Parameters
+    ----------
+    atom_coords : np.ndarray
+        Array of atomic coordinates.
+    atom_symbols : list
+        List of atomic symbols.
+        
+    Returns
+    -------
+    np.ndarray
+        Center of mass coordinates.
+    """
+    if len(atom_coords) == 0 or len(atom_coords) != len(atom_symbols):
+        return np.array([0.0, 0.0, 0.0])
+    
+    # Get atomic masses
+    masses = np.array([get_atomic_mass(symbol) if has_atomic_mass(symbol) 
+                      else 1.0 for symbol in atom_symbols])
+    
+    # Calculate mass-weighted center of mass
+    total_mass = np.sum(masses)
+    center_of_mass = np.sum(atom_coords * masses[:, np.newaxis], axis=0) / total_mass
+    
+    return center_of_mass

@@ -5,8 +5,9 @@ This module defines the Molecule class which represents a rigid body of atoms.
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from .atom import Atom
+from ..constants import get_atomic_mass, has_atomic_mass, get_atomic_radius, has_atomic_radius
 
 
 class Molecule:
@@ -21,10 +22,12 @@ class Molecule:
         Center of mass of the molecule in fractional coordinates.
     rotation_matrix : np.ndarray or None
         3x3 rotation matrix applied to the molecule.
+    lattice : np.ndarray or None
+        3x3 array representing the lattice vectors (needed for proper distance calculations).
     """
     
     def __init__(self, atoms: List[Atom], center_of_mass: np.ndarray = None, 
-                 rotation_matrix: np.ndarray = None):
+                 rotation_matrix: np.ndarray = None, lattice: Optional[np.ndarray] = None):
         """
         Initialize a Molecule.
         
@@ -36,8 +39,11 @@ class Molecule:
             Center of mass of the molecule. If not provided, it will be computed.
         rotation_matrix : np.ndarray, optional
             3x3 rotation matrix applied to the molecule.
+        lattice : np.ndarray, optional
+            3x3 array representing the lattice vectors.
         """
         self.atoms = atoms
+        self.lattice = lattice
         if center_of_mass is not None:
             self.center_of_mass = np.array(center_of_mass)
         else:
@@ -79,7 +85,7 @@ class Molecule:
     
     def compute_center_of_mass(self) -> np.ndarray:
         """
-        Compute the center of mass of the molecule.
+        Compute the center of mass of the molecule using atomic masses.
         
         Returns
         -------
@@ -89,9 +95,16 @@ class Molecule:
         if not self.atoms:
             return np.array([0.0, 0.0, 0.0])
         
-        # Simple center of mass calculation (assuming all atoms have equal mass)
+        # Get coordinates and masses
         coords = np.array([atom.frac_coords for atom in self.atoms])
-        return np.mean(coords, axis=0)
+        masses = np.array([get_atomic_mass(atom.symbol) if has_atomic_mass(atom.symbol) 
+                          else 1.0 for atom in self.atoms])
+        
+        # Calculate mass-weighted center of mass
+        total_mass = np.sum(masses)
+        center_of_mass = np.sum(coords * masses[:, np.newaxis], axis=0) / total_mass
+        
+        return center_of_mass
     
     def get_bonds(self, threshold_factor: float = 1.2) -> List[Tuple[int, int, float]]:
         """
@@ -107,17 +120,29 @@ class Molecule:
         List[Tuple[int, int, float]]
             List of tuples containing (atom1_index, atom2_index, distance).
         """
-        # This is a simplified implementation
-        # In a full implementation, we would use covalent radii from a database
+        if self.lattice is None:
+            raise ValueError("Lattice information is required for bond detection")
+        
         bonds = []
         
-        # Simple distance-based bond detection
-        # Using fixed threshold for demonstration
+        # Distance-based bond detection using atomic radii
         for i, atom1 in enumerate(self.atoms):
+            radius1 = get_atomic_radius(atom1.symbol) if has_atomic_radius(atom1.symbol) else 0.5
             for j, atom2 in enumerate(self.atoms[i+1:], i+1):
-                distance = np.linalg.norm(atom1.frac_coords - atom2.frac_coords)
-                # Simplified bonding criteria - in reality would use covalent radii
-                if distance < 0.2 * threshold_factor:  
+                radius2 = get_atomic_radius(atom2.symbol) if has_atomic_radius(atom2.symbol) else 0.5
+                
+                # Calculate distance in fractional coordinates with periodic boundary conditions
+                delta = atom1.frac_coords - atom2.frac_coords
+                # Apply minimum image convention
+                delta = delta - np.round(delta)
+                # Convert to Cartesian coordinates
+                cart_delta = np.dot(delta, self.lattice)
+                distance = np.linalg.norm(cart_delta)
+                
+                # Use covalent radii sum as threshold
+                threshold = (radius1 + radius2) * threshold_factor
+                
+                if distance < threshold and distance > 0.01:  # Avoid self-interaction
                     bonds.append((i, j, distance))
                     
         return bonds

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Complete example script showing how to get all molecules from a crystal structure and 
+Example script showing how to get all molecules from a crystal structure and 
 calculate the geometric centers of each molecule using ASE.
 """
 
@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
     from ase import Atoms
+    from ase.io import read
     ASE_AVAILABLE = True
 except ImportError:
     ASE_AVAILABLE = False
@@ -21,25 +22,11 @@ except ImportError:
 
 try:
     from molcrys.structures import MolecularCrystal
+    from molcrys.io import parse_cif_advanced
+    from molcrys.analysis import identify_molecules
 except ImportError:
     print("Error: MolCrysKit not found. Please install the package with 'pip install -e .'")
     sys.exit(1)
-
-
-def create_water_molecule(origin):
-    """Create a water molecule at a specific origin."""
-    if not ASE_AVAILABLE:
-        return None
-    
-    # Create a water molecule (Oxygen at origin, Hydrogens at standard positions)
-    positions = np.array([
-        origin,                                    # Oxygen
-        origin + np.array([0.07, 0.0, 0.0]),      # Hydrogen
-        origin + np.array([0.0, 0.07, 0.0])       # Hydrogen
-    ])
-    
-    water = Atoms('OH2', positions=positions)
-    return water
 
 
 def create_sample_crystal():
@@ -51,17 +38,32 @@ def create_sample_crystal():
         [0.0, 0.0, 10.0]
     ])
     
-    if not ASE_AVAILABLE:
-        print("ASE not available, cannot create water molecules")
-        return None
+    # Create water molecule 1 at origin
+    atoms1 = Atoms('OH2', 
+                   positions=[[1.0, 1.0, 1.0],
+                              [1.757, 1.586, 1.0],
+                              [0.243, 1.586, 1.0]],
+                   cell=lattice,
+                   pbc=True)
     
-    # Create water molecules at different positions
-    water1 = create_water_molecule(np.array([0.1, 0.1, 0.1]))
-    water2 = create_water_molecule(np.array([0.5, 0.5, 0.5]))
-    water3 = create_water_molecule(np.array([0.2, 0.8, 0.3]))
+    # Create water molecule 2 at another position
+    atoms2 = Atoms('OH2', 
+                   positions=[[5.0, 5.0, 5.0],
+                              [5.757, 5.586, 5.0],
+                              [4.243, 5.586, 5.0]],
+                   cell=lattice,
+                   pbc=True)
+    
+    # Create water molecule 3 at yet another position
+    atoms3 = Atoms('OH2', 
+                   positions=[[8.0, 2.0, 7.0],
+                              [8.757, 2.586, 7.0],
+                              [7.243, 2.586, 7.0]],
+                   cell=lattice,
+                   pbc=True)
     
     # Create crystal with multiple molecules
-    crystal = MolecularCrystal(lattice, [water1, water2, water3])
+    crystal = MolecularCrystal(lattice, [atoms1, atoms2, atoms3])
     return crystal
 
 
@@ -94,18 +96,15 @@ def analyze_molecule_centers(crystal):
 
 def main():
     """Main function to demonstrate molecule center analysis."""
-    print("MolCrysKit Script: Complete Molecule Center Analysis")
+    print("MolCrysKit Example: Molecule Center Analysis with ASE")
     print("=" * 55)
     
     if not ASE_AVAILABLE:
-        print("This script requires ASE. Please install it with 'pip install ase'")
+        print("This example requires ASE. Please install it with 'pip install ase'")
         return
     
     # Create sample crystal
     crystal = create_sample_crystal()
-    
-    if crystal is None:
-        return
     
     # Print crystal summary
     print("Sample crystal created:")

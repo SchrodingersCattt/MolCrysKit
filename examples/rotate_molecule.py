@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
 """
-Example: Rotate a molecule in a crystal structure.
+Example: Molecular rotation operations.
 """
 
 import numpy as np
-from molcrys.structures import Atom, Molecule, MolecularCrystal
-from molcrys.operations.rotation import rotate_molecule, translate_molecule
+
+try:
+    from ase import Atoms
+    ASE_AVAILABLE = True
+except ImportError:
+    ASE_AVAILABLE = False
+    print("Warning: ASE not available. Install with 'pip install ase' for full functionality.")
+
+from molcrys.structures import MolecularCrystal
+from molcrys.operations import rotate_molecule
 
 
 def create_benzene_molecule():
     """Create a benzene molecule for demonstration."""
-    # Create benzene ring atoms (simplified coordinates)
-    atoms = [
-        Atom("C", np.array([0.0, 1.0, 0.0])),
-        Atom("C", np.array([0.866, 0.5, 0.0])),
-        Atom("C", np.array([0.866, -0.5, 0.0])),
-        Atom("C", np.array([0.0, -1.0, 0.0])),
-        Atom("C", np.array([-0.866, -0.5, 0.0])),
-        Atom("C", np.array([-0.866, 0.5, 0.0])),
-    ]
+    if not ASE_AVAILABLE:
+        print("ASE not available, cannot create benzene molecule")
+        return None
     
-    return Molecule(atoms)
+    # Create a benzene molecule (simplified planar structure)
+    positions = np.array([
+        [ 0.0,  1.0, 0.0],
+        [ 0.866, 0.5, 0.0],
+        [ 0.866, -0.5, 0.0],
+        [ 0.0, -1.0, 0.0],
+        [-0.866, -0.5, 0.0],
+        [-0.866, 0.5, 0.0]
+    ])
+    
+    benzene = Atoms('C6', positions=positions)
+    return benzene
 
 
 def main():
@@ -28,33 +41,35 @@ def main():
     print("MolCrysKit Example: Molecular Rotation")
     print("=" * 40)
     
-    # Create a benzene molecule
+    if not ASE_AVAILABLE:
+        print("This example requires ASE. Please install it with 'pip install ase'")
+        return
+    
+    # Create benzene molecule
     benzene = create_benzene_molecule()
-    print(f"Initial benzene center of mass: {benzene.center_of_mass}")
     
-    # Create a simple crystal
-    lattice = np.array([
-        [15.0, 0.0, 0.0],
-        [0.0, 15.0, 0.0],
-        [0.0, 0.0, 15.0]
-    ])
+    if benzene is None:
+        return
     
-    crystal = MolecularCrystal(lattice, [benzene])
-    print(f"Initial crystal summary:")
-    print(crystal.summary())
+    print(f"Initial benzene center of mass: {benzene.get_center_of_mass()}")
     
-    # Rotate the benzene molecule around the z-axis by 90 degrees (π/2 radians)
-    print(f"\nRotating benzene molecule around z-axis by 90 degrees...")
-    rotate_molecule(benzene, np.array([0, 0, 1]), np.pi/2)
-    print(f"New benzene center of mass: {benzene.center_of_mass}")
+    # Rotate around z-axis by 60 degrees (π/3 radians)
+    axis = np.array([0, 0, 1])  # z-axis
+    angle = np.pi / 3  # 60 degrees
     
-    # Translate the molecule
-    print(f"\nTranslating benzene molecule by [0.1, 0.1, 0.1]...")
-    translate_molecule(benzene, np.array([0.1, 0.1, 0.1]))
-    print(f"New benzene center of mass: {benzene.center_of_mass}")
+    print(f"\nRotating benzene around z-axis by {angle*180/np.pi:.1f} degrees...")
+    rotate_molecule(benzene, axis, angle)
     
-    print(f"\nFinal crystal summary:")
-    print(crystal.summary())
+    print(f"New benzene center of mass: {benzene.get_center_of_mass()}")
+    
+    # Rotate around x-axis by 90 degrees (π/2 radians)
+    axis = np.array([1, 0, 0])  # x-axis
+    angle = np.pi / 2  # 90 degrees
+    
+    print(f"\nRotating benzene around x-axis by {angle*180/np.pi:.1f} degrees...")
+    rotate_molecule(benzene, axis, angle)
+    
+    print(f"New benzene center of mass: {benzene.get_center_of_mass()}")
 
 
 if __name__ == "__main__":
