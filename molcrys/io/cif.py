@@ -82,9 +82,15 @@ def parse_cif(filepath: str) -> MolecularCrystal:
     if not ASE_AVAILABLE:
         raise ImportError("ASE is required for molecule representation. Please install it with 'pip install ase'")
     
-    # Parse the CIF file using pymatgen
-    parser = CifParser(filepath)
-    structures = parser.get_structures()
+    # Parse the CIF file using pymatgen with more tolerant parameters
+    # These parameters help handle CIF files with full coordinates rather than asymmetric units
+    try:
+        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
+        structures = parser.get_structures()
+    except Exception as e:
+        # Try with even more relaxed parameters if the first attempt fails
+        parser = CifParser(filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1)
+        structures = parser.get_structures()
     
     # For simplicity, we take the first structure
     structure = structures[0]
@@ -137,8 +143,14 @@ def parse_cif_advanced(filepath: str) -> MolecularCrystal:
     
     # Parse the CIF file using pymatgen with special options for handling disordered structures
     # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
-    parser = CifParser(filepath, occupancy_tolerance=1.1)
-    structures = parser.get_structures()
+    # Also using more tolerant parameters to handle CIF files with full coordinates
+    try:
+        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
+        structures = parser.get_structures()
+    except Exception as e:
+        print(f"Warning: CIF parsing failed. Trying with more relaxed parameters...")
+        parser = CifParser(filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1)
+        structures = parser.get_structures()
     
     # For simplicity, we take the first structure
     structure = structures[0]
