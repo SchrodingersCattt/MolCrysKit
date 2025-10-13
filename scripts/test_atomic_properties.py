@@ -73,7 +73,7 @@ def test_bond_detection():
         radius = get_atomic_radius(atom.symbol)
         print(f"  {i}: {atom.symbol} (radius = {radius:.3f} Å)")
     
-    bonds = molecule.get_bonds(threshold_factor=1.3)
+    bonds = molecule.get_bonds()
     print(f"\nDetected bonds: {len(bonds)}")
     for i, (atom1_idx, atom2_idx, distance) in enumerate(bonds):
         atom1 = molecule.atoms[atom1_idx]

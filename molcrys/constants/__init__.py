@@ -22,6 +22,22 @@ with open(os.path.join(_CONSTANTS_DIR, 'atomic_masses.json'), 'r') as f:
 with open(os.path.join(_CONSTANTS_DIR, 'atomic_radii.json'), 'r') as f:
     ATOMIC_RADII = json.load(f)
 
+# Define metal elements
+METAL_ELEMENTS = {
+    'Li', 'Be', 'Na', 'Mg', 'Al', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe',
+    'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru',
+    'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm',
+    'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Hf', 'Ta', 'W',
+    'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'Fr', 'Ra', 'Ac',
+    'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No',
+    'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc',
+    'Lv'
+}
+
+# Global threshold factors for bond detection
+METAL_THRESHOLD_FACTOR = 0.5
+NON_METAL_THRESHOLD_FACTOR = 1.5
+
 
 def get_atomic_mass(symbol: str) -> float:
     """
@@ -142,3 +158,20 @@ def list_elements_with_data() -> dict:
         'masses': list(ATOMIC_MASSES.keys()),
         'radii': list(ATOMIC_RADII.keys())
     }
+
+
+def is_metal_element(symbol: str) -> bool:
+    """
+    Check if an element is a metal.
+    
+    Parameters
+    ----------
+    symbol : str
+        Chemical symbol of the element.
+        
+    Returns
+    -------
+    bool
+        True if the element is a metal, False otherwise.
+    """
+    return symbol in METAL_ELEMENTS

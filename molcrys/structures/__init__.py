@@ -5,7 +5,7 @@ This module contains the core data structures and crystal representation classes
 """
 
 from .atom import Atom
-from .molecule import Molecule
+from .molecule import Molecule, EnhancedMolecule
 from .crystal import MolecularCrystal
 
-__all__ = ["Atom", "Molecule", "MolecularCrystal"]
+__all__ = ["Atom", "Molecule", "EnhancedMolecule", "MolecularCrystal"]

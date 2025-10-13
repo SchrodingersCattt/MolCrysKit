@@ -14,7 +14,7 @@ except ImportError:
     ASE_AVAILABLE = False
     Atoms = object  # Placeholder for type hints
 
-from .molecule import Molecule
+from .molecule import EnhancedMolecule
 import itertools
 
 
@@ -26,8 +26,8 @@ class MolecularCrystal:
     ----------
     lattice : np.ndarray
         3x3 array representing the lattice vectors as rows.
-    molecules : List[Atoms]
-        List of molecules in the crystal, each represented as an ASE Atoms object.
+    molecules : List[EnhancedMolecule]
+        List of molecules in the crystal, each represented as an EnhancedMolecule object.
     pbc : Tuple[bool, bool, bool]
         Periodic boundary conditions along each lattice vector.
     """
@@ -47,7 +47,8 @@ class MolecularCrystal:
             Periodic boundary conditions along each lattice vector.
         """
         self.lattice = np.array(lattice)
-        self.molecules = molecules
+        # Wrap each ASE Atoms object in an EnhancedMolecule
+        self.molecules = [EnhancedMolecule(mol) for mol in molecules]
         self.pbc = pbc
     
     def get_supercell(self, n1: int, n2: int, n3: int) -> 'MolecularCrystal':
@@ -85,9 +86,9 @@ class MolecularCrystal:
             ])
             
             # Copy all molecules and translate them
-            for atoms in self.molecules:
+            for molecule in self.molecules:
                 # Create a copy of the ASE Atoms object
-                new_atoms = atoms.copy()
+                new_atoms = molecule.atoms.copy()
                 # Apply translation
                 new_atoms.positions += np.dot(translation, self.lattice)
                 new_molecules.append(new_atoms)

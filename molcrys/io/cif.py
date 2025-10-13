@@ -7,6 +7,7 @@ This module provides functionality to parse CIF files into MolecularCrystal obje
 import numpy as np
 from typing import List, Tuple
 import warnings
+import re
 try:
     from pymatgen.io.cif import CifParser
     PYMATGEN_AVAILABLE = True
@@ -23,6 +24,34 @@ except ImportError:
 
 from ..structures.crystal import MolecularCrystal
 from ..constants import get_atomic_radius, has_atomic_radius
+
+def _clean_species_string(species_string: str) -> str:
+    """
+    Clean species string by removing occupancy information and other non-element data.
+    
+    For example:
+    - 'O:0.5' -> 'O'
+    - 'Fe:?' -> 'Fe'
+    - 'Ni:1.0(3)' -> 'Ni'
+    
+    Parameters
+    ----------
+    species_string : str
+        Raw species string from pymatgen site.
+        
+    Returns
+    -------
+    str
+        Cleaned atomic symbol.
+    """
+    # Pre-compile regular expressions for better performance
+    _CLEAN_PATTERN = re.compile(r':.*')
+    _ELEMENT_PATTERN = re.compile(r'[A-Z][a-z]?')
+
+    cleaned = _CLEAN_PATTERN.split(species_string, 1)[0]
+    # Extract only the alphabetic part as the element symbol
+    element_match = _ELEMENT_PATTERN.search(cleaned)
+    return element_match.group(0) if element_match else cleaned
 
 
 def parse_cif(filepath: str) -> MolecularCrystal:
@@ -63,8 +92,8 @@ def parse_cif(filepath: str) -> MolecularCrystal:
     # Extract lattice vectors
     lattice = structure.lattice.matrix
     
-    # Create ASE Atoms object
-    symbols = [site.species_string for site in structure.sites]
+    # Create ASE Atoms object with cleaned symbols
+    symbols = [_clean_species_string(site.species_string) for site in structure.sites]
     positions = structure.cart_coords
     atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
     
@@ -106,8 +135,9 @@ def parse_cif_advanced(filepath: str) -> MolecularCrystal:
     if not ASE_AVAILABLE:
         raise ImportError("ASE is required for molecule representation. Please install it with 'pip install ase'")
     
-    # Parse the CIF file using pymatgen
-    parser = CifParser(filepath)
+    # Parse the CIF file using pymatgen with special options for handling disordered structures
+    # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
+    parser = CifParser(filepath, occupancy_tolerance=1.1)
     structures = parser.get_structures()
     
     # For simplicity, we take the first structure
@@ -116,18 +146,13 @@ def parse_cif_advanced(filepath: str) -> MolecularCrystal:
     # Extract lattice vectors
     lattice = structure.lattice.matrix
     
-    # Create ASE Atoms object
-    symbols = [site.species_string for site in structure.sites]
+    # Create ASE Atoms object with cleaned symbols
+    symbols = [_clean_species_string(site.species_string) for site in structure.sites]
     positions = structure.cart_coords
     atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
     
     # Identify molecular units using ASE
-    molecules = identify_molecules_with_ase(atoms)
-    
-    # Print information about identified molecules
-    print(f"Identified {len(molecules)} molecular units:")
-    for i, molecule in enumerate(molecules):
-        print(f"  Molecule {i+1}: {len(molecule)} atoms ({', '.join(set(molecule.get_chemical_symbols()))})")
+    molecules = identify_molecules_with_ase(atoms)    
     
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
@@ -152,8 +177,8 @@ def identify_molecules_with_ase(atoms: Atoms) -> List[Atoms]:
     if not ASE_AVAILABLE:
         raise ImportError("ASE is required for molecule identification. Please install it with 'pip install ase'")
     
-    # Simple distance-based clustering
-    # This is a simplified implementation - a production version would be more sophisticated
+    # Import required constants
+    from ..constants import is_metal_element, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
     
     # Get all atom positions
     positions = atoms.get_positions()
@@ -169,14 +194,25 @@ def identify_molecules_with_ase(atoms: Atoms) -> List[Atoms]:
             distance_matrix[i, j] = distance
             distance_matrix[j, i] = distance
     
-    # Simple bonding criteria based on atomic radii
+    # Simple bonding criteria based on atomic radii and element types
     adjacency_matrix = np.zeros((n_atoms, n_atoms))
     for i in range(n_atoms):
         radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
+        is_metal_i = is_metal_element(symbols[i])
         for j in range(i + 1, n_atoms):
             radius_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
-            # Bonding threshold as sum of covalent radii
-            threshold = (radius_i + radius_j) * 1.2
+            is_metal_j = is_metal_element(symbols[j])
+            
+            # Determine threshold factor based on element types
+            if is_metal_i and is_metal_j:  # Metal-Metal
+                factor = METAL_THRESHOLD_FACTOR
+            elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
+                factor = NON_METAL_THRESHOLD_FACTOR
+            else:  # Metal-Non-metal
+                factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+            
+            # Bonding threshold as sum of covalent radii multiplied by factor
+            threshold = (radius_i + radius_j) * factor
             if distance_matrix[i, j] < threshold:
                 adjacency_matrix[i, j] = 1
                 adjacency_matrix[j, i] = 1
