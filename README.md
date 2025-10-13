@@ -144,6 +144,29 @@ for i, molecule in enumerate(crystal.molecules):
     print(f"  Center of Mass: {com}")
 ```
 
+### Getting Fractional Coordinates of Molecular Centroids
+
+You can directly obtain fractional coordinates of molecular centroids:
+
+```python
+from molcrys_kit.io import parse_cif_advanced
+
+# Parse a CIF file with automatic molecule identification
+crystal = parse_cif_advanced('path/to/your/file.cif')
+
+# Access molecules and their fractional coordinates
+for i, molecule in enumerate(crystal.molecules):
+    # Get centroid in Cartesian coordinates
+    centroid_cart = molecule.get_centroid()
+    
+    # Get centroid directly in fractional coordinates
+    centroid_frac = molecule.get_centroid_frac()
+    
+    print(f"Molecule {i+1}:")
+    print(f"  Cartesian centroid: [{centroid_cart[0]:.4f}, {centroid_cart[1]:.4f}, {centroid_cart[2]:.4f}]")
+    print(f"  Fractional centroid: [{centroid_frac[0]:.4f}, {centroid_frac[1]:.4f}, {centroid_frac[2]:.4f}]")
+```
+
 ## Modules
 
 - [structures](./molcrys_kit/structures): Core data structures for atoms, molecules, and crystals
@@ -160,6 +183,7 @@ The project includes several example scripts in the `scripts/` directory that de
 - `scripts/lattice_parameters_demo.py` - Demonstrates how to get lattice parameters from a crystal
 - `scripts/atomic_properties_demo.py` - Shows how to access atomic properties
 - `scripts/enhanced_molecule_example.py` - Example usage of the EnhancedMolecule class
+- `scripts/molecular_centroids.py` - Calculate molecular centroids in fractional coordinates
 
 To run these scripts, first install the package in development mode:
 

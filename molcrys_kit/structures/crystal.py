@@ -48,7 +48,7 @@ class MolecularCrystal:
         """
         self.lattice = np.array(lattice)
         # Wrap each ASE Atoms object in an EnhancedMolecule
-        self.molecules = [EnhancedMolecule(mol) for mol in molecules]
+        self.molecules = [EnhancedMolecule(mol, self) for mol in molecules]
         self.pbc = pbc
     
     def get_supercell(self, n1: int, n2: int, n3: int) -> 'MolecularCrystal':

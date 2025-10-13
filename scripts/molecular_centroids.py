@@ -59,7 +59,7 @@ def calculate_molecular_centroids(cif_file_path):
             ellipsoid_radii = molecule.get_ellipsoid_radii()
             
             # Convert geometric center to fractional coordinates
-            frac_geometric_center = crystal.cartesian_to_fractional(geometric_center)
+            frac_geometric_center = molecule.get_centroid_frac()
             
             # Convert center of mass to fractional coordinates
             frac_center_of_mass = crystal.cartesian_to_fractional(center_of_mass)

@@ -30,7 +30,7 @@ class EnhancedMolecule:
         The underlying ASE Atoms object representing the molecule.
     """
     
-    def __init__(self, atoms: Atoms):
+    def __init__(self, atoms: Atoms, crystal=None):
         """
         Initialize an EnhancedMolecule.
         
@@ -38,11 +38,15 @@ class EnhancedMolecule:
         ----------
         atoms : Atoms
             ASE Atoms object representing the molecule.
+        crystal : MolecularCrystal, optional
+            The parent crystal structure containing this molecule, used for coordinate 
+            conversions and other crystal-specific operations.
         """
         if not ASE_AVAILABLE:
             raise ImportError("ASE is required for EnhancedMolecule. Please install it with 'pip install ase'")
         # Create a wrapped version of the atoms to handle PBC correctly
         self.atoms = atoms.copy()
+        self.crystal = crystal  # Save reference to the parent crystal
         self._adjust_positions_for_pbc()
     
     def _adjust_positions_for_pbc(self):
@@ -105,6 +109,20 @@ class EnhancedMolecule:
             Centroid coordinates (x, y, z).
         """
         return np.mean(self.positions, axis=0)
+    
+    def get_centroid_frac(self) -> np.ndarray:
+        """
+        Calculate the centroid (geometric center) of the molecule in fractional coordinates.
+        
+        Returns
+        -------
+        np.ndarray
+            Centroid coordinates in fractional coordinates (a, b, c).
+        """
+        if self.crystal is None:
+            raise ValueError("Cannot compute fractional coordinates: 'crystal' reference is not set.")
+        centroid_cart = self.get_centroid()
+        return self.crystal.cartesian_to_fractional(centroid_cart)
     
     def get_center_of_mass(self) -> np.ndarray:
         """
