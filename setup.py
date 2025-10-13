@@ -14,6 +14,10 @@ setup(
     author_email="none@example.com",
     url="https://github.com/your-username/MolCrysKit",
     packages=find_packages(),
+    package_data={
+        'molcrys.constants': ['*.json'],
+    },
+    include_package_data=True,
     install_requires=[
         "numpy>=1.18.0",
         "scipy>=1.4.0",

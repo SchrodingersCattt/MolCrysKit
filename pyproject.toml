@@ -41,3 +41,6 @@ Repository = "https://github.com/your-username/MolCrysKit"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["molcrys*"]
+
+[tool.setuptools.package-data]
+"molcrys.constants" = ["*.json"]
