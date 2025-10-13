@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script to verify atomic properties usage in MolCrysKit.
+Test atomic properties functionality.
 """
 
 import sys
@@ -10,14 +10,13 @@ import numpy as np
 # Add project root to path if needed
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-try:
-    # Import molcrys modules
-    from molcrys.structures import Atom, Molecule, MolecularCrystal
-    from molcrys.constants import get_atomic_mass, get_atomic_radius
-    from molcrys.analysis import identify_molecules
-except ImportError as e:
-    print(f"Error importing MolCrysKit: {e}")
-    sys.exit(1)
+def main():
+    try:
+        # Try to import required modules
+        from molcrys_kit.structures import Atom, Molecule, MolecularCrystal
+        from molcrys_kit.constants import get_atomic_mass, get_atomic_radius
+        from molcrys_kit.analysis import identify_molecules
+        
 
 
 def test_center_of_mass():
@@ -133,6 +132,23 @@ def test_molecular_identification():
 
 def main():
     """Main function to run all tests."""
+    print("MolCrysKit Atomic Properties Test")
+    print("================================\n")
+    
+    test_center_of_mass()
+    test_bond_detection()
+    test_molecular_identification()
+    
+    print("All tests completed successfully!")
+
+
+    except ImportError as e:
+        print(f"Error importing modules: {e}")
+        print("Make sure you have installed the molcrys-kit package:")
+        print("pip install -e .")
+        return 1
+    
+    # Run all tests
     print("MolCrysKit Atomic Properties Test")
     print("================================\n")
     

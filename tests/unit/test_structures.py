@@ -1,19 +1,18 @@
+#!/usr/bin/env python3
 """
-Unit tests for the structures module.
+Test the structures module.
 """
 
-import numpy as np
-import sys
 import os
+import sys
 
 # Add the project root to the path so we can import molcrys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from molcrys.structures import Atom, Molecule, MolecularCrystal
-
+from molcrys_kit.structures import Atom, Molecule, MolecularCrystal
 
 def test_atom_creation():
-    """Test creation of Atom objects."""
+    """Test creating an Atom."""
     atom = Atom("C", np.array([0.1, 0.2, 0.3]), 1.0)
     assert atom.symbol == "C"
     assert np.allclose(atom.frac_coords, np.array([0.1, 0.2, 0.3]))

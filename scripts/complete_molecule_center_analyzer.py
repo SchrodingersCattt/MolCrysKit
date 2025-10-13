@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Complete example script showing how to get all molecules from a crystal structure and 
-calculate the geometric centers of each molecule using ASE.
+Complete molecule center analyzer with enhanced molecule properties.
 """
 
 import sys
@@ -10,20 +9,6 @@ import numpy as np
 
 # Add project root to path if needed
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-try:
-    from ase import Atoms
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    print("Error: ASE not found. Please install the package with 'pip install ase'")
-    sys.exit(1)
-
-try:
-    from molcrys.structures import MolecularCrystal
-except ImportError:
-    print("Error: MolCrysKit not found. Please install the package with 'pip install -e .'")
-    sys.exit(1)
 
 
 def create_water_molecule(origin):
@@ -97,24 +82,13 @@ def main():
     print("MolCrysKit Script: Complete Molecule Center Analysis")
     print("=" * 55)
     
-    if not ASE_AVAILABLE:
-        print("This script requires ASE. Please install it with 'pip install ase'")
-        return
-    
-    # Create sample crystal
-    crystal = create_sample_crystal()
-    
-    if crystal is None:
-        return
-    
-    # Print crystal summary
-    print("Sample crystal created:")
-    print(crystal.summary())
-    print()
-    
-    # Analyze molecule centers
-    analyze_molecule_centers(crystal)
-
-
-if __name__ == "__main__":
-    main()
+    try:
+        # Try to import required modules
+        from ase import Atoms
+        from molcrys_kit.structures import MolecularCrystal
+        
+    except ImportError as e:
+        print(f"Error importing modules: {e}")
+        print("Make sure you have installed the molcrys-kit package:")
+        print("pip install -e .")
+        return 1

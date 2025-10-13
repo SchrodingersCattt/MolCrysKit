@@ -16,8 +16,8 @@ from time import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from molcrys.io import parse_cif_advanced
-    from molcrys.structures.molecule import EnhancedMolecule
+    from molcrys_kit.io import parse_cif_advanced
+    from molcrys_kit.structures.molecule import EnhancedMolecule
 except ImportError as e:
     print(f"Error importing MolCrysKit: {e}")
     print("Please ensure the package is installed with 'pip install -e .'")

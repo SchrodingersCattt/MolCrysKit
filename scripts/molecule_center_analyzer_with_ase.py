@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Example script showing how to get all molecules from a crystal structure and 
-calculate the geometric centers of each molecule using ASE.
+Analyze molecular centers in a crystal structure using ASE for molecule identification.
 """
 
 import sys
@@ -18,14 +17,6 @@ try:
 except ImportError:
     ASE_AVAILABLE = False
     print("Error: ASE not found. Please install the package with 'pip install ase'")
-    sys.exit(1)
-
-try:
-    from molcrys.structures import MolecularCrystal
-    from molcrys.io import parse_cif_advanced
-    from molcrys.analysis import identify_molecules
-except ImportError:
-    print("Error: MolCrysKit not found. Please install the package with 'pip install -e .'")
     sys.exit(1)
 
 
@@ -95,24 +86,35 @@ def analyze_molecule_centers(crystal):
 
 
 def main():
-    """Main function to demonstrate molecule center analysis."""
-    print("MolCrysKit Example: Molecule Center Analysis with ASE")
-    print("=" * 55)
-    
-    if not ASE_AVAILABLE:
-        print("This example requires ASE. Please install it with 'pip install ase'")
-        return
-    
-    # Create sample crystal
-    crystal = create_sample_crystal()
-    
-    # Print crystal summary
-    print("Sample crystal created:")
-    print(crystal.summary())
-    print()
-    
-    # Analyze molecule centers
-    analyze_molecule_centers(crystal)
+    try:
+        # Try to import required modules
+        from molcrys_kit.structures import MolecularCrystal
+        from molcrys_kit.io import parse_cif_advanced
+        from molcrys_kit.analysis import identify_molecules
+        
+        print("MolCrysKit Example: Molecule Center Analysis with ASE")
+        print("=" * 55)
+        
+        if not ASE_AVAILABLE:
+            print("This example requires ASE. Please install it with 'pip install ase'")
+            return
+        
+        # Create sample crystal
+        crystal = create_sample_crystal()
+        
+        # Print crystal summary
+        print("Sample crystal created:")
+        print(crystal.summary())
+        print()
+        
+        # Analyze molecule centers
+        analyze_molecule_centers(crystal)
+
+    except ImportError as e:
+        print(f"Error importing modules: {e}")
+        print("Make sure you have installed the molcrys-kit package:")
+        print("pip install -e .")
+        return 1
 
 
 if __name__ == "__main__":

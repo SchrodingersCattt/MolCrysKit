@@ -1,26 +1,37 @@
 #!/usr/bin/env python3
 """
-Script to analyze molecular centers in a crystal structure.
-
-This script loads a crystal structure, extracts all molecules, 
-and computes the fractional coordinates of each molecule's center of mass.
+Analyze molecular centers in a crystal structure.
 """
 
 import sys
 import os
-import numpy as np
 
 # Add project root to path if needed
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-try:
-    # Import molcrys modules
-    from molcrys.io import parse_cif
-    from molcrys.analysis import identify_molecules
-    from molcrys.structures import MolecularCrystal
-except ImportError:
-    print("Error: MolCrysKit not found. Please install the package with 'pip install -e .'")
-    sys.exit(1)
+def main():
+    try:
+        # Try to import required modules
+        from molcrys_kit.io import parse_cif
+        from molcrys_kit.analysis import identify_molecules
+        from molcrys_kit.structures import MolecularCrystal
+        
+        import numpy as np
+```
+
+scripts/molecule_center_analyzer.py
+```python
+<<<<<<< SEARCH
+    except Exception as e:
+        print(f"Error parsing CIF file: {e}")
+        return
+    
+    # Identify molecular units
+    except Exception as e:
+        print(f"Error parsing CIF file: {e}")
+        return
+    
+    # Identify molecular units
 
 
 def analyze_molecule_centers(cif_file_path):
@@ -86,7 +97,7 @@ def create_sample_crystal():
     MolecularCrystal
         A sample crystal with water molecules.
     """
-    from molcrys.structures import Atom, Molecule
+    from molcrys_kit.structures import Atom, Molecule
     
     # Define lattice vectors (simple cubic for demonstration)
     lattice = np.array([
@@ -163,6 +174,12 @@ def main():
     cif_file_path = sys.argv[1]
     analyze_molecule_centers(cif_file_path)
 
+
+    except ImportError as e:
+        print(f"Error importing modules: {e}")
+        print("Make sure you have installed the molcrys-kit package:")
+        print("pip install -e .")
+        return 1
 
 if __name__ == "__main__":
     main()

@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Example demonstrating the EnhancedMolecule functionality.
-
-This script shows how to use the new EnhancedMolecule class with some sample molecules.
+Example showing how to use the EnhancedMolecule class.
 """
 
-import numpy as np
-from ase import Atoms
-from molcrys.structures.molecule import EnhancedMolecule
+from ase.build import molecule
+from ase.io import write
+
+from molcrys_kit.structures.molecule import EnhancedMolecule
 
 
 def main():

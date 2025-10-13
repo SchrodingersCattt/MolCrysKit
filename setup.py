@@ -5,7 +5,7 @@ Setup script for MolCrysKit package.
 from setuptools import setup, find_packages
 
 setup(
-    name="molcrys",
+    name="molcrys-kit",
     version="0.1.0",
     description="Molecular Crystal Toolkit",
     long_description=open("README.md").read(),
@@ -13,7 +13,7 @@ setup(
     author="MolCrysKit Development Team",
     author_email="none@example.com",
     url="https://github.com/your-username/MolCrysKit",
-    packages=find_packages(),
+    packages=find_packages(exclude=["tests", "tests.*", "examples", "examples.*"]),
     include_package_data=True,
     install_requires=[
         "numpy>=1.18.0",

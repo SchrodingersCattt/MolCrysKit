@@ -1,82 +1,33 @@
 # MolCrysKit Scripts
 
-This directory contains example scripts that demonstrate how to use the MolCrysKit library for various molecular crystal analysis tasks.
+This directory contains example scripts demonstrating the usage of MolCrysKit.
 
 ## Available Scripts
 
-### 1. Complete Molecular Center Analyzer
-**File**: [complete_molecule_center_analyzer.py](file:///aisi-nas/guomingyu/personal/MolCrysKit/scripts/complete_molecule_center_analyzer.py)
+1. [atomic_properties_demo.py](file:///aisi-nas/guomingyu/personal/MolCrysKit/scripts/atomic_properties_demo.py) - Demonstrates how to access atomic properties
+2. [extract_molecules.py](file:///aisi-nas/guomingyu/personal/MolCrysKit/scripts/extract_molecules.py) - Shows how to extract molecules from a crystal structure
+3. [molecule_center_analyzer.py](file:///aisi-nas/guomingyu/personal/MolCrysKit/scripts/molecule_center_analyzer.py) - Analyzes molecular centers in a crystal
 
-This script demonstrates how to:
-- Create molecular crystals with proper molecular units
-- Analyze molecular centers of mass
-- Perform basic molecular operations
+## Usage
 
-**Usage**:
-```bash
-python complete_molecule_center_analyzer.py
-```
+To run any of these scripts, make sure you have installed MolCrysKit:
 
-### 2. Improved Molecular Center Analyzer
-**File**: [improved_molecule_center_analyzer.py](file:///aisi-nas/guomingyu/personal/MolCrysKit/scripts/improved_molecule_center_analyzer.py)
-
-This script shows how to:
-- Parse CIF files (requires pymatgen)
-- Identify molecular units in a crystal structure
-- Analyze molecular centers of mass
-
-**Usage**:
-```bash
-python improved_molecule_center_analyzer.py --sample  # Run on sample data
-python improved_molecule_center_analyzer.py structure.cif  # Run on actual CIF file
-```
-
-### 3. Basic Molecular Center Analyzer
-**File**: [molecule_center_analyzer.py](file:///aisi-nas/guomingyu/personal/MolCrysKit/scripts/molecule_center_analyzer.py)
-
-A basic script showing the core functionality:
-- Basic CIF parsing
-- Simple molecular center analysis
-
-**Usage**:
-```bash
-python molecule_center_analyzer.py --sample  # Run on sample data
-python molecule_center_analyzer.py structure.cif  # Run on actual CIF file
-```
-
-## How to Write Your Own Analysis Scripts
-
-To write a script that loads a crystal structure and analyzes molecular centers:
-
-1. Import the necessary modules:
-```python
-from molcrys.structures import Atom, Molecule, MolecularCrystal
-# Or for file I/O:
-from molcrys.io import parse_cif
-from molcrys.analysis import assign_atoms_to_molecules
-```
-
-2. Load or create a crystal structure:
-```python
-# From CIF file:
-crystal = parse_cif("path/to/structure.cif")
-
-# Or create manually:
-crystal = MolecularCrystal(lattice, [molecule1, molecule2, ...])
-```
-
-3. Analyze molecular centers:
-```python
-for i, molecule in enumerate(crystal.molecules):
-    center = molecule.compute_center_of_mass()
-    print(f"Molecule {i}: {center}")
-```
-
-## Requirements
-
-Make sure you have installed MolCrysKit in development mode:
 ```bash
 pip install -e .
 ```
 
-Some scripts may require additional dependencies like `pymatgen` for CIF file parsing.
+Then run a script with Python:
+
+```bash
+python scripts/script_name.py
+```
+
+Example:
+
+```python
+from molcrys_kit.structures import Atom, Molecule, MolecularCrystal
+from molcrys_kit.io import parse_cif
+from molcrys_kit.analysis import assign_atoms_to_molecules
+```
+
+Please note that some scripts may require CIF files to demonstrate their functionality.

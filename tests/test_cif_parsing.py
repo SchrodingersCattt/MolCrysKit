@@ -1,17 +1,18 @@
+#!/usr/bin/env python3
 """
-Test script to verify CIF parsing with full coordinates works correctly.
+Test CIF parsing functionality.
 """
 
-import sys
 import os
+import sys
 
 # Add the project root to the path so we can import molcrys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from molcrys.io.cif import parse_cif, parse_cif_advanced
+from molcrys_kit.io.cif import parse_cif, parse_cif_advanced
 
-def test_parse_cif_with_full_coordinates():
-    """Test parsing CIF files with full coordinates."""
+def test_parse_cif():
+    """Test basic CIF parsing."""
     test_cif_path = os.path.join(os.path.dirname(__file__), 'data', 'test_full_coords.cif')
     
     try:
@@ -33,7 +34,7 @@ def test_parse_cif_with_full_coordinates():
         return False
 
 if __name__ == "__main__":
-    success = test_parse_cif_with_full_coordinates()
+    success = test_parse_cif()
     if success:
         print("All tests passed!")
         sys.exit(0)

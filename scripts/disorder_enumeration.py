@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
 """
-Example: Disorder enumeration and analysis.
+Disorder enumeration example.
 """
 
-import numpy as np
+from ase.spacegroup import crystal
+from ase.io import write
 
-try:
-    from ase import Atoms
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    print("Warning: ASE not available. Install with 'pip install ase' for full functionality.")
-
-from molcrys.structures import MolecularCrystal
-from molcrys.analysis.disorder import scan_disordered_atoms, enumerate_disorder_configurations, rank_configurations
+from molcrys_kit.structures import MolecularCrystal
+from molcrys_kit.analysis.disorder import scan_disordered_atoms, enumerate_disorder_configurations, rank_configurations
 
 
 def create_disordered_crystal():

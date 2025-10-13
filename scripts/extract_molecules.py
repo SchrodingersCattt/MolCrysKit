@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 """
-Example: Extract molecular units from a crystal structure.
+Extract molecules from a crystal structure.
 """
 
-import numpy as np
+from ase.io import read, write
 
-try:
-    from ase import Atoms
-    from ase.visualize import view
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    print("Warning: ASE not available. Install with 'pip install ase' for full functionality.")
-
-from molcrys.structures import MolecularCrystal
-from molcrys.analysis import identify_molecules
+from molcrys_kit.structures import MolecularCrystal
+from molcrys_kit.analysis import identify_molecules
 
 
 def create_water_crystal():

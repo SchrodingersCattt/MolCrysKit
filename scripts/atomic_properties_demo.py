@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Demo script showing how to use atomic properties (masses and radii) in MolCrysKit with ASE Atoms.
+Demo script to showcase atomic properties functionality.
 """
 
 import sys
@@ -19,8 +19,8 @@ except ImportError:
 
 try:
     # Import molcrys modules
-    from molcrys.structures import MolecularCrystal
-    from molcrys.constants import (
+    from molcrys_kit.structures import MolecularCrystal
+    from molcrys_kit.constants import (
         get_atomic_mass,
         get_atomic_radius,
         has_atomic_mass,

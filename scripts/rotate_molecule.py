@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
 """
-Example: Molecular rotation operations.
+Rotate a molecule in a crystal structure.
 """
 
-import numpy as np
+from ase.io import read, write
 
-try:
-    from ase import Atoms
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    print("Warning: ASE not available. Install with 'pip install ase' for full functionality.")
-
-from molcrys.structures import MolecularCrystal
-from molcrys.operations import rotate_molecule
+from molcrys_kit.structures import MolecularCrystal
+from molcrys_kit.operations import rotate_molecule
 
 
 def create_benzene_molecule():

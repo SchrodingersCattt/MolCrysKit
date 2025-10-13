@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-Improved script to analyze molecular centers in a crystal structure.
-
-This script loads a crystal structure, identifies true molecular units,
-and computes the fractional coordinates of each molecule's center of mass.
+Improved molecule center analyzer with better molecule assignment.
 """
 
 import sys
@@ -14,13 +11,16 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    # Import molcrys modules
-    from molcrys.io import parse_cif
-    from molcrys.analysis import assign_atoms_to_molecules
-    from molcrys.structures import Atom, Molecule, MolecularCrystal
-except ImportError:
-    print("Error: MolCrysKit not found. Please install the package with 'pip install -e .'")
-    sys.exit(1)
+    # Try to import required modules
+    from molcrys_kit.io import parse_cif
+    from molcrys_kit.analysis import assign_atoms_to_molecules
+    from molcrys_kit.structures import Atom, Molecule, MolecularCrystal
+    
+except ImportError as e:
+    print(f"Error importing modules: {e}")
+    print("Make sure you have installed the molcrys-kit package:")
+    print("pip install -e .")
+    return 1
 
 
 def create_water_crystal():
