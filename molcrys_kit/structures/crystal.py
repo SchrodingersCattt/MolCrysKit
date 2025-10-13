@@ -127,6 +127,48 @@ class MolecularCrystal:
         """
         return np.dot(coords, np.linalg.inv(self.lattice))
     
+    def get_lattice_vectors(self) -> np.ndarray:
+        """
+        Get the lattice vectors of the crystal.
+        
+        Returns
+        -------
+        np.ndarray
+            3x3 array representing the lattice vectors as rows.
+        """
+        return self.lattice.copy()
+    
+    def get_lattice_parameters(self) -> Tuple[float, float, float, float, float, float]:
+        """
+        Calculate the lattice parameters (a, b, c, alpha, beta, gamma) of the crystal.
+        
+        Returns
+        -------
+        Tuple[float, float, float, float, float, float]
+            Lattice parameters (a, b, c, alpha, beta, gamma) where:
+            - a, b, c are the lengths of the lattice vectors in Angstroms
+            - alpha, beta, gamma are the angles between the lattice vectors in degrees
+        """
+        # Get lattice vectors
+        a_vec, b_vec, c_vec = self.lattice
+        
+        # Calculate lengths of lattice vectors
+        a = np.linalg.norm(a_vec)
+        b = np.linalg.norm(b_vec)
+        c = np.linalg.norm(c_vec)
+        
+        # Calculate angles between lattice vectors
+        alpha = np.arccos(np.dot(b_vec, c_vec) / (b * c))
+        beta = np.arccos(np.dot(a_vec, c_vec) / (a * c))
+        gamma = np.arccos(np.dot(a_vec, b_vec) / (a * b))
+        
+        # Convert angles from radians to degrees
+        alpha_deg = np.degrees(alpha)
+        beta_deg = np.degrees(beta)
+        gamma_deg = np.degrees(gamma)
+        
+        return (a, b, c, alpha_deg, beta_deg, gamma_deg)
+    
     def summary(self) -> str:
         """
         Generate a summary of the crystal.
