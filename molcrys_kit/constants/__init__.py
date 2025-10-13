@@ -35,7 +35,7 @@ METAL_ELEMENTS = {
 }
 
 # Global threshold factors for bond detection
-METAL_THRESHOLD_FACTOR = 0.5
+METAL_THRESHOLD_FACTOR = 0.35
 NON_METAL_THRESHOLD_FACTOR = 1.5
 
 
