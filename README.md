@@ -14,6 +14,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Identify individual molecules within a crystal structure
 - Analyze molecular properties such as centroids, center of mass, and principal axes
 - Handle atomic properties (mass, radius, etc.)
+- Access crystal lattice parameters (vectors and cell parameters)
 
 ## Installation
 
@@ -99,6 +100,29 @@ for i, molecule in enumerate(crystal.molecules):
     print(f"Molecule {i+1}: {molecule.get_chemical_formula()}")
 ```
 
+### Getting Crystal Cell Parameters
+
+After instantiating a crystal, you can retrieve its lattice parameters:
+
+```python
+from molcrys_kit.io import parse_cif_advanced
+
+# Parse a CIF file
+crystal = parse_cif_advanced('path/to/your/file.cif')
+
+# Get the lattice matrix (vectors)
+lattice_matrix = crystal.get_lattice_vectors()
+print("Lattice vectors:")
+print(lattice_matrix)
+
+# Get the lattice parameters (a, b, c, α, β, γ)
+lattice_params = crystal.get_lattice_parameters()
+a, b, c, alpha, beta, gamma = lattice_params
+print(f"Lattice parameters:")
+print(f"  a={a:.4f} Å, b={b:.4f} Å, c={c:.4f} Å")
+print(f"  α={alpha:.2f}°, β={beta:.2f}°, γ={gamma:.2f}°")
+```
+
 ### Working with Crystal Structures
 
 Access detailed information about crystal structures:
@@ -128,6 +152,26 @@ for i, molecule in enumerate(crystal.molecules):
 - [constants](./molcrys_kit/constants): Physical constants and atomic properties
 - [operations](./molcrys_kit/operations): Operations on molecular crystals
 - [utils](./molcrys_kit/utils): Utility functions
+
+## Scripts
+
+The project includes several example scripts in the `scripts/` directory that demonstrate various functionalities:
+
+- `scripts/lattice_parameters_demo.py` - Demonstrates how to get lattice parameters from a crystal
+- `scripts/atomic_properties_demo.py` - Shows how to access atomic properties
+- `scripts/enhanced_molecule_example.py` - Example usage of the EnhancedMolecule class
+
+To run these scripts, first install the package in development mode:
+
+```bash
+pip install -e .
+```
+
+Then run any script directly:
+
+```bash
+python scripts/lattice_parameters_demo.py
+```
 
 ## Contributing
 
