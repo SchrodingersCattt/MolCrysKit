@@ -35,8 +35,8 @@ vis = ["nglview", "py3Dmol"]
 test = ["pytest>=6.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/your-username/MolCrysKit"
-Repository = "https://github.com/your-username/MolCrysKit"
+Homepage = "https://github.com/SchrodingersCattt/MolCrysKit"
+Repository = "https://github.com/SchrodingersCattt/MolCrysKit"
 
 [tool.setuptools.packages.find]
 where = ["."]

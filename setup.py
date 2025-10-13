@@ -10,9 +10,8 @@ setup(
     description="Molecular Crystal Toolkit",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    author="MolCrysKit Development Team",
-    author_email="none@example.com",
-    url="https://github.com/your-username/MolCrysKit",
+    author="SchrodingersCattt",
+    url="https://github.com/SchrodingersCattt/MolCrysKit",
     packages=find_packages(exclude=["tests", "tests.*", "examples", "examples.*"]),
     include_package_data=True,
     install_requires=[
