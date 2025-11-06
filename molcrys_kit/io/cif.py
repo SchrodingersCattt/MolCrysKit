@@ -5,7 +5,7 @@ This module provides functionality to parse CIF files into MolecularCrystal obje
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 import warnings
 import re
 try:
@@ -23,7 +23,8 @@ except ImportError:
     Atoms = object  # Placeholder
 
 from ..structures.crystal import MolecularCrystal
-from ..constants import get_atomic_radius, has_atomic_radius
+from ..constants import get_atomic_radius, has_atomic_radius, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
+
 
 def _clean_species_string(species_string: str) -> str:
     """
@@ -119,7 +120,7 @@ def parse_cif(filepath: str) -> MolecularCrystal:
     return MolecularCrystal(lattice, molecules, pbc)
 
 
-def parse_cif_advanced(filepath: str) -> MolecularCrystal:
+def parse_cif_advanced(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> MolecularCrystal:
     """
     Parse a CIF file with advanced molecular grouping.
     
@@ -129,6 +130,10 @@ def parse_cif_advanced(filepath: str) -> MolecularCrystal:
     ----------
     filepath : str
         Path to the CIF file.
+    bond_thresholds : dict, optional
+        Custom dictionary with atom pairs as keys and bonding thresholds as values.
+        Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
+        be the distance thresholds for bonding in Angstroms.
         
     Returns
     -------
@@ -164,7 +169,7 @@ def parse_cif_advanced(filepath: str) -> MolecularCrystal:
     atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
     
     # Identify molecular units using ASE
-    molecules = identify_molecules_with_ase(atoms)    
+    molecules = identify_molecules_with_ase(atoms, bond_thresholds=bond_thresholds)    
     
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
@@ -172,7 +177,7 @@ def parse_cif_advanced(filepath: str) -> MolecularCrystal:
     return MolecularCrystal(lattice, molecules, pbc)
 
 
-def identify_molecules_with_ase(atoms: Atoms) -> List[Atoms]:
+def identify_molecules_with_ase(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[Atoms]:
     """
     Identify discrete molecular units in a crystal using ASE.
     
@@ -180,6 +185,10 @@ def identify_molecules_with_ase(atoms: Atoms) -> List[Atoms]:
     ----------
     atoms : Atoms
         ASE Atoms object representing the crystal structure.
+    bond_thresholds : dict, optional
+        Custom dictionary with atom pairs as keys and bonding thresholds as values.
+        Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
+        be the distance thresholds for bonding in Angstroms.
         
     Returns
     -------
@@ -206,7 +215,7 @@ def identify_molecules_with_ase(atoms: Atoms) -> List[Atoms]:
             distance_matrix[i, j] = distance
             distance_matrix[j, i] = distance
     
-    # Simple bonding criteria based on atomic radii and element types
+    # Simple bonding criteria based on atomic radii and element types or custom thresholds
     adjacency_matrix = np.zeros((n_atoms, n_atoms))
     for i in range(n_atoms):
         radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
@@ -215,16 +224,25 @@ def identify_molecules_with_ase(atoms: Atoms) -> List[Atoms]:
             radius_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
             is_metal_j = is_metal_element(symbols[j])
             
-            # Determine threshold factor based on element types
-            if is_metal_i and is_metal_j:  # Metal-Metal
-                factor = METAL_THRESHOLD_FACTOR
-            elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
-                factor = NON_METAL_THRESHOLD_FACTOR
-            else:  # Metal-Non-metal
-                factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+            # Check if custom threshold is provided
+            pair_key1 = (symbols[i], symbols[j])
+            pair_key2 = (symbols[j], symbols[i])
             
-            # Bonding threshold as sum of covalent radii multiplied by factor
-            threshold = (radius_i + radius_j) * factor
+            if bond_thresholds and (pair_key1 in bond_thresholds or pair_key2 in bond_thresholds):
+                # Use custom threshold if provided
+                threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
+            else:
+                # Determine threshold factor based on element types
+                if is_metal_i and is_metal_j:  # Metal-Metal
+                    factor = METAL_THRESHOLD_FACTOR
+                elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
+                    factor = NON_METAL_THRESHOLD_FACTOR
+                else:  # Metal-Non-metal
+                    factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+                
+                # Bonding threshold as sum of covalent radii multiplied by factor
+                threshold = (radius_i + radius_j) * factor
+            
             if distance_matrix[i, j] < threshold:
                 adjacency_matrix[i, j] = 1
                 adjacency_matrix[j, i] = 1

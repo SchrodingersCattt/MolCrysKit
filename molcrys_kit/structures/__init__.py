@@ -1,11 +1,12 @@
 """
-Structures module for MolCrysKit.
+Structural components for MolCrysKit.
 
-This module contains the core data structures and crystal representation classes.
+This module contains the basic structural classes for representing atoms,
+molecules, and crystals.
 """
 
 from .atom import Atom
-from .molecule import Molecule, EnhancedMolecule
+from .molecule import EnhancedMolecule
 from .crystal import MolecularCrystal
 
-__all__ = ["Atom", "Molecule", "EnhancedMolecule", "MolecularCrystal"]
+__all__ = ['Atom', 'EnhancedMolecule', 'MolecularCrystal']

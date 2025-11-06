@@ -15,6 +15,8 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Analyze molecular properties such as centroids, center of mass, and principal axes
 - Handle atomic properties (mass, radius, etc.)
 - Access crystal lattice parameters (vectors and cell parameters)
+- Retrieve default atomic radii from crystal structures
+- Customize bond thresholds for specific atom pairs
 
 ## Installation
 
@@ -98,6 +100,42 @@ crystal = parse_cif_advanced('path/to/your/file.cif')
 print(f"Number of molecules: {len(crystal.molecules)}")
 for i, molecule in enumerate(crystal.molecules):
     print(f"Molecule {i+1}: {molecule.get_chemical_formula()}")
+```
+
+### Getting Default Atomic Radii
+
+Retrieve the default atomic radii used for bond detection:
+
+```python
+from molcrys_kit.io import parse_cif_advanced
+
+# Parse a CIF file
+crystal = parse_cif_advanced('path/to/your/file.cif')
+
+# Get default atomic radii
+radii = crystal.get_default_atomic_radii()
+for element, radius in list(radii.items())[:5]:  # Show first 5 elements
+    print(f"{element}: {radius} Å")
+```
+
+### Customizing Bond Thresholds
+
+Customize bond detection thresholds for specific atom pairs:
+
+```python
+from molcrys_kit.io import parse_cif_advanced
+
+# Define custom bond thresholds for specific atom pairs
+custom_thresholds = {
+    ('C', 'C'): 1.8,  # Custom threshold for C-C bonds
+    ('C', 'H'): 1.4,  # Custom threshold for C-H bonds
+    ('O', 'H'): 1.2   # Custom threshold for O-H bonds
+}
+
+# Parse CIF with custom bond thresholds
+crystal = parse_cif_advanced('path/to/your/file.cif', bond_thresholds=custom_thresholds)
+
+print(f"Number of molecules with custom thresholds: {len(crystal.molecules)}")
 ```
 
 ### Getting Crystal Cell Parameters
@@ -184,6 +222,7 @@ The project includes several example scripts in the `scripts/` directory that de
 - `scripts/atomic_properties_demo.py` - Shows how to access atomic properties
 - `scripts/enhanced_molecule_example.py` - Example usage of the EnhancedMolecule class
 - `scripts/molecular_centroids.py` - Calculate molecular centroids in fractional coordinates
+- `scripts/demo_custom_bond_thresholds.py` - Demonstrate custom bond thresholds and atomic radii features
 
 To run these scripts, first install the package in development mode:
 

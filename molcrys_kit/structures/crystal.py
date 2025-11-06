@@ -15,6 +15,7 @@ except ImportError:
     Atoms = object  # Placeholder for type hints
 
 from .molecule import EnhancedMolecule
+from ..constants import ATOMIC_RADII
 import itertools
 
 
@@ -50,6 +51,18 @@ class MolecularCrystal:
         # Wrap each ASE Atoms object in an EnhancedMolecule
         self.molecules = [EnhancedMolecule(mol, self) for mol in molecules]
         self.pbc = pbc
+    
+    def get_default_atomic_radii(self):
+        """
+        Get the default atomic radii parameters.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing atomic symbols as keys and their corresponding 
+            covalent radii (in Angstroms) as values.
+        """
+        return ATOMIC_RADII.copy()
     
     def get_supercell(self, n1: int, n2: int, n3: int) -> 'MolecularCrystal':
         """
