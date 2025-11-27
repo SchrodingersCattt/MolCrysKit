@@ -16,7 +16,7 @@ from time import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
-    from molcrys_kit.io import parse_cif_advanced
+    from molcrys_kit.io import read_mol_crystal
     from molcrys_kit.structures.molecule import EnhancedMolecule
 except ImportError as e:
     print(f"Error importing MolCrysKit: {e}")
@@ -40,7 +40,7 @@ def calculate_molecular_centroids(cif_file_path):
     """
     try:
         # Parse the CIF file with molecular identification
-        crystal = parse_cif_advanced(cif_file_path)
+        crystal = read_mol_crystal(cif_file_path)
     except Exception as e:
         print(f"Error parsing CIF file {cif_file_path}: {e}")
         return []

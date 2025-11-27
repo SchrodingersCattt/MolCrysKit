@@ -56,47 +56,18 @@ print(f"Carbon mass: {carbon_mass}")
 print(f"Hydrogen radius: {hydrogen_radius}")
 ```
 
-### Parsing CIF Files
+### Reading Molecular Crystals
 
-You can parse CIF files to create molecular crystals:
+You can read CIF files to create molecular crystals with automatic molecule identification:
 
 ```python
-from molcrys_kit.io import parse_cif
+from molcrys_kit.io import read_mol_crystal
 
-# Parse a CIF file
-crystal = parse_cif('path/to/your/file.cif')
+# Read a CIF file with automatic molecule identification
+crystal = read_mol_crystal('path/to/your/file.cif')
 
 # Access crystal properties
 print(f"Crystal name: {crystal.name}")
-print(f"Number of atoms: {len(crystal.atoms)}")
-```
-
-### Identifying Molecules in Crystals
-
-Identify individual molecules within a crystal structure:
-
-```python
-from molcrys_kit.analysis import identify_molecules
-
-# Assuming you have a loaded crystal
-crystal = parse_cif('path/to/your/file.cif')
-
-# Identify molecules
-molecules = identify_molecules(crystal)
-
-print(f"Number of molecules identified: {len(molecules)}")
-```
-
-### Advanced CIF Parsing
-
-For more advanced CIF parsing that automatically identifies molecules:
-
-```python
-from molcrys_kit.io import parse_cif_advanced
-
-# Parse a CIF file with automatic molecule identification
-crystal = parse_cif_advanced('path/to/your/file.cif')
-
 print(f"Number of molecules: {len(crystal.molecules)}")
 for i, molecule in enumerate(crystal.molecules):
     print(f"Molecule {i+1}: {molecule.get_chemical_formula()}")
@@ -107,10 +78,10 @@ for i, molecule in enumerate(crystal.molecules):
 Retrieve the default atomic radii used for bond detection:
 
 ```python
-from molcrys_kit.io import parse_cif_advanced
+from molcrys_kit.io import read_mol_crystal
 
-# Parse a CIF file
-crystal = parse_cif_advanced('path/to/your/file.cif')
+# Read a CIF file
+crystal = read_mol_crystal('path/to/your/file.cif')
 
 # Get default atomic radii
 radii = crystal.get_default_atomic_radii()
@@ -123,7 +94,7 @@ for element, radius in list(radii.items())[:5]:  # Show first 5 elements
 Customize bond detection thresholds for specific atom pairs:
 
 ```python
-from molcrys_kit.io import parse_cif_advanced
+from molcrys_kit.io import read_mol_crystal
 
 # Define custom bond thresholds for specific atom pairs
 custom_thresholds = {
@@ -132,8 +103,8 @@ custom_thresholds = {
     ('O', 'H'): 1.2   # Custom threshold for O-H bonds
 }
 
-# Parse CIF with custom bond thresholds
-crystal = parse_cif_advanced('path/to/your/file.cif', bond_thresholds=custom_thresholds)
+# Read CIF with custom bond thresholds
+crystal = read_mol_crystal('path/to/your/file.cif', bond_thresholds=custom_thresholds)
 
 print(f"Number of molecules with custom thresholds: {len(crystal.molecules)}")
 ```
@@ -143,10 +114,10 @@ print(f"Number of molecules with custom thresholds: {len(crystal.molecules)}")
 After instantiating a crystal, you can retrieve its lattice parameters:
 
 ```python
-from molcrys_kit.io import parse_cif_advanced
+from molcrys_kit.io import read_mol_crystal
 
-# Parse a CIF file
-crystal = parse_cif_advanced('path/to/your/file.cif')
+# Read a CIF file
+crystal = read_mol_crystal('path/to/your/file.cif')
 
 # Get the lattice matrix (vectors)
 lattice_matrix = crystal.get_lattice_vectors()
@@ -187,10 +158,10 @@ for i, molecule in enumerate(crystal.molecules):
 You can directly obtain fractional coordinates of molecular centroids:
 
 ```python
-from molcrys_kit.io import parse_cif_advanced
+from molcrys_kit.io import read_mol_crystal
 
-# Parse a CIF file with automatic molecule identification
-crystal = parse_cif_advanced('path/to/your/file.cif')
+# Read a CIF file with automatic molecule identification
+crystal = read_mol_crystal('path/to/your/file.cif')
 
 # Access molecules and their fractional coordinates
 for i, molecule in enumerate(crystal.molecules):

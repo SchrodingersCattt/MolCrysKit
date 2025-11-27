@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Improved molecule center analyzer with better molecule assignment.
+Improved analyzer for molecular centers in a crystal structure.
+
+This script improves upon the basic molecule_center_analyzer by:
+1. Using the enhanced CIF parser with molecular identification
+2. Providing better output formatting
+3. Including error handling and validation
 """
 
 import sys
@@ -10,158 +15,106 @@ import numpy as np
 # Add project root to path if needed
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-try:
-    # Try to import required modules
-    from molcrys_kit.io import parse_cif
-    from molcrys_kit.analysis import assign_atoms_to_molecules
-    from molcrys_kit.structures import Atom, Molecule, MolecularCrystal
-    
-except ImportError as e:
-    print(f"Error importing modules: {e}")
-    print("Make sure you have installed the molcrys-kit package:")
-    print("pip install -e .")
-    return 1
-
-
-def create_water_crystal():
-    """
-    Create a crystal structure with proper water molecules for demonstration.
-    
-    Returns
-    -------
-    MolecularCrystal
-        A crystal with water molecules.
-    """
-    # Define lattice vectors
-    lattice = np.array([
-        [10.0, 0.0, 0.0],
-        [0.0, 10.0, 0.0],
-        [0.0, 0.0, 10.0]
-    ])
-    
-    # Create atoms for two water molecules
-    atoms = [
-        # First water molecule
-        Atom("O", np.array([0.1, 0.1, 0.1])),  # Oxygen
-        Atom("H", np.array([0.17, 0.1, 0.1])),  # Hydrogen
-        Atom("H", np.array([0.1, 0.17, 0.1])),  # Hydrogen
-        # Second water molecule
-        Atom("O", np.array([0.6, 0.6, 0.6])),  # Oxygen
-        Atom("H", np.array([0.67, 0.6, 0.6])),  # Hydrogen
-        Atom("H", np.array([0.6, 0.67, 0.6])),  # Hydrogen
-    ]
-    
-    # Put all atoms in one molecule initially
-    molecule = Molecule(atoms)
-    
-    # Create crystal
-    crystal = MolecularCrystal(lattice, [molecule])
-    return crystal
-
-
-def analyze_molecule_centers_in_crystal(crystal):
-    """
-    Analyze molecular centers in a crystal structure.
-    
-    Parameters
-    ----------
-    crystal : MolecularCrystal
-        The crystal structure to analyze.
-    """
-    # Identify molecular units using the assignment function
-    print("Identifying molecular units...")
-    try:
-        crystal_with_molecules = assign_atoms_to_molecules(crystal)
-        molecules = crystal_with_molecules.molecules
-        print(f"Found {len(molecules)} molecular units.")
-    except Exception as e:
-        print(f"Error identifying molecules: {e}")
-        return
-    
-    # Calculate and display center of mass for each molecule
-    print("\nMolecular Centers (Fractional Coordinates):")
-    print("-" * 55)
-    
-    if not molecules:
-        print("No molecules found in the structure.")
-        return
-    
-    for i, molecule in enumerate(molecules, 1):
-        # Compute center of mass
-        center_of_mass = molecule.compute_center_of_mass()
-        
-        # Display results
-        print(f"Molecule {i:3d}: [{center_of_mass[0]:8.5f}, {center_of_mass[1]:8.5f}, {center_of_mass[2]:8.5f}]")
-        
-        # Show basic info about the molecule
-        print(f"  Atoms: {len(molecule.atoms)}")
-        atom_symbols = [atom.symbol for atom in molecule.atoms]
-        print(f"  Elements: {', '.join(atom_symbols)}")
-        
-        # Show bonds within the molecule
-        bonds = molecule.get_bonds()
-        print(f"  Bonds: {len(bonds)}")
-        print()
-
-
-def analyze_from_cif(cif_file_path):
-    """
-    Load a crystal structure from CIF and analyze molecular centers.
-    
-    Parameters
-    ----------
-    cif_file_path : str
-        Path to the CIF file containing the crystal structure.
-    """
-    try:
-        # Parse the CIF file
-        print(f"Parsing CIF file: {cif_file_path}")
-        crystal = parse_cif(cif_file_path)
-        print("CIF file parsed successfully.")
-        
-        # Analyze molecule centers
-        analyze_molecule_centers_in_crystal(crystal)
-        
-    except FileNotFoundError:
-        print(f"Error: File '{cif_file_path}' not found.")
-        return
-    except Exception as e:
-        print(f"Error processing CIF file: {e}")
-        return
-
-
 def main():
-    """
-    Main function to run the molecular center analysis.
-    """
-    print("Molecular Center Analyzer (Improved Version)")
-    print("=" * 45)
-    
-    if len(sys.argv) < 2:
-        print("Usage: python improved_molecule_center_analyzer.py <cif_file>")
-        print("       python improved_molecule_center_analyzer.py --sample")
-        print()
-        print("Running on sample structure...")
+    try:
+        # Try to import required modules
+        from molcrys_kit.io import read_mol_crystal
+        from molcrys_kit.analysis import identify_molecules
+        from molcrys_kit.structures import MolecularCrystal
         
-        # Create and analyze a sample structure
-        crystal = create_water_crystal()
-        print("Created sample crystal with water molecules")
-        print(f"Initial crystal has {len(crystal.molecules)} molecule(s) with {sum(len(mol.atoms) for mol in crystal.molecules)} total atoms")
+        def analyze_molecule_centers(cif_file_path):
+            """
+            Load a crystal structure from CIF and analyze molecular centers.
+            
+            Parameters
+            ----------
+            cif_file_path : str
+                Path to the CIF file containing the crystal structure.
+            """
+            print("=" * 60)
+            print("MolCrysKit: Improved Molecular Center Analyzer")
+            print("=" * 60)
+            
+            try:
+                # Parse the CIF file
+                print(f"\nParsing CIF file: {cif_file_path}")
+                crystal = read_mol_crystal(cif_file_path)
+                print("✓ CIF file parsed successfully.")
+                
+            except FileNotFoundError:
+                print(f"✗ Error: File '{cif_file_path}' not found.")
+                return False
+            except Exception as e:
+                print(f"✗ Error parsing CIF file: {e}")
+                return False
+            
+            # Display basic crystal information
+            print(f"\nCrystal Information:")
+            print(f"  Lattice vectors:")
+            for i, vec in enumerate(crystal.lattice):
+                print(f"    a{i+1}: [{vec[0]:8.4f}, {vec[1]:8.4f}, {vec[2]:8.4f}]")
+            
+            # Identify molecular units
+            print(f"\nIdentifying molecular units...")
+            try:
+                molecules = crystal.molecules  # Already identified by read_mol_crystal
+                print(f"✓ Successfully identified {len(molecules)} molecular unit(s)")
+                
+                # Analyze each molecule
+                print(f"\nAnalyzing molecular centers...")
+                for i, molecule in enumerate(molecules):
+                    print(f"\n  Molecule {i+1}:")
+                    
+                    # Access the underlying ASE Atoms object
+                    atoms = molecule.atoms
+                    
+                    # Get chemical formula
+                    formula = atoms.get_chemical_formula()
+                    print(f"    Formula: {formula}")
+                    print(f"    Atoms: {len(atoms)}")
+                    
+                    # Calculate center of mass
+                    com = atoms.get_center_of_mass()
+                    
+                    # Calculate geometric center
+                    centroid = atoms.get_positions().mean(axis=0)
+                    
+                    # Print results in Cartesian coordinates
+                    print(f"    Centers (Cartesian):")
+                    print(f"      Center of mass:    [{com[0]:8.4f}, {com[1]:8.4f}, {com[2]:8.4f}]")
+                    print(f"      Geometric center:  [{centroid[0]:8.4f}, {centroid[1]:8.4f}, {centroid[2]:8.4f}]")
+                    
+                    # Calculate fractional coordinates
+                    frac_com = crystal.cartesian_to_fractional(com)
+                    frac_centroid = crystal.cartesian_to_fractional(centroid)
+                    
+                    # Print results in Fractional coordinates
+                    print(f"    Centers (Fractional):")
+                    print(f"      Center of mass:    [{frac_com[0]:8.4f}, {frac_com[1]:8.4f}, {frac_com[2]:8.4f}]")
+                    print(f"      Geometric center:  [{frac_centroid[0]:8.4f}, {frac_centroid[1]:8.4f}, {frac_centroid[2]:8.4f}]")
+                    
+            except Exception as e:
+                print(f"✗ Error during analysis: {e}")
+                return False
+            
+            print("\n" + "=" * 60)
+            print("Analysis completed successfully!")
+            print("=" * 60)
+            return True
         
-        analyze_molecule_centers_in_crystal(crystal)
-        return
-    
-    # Check if user wants to run on sample structure
-    if sys.argv[1] == "--sample":
-        crystal = create_water_crystal()
-        print("Created sample crystal with water molecules")
-        analyze_molecule_centers_in_crystal(crystal)
-        return
-    
-    # Process the provided CIF file
-    cif_file_path = sys.argv[1]
-    analyze_from_cif(cif_file_path)
-
+        # Check if file path is provided
+        if len(sys.argv) != 2:
+            print("Usage: python improved_molecule_center_analyzer.py <cif_file_path>")
+            sys.exit(1)
+            
+        cif_file_path = sys.argv[1]
+        success = analyze_molecule_centers(cif_file_path)
+        sys.exit(0 if success else 1)
+        
+    except ImportError as e:
+        print(f"Error importing required modules: {e}")
+        print("Make sure MolCrysKit is installed properly.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

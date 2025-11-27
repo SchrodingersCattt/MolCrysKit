@@ -55,72 +55,7 @@ def _clean_species_string(species_string: str) -> str:
     return element_match.group(0) if element_match else cleaned
 
 
-def parse_cif(filepath: str) -> MolecularCrystal:
-    """
-    Parse a CIF file into a MolecularCrystal object.
-    
-    NOTE: This function puts all atoms into a single molecule without molecular identification.
-    For molecular identification, use parse_cif_advanced() instead.
-    
-    Parameters
-    ----------
-    filepath : str
-        Path to the CIF file.
-        
-    Returns
-    -------
-    MolecularCrystal
-        Parsed crystal structure.
-        
-    Raises
-    ------
-    ImportError
-        If pymatgen is not available.
-    """
-    if not PYMATGEN_AVAILABLE:
-        raise ImportError("pymatgen is required for CIF parsing. Please install it with 'pip install pymatgen'")
-    
-    if not ASE_AVAILABLE:
-        raise ImportError("ASE is required for molecule representation. Please install it with 'pip install ase'")
-    
-    # Parse the CIF file using pymatgen with more tolerant parameters
-    # These parameters help handle CIF files with full coordinates rather than asymmetric units
-    try:
-        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
-        structures = parser.get_structures()
-    except Exception as e:
-        # Try with even more relaxed parameters if the first attempt fails
-        parser = CifParser(filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1)
-        structures = parser.get_structures()
-    
-    # For simplicity, we take the first structure
-    structure = structures[0]
-    
-    # Extract lattice vectors
-    lattice = structure.lattice.matrix
-    
-    # Create ASE Atoms object with cleaned symbols
-    symbols = [_clean_species_string(site.species_string) for site in structure.sites]
-    positions = structure.cart_coords
-    atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
-    
-    # For now, we put all atoms in a single molecule
-    # A more sophisticated implementation would group atoms into molecules
-    # NOTE: If you want molecular identification, use parse_cif_advanced() instead
-    molecules = [atoms]
-    
-    # Add a warning to inform users about the limitation
-    warnings.warn("parse_cif() puts all atoms in a single molecule. "
-                  "Use parse_cif_advanced() for molecular identification.", 
-                  UserWarning)
-    
-    # Assuming periodic boundary conditions in all directions
-    pbc = (True, True, True)
-    
-    return MolecularCrystal(lattice, molecules, pbc)
-
-
-def parse_cif_advanced(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> MolecularCrystal:
+def read_mol_crystal(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> MolecularCrystal:
     """
     Parse a CIF file with advanced molecular grouping.
     
@@ -175,6 +110,41 @@ def parse_cif_advanced(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, 
     pbc = (True, True, True)
     
     return MolecularCrystal(lattice, molecules, pbc)
+
+
+def parse_cif_advanced(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> MolecularCrystal:
+    """
+    Parse a CIF file with advanced molecular grouping.
+    
+    This function attempts to identify discrete molecular units within the crystal.
+    
+    Parameters
+    ----------
+    filepath : str
+        Path to the CIF file.
+    bond_thresholds : dict, optional
+        Custom dictionary with atom pairs as keys and bonding thresholds as values.
+        Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
+        be the distance thresholds for bonding in Angstroms.
+        
+    Returns
+    -------
+    MolecularCrystal
+        Parsed crystal structure with identified molecular units.
+        
+    Raises
+    ------
+    DeprecationWarning
+        This function is deprecated and will be removed in a future version.
+        Use read_mol_crystal() instead.
+    """
+    warnings.warn(
+        "parse_cif_advanced is deprecated and will be removed in a future version. "
+        "Use read_mol_crystal instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return read_mol_crystal(filepath, bond_thresholds)
 
 
 def identify_molecules_with_ase(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[Atoms]:

@@ -5,27 +5,39 @@ Test CIF parsing functionality.
 
 import os
 import sys
+import warnings
 
 # Add the project root to the path so we can import molcrys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from molcrys_kit.io.cif import parse_cif, parse_cif_advanced
+from molcrys_kit.io.cif import read_mol_crystal, parse_cif_advanced
 
 def test_parse_cif():
     """Test basic CIF parsing."""
     test_cif_path = os.path.join(os.path.dirname(__file__), 'data', 'test_full_coords.cif')
     
     try:
-        # Test basic parsing
-        print("Testing basic CIF parsing...")
-        crystal = parse_cif(test_cif_path)
+        # Test new parsing function
+        print("Testing new CIF parsing function...")
+        crystal = read_mol_crystal(test_cif_path)
         print(f"Success! Parsed crystal with {len(crystal.molecules)} molecule(s)")
         
-        # Test advanced parsing
-        print("Testing advanced CIF parsing...")
-        crystal_adv = parse_cif_advanced(test_cif_path)
+        # Test deprecated function (should show warning)
+        print("Testing deprecated CIF parsing function...")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            crystal_adv = parse_cif_advanced(test_cif_path)
+            if w and issubclass(w[0].category, DeprecationWarning):
+                print(f"Deprecation warning correctly issued: {w[0].message}")
+            else:
+                print("ERROR: Deprecation warning was not issued!")
+            
         for molecule in crystal_adv.molecules:
-            print(f"Molecule {molecule.atoms.get_chemical_formula()} has {len(molecule.atoms)} atom(s)")
+            # Access the underlying ASE Atoms object
+            atoms = molecule.atoms
+            symbols = atoms.get_chemical_symbols()
+            unique_symbols = list(set(symbols))
+            print(f"Molecule with {len(symbols)} atoms has elements: {', '.join(unique_symbols)}")
         print(f"Success! Parsed crystal with {len(crystal_adv.molecules)} molecule(s)")
         
         return True

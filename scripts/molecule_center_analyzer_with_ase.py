@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Analyze molecular centers in a crystal structure using ASE for molecule identification.
+Molecule center analyzer with ASE integration.
+
+This script demonstrates how to use MolCrysKit together with ASE for 
+enhanced molecular crystal analysis.
 """
 
 import sys
@@ -13,10 +16,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 try:
     from ase import Atoms
     from ase.io import read
+    from ase.visualize import view
     ASE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    print(f"Error: ASE not found. Please install it with 'pip install ase'")
+    print(f"Import error: {e}")
     ASE_AVAILABLE = False
-    print("Error: ASE not found. Please install the package with 'pip install ase'")
     sys.exit(1)
 
 
@@ -58,10 +63,58 @@ def create_sample_crystal():
     return crystal
 
 
-def analyze_molecule_centers(crystal):
-    """Analyze and print the geometric centers of all molecules in the crystal."""
+def analyze_molecule_with_ase(cif_file_path, visualize=False):
+    """
+    Load a crystal structure from CIF and analyze molecular centers with ASE integration.
+    
+    Parameters
+    ----------
+    cif_file_path : str
+        Path to the CIF file containing the crystal structure.
+    visualize : bool
+        Whether to visualize the structure using ASE GUI.
+        
+    Returns
+    -------
+    bool
+        True if analysis completed successfully, False otherwise.
+    """
+    print("=" * 60)
+    print("MolCrysKit: ASE-Integrated Molecular Center Analyzer")
+    print("=" * 60)
+    
+    try:
+        # Try to import required modules
+        from molcrys_kit.io import read_mol_crystal
+        from molcrys_kit.structures.molecule import EnhancedMolecule
+        
+    except ImportError as e:
+        print(f"Error importing MolCrysKit modules: {e}")
+        print("Make sure you have installed the molcrys-kit package:")
+        print("pip install -e .")
+        return False
+    
+    try:
+        # Parse the CIF file
+        print(f"\nParsing CIF file: {cif_file_path}")
+        crystal = read_mol_crystal(cif_file_path)
+        print("✓ CIF file parsed successfully.")
+        
+    except FileNotFoundError:
+        print(f"✗ Error: File '{cif_file_path}' not found.")
+        return False
+    except Exception as e:
+        print(f"✗ Error parsing CIF file: {e}")
+        return False
+    
+    # Analyze molecule centers
+    print(f"\nAnalyzing molecular centers in {crystal.name or 'unknown'}...")
     print("Molecule Center Analysis")
     print("=" * 30)
+    
+    if not hasattr(crystal, 'molecules') or not crystal.molecules:
+        print("No molecules found in the crystal structure.")
+        return False
     
     print(f"Total number of molecules: {len(crystal.molecules)}")
     print()
@@ -77,44 +130,48 @@ def analyze_molecule_centers(crystal):
         
         # Get chemical symbols
         symbols = molecule.get_chemical_symbols()
+        unique_symbols = list(set(symbols))
+        composition = ", ".join([f"{symbol}{symbols.count(symbol)}" for symbol in unique_symbols])
         
         print(f"Molecule {i+1}:")
+        print(f"  Composition: {composition}")
         print(f"  Atoms: {len(molecule)} ({', '.join(symbols)})")
         print(f"  Center of mass (Cartesian): [{center_of_mass[0]:8.5f}, {center_of_mass[1]:8.5f}, {center_of_mass[2]:8.5f}]")
         print(f"  Geometric center (Cartesian): [{geometric_center[0]:8.5f}, {geometric_center[1]:8.5f}, {geometric_center[2]:8.5f}]")
         print()
 
+    # Visualize if requested
+    if visualize and ASE_AVAILABLE:
+        try:
+            print("Launching ASE visualization...")
+            view(crystal.to_ase_atoms())
+        except Exception as e:
+            print(f"✗ Error during visualization: {e}")
+    
+    return True
+
 
 def main():
-    try:
-        # Try to import required modules
-        from molcrys_kit.structures import MolecularCrystal
-        from molcrys_kit.io import parse_cif_advanced
-        from molcrys_kit.analysis import identify_molecules
-        
-        print("MolCrysKit Example: Molecule Center Analysis with ASE")
-        print("=" * 55)
-        
-        if not ASE_AVAILABLE:
-            print("This example requires ASE. Please install it with 'pip install ase'")
-            return
-        
-        # Create sample crystal
-        crystal = create_sample_crystal()
-        
-        # Print crystal summary
-        print("Sample crystal created:")
-        print(crystal.summary())
-        print()
-        
-        # Analyze molecule centers
-        analyze_molecule_centers(crystal)
-
-    except ImportError as e:
-        print(f"Error importing modules: {e}")
-        print("Make sure you have installed the molcrys-kit package:")
-        print("pip install -e .")
-        return 1
+    """Main function to run the molecule center analysis."""
+    # Check command line arguments
+    if len(sys.argv) < 2:
+        print("Usage: python molecule_center_analyzer_with_ase.py <cif_file_path> [--visualize]")
+        print("Example: python molecule_center_analyzer_with_ase.py data/sample.cif --visualize")
+        sys.exit(1)
+    
+    # Get command line arguments
+    cif_file_path = sys.argv[1]
+    visualize = "--visualize" in sys.argv or "-v" in sys.argv
+    
+    # Run the analysis
+    success = analyze_molecule_with_ase(cif_file_path, visualize)
+    
+    if success:
+        print("Analysis completed successfully.")
+        sys.exit(0)
+    else:
+        print("Analysis failed.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
