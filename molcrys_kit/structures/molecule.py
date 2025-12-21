@@ -6,71 +6,92 @@ This module defines the Molecule class which represents a rigid body of atoms.
 
 import numpy as np
 from typing import List, Tuple, Optional
-from .atom import Atom
-from ..constants import get_atomic_mass, has_atomic_mass, get_atomic_radius, has_atomic_radius, is_metal_element, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
+import networkx as nx
 
 try:
     from ase import Atoms
+    from ase.neighborlist import neighbor_list
     ASE_AVAILABLE = True
 except ImportError:
     ASE_AVAILABLE = False
     Atoms = object  # Placeholder for type hints
 
+from ..constants import get_atomic_mass, has_atomic_mass, get_atomic_radius, has_atomic_radius
 
-class EnhancedMolecule:
+
+class Molecule(Atoms):
     """
-    An enhanced wrapper for ASE Atoms objects with additional geometric properties and methods.
+    A molecule represented as an ASE Atoms object with additional functionality.
     
-    This class wraps an ASE Atoms object and provides additional methods for computing
-    molecular properties such as ellipsoid radii, centroids, and other geometric characteristics.
+    This class inherits from ASE Atoms and adds molecular-specific properties
+    and methods including graph representation of internal connectivity.
     
     Attributes
     ----------
-    atoms : Atoms
-        The underlying ASE Atoms object representing the molecule.
+    graph : networkx.Graph
+        Graph representation of the molecule's internal connectivity.
+    crystal : object, optional
+        Reference to the parent crystal structure, used for coordinate conversions.
     """
     
-    def __init__(self, atoms: Atoms, crystal=None):
+    def __init__(self, atoms: Atoms = None, crystal=None, **kwargs):
         """
-        Initialize an EnhancedMolecule.
+        Initialize a Molecule.
         
         Parameters
         ----------
-        atoms : Atoms
-            ASE Atoms object representing the molecule.
-        crystal : MolecularCrystal, optional
-            The parent crystal structure containing this molecule, used for coordinate 
-            conversions and other crystal-specific operations.
+        atoms : Atoms, optional
+            ASE Atoms object to initialize the molecule with.
+        crystal : object, optional
+            Parent crystal structure containing this molecule.
+        **kwargs : dict
+            Additional arguments passed to ASE Atoms constructor.
         """
         if not ASE_AVAILABLE:
-            raise ImportError("ASE is required for EnhancedMolecule. Please install it with 'pip install ase'")
-        # Create a wrapped version of the atoms to handle PBC correctly
-        self.atoms = atoms.copy()
-        self.crystal = crystal  # Save reference to the parent crystal
+            raise ImportError("ASE is required for Molecule. Please install it with 'pip install ase'")
+        
+        if atoms is not None:
+            # Initialize from existing ASE Atoms object
+            super().__init__(atoms)
+        else:
+            # Initialize with provided kwargs
+            super().__init__(**kwargs)
+            
+        self.crystal = crystal
+        self._graph = None
         self._adjust_positions_for_pbc()
     
     def _adjust_positions_for_pbc(self):
         """
         Adjust atomic positions to be contiguous for molecules that span periodic boundaries.
         """
-        if len(self.atoms) <= 1:
+        # Skip adjustment if no cell is defined or only one atom
+        if len(self) <= 1 or not self.get_pbc().any():
             return
         
         # Get positions
-        positions = self.atoms.get_positions()
+        positions = self.get_positions()
         
         # Use the first atom as reference
         reference_pos = positions[0]
         
         # Adjust all other atoms to be close to the reference atom considering PBC
-        cell = self.atoms.get_cell()
+        cell = self.get_cell()
+        # Check if cell is defined (not all zeros)
+        if np.allclose(cell, 0):
+            return
+            
         for i in range(1, len(positions)):
             # Calculate the difference vector
             diff = positions[i] - reference_pos
             
             # Apply minimum image convention
             # Transform to fractional coordinates
-            frac_diff = np.linalg.solve(cell.T, diff)
+            try:
+                frac_diff = np.linalg.solve(cell.T, diff)
+            except np.linalg.LinAlgError:
+                # If cell is singular, skip PBC adjustment
+                return
             
             # Wrap fractional coordinates to [-0.5, 0.5]
             frac_diff = frac_diff - np.round(frac_diff)
@@ -82,22 +103,64 @@ class EnhancedMolecule:
             positions[i] = reference_pos + diff_wrapped
         
         # Set the adjusted positions
-        self.atoms.set_positions(positions)
+        self.set_positions(positions)
     
     @property
-    def positions(self):
-        """Get atomic positions."""
-        return self.atoms.get_positions()
+    def graph(self) -> nx.Graph:
+        """
+        Get the graph representation of the molecule's internal connectivity.
+        
+        Returns
+        -------
+        networkx.Graph
+            Graph with atoms as nodes and bonds as edges.
+        """
+        if self._graph is None:
+            self._build_graph()
+        return self._graph
     
-    @property
-    def symbols(self):
-        """Get chemical symbols."""
-        return self.atoms.get_chemical_symbols()
-    
-    @property
-    def numbers(self):
-        """Get atomic numbers."""
-        return self.atoms.get_atomic_numbers()
+    def _build_graph(self):
+        """
+        Build the graph representation of the molecule's internal connectivity.
+        """
+        self._graph = nx.Graph()
+        
+        # Add nodes (atoms)
+        for i in range(len(self)):
+            self._graph.add_node(i, symbol=self.get_chemical_symbols()[i])
+        
+        # Add edges (bonds) based on distance criteria
+        if len(self) > 1:
+            # Get all atom positions
+            positions = self.get_positions()
+            symbols = self.get_chemical_symbols()
+            
+            # Simple bonding criteria based on atomic radii
+            from ..constants import is_metal_element, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
+            
+            for i in range(len(self)):
+                radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
+                is_metal_i = is_metal_element(symbols[i])
+                for j in range(i + 1, len(self)):
+                    radius_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+                    is_metal_j = is_metal_element(symbols[j])
+                    
+                    # Calculate distance
+                    distance = np.linalg.norm(positions[i] - positions[j])
+                    
+                    # Determine threshold factor based on element types
+                    if is_metal_i and is_metal_j:  # Metal-Metal
+                        factor = METAL_THRESHOLD_FACTOR
+                    elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
+                        factor = NON_METAL_THRESHOLD_FACTOR
+                    else:  # Metal-Non-metal
+                        factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+                    
+                    # Bonding threshold as sum of covalent radii multiplied by factor
+                    threshold = (radius_i + radius_j) * factor
+                    
+                    if distance < threshold:
+                        self._graph.add_edge(i, j, distance=distance)
     
     def get_centroid(self) -> np.ndarray:
         """
@@ -108,7 +171,7 @@ class EnhancedMolecule:
         np.ndarray
             Centroid coordinates (x, y, z).
         """
-        return np.mean(self.positions, axis=0)
+        return np.mean(self.get_positions(), axis=0)
     
     def get_centroid_frac(self) -> np.ndarray:
         """
@@ -133,8 +196,8 @@ class EnhancedMolecule:
         np.ndarray
             Center of mass coordinates (x, y, z).
         """
-        masses = self.atoms.get_masses()
-        return np.average(self.positions, axis=0, weights=masses)
+        masses = self.get_masses()
+        return np.average(self.get_positions(), axis=0, weights=masses)
     
     def get_ellipsoid_radii(self) -> Tuple[float, float, float]:
         """
@@ -149,15 +212,15 @@ class EnhancedMolecule:
             The three radii (semi-axes) of the fitted ellipsoid, sorted in descending order.
         """
         # Handle single atom case
-        if len(self.atoms) == 1:
+        if len(self) == 1:
             # For a single atom, use its atomic radius for all three axes
-            symbol = self.symbols[0]
+            symbol = self.get_chemical_symbols()[0]
             atomic_radius = get_atomic_radius(symbol) if has_atomic_radius(symbol) else 0.5
             return (atomic_radius, atomic_radius, atomic_radius)
         
         # Get positions relative to centroid
         centroid = self.get_centroid()
-        rel_positions = self.positions - centroid
+        rel_positions = self.get_positions() - centroid
         
         # Perform singular value decomposition
         # This gives us the principal axes and their scales
@@ -170,7 +233,7 @@ class EnhancedMolecule:
         # The singular values represent the scale (spread) along each principal axis
         # We convert them to effective radii by scaling with a factor that accounts
         # for the number of atoms and provides a more realistic size estimate
-        n_atoms = len(self.atoms)
+        n_atoms = len(self)
         # Use sqrt(5) factor to get a more reasonable estimate of the molecular extent
         # This is based on the idea that atoms are roughly distributed in a sphere
         radii = singular_values * np.sqrt(5 / n_atoms)
@@ -194,7 +257,7 @@ class EnhancedMolecule:
             The three principal axes as normalized vectors.
         """
         # Handle single atom case
-        if len(self.atoms) == 1:
+        if len(self) == 1:
             # For a single atom, return arbitrary orthogonal axes
             return (np.array([1.0, 0.0, 0.0]), 
                     np.array([0.0, 1.0, 0.0]), 
@@ -202,7 +265,7 @@ class EnhancedMolecule:
         
         # Get positions relative to centroid
         centroid = self.get_centroid()
-        rel_positions = self.positions - centroid
+        rel_positions = self.get_positions() - centroid
         
         # Perform singular value decomposition to get principal axes
         try:
@@ -223,144 +286,3 @@ class EnhancedMolecule:
         return tuple(axes[i] if np.linalg.norm(axes[i]) > 0 else np.array([1.0, 0.0, 0.0]) 
                     for i in range(3))
 
-
-class Molecule:
-    """
-    Represents a molecule as a rigid body of atoms.
-    
-    Attributes
-    ----------
-    atoms : List[Atom]
-        List of atoms that make up the molecule.
-    center_of_mass : np.ndarray
-        Center of mass of the molecule in fractional coordinates.
-    rotation_matrix : np.ndarray or None
-        3x3 rotation matrix applied to the molecule.
-    lattice : np.ndarray or None
-        3x3 array representing the lattice vectors (needed for proper distance calculations).
-    """
-    
-    def __init__(self, atoms: List[Atom], center_of_mass: Optional[np.ndarray] = None, 
-                 rotation_matrix: Optional[np.ndarray] = None, lattice: Optional[np.ndarray] = None):
-        """
-        Initialize a Molecule.
-        
-        Parameters
-        ----------
-        atoms : List[Atom]
-            List of atoms that make up the molecule.
-        center_of_mass : np.ndarray, optional
-            Center of mass of the molecule. If not provided, it will be computed.
-        rotation_matrix : np.ndarray, optional
-            3x3 rotation matrix applied to the molecule.
-        lattice : np.ndarray, optional
-            3x3 array representing the lattice vectors.
-        """
-        self.atoms = atoms
-        self.lattice = lattice
-        if center_of_mass is not None:
-            self.center_of_mass = np.array(center_of_mass)
-        else:
-            self.center_of_mass = self.compute_center_of_mass()
-            
-        self.rotation_matrix = rotation_matrix if rotation_matrix is not None else np.eye(3)
-    
-    def translate(self, vector: np.ndarray) -> None:
-        """
-        Translate all atoms in the molecule by a vector.
-        
-        Parameters
-        ----------
-        vector : np.ndarray
-            Translation vector in fractional coordinates.
-        """
-        for atom in self.atoms:
-            atom.frac_coords += vector
-        self.center_of_mass += vector
-    
-    def rotate(self, matrix: np.ndarray) -> None:
-        """
-        Rotate the molecule using a rotation matrix.
-        
-        Parameters
-        ----------
-        matrix : np.ndarray
-            3x3 rotation matrix.
-        """
-        # Update the rotation matrix
-        self.rotation_matrix = np.dot(matrix, self.rotation_matrix)
-        
-        # Rotate all atoms around the center of mass
-        for atom in self.atoms:
-            # Translate atom coords relative to center of mass
-            rel_coords = atom.frac_coords - self.center_of_mass
-            # Apply rotation
-            atom.frac_coords = np.dot(matrix, rel_coords) + self.center_of_mass
-    
-    def compute_center_of_mass(self) -> np.ndarray:
-        """
-        Compute the center of mass of the molecule using atomic masses.
-        
-        Returns
-        -------
-        np.ndarray
-            Center of mass in fractional coordinates.
-        """
-        if not self.atoms:
-            return np.array([0.0, 0.0, 0.0])
-        
-        # Get coordinates and masses
-        coords = np.array([atom.frac_coords for atom in self.atoms])
-        masses = np.array([get_atomic_mass(atom.symbol) if has_atomic_mass(atom.symbol) 
-                          else 1.0 for atom in self.atoms])
-        
-        # Calculate mass-weighted center of mass
-        total_mass = np.sum(masses)
-        center_of_mass = np.sum(coords * masses[:, np.newaxis], axis=0) / total_mass
-        
-        return center_of_mass
-    
-    def get_bonds(self) -> List[Tuple[int, int, float]]:
-        """
-        Identify bonds within the molecule based on distance criteria.
-        
-        Returns
-        -------
-        List[Tuple[int, int, float]]
-            List of tuples containing (atom1_index, atom2_index, distance).
-        """
-        if self.lattice is None:
-            raise ValueError("Lattice information is required for bond detection")
-        
-        bonds = []
-        
-        # Distance-based bond detection using atomic radii
-        for i, atom1 in enumerate(self.atoms):
-            radius1 = get_atomic_radius(atom1.symbol) if has_atomic_radius(atom1.symbol) else 0.5
-            is_metal1 = is_metal_element(atom1.symbol)
-            for j, atom2 in enumerate(self.atoms[i+1:], i+1):
-                radius2 = get_atomic_radius(atom2.symbol) if has_atomic_radius(atom2.symbol) else 0.5
-                is_metal2 = is_metal_element(atom2.symbol)
-                
-                # Calculate distance in fractional coordinates with periodic boundary conditions
-                delta = atom1.frac_coords - atom2.frac_coords
-                # Apply minimum image convention
-                delta = delta - np.round(delta)
-                # Convert to Cartesian coordinates
-                cart_delta = np.dot(delta, self.lattice)
-                distance = np.linalg.norm(cart_delta)
-                
-                # Determine threshold factor based on element types
-                if is_metal1 and is_metal2:  # Metal-Metal
-                    factor = METAL_THRESHOLD_FACTOR
-                elif not is_metal1 and not is_metal2:  # Non-metal-Non-metal
-                    factor = NON_METAL_THRESHOLD_FACTOR
-                else:  # Metal-Non-metal
-                    factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
-                
-                threshold = (radius1 + radius2) * factor
-                
-                if distance < threshold and distance > 0.01:  # Avoid self-interaction
-                    bonds.append((i, j, distance))
-                    
-        return bonds

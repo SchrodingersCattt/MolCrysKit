@@ -34,8 +34,7 @@ def test_parse_cif():
             
         for molecule in crystal_adv.molecules:
             # Access the underlying ASE Atoms object
-            atoms = molecule.atoms
-            symbols = atoms.get_chemical_symbols()
+            symbols = molecule.get_chemical_symbols()
             unique_symbols = list(set(symbols))
             print(f"Molecule with {len(symbols)} atoms has elements: {', '.join(unique_symbols)}")
         print(f"Success! Parsed crystal with {len(crystal_adv.molecules)} molecule(s)")

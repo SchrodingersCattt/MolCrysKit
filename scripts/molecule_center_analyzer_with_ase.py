@@ -86,7 +86,7 @@ def analyze_molecule_with_ase(cif_file_path, visualize=False):
     try:
         # Try to import required modules
         from molcrys_kit.io import read_mol_crystal
-        from molcrys_kit.structures.molecule import EnhancedMolecule
+        from molcrys_kit.structures.molecule import Molecule
         
     except ImportError as e:
         print(f"Error importing MolCrysKit modules: {e}")

@@ -8,6 +8,8 @@ import numpy as np
 from typing import List, Tuple, Optional, Dict
 import warnings
 import re
+import networkx as nx
+
 try:
     from pymatgen.io.cif import CifParser
     PYMATGEN_AVAILABLE = True
@@ -16,14 +18,15 @@ except ImportError:
 
 try:
     from ase import Atoms
-    from ase.geometry.analysis import Analysis
+    from ase.neighborlist import neighbor_list
     ASE_AVAILABLE = True
 except ImportError:
     ASE_AVAILABLE = False
     Atoms = object  # Placeholder
 
+from ..structures.molecule import Molecule
 from ..structures.crystal import MolecularCrystal
-from ..constants import get_atomic_radius, has_atomic_radius, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
+from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
 
 
 def _clean_species_string(species_string: str) -> str:
@@ -147,9 +150,13 @@ def parse_cif_advanced(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, 
     return read_mol_crystal(filepath, bond_thresholds)
 
 
-def identify_molecules_with_ase(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[Atoms]:
+def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[Molecule]:
     """
-    Identify discrete molecular units in a crystal using ASE.
+    Identify discrete molecular units in a crystal using graph-based approach.
+    
+    This function builds a graph of all atoms in the crystal structure, connecting
+    atoms that are likely bonded based on distance criteria. Connected components
+    in this graph represent individual molecules.
     
     Parameters
     ----------
@@ -162,74 +169,70 @@ def identify_molecules_with_ase(atoms: Atoms, bond_thresholds: Optional[Dict[Tup
         
     Returns
     -------
-    List[Atoms]
-        List of ASE Atoms objects, each representing a molecular unit.
+    List[Molecule]
+        List of Molecule objects, each representing a molecular unit.
     """
     if not ASE_AVAILABLE:
         raise ImportError("ASE is required for molecule identification. Please install it with 'pip install ase'")
     
-    # Import required constants
-    from ..constants import is_metal_element, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
+    # Build a global graph for the entire crystal structure
+    crystal_graph = nx.Graph()
     
-    # Get all atom positions
-    positions = atoms.get_positions()
+    # Add all atoms as nodes
     symbols = atoms.get_chemical_symbols()
+    positions = atoms.get_positions()
     
-    # Calculate distance matrix
-    n_atoms = len(atoms)
-    distance_matrix = np.zeros((n_atoms, n_atoms))
+    for i in range(len(atoms)):
+        crystal_graph.add_node(i, symbol=symbols[i], position=positions[i])
     
-    for i in range(n_atoms):
-        for j in range(i + 1, n_atoms):
-            distance = atoms.get_distance(i, j, mic=True)
-            distance_matrix[i, j] = distance
-            distance_matrix[j, i] = distance
+    # Use ASE neighbor list for efficient bond detection
+    i_list, j_list, d_list = neighbor_list('ijd', atoms, cutoff=3.0)  # 3Å should cover most bonds
     
-    # Simple bonding criteria based on atomic radii and element types or custom thresholds
-    adjacency_matrix = np.zeros((n_atoms, n_atoms))
-    for i in range(n_atoms):
-        radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
-        is_metal_i = is_metal_element(symbols[i])
-        for j in range(i + 1, n_atoms):
+    # Add edges (bonds) based on distance criteria
+    for i, j, distance in zip(i_list, j_list, d_list):
+        # Check if custom threshold is provided
+        pair_key1 = (symbols[i], symbols[j])
+        pair_key2 = (symbols[j], symbols[i])
+        
+        if bond_thresholds and (pair_key1 in bond_thresholds or pair_key2 in bond_thresholds):
+            # Use custom threshold if provided
+            threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
+        else:
+            # Determine threshold based on atomic radii and element types
+            radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
             radius_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+            is_metal_i = is_metal_element(symbols[i])
             is_metal_j = is_metal_element(symbols[j])
             
-            # Check if custom threshold is provided
-            pair_key1 = (symbols[i], symbols[j])
-            pair_key2 = (symbols[j], symbols[i])
+            # Determine threshold factor based on element types
+            if is_metal_i and is_metal_j:  # Metal-Metal
+                factor = METAL_THRESHOLD_FACTOR
+            elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
+                factor = NON_METAL_THRESHOLD_FACTOR
+            else:  # Metal-Non-metal
+                factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
             
-            if bond_thresholds and (pair_key1 in bond_thresholds or pair_key2 in bond_thresholds):
-                # Use custom threshold if provided
-                threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
-            else:
-                # Determine threshold factor based on element types
-                if is_metal_i and is_metal_j:  # Metal-Metal
-                    factor = METAL_THRESHOLD_FACTOR
-                elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
-                    factor = NON_METAL_THRESHOLD_FACTOR
-                else:  # Metal-Non-metal
-                    factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
-                
-                # Bonding threshold as sum of covalent radii multiplied by factor
-                threshold = (radius_i + radius_j) * factor
-            
-            if distance_matrix[i, j] < threshold:
-                adjacency_matrix[i, j] = 1
-                adjacency_matrix[j, i] = 1
+            # Bonding threshold as sum of covalent radii multiplied by factor
+            threshold = (radius_i + radius_j) * factor
+        
+        # Add edge if atoms are close enough to be bonded
+        if distance < threshold:
+            crystal_graph.add_edge(i, j, distance=distance)
     
     # Find connected components (molecular units)
-    from scipy.sparse import csr_matrix
-    from scipy.sparse.csgraph import connected_components
+    components = list(nx.connected_components(crystal_graph))
     
-    sparse_matrix = csr_matrix(adjacency_matrix)
-    n_components, labels = connected_components(sparse_matrix, directed=False)
-    
-    # Create separate Atoms objects for each molecular unit
+    # Create separate Molecule objects for each molecular unit
     molecules = []
-    for component_idx in range(n_components):
-        component_indices = [i for i in range(n_atoms) if labels[i] == component_idx]
-        if component_indices:
-            molecule_atoms = atoms[component_indices]
-            molecules.append(molecule_atoms)
+    for component in components:
+        # Get indices of atoms in this component
+        atom_indices = list(component)
+        
+        # Extract atoms for this molecule
+        molecule_atoms = atoms[atom_indices]
+        
+        # Create Molecule object
+        molecule = Molecule(molecule_atoms)
+        molecules.append(molecule)
     
     return molecules
