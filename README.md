@@ -66,20 +66,31 @@ atoms = Atoms(
 molecule = Molecule(atoms)
 
 # Access molecular properties
+print(f"Chemical formula: {molecule.get_chemical_formula()}")
+print(f"Number of atoms: {len(molecule)}")
 print(f"Center of mass: {molecule.get_center_of_mass()}")
-print(f"Graph nodes: {molecule.graph.number_of_nodes()}")
-print(f"Graph edges: {molecule.graph.number_of_edges()}")
+
+# Work with molecular graphs
+graph = molecule.graph
+print(f"Graph nodes: {graph.number_of_nodes()}")
+print(f"Graph edges: {graph.number_of_edges()}")
+
+# Display graph structure
+print("Molecular connectivity:")
+for node, data in graph.nodes(data=True):
+    position = molecule.get_positions()[node]
+    print(f"  Atom {node} ({data['symbol']}): [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
+    
+for u, v, data in graph.edges(data=True):
+    print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
 
 # Parse a CIF file
 # crystal = read_mol_crystal("path/to/your/file.cif")
 
-# Work with molecular graphs
-print("Molecular connectivity:")
-for node, data in molecule.graph.nodes(data=True):
-    print(f"  Atom {node}: {data['symbol']}")
-
-for u, v, data in molecule.graph.edges(data=True):
-    print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
+# Analyze molecules in a crystal
+# for i, molecule in enumerate(crystal.molecules):
+#     print(f"Molecule {i+1}: {molecule.get_chemical_formula()}")
+#     print(f"  Centroid: {molecule.get_centroid()}")
 ```
 
 ## Project Structure
