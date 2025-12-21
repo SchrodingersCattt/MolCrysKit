@@ -72,6 +72,14 @@ print(f"Graph edges: {molecule.graph.number_of_edges()}")
 
 # Parse a CIF file
 # crystal = read_mol_crystal("path/to/your/file.cif")
+
+# Work with molecular graphs
+print("Molecular connectivity:")
+for node, data in molecule.graph.nodes(data=True):
+    print(f"  Atom {node}: {data['symbol']}")
+
+for u, v, data in molecule.graph.edges(data=True):
+    print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
 ```
 
 ## Project Structure

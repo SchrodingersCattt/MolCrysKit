@@ -106,8 +106,8 @@ def read_mol_crystal(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, st
     positions = structure.cart_coords
     atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
     
-    # Identify molecular units using ASE
-    molecules = identify_molecules_with_ase(atoms, bond_thresholds=bond_thresholds)    
+    # Identify molecular units using graph-based approach
+    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)    
     
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
