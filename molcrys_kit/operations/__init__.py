@@ -14,11 +14,8 @@ from .perturbation import (
 
 from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
 
-from .surface import create_topological_slab, unwrap_molecule, unwrap_crystal_molecules
-
 from .builders import (
     build_supercell,
-    build_surface,
     build_defect_crystal,
     create_multilayer_structure,
 )
@@ -35,7 +32,6 @@ __all__ = [
     "unwrap_crystal_molecules",
 ] + [
     "build_supercell",
-    "build_surface",
     "build_defect_crystal",
     "create_multilayer_structure",
 ]

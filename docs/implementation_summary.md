@@ -72,7 +72,7 @@ MolCrysKit is a Python toolkit for handling molecular crystals - crystals made o
 
 #### `builders.py`
 - Structure building operations
-- Functions: `build_supercell()`, `build_surface()`, `build_defect_crystal()`, `create_multilayer_structure()`
+- Functions: `build_supercell()`, `build_defect_crystal()`, `create_multilayer_structure()`
 
 ### 5. Utilities (`molcrys/utils/`)
 

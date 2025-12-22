@@ -49,10 +49,10 @@ Here's a simple example of how to use MolCrysKit:
 ```python
 # Import the necessary classes and functions
 from ase import Atoms
-from molcrys_kit.structures.molecule import Molecule
+from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.io.cif import read_mol_crystal
 
-# Create a molecule from ASE Atoms
+# Create a CrystalMolecule from ASE Atoms
 atoms = Atoms(
     symbols=['O', 'H', 'H'],
     positions=[
@@ -62,8 +62,8 @@ atoms = Atoms(
     ]
 )
 
-# Create a molecule (inherits from ASE Atoms)
-molecule = Molecule(atoms)
+# Create a CrystalMolecule (inherits from ASE Atoms)
+molecule = CrystalMolecule(atoms)
 
 # Access molecular properties
 print(f"Chemical formula: {molecule.get_chemical_formula()}")
@@ -84,13 +84,6 @@ for node, data in graph.nodes(data=True):
 for u, v, data in graph.edges(data=True):
     print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
 
-# Parse a CIF file
-# crystal = read_mol_crystal("path/to/your/file.cif")
-
-# Analyze molecules in a crystal
-# for i, molecule in enumerate(crystal.molecules):
-#     print(f"Molecule {i+1}: {molecule.get_chemical_formula()}")
-#     print(f"  Centroid: {molecule.get_centroid()}")
 ```
 
 ## Project Structure
@@ -100,7 +93,7 @@ for u, v, data in graph.edges(data=True):
   - `constants/` - Physical constants and atomic properties
   - `io/` - Input/output functionality (CIF parsing, etc.)
   - `operations/` - Operations on molecular structures (rotation, perturbation, etc.)
-  - `structures/` - Core structural classes (Atom, Molecule, Crystal)
+  - `structures/` - Core structural classes (Atom, CrystalMolecule, Crystal)
   - `utils/` - Utility functions and helper classes
 - `scripts/` - Example scripts demonstrating various functionalities
 - `tests/` - Unit tests and integration tests

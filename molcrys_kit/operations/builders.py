@@ -18,58 +18,6 @@ except ImportError:
 from ..structures.crystal import MolecularCrystal
 
 
-def create_surface(
-    crystal: MolecularCrystal,
-    miller_indices: Tuple[int, int, int],
-    layers: int = 5,
-    vacuum: float = 10.0,
-) -> MolecularCrystal:
-    """
-    Create a surface slab from a bulk crystal.
-
-    Parameters
-    ----------
-    crystal : MolecularCrystal
-        The bulk crystal.
-    miller_indices : Tuple[int, int, int]
-        Miller indices of the surface plane.
-    layers : int, default=5
-        Number of layers in the slab.
-    vacuum : float, default=10.0
-        Vacuum thickness in Angstroms.
-
-    Returns
-    -------
-    MolecularCrystal
-        Surface slab structure.
-    """
-    if not ASE_AVAILABLE:
-        raise ImportError(
-            "ASE is required for surface creation. Please install it with 'pip install ase'"
-        )
-
-    # This is a simplified implementation
-    # 1. Determine the cleavage plane based on Miller indices
-    # 2. Slice the crystal along that plane
-    # 3. Add vacuum
-
-    # For demonstration, we'll just modify the lattice to add vacuum in the z-direction
-    new_lattice = crystal.lattice.copy()
-    new_lattice[2, 2] += vacuum  # Add vacuum along z-axis
-
-    # Replicate the structure along the surface normal
-    replicated_molecules = []
-    for i in range(layers):
-        for molecule in crystal.molecules:
-            # Create a copy of the molecule
-            new_molecule = molecule.copy()
-            # Translate along the surface normal
-            positions = new_molecule.get_positions()
-            positions[:, 2] += i * (crystal.lattice[2, 2] / layers)
-            new_molecule.set_positions(positions)
-            replicated_molecules.append(new_molecule)
-
-    return MolecularCrystal(new_lattice, replicated_molecules, crystal.pbc)
 
 
 def create_supercell(
@@ -155,4 +103,4 @@ def create_defect_structure(
     return crystal
 
 
-__all__ = ["create_surface", "create_supercell", "create_defect_structure"]
+__all__ = ["create_supercell", "create_defect_structure"]
