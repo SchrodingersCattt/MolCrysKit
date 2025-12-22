@@ -80,7 +80,7 @@ print("Molecular connectivity:")
 for node, data in graph.nodes(data=True):
     position = molecule.get_positions()[node]
     print(f"  Atom {node} ({data['symbol']}): [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
-    
+
 for u, v, data in graph.edges(data=True):
     print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
 

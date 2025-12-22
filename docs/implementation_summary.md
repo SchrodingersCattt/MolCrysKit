@@ -120,17 +120,17 @@ MolCrysKit/
 
 1. **Modular Design**: Each functionality is implemented in its own module with clear separation of concerns.
 
-2. **Physical Correctness**: 
+2. **Physical Correctness**:
    - Proper handling of fractional and Cartesian coordinates
    - Minimum image convention for periodic systems
    - Rigid-body transformations for molecular units
 
-3. **Interoperability**: 
+3. **Interoperability**:
    - Integration with `pymatgen` for CIF parsing
    - NumPy/SciPy for numerical operations
    - Standard Python packaging
 
-4. **Extensibility**: 
+4. **Extensibility**:
    - Clean API design
    - Well-defined interfaces between modules
    - Comprehensive examples

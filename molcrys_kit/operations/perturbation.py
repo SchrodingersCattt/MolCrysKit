@@ -1,19 +1,20 @@
 """
 Operations for applying perturbations to molecular crystals.
 
-This module provides functions for applying various types of displacements 
+This module provides functions for applying various types of displacements
 and perturbations to molecular crystals and individual molecules.
 """
 
 import numpy as np
-from typing import Tuple
 from ..structures.molecule import CrystalMolecule
 
 
-def apply_gaussian_displacement_molecule(molecule: CrystalMolecule, sigma: float) -> None:
+def apply_gaussian_displacement_molecule(
+    molecule: CrystalMolecule, sigma: float
+) -> None:
     """
     Apply random Gaussian displacement to a molecule.
-    
+
     Parameters
     ----------
     molecule : Molecule
@@ -23,10 +24,10 @@ def apply_gaussian_displacement_molecule(molecule: CrystalMolecule, sigma: float
     """
     # Get current positions
     positions = molecule.get_positions()
-    
+
     # Generate random displacements
     displacements = np.random.normal(0, sigma, positions.shape)
-    
+
     # Apply displacements
     new_positions = positions + displacements
     molecule.set_positions(new_positions)
@@ -35,7 +36,7 @@ def apply_gaussian_displacement_molecule(molecule: CrystalMolecule, sigma: float
 def apply_gaussian_displacement_crystal(crystal, sigma: float) -> None:
     """
     Apply random Gaussian displacement to all molecules in a crystal.
-    
+
     Parameters
     ----------
     crystal : MolecularCrystal
@@ -47,10 +48,12 @@ def apply_gaussian_displacement_crystal(crystal, sigma: float) -> None:
         apply_gaussian_displacement_molecule(molecule, sigma)
 
 
-def apply_directional_displacement(molecule: CrystalMolecule, direction: np.ndarray, magnitude: float) -> None:
+def apply_directional_displacement(
+    molecule: CrystalMolecule, direction: np.ndarray, magnitude: float
+) -> None:
     """
     Apply directed displacement to a molecule.
-    
+
     Parameters
     ----------
     molecule : Molecule
@@ -63,13 +66,13 @@ def apply_directional_displacement(molecule: CrystalMolecule, direction: np.ndar
     # Normalize direction vector
     direction = np.array(direction)
     direction = direction / np.linalg.norm(direction)
-    
+
     # Calculate displacement vector
     displacement = direction * magnitude
-    
+
     # Get current positions
     positions = molecule.get_positions()
-    
+
     # Apply displacement
     new_positions = positions + displacement
     molecule.set_positions(new_positions)
@@ -78,7 +81,7 @@ def apply_directional_displacement(molecule: CrystalMolecule, direction: np.ndar
 def apply_random_rotation(molecule: CrystalMolecule, max_angle: float = 10.0) -> None:
     """
     Apply a random rotation to a molecule.
-    
+
     Parameters
     ----------
     molecule : CrystalMolecule
@@ -89,42 +92,40 @@ def apply_random_rotation(molecule: CrystalMolecule, max_angle: float = 10.0) ->
     # Generate random rotation axis
     axis = np.random.randn(3)
     axis = axis / np.linalg.norm(axis)
-    
+
     # Generate random rotation angle
     angle = np.random.uniform(0, max_angle)
-    
+
     # Convert to radians
     angle_rad = np.radians(angle)
-    
+
     # Create rotation matrix using Rodrigues' rotation formula
     cos_angle = np.cos(angle_rad)
     sin_angle = np.sin(angle_rad)
-    cross_matrix = np.array([
-        [0, -axis[2], axis[1]],
-        [axis[2], 0, -axis[0]],
-        [-axis[1], axis[0], 0]
-    ])
-    
-    rotation_matrix = (
-        cos_angle * np.eye(3) +
-        sin_angle * cross_matrix +
-        (1 - cos_angle) * np.outer(axis, axis)
+    cross_matrix = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
     )
-    
+
+    rotation_matrix = (
+        cos_angle * np.eye(3)
+        + sin_angle * cross_matrix
+        + (1 - cos_angle) * np.outer(axis, axis)
+    )
+
     # Get molecule centroid
     centroid = molecule.get_centroid()
-    
+
     # Get current positions
     positions = molecule.get_positions()
-    
+
     # Translate molecule to origin
     translated_positions = positions - centroid
-    
+
     # Apply rotation
     rotated_positions = np.dot(translated_positions, rotation_matrix.T)
-    
+
     # Translate back
     new_positions = rotated_positions + centroid
-    
+
     # Update positions
     molecule.set_positions(new_positions)

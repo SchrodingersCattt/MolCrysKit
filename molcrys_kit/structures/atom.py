@@ -7,14 +7,13 @@ in molecular crystals.
 
 import numpy as np
 from dataclasses import dataclass
-from typing import Tuple
 
 
 @dataclass
 class Atom:
     """
     Represents an atom in a molecular crystal.
-    
+
     Attributes
     ----------
     symbol : str
@@ -24,35 +23,35 @@ class Atom:
     occupancy : float, default=1.0
         Site occupancy of the atom (0.0 to 1.0).
     """
-    
+
     symbol: str
     frac_coords: np.ndarray
     occupancy: float = 1.0
-    
+
     def __post_init__(self):
         """Ensure frac_coords is a numpy array."""
         self.frac_coords = np.array(self.frac_coords)
-    
+
     def to_cartesian(self, lattice: np.ndarray) -> np.ndarray:
         """
         Convert fractional coordinates to cartesian coordinates.
-        
+
         Parameters
         ----------
         lattice : np.ndarray
             3x3 array representing the lattice vectors as rows.
-            
+
         Returns
         -------
         np.ndarray
             Cartesian coordinates of the atom.
         """
         return np.dot(self.frac_coords, lattice)
-    
-    def copy(self) -> 'Atom':
+
+    def copy(self) -> "Atom":
         """
         Create a copy of the atom.
-        
+
         Returns
         -------
         Atom
@@ -61,5 +60,5 @@ class Atom:
         return Atom(
             symbol=self.symbol,
             frac_coords=self.frac_coords.copy(),
-            occupancy=self.occupancy
+            occupancy=self.occupancy,
         )

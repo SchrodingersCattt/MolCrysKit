@@ -12,7 +12,7 @@ from .geometry import (
     angle_between_vectors,
     dihedral_angle,
     minimum_image_distance,
-    volume_of_cell
+    volume_of_cell,
 )
 
 __all__ = [
@@ -23,5 +23,5 @@ __all__ = [
     "angle_between_vectors",
     "dihedral_angle",
     "minimum_image_distance",
-    "volume_of_cell"
+    "volume_of_cell",
 ]

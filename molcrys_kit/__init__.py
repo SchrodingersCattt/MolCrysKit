@@ -19,8 +19,8 @@ Molecule = CrystalMolecule
 __all__ = [
     "Atom",
     "CrystalMolecule",
-    "MolecularCrystal", 
+    "MolecularCrystal",
     "read_mol_crystal",
     # Backward compatibility
-    "Molecule"
+    "Molecule",
 ]

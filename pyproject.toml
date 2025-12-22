@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 io = ["pymatgen>=2020.0.0"]
 vis = ["nglview", "py3Dmol"]
-test = ["pytest>=6.0.0"]
+test = ["pytest>=6.0.0", "pytest-cov"]
 
 [project.urls]
 Homepage = "https://github.com/SchrodingersCattt/MolCrysKit"
@@ -45,3 +45,14 @@ include = ["molcrys*"]
 
 [tool.setuptools.package-data]
 "molcrys.constants" = ["*.json"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=molcrys_kit --cov-report=term-missing --cov-report=html"
+
+[tool.coverage.run]
+omit = [
+    "scripts/*",
+    "tests/*",
+    "setup.py",
+    "molcrys_kit/io/output.py"
+]
