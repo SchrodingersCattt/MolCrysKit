@@ -140,3 +140,10 @@ def create_defect_structure(crystal: MolecularCrystal, defect_type: str,
     
     # For demonstration, we'll just return the original crystal
     return crystal
+
+
+__all__ = [
+    'create_surface',
+    'create_supercell',
+    'create_defect_structure'
+]

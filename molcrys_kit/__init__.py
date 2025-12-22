@@ -1,22 +1,26 @@
 """
-MolCrysKit: Molecular Crystal Toolkit.
+MolCrysKit: A Python toolkit for molecular crystal analysis and manipulation.
 
-A Python toolkit for handling molecular crystals.
+This toolkit provides functionality for parsing, analyzing, and manipulating
+molecular crystal structures, with a particular focus on molecular crystals
+where well-defined molecules occupy crystallographic sites.
 """
 
 __version__ = "0.1.0"
 
 from .structures.atom import Atom
-from .structures.molecule import Molecule
+from .structures.molecule import CrystalMolecule
 from .structures.crystal import MolecularCrystal
-from .constants import get_atomic_mass, get_atomic_radius, has_atomic_mass, has_atomic_radius
+from .io.cif import read_mol_crystal
+
+# For backward compatibility
+Molecule = CrystalMolecule
 
 __all__ = [
-    "Atom", 
-    "Molecule", 
-    "MolecularCrystal",
-    "get_atomic_mass",
-    "get_atomic_radius", 
-    "has_atomic_mass", 
-    "has_atomic_radius"
+    "Atom",
+    "CrystalMolecule",
+    "MolecularCrystal", 
+    "read_mol_crystal",
+    # Backward compatibility
+    "Molecule"
 ]

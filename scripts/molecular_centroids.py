@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
     from molcrys_kit.io import read_mol_crystal
-    from molcrys_kit.structures.molecule import Molecule
+    from molcrys_kit.structures.molecule import CrystalMolecule
 except ImportError as e:
     print(f"Error importing MolCrysKit: {e}")
     print("Please ensure the package is installed with 'pip install -e .'")

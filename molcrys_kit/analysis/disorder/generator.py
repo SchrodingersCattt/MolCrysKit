@@ -1,76 +1,100 @@
 """
-Disorder configuration generator.
+Generator for molecular disorder in crystals.
 
-This module generates all possible ordered configurations from disordered structures.
+This module provides functionality for generating different orientations
+of molecules to model orientational disorder in molecular crystals.
 """
 
-from typing import List, Iterator
-from itertools import product
-from ...structures.atom import Atom
-from ...structures.molecule import Molecule
-from ...structures.crystal import MolecularCrystal
-from .scanner import group_disordered_atoms
+import numpy as np
+from typing import List, Tuple
+from ...structures.molecule import CrystalMolecule
+from ...operations.rotation import rotate_molecule_at_center
 
 
-def generate_ordered_configurations(crystal: MolecularCrystal) -> Iterator[MolecularCrystal]:
+def generate_orientational_disorder(molecule: CrystalMolecule, 
+                                  num_orientations: int = 4,
+                                  rotation_axis: np.ndarray = None) -> List[CrystalMolecule]:
     """
-    Generate all possible ordered configurations via Cartesian product of disorder groups.
+    Generate multiple orientations of a molecule by rotation.
     
     Parameters
     ----------
-    crystal : MolecularCrystal
-        The disordered crystal to generate configurations for.
+    molecule : CrystalMolecule
+        The molecule to generate orientations for.
+    num_orientations : int, default=4
+        Number of different orientations to generate.
+    rotation_axis : np.ndarray, optional
+        Axis around which to rotate the molecule. If None, a random axis is chosen.
         
-    Yields
-    ------
-    MolecularCrystal
-        An ordered configuration of the crystal.
+    Returns
+    -------
+    List[CrystalMolecule]
+        List of molecules in different orientations.
     """
-    # Group disordered atoms
-    disorder_groups = group_disordered_atoms(crystal)
+    # If no rotation axis specified, choose a random one
+    if rotation_axis is None:
+        rotation_axis = np.random.randn(3)
+        rotation_axis /= np.linalg.norm(rotation_axis)
     
-    if not disorder_groups:
-        # No disorder, yield the original crystal
-        yield crystal
-        return
+    # Create list to store orientations
+    orientations = []
     
-    # Get all possible combinations
-    group_items = list(disorder_groups.items())
-    group_keys = [key for key, _ in group_items]
-    group_values = [values for _, values in group_items]
+    # Add original orientation
+    orientations.append(molecule.copy())
     
-    # Generate all combinations
-    for combination in product(*group_values):
-        # Create a new crystal with this combination
-        # This is a simplified implementation - a full one would need to:
-        # 1. Remove all disordered atoms
-        # 2. Add the selected atoms from each group
-        # 3. Adjust occupancies to 1.0
+    # Generate additional orientations
+    for i in range(num_orientations - 1):
+        # Create a copy of the molecule
+        new_orientation = molecule.copy()
         
-        # For now, we just yield the original crystal as a placeholder
-        yield crystal
+        # Calculate rotation angle
+        angle = (360.0 / num_orientations) * (i + 1)
+        
+        # Apply rotation
+        rotate_molecule_at_center(new_orientation, rotation_axis, angle)
+        
+        # Add to list
+        orientations.append(new_orientation)
+    
+    return orientations
 
 
-def generate_configurations_with_constraints(crystal: MolecularCrystal, 
-                                           max_configurations: int = 100) -> Iterator[MolecularCrystal]:
+def generate_random_orientations(molecule: CrystalMolecule, 
+                               num_orientations: int = 10) -> List[CrystalMolecule]:
     """
-    Generate ordered configurations with a maximum count.
+    Generate random orientations of a molecule.
     
     Parameters
     ----------
-    crystal : MolecularCrystal
-        The disordered crystal to generate configurations for.
-    max_configurations : int, default=100
-        Maximum number of configurations to generate.
+    molecule : CrystalMolecule
+        The molecule to generate orientations for.
+    num_orientations : int, default=10
+        Number of random orientations to generate.
         
-    Yields
-    ------
-    MolecularCrystal
-        An ordered configuration of the crystal.
+    Returns
+    -------
+    List[CrystalMolecule]
+        List of molecules in random orientations.
     """
-    count = 0
-    for config in generate_ordered_configurations(crystal):
-        if count >= max_configurations:
-            break
-        yield config
-        count += 1
+    # Create list to store orientations
+    orientations = []
+    
+    # Generate random orientations
+    for i in range(num_orientations):
+        # Create a copy of the molecule
+        new_orientation = molecule.copy()
+        
+        # Generate random rotation axis
+        axis = np.random.randn(3)
+        axis /= np.linalg.norm(axis)
+        
+        # Generate random rotation angle
+        angle = np.random.uniform(0, 360)
+        
+        # Apply rotation
+        rotate_molecule_at_center(new_orientation, axis, angle)
+        
+        # Add to list
+        orientations.append(new_orientation)
+    
+    return orientations

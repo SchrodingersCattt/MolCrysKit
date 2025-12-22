@@ -14,7 +14,7 @@ except ImportError:
     ASE_AVAILABLE = False
     Atoms = object  # Placeholder for type hints
 
-from .molecule import Molecule
+from .molecule import CrystalMolecule
 from ..constants import ATOMIC_RADII
 import itertools
 
@@ -27,8 +27,8 @@ class MolecularCrystal:
     ----------
     lattice : np.ndarray
         3x3 array representing the lattice vectors as rows.
-    molecules : List[Molecule]
-        List of molecules in the crystal, each represented as a Molecule object.
+    molecules : List[CrystalMolecule]
+        List of molecules in the crystal, each represented as a CrystalMolecule object.
     pbc : Tuple[bool, bool, bool]
         Periodic boundary conditions along each lattice vector.
     """
@@ -48,8 +48,8 @@ class MolecularCrystal:
             Periodic boundary conditions along each lattice vector.
         """
         self.lattice = np.array(lattice)
-        # Wrap each ASE Atoms object in a Molecule
-        self.molecules = [Molecule(mol, self) for mol in molecules]
+        # Wrap each ASE Atoms object in a CrystalMolecule
+        self.molecules = [CrystalMolecule(mol, self) for mol in molecules]
         self.pbc = pbc
     
     def get_default_atomic_radii(self):

@@ -1,17 +1,28 @@
 """
-Operations module for MolCrysKit.
+Operations module for molecular crystals.
 
-This module provides structure transformation operations for molecular crystals.
+This module contains various operations that can be performed on molecular crystals
+and their constituent molecules.
 """
 
-from .rotation import rotation_matrix, rotate_molecule, translate_molecule, euler_rotation_matrix
 from .perturbation import (
-    apply_gaussian_displacement_atom, 
     apply_gaussian_displacement_molecule,
     apply_gaussian_displacement_crystal,
-    apply_anisotropic_displacement,
-    apply_directional_displacement
+    apply_directional_displacement,
+    apply_random_rotation
 )
+
+from .rotation import (
+    rotate_molecule_at_center,
+    rotate_molecule_at_com
+)
+
+from .surface import (
+    create_topological_slab,
+    unwrap_molecule,
+    unwrap_crystal_molecules
+)
+
 from .builders import (
     build_supercell,
     build_surface,
@@ -20,17 +31,18 @@ from .builders import (
 )
 
 __all__ = [
-    "rotation_matrix",
-    "rotate_molecule",
-    "translate_molecule",
-    "euler_rotation_matrix",
-    "apply_gaussian_displacement_atom",
-    "apply_gaussian_displacement_molecule",
-    "apply_gaussian_displacement_crystal",
-    "apply_anisotropic_displacement",
-    "apply_directional_displacement",
-    "build_supercell",
-    "build_surface",
-    "build_defect_crystal",
-    "create_multilayer_structure"
+    'apply_gaussian_displacement_molecule',
+    'apply_gaussian_displacement_crystal',
+    'apply_directional_displacement',
+    'apply_random_rotation',
+    'rotate_molecule_at_center',
+    'rotate_molecule_at_com',
+    'create_topological_slab',
+    'unwrap_molecule',
+    'unwrap_crystal_molecules'
+] + [
+    'build_supercell',
+    'build_surface',
+    'build_defect_crystal',
+    'create_multilayer_structure'
 ]

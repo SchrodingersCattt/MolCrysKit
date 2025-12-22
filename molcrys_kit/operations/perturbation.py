@@ -1,35 +1,16 @@
 """
-Perturbation operations for molecular crystals.
+Operations for applying perturbations to molecular crystals.
 
-This module applies random or directed perturbations to atoms or molecules.
+This module provides functions for applying various types of displacements 
+and perturbations to molecular crystals and individual molecules.
 """
 
 import numpy as np
 from typing import Tuple
-from ..structures.atom import Atom
-from ..structures.molecule import Molecule
-from ..structures.crystal import MolecularCrystal
+from ..structures.molecule import CrystalMolecule
 
 
-def apply_gaussian_displacement_atom(atom: Atom, sigma: float) -> None:
-    """
-    Apply random Gaussian displacement to an atom.
-    
-    Parameters
-    ----------
-    atom : Atom
-        The atom to perturb.
-    sigma : float
-        Standard deviation of the Gaussian distribution (in fractional coordinates).
-    """
-    # Generate random displacement
-    displacement = np.random.normal(0, sigma, 3)
-    
-    # Apply displacement
-    atom.frac_coords += displacement
-
-
-def apply_gaussian_displacement_molecule(molecule: Molecule, sigma: float) -> None:
+def apply_gaussian_displacement_molecule(molecule: CrystalMolecule, sigma: float) -> None:
     """
     Apply random Gaussian displacement to a molecule.
     
@@ -40,54 +21,33 @@ def apply_gaussian_displacement_molecule(molecule: Molecule, sigma: float) -> No
     sigma : float
         Standard deviation of the Gaussian distribution (in fractional coordinates).
     """
-    # Generate random displacement
-    displacement = np.random.normal(0, sigma, 3)
+    # Get current positions
+    positions = molecule.get_positions()
     
-    # Apply displacement to all atoms in the molecule
-    molecule.translate(displacement)
+    # Generate random displacements
+    displacements = np.random.normal(0, sigma, positions.shape)
+    
+    # Apply displacements
+    new_positions = positions + displacements
+    molecule.set_positions(new_positions)
 
 
-def apply_gaussian_displacement_crystal(crystal: MolecularCrystal, sigma: float) -> None:
+def apply_gaussian_displacement_crystal(crystal, sigma: float) -> None:
     """
-    Apply random Gaussian displacement to all atoms in a crystal.
+    Apply random Gaussian displacement to all molecules in a crystal.
     
     Parameters
     ----------
     crystal : MolecularCrystal
         The crystal to perturb.
     sigma : float
-        Standard deviation of the Gaussian distribution (in fractional coordinates).
+        Standard deviation of the Gaussian displacement (in Angstroms).
     """
-    # Apply displacement to all atoms
     for molecule in crystal.molecules:
         apply_gaussian_displacement_molecule(molecule, sigma)
 
 
-def apply_anisotropic_displacement(atom: Atom, sigma_x: float, sigma_y: float, sigma_z: float) -> None:
-    """
-    Apply anisotropic Gaussian displacement to an atom.
-    
-    Parameters
-    ----------
-    atom : Atom
-        The atom to perturb.
-    sigma_x : float
-        Standard deviation along x-axis.
-    sigma_y : float
-        Standard deviation along y-axis.
-    sigma_z : float
-        Standard deviation along z-axis.
-    """
-    # Generate random displacements for each direction
-    dx = np.random.normal(0, sigma_x)
-    dy = np.random.normal(0, sigma_y)
-    dz = np.random.normal(0, sigma_z)
-    
-    # Apply displacement
-    atom.frac_coords += np.array([dx, dy, dz])
-
-
-def apply_directional_displacement(molecule: Molecule, direction: np.ndarray, magnitude: float) -> None:
+def apply_directional_displacement(molecule: CrystalMolecule, direction: np.ndarray, magnitude: float) -> None:
     """
     Apply directed displacement to a molecule.
     
@@ -101,9 +61,70 @@ def apply_directional_displacement(molecule: Molecule, direction: np.ndarray, ma
         Magnitude of displacement (in fractional coordinates).
     """
     # Normalize direction vector
-    direction = np.asarray(direction)
+    direction = np.array(direction)
     direction = direction / np.linalg.norm(direction)
     
-    # Apply displacement
+    # Calculate displacement vector
     displacement = direction * magnitude
-    molecule.translate(displacement)
+    
+    # Get current positions
+    positions = molecule.get_positions()
+    
+    # Apply displacement
+    new_positions = positions + displacement
+    molecule.set_positions(new_positions)
+
+
+def apply_random_rotation(molecule: CrystalMolecule, max_angle: float = 10.0) -> None:
+    """
+    Apply a random rotation to a molecule.
+    
+    Parameters
+    ----------
+    molecule : CrystalMolecule
+        The molecule to rotate.
+    max_angle : float, default=10.0
+        Maximum rotation angle in degrees.
+    """
+    # Generate random rotation axis
+    axis = np.random.randn(3)
+    axis = axis / np.linalg.norm(axis)
+    
+    # Generate random rotation angle
+    angle = np.random.uniform(0, max_angle)
+    
+    # Convert to radians
+    angle_rad = np.radians(angle)
+    
+    # Create rotation matrix using Rodrigues' rotation formula
+    cos_angle = np.cos(angle_rad)
+    sin_angle = np.sin(angle_rad)
+    cross_matrix = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+    
+    rotation_matrix = (
+        cos_angle * np.eye(3) +
+        sin_angle * cross_matrix +
+        (1 - cos_angle) * np.outer(axis, axis)
+    )
+    
+    # Get molecule centroid
+    centroid = molecule.get_centroid()
+    
+    # Get current positions
+    positions = molecule.get_positions()
+    
+    # Translate molecule to origin
+    translated_positions = positions - centroid
+    
+    # Apply rotation
+    rotated_positions = np.dot(translated_positions, rotation_matrix.T)
+    
+    # Translate back
+    new_positions = rotated_positions + centroid
+    
+    # Update positions
+    molecule.set_positions(new_positions)

@@ -1,92 +1,102 @@
 #!/usr/bin/env python3
 """
-Example showing how to use the Molecule class.
+Example showing how to use the CrystalMolecule class.
+
+This script demonstrates the enhanced functionality of the CrystalMolecule class
+compared to a plain ASE Atoms object.
 """
 
-from ase import Atoms
+import numpy as np
 
-from molcrys_kit.structures.molecule import Molecule
+try:
+    from ase import Atoms
+    ASE_AVAILABLE = True
+except ImportError:
+    ASE_AVAILABLE = False
+    print("Warning: ASE is not available. Some functionality may be limited.")
+
+from molcrys_kit.structures.molecule import CrystalMolecule
 
 
 def main():
-    # Create a water molecule as an ASE Atoms object
+    """Run the enhanced molecule example."""
+    if not ASE_AVAILABLE:
+        print("This example requires ASE. Please install it with 'pip install ase'")
+        return
+    
+    print("Enhanced CrystalMolecule Example")
+    print("=" * 40)
+    
+    # Create a water molecule using ASE
+    print("\n1. Creating a water molecule with ASE...")
     water = Atoms(
         symbols=['O', 'H', 'H'],
         positions=[
-            [0.000000, 0.000000, 0.000000],
-            [0.756950, 0.585809, 0.000000],
-            [-0.756950, 0.585809, 0.000000]
+            [0.0, 0.0, 0.0],      # Oxygen
+            [0.757, 0.586, 0.0],  # Hydrogen 1
+            [-0.757, 0.586, 0.0]  # Hydrogen 2
         ]
     )
-    
-    # Wrap it in a Molecule
-    molecule_water = Molecule(water)
-    
-    # Demonstrate the new functionality
-    print("Water molecule properties:")
-    print(f"Chemical formula: {water.get_chemical_formula()}")
+    print(f"Water molecule formula: {water.get_chemical_formula()}")
     print(f"Number of atoms: {len(water)}")
     
-    # Get centroid and center of mass
+    # Wrap it in a CrystalMolecule
+    print("\n2. Wrapping in a CrystalMolecule...")
+    molecule_water = CrystalMolecule(water)
+    print(f"CrystalMolecule formula: {molecule_water.get_chemical_formula()}")
+    print(f"Number of atoms: {len(molecule_water)}")
+    
+    # Show enhanced properties
+    print("\n3. Enhanced properties of CrystalMolecule:")
+    
+    # Centroid calculation
     centroid = molecule_water.get_centroid()
-    center_of_mass = molecule_water.get_center_of_mass()
-    print(f"Centroid: [{centroid[0]:.6f}, {centroid[1]:.6f}, {centroid[2]:.6f}]")
-    print(f"Center of mass: [{center_of_mass[0]:.6f}, {center_of_mass[1]:.6f}, {center_of_mass[2]:.6f}]")
+    print(f"Centroid: ({centroid[0]:.4f}, {centroid[1]:.4f}, {centroid[2]:.4f})")
     
-    # Get ellipsoid radii
+    # Center of mass calculation
+    com = molecule_water.get_center_of_mass()
+    print(f"Center of mass: ({com[0]:.4f}, {com[1]:.4f}, {com[2]:.4f})")
+    
+    # Ellipsoid radii
     radii = molecule_water.get_ellipsoid_radii()
-    print(f"Ellipsoid radii: a={radii[0]:.6f}, b={radii[1]:.6f}, c={radii[2]:.6f}")
+    print(f"Ellipsoid radii: {radii[0]:.3f} × {radii[1]:.3f} × {radii[2]:.3f}")
     
-    # Get principal axes
-    ax1, ax2, ax3 = molecule_water.get_principal_axes()
-    print(f"Principal axes:")
-    print(f"  Axis 1: [{ax1[0]:.6f}, {ax1[1]:.6f}, {ax1[2]:.6f}]")
-    print(f"  Axis 2: [{ax2[0]:.6f}, {ax2[1]:.6f}, {ax2[2]:.6f}]")
-    print(f"  Axis 3: [{ax3[0]:.6f}, {ax3[1]:.6f}, {ax3[2]:.6f}]")
+    # Principal axes
+    axes = molecule_water.get_principal_axes()
+    print("Principal axes:")
+    for i, axis in enumerate(axes):
+        print(f"  Axis {i+1}: ({axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f})")
     
-    # Show graph functionality
-    print(f"Molecular graph has {len(molecule_water.graph.nodes())} nodes and {len(molecule_water.graph.edges())} edges")
+    # Graph representation
+    print("\n4. Graph representation:")
+    graph = molecule_water.graph
+    print(f"Graph nodes: {list(graph.nodes(data='symbol'))}")
+    print(f"Graph edges: {list(graph.edges(data='distance'))}")
     
-    print("\n" + "="*50 + "\n")
-    
-    # Create a more complex molecule - methane
+    # Create another molecule - methane
+    print("\n5. Creating methane molecule...")
     methane = Atoms(
         symbols=['C', 'H', 'H', 'H', 'H'],
         positions=[
-            [0.000000, 0.000000, 0.000000],
-            [0.629118, 0.629118, 0.629118],
-            [-0.629118, -0.629118, 0.629118],
-            [0.629118, -0.629118, -0.629118],
-            [-0.629118, 0.629118, -0.629118]
+            [0.0, 0.0, 0.0],       # Carbon
+            [0.631, 0.631, 0.631], # Hydrogen 1
+            [-0.631, -0.631, 0.631], # Hydrogen 2
+            [-0.631, 0.631, -0.631], # Hydrogen 3
+            [0.631, -0.631, -0.631]  # Hydrogen 4
         ]
     )
     
-    molecule_methane = Molecule(methane)
+    molecule_methane = CrystalMolecule(methane)
+    print(f"Methane formula: {molecule_methane.get_chemical_formula()}")
     
-    print("Methane molecule properties:")
-    print(f"Chemical formula: {methane.get_chemical_formula()}")
-    print(f"Number of atoms: {len(methane)}")
+    # Methane properties
+    centroid_ch4 = molecule_methane.get_centroid()
+    print(f"Methane centroid: ({centroid_ch4[0]:.4f}, {centroid_ch4[1]:.4f}, {centroid_ch4[2]:.4f})")
     
-    # Get centroid and center of mass
-    centroid = molecule_methane.get_centroid()
-    center_of_mass = molecule_methane.get_center_of_mass()
-    print(f"Centroid: [{centroid[0]:.6f}, {centroid[1]:.6f}, {centroid[2]:.6f}]")
-    print(f"Center of mass: [{center_of_mass[0]:.6f}, {center_of_mass[1]:.6f}, {center_of_mass[2]:.6f}]")
-    
-    # Get ellipsoid radii
-    radii = molecule_methane.get_ellipsoid_radii()
-    print(f"Ellipsoid radii: a={radii[0]:.6f}, b={radii[1]:.6f}, c={radii[2]:.6f}")
-    
-    # Get principal axes
-    ax1, ax2, ax3 = molecule_methane.get_principal_axes()
-    print(f"Principal axes:")
-    print(f"  Axis 1: [{ax1[0]:.6f}, {ax1[1]:.6f}, {ax1[2]:.6f}]")
-    print(f"  Axis 2: [{ax2[0]:.6f}, {ax2[1]:.6f}, {ax2[2]:.6f}]")
-    print(f"  Axis 3: [{ax3[0]:.6f}, {ax3[1]:.6f}, {ax3[2]:.6f}]")
-    
-    # Show graph functionality
-    print(f"Molecular graph has {len(molecule_methane.graph.nodes())} nodes and {len(molecule_methane.graph.edges())} edges")
+    radii_ch4 = molecule_methane.get_ellipsoid_radii()
+    print(f"Methane ellipsoid radii: {radii_ch4[0]:.3f} × {radii_ch4[1]:.3f} × {radii_ch4[2]:.3f}")
 
 
 if __name__ == "__main__":
     main()
+    print("\nExample completed successfully!")

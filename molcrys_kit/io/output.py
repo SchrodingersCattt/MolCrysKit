@@ -1,47 +1,79 @@
 """
-Output functionality for molecular crystals.
+Output functionality for molecular crystal structures.
 
-This module provides functionality to export MolecularCrystal objects to various formats.
+This module provides functions for writing molecular crystal data to various formats.
 """
 
-import numpy as np
-from typing import List
-from ..structures.molecule import Molecule
-from ..structures.crystal import MolecularCrystal
+from typing import Optional
+from ..structures.molecule import CrystalMolecule
 
 
-def write_xyz(molecule: Molecule, filename: str = None) -> str:
+def write_xyz(molecule: CrystalMolecule, filename: str = None) -> str:
     """
-    Export a molecule to XYZ format.
+    Write a molecule to XYZ format.
     
     Parameters
     ----------
-    molecule : Molecule
-        The molecule to export.
+    molecule : CrystalMolecule
+        The molecule to write.
     filename : str, optional
-        If provided, write to this file. Otherwise, return the XYZ string.
+        The filename to write to. If None, returns the XYZ string.
         
     Returns
     -------
     str
-        XYZ format string if filename is not provided, otherwise None.
+        XYZ format string if filename is None, otherwise None.
     """
-    lines = [f"{len(molecule.atoms)}", ""]  # Number of atoms and comment line
+    # Get atomic symbols and positions
+    symbols = molecule.get_chemical_symbols()
+    positions = molecule.get_positions()
     
-    for atom in molecule.atoms:
-        # Convert fractional to Cartesian coordinates (assuming a default unit cell for visualization)
-        # In a real implementation, we would use the actual lattice
-        cart_coords = atom.frac_coords  # Simplified for now
-        lines.append(f"{atom.symbol} {cart_coords[0]:.6f} {cart_coords[1]:.6f} {cart_coords[2]:.6f}")
+    # Create XYZ format string
+    xyz_lines = [str(len(symbols)), ""]  # Number of atoms and empty comment line
+    for symbol, pos in zip(symbols, positions):
+        xyz_lines.append(f"{symbol:2s} {pos[0]:12.6f} {pos[1]:12.6f} {pos[2]:12.6f}")
     
-    xyz_content = "\n".join(lines) + "\n"
+    xyz_string = "\n".join(xyz_lines) + "\n"
     
-    if filename:
-        with open(filename, 'w') as f:
-            f.write(xyz_content)
-        return None
+    if filename is None:
+        return xyz_string
     else:
-        return xyz_content
+        with open(filename, 'w') as f:
+            f.write(xyz_string)
+
+
+def write_molecule_summary(molecule: CrystalMolecule) -> str:
+    """
+    Generate a summary string for a molecule.
+    
+    Parameters
+    ----------
+    molecule : CrystalMolecule
+        The molecule to summarize.
+        
+    Returns
+    -------
+    str
+        Summary string with molecular information.
+    """
+    summary = []
+    summary.append(f"Molecule: {molecule.get_chemical_formula()}")
+    summary.append(f"Number of atoms: {len(molecule)}")
+    
+    if hasattr(molecule, 'crystal') and molecule.crystal is not None:
+        centroid = molecule.get_centroid()
+        centroid_frac = molecule.get_centroid_frac()
+        summary.append(f"Centroid (Cartesian): ({centroid[0]:.4f}, {centroid[1]:.4f}, {centroid[2]:.4f})")
+        summary.append(f"Centroid (Fractional): ({centroid_frac[0]:.4f}, {centroid_frac[1]:.4f}, {centroid_frac[2]:.4f})")
+    
+    com = molecule.get_center_of_mass()
+    summary.append(f"Center of mass: ({com[0]:.4f}, {com[1]:.4f}, {com[2]:.4f})")
+    
+    # Get ellipsoid radii
+    radii = molecule.get_ellipsoid_radii()
+    summary.append(f"Ellipsoid radii: {radii[0]:.3f} × {radii[1]:.3f} × {radii[2]:.3f}")
+    
+    return "\n".join(summary)
 
 
 def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:

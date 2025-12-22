@@ -6,7 +6,8 @@ molecules, and crystals.
 """
 
 from .atom import Atom
-from .molecule import Molecule
+from .molecule import CrystalMolecule
 from .crystal import MolecularCrystal
 
-__all__ = ['Atom', 'Molecule', 'MolecularCrystal']
+# For backward compatibility
+Molecule = CrystalMolecule

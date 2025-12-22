@@ -24,7 +24,7 @@ except ImportError:
     ASE_AVAILABLE = False
     Atoms = object  # Placeholder
 
-from ..structures.molecule import Molecule
+from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
 from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element, METAL_THRESHOLD_FACTOR, NON_METAL_THRESHOLD_FACTOR
 
@@ -89,11 +89,20 @@ def read_mol_crystal(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, st
     # Also using more tolerant parameters to handle CIF files with full coordinates
     try:
         parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
-        structures = parser.get_structures()
+        # Use parse_structures instead of get_structures to avoid deprecation warning
+        try:
+            structures = parser.parse_structures()
+        except AttributeError:
+            # Fallback for older pymatgen versions
+            structures = parser.get_structures()
     except Exception as e:
         print(f"Warning: CIF parsing failed. Trying with more relaxed parameters...")
         parser = CifParser(filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1)
-        structures = parser.get_structures()
+        try:
+            structures = parser.parse_structures()
+        except AttributeError:
+            # Fallback for older pymatgen versions
+            structures = parser.get_structures()
     
     # For simplicity, we take the first structure
     structure = structures[0]
@@ -150,7 +159,7 @@ def parse_cif_advanced(filepath: str, bond_thresholds: Optional[Dict[Tuple[str, 
     return read_mol_crystal(filepath, bond_thresholds)
 
 
-def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[Molecule]:
+def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units in a crystal using graph-based approach.
     
@@ -169,8 +178,8 @@ def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, s
         
     Returns
     -------
-    List[Molecule]
-        List of Molecule objects, each representing a molecular unit.
+    List[CrystalMolecule]
+        List of CrystalMolecule objects, each representing a molecular unit.
     """
     if not ASE_AVAILABLE:
         raise ImportError("ASE is required for molecule identification. Please install it with 'pip install ase'")
@@ -222,7 +231,7 @@ def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, s
     # Find connected components (molecular units)
     components = list(nx.connected_components(crystal_graph))
     
-    # Create separate Molecule objects for each molecular unit
+    # Create separate CrystalMolecule objects for each molecular unit
     molecules = []
     for component in components:
         # Get indices of atoms in this component
@@ -231,8 +240,8 @@ def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, s
         # Extract atoms for this molecule
         molecule_atoms = atoms[atom_indices]
         
-        # Create Molecule object
-        molecule = Molecule(molecule_atoms)
+        # Create CrystalMolecule object
+        molecule = CrystalMolecule(molecule_atoms)
         molecules.append(molecule)
     
     return molecules

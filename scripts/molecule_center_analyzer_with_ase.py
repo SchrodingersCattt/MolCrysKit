@@ -2,176 +2,126 @@
 """
 Molecule center analyzer with ASE integration.
 
-This script demonstrates how to use MolCrysKit together with ASE for 
-enhanced molecular crystal analysis.
+This script analyzes molecular centers in a crystal structure using ASE for visualization.
 """
 
-import sys
-import os
-import numpy as np
-
-# Add project root to path if needed
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
+# Check if ASE is available
 try:
     from ase import Atoms
-    from ase.io import read
     from ase.visualize import view
     ASE_AVAILABLE = True
-except ImportError as e:
-    print(f"Error: ASE not found. Please install it with 'pip install ase'")
-    print(f"Import error: {e}")
+except ImportError:
     ASE_AVAILABLE = False
-    sys.exit(1)
+    print("Warning: ASE is not available. Visualization functionality will be limited.")
+
+import numpy as np
+
+# Conditional import to handle environments where ASE is not available
+def create_test_molecules():
+    """Create test molecules for analysis."""
+    if not ASE_AVAILABLE:
+        raise ImportError("ASE is required for this example. Please install it with 'pip install ase'")
+    
+    # Create water molecules at different positions
+    molecules = []
+    
+    # Water molecule 1
+    mol1 = Atoms(
+        symbols=['O', 'H', 'H'],
+        positions=[
+            [1.0, 1.0, 1.0],
+            [1.757, 1.586, 1.0],
+            [0.243, 1.586, 1.0]
+        ]
+    )
+    molecules.append(mol1)
+    
+    # Water molecule 2
+    mol2 = Atoms(
+        symbols=['O', 'H', 'H'],
+        positions=[
+            [5.0, 5.0, 5.0],
+            [5.757, 5.586, 5.0],
+            [4.243, 5.586, 5.0]
+        ]
+    )
+    molecules.append(mol2)
+    
+    # Water molecule 3
+    mol3 = Atoms(
+        symbols=['O', 'H', 'H'],
+        positions=[
+            [9.0, 1.0, 9.0],
+            [9.757, 1.586, 9.0],
+            [8.243, 1.586, 9.0]
+        ]
+    )
+    molecules.append(mol3)
+    
+    return molecules
 
 
-def create_sample_crystal():
-    """Create a sample crystal with multiple water molecules for demonstration."""
-    # Define lattice vectors (simple cubic for demonstration)
-    lattice = np.array([
-        [10.0, 0.0, 0.0],
-        [0.0, 10.0, 0.0],
-        [0.0, 0.0, 10.0]
-    ])
+def analyze_molecule_centers(molecules):
+    """Analyze centers of molecules and visualize if possible."""
+    if not ASE_AVAILABLE:
+        raise ImportError("ASE is required for this analysis. Please install it with 'pip install ase'")
     
-    # Create water molecule 1 at origin
-    atoms1 = Atoms('OH2', 
-                   positions=[[1.0, 1.0, 1.0],
-                              [1.757, 1.586, 1.0],
-                              [0.243, 1.586, 1.0]],
-                   cell=lattice,
-                   pbc=True)
+    # Import CrystalMolecule after confirming ASE availability
+    from molcrys_kit.structures.molecule import CrystalMolecule
     
-    # Create water molecule 2 at another position
-    atoms2 = Atoms('OH2', 
-                   positions=[[5.0, 5.0, 5.0],
-                              [5.757, 5.586, 5.0],
-                              [4.243, 5.586, 5.0]],
-                   cell=lattice,
-                   pbc=True)
-    
-    # Create water molecule 3 at yet another position
-    atoms3 = Atoms('OH2', 
-                   positions=[[8.0, 2.0, 7.0],
-                              [8.757, 2.586, 7.0],
-                              [7.243, 2.586, 7.0]],
-                   cell=lattice,
-                   pbc=True)
-    
-    # Create crystal with multiple molecules
-    crystal = MolecularCrystal(lattice, [atoms1, atoms2, atoms3])
-    return crystal
-
-
-def analyze_molecule_with_ase(cif_file_path, visualize=False):
-    """
-    Load a crystal structure from CIF and analyze molecular centers with ASE integration.
-    
-    Parameters
-    ----------
-    cif_file_path : str
-        Path to the CIF file containing the crystal structure.
-    visualize : bool
-        Whether to visualize the structure using ASE GUI.
-        
-    Returns
-    -------
-    bool
-        True if analysis completed successfully, False otherwise.
-    """
-    print("=" * 60)
-    print("MolCrysKit: ASE-Integrated Molecular Center Analyzer")
-    print("=" * 60)
-    
-    try:
-        # Try to import required modules
-        from molcrys_kit.io import read_mol_crystal
-        from molcrys_kit.structures.molecule import Molecule
-        
-    except ImportError as e:
-        print(f"Error importing MolCrysKit modules: {e}")
-        print("Make sure you have installed the molcrys-kit package:")
-        print("pip install -e .")
-        return False
-    
-    try:
-        # Parse the CIF file
-        print(f"\nParsing CIF file: {cif_file_path}")
-        crystal = read_mol_crystal(cif_file_path)
-        print("✓ CIF file parsed successfully.")
-        
-    except FileNotFoundError:
-        print(f"✗ Error: File '{cif_file_path}' not found.")
-        return False
-    except Exception as e:
-        print(f"✗ Error parsing CIF file: {e}")
-        return False
-    
-    # Analyze molecule centers
-    print(f"\nAnalyzing molecular centers in {crystal.name or 'unknown'}...")
     print("Molecule Center Analysis")
-    print("=" * 30)
+    print("=" * 25)
     
-    if not hasattr(crystal, 'molecules') or not crystal.molecules:
-        print("No molecules found in the crystal structure.")
-        return False
+    # Convert to CrystalMolecule objects and analyze
+    crystal_molecules = [CrystalMolecule(mol) for mol in molecules]
     
-    print(f"Total number of molecules: {len(crystal.molecules)}")
-    print()
+    # Collect all atoms for visualization
+    all_atoms = []
     
-    # Calculate and print the center of mass for each molecule
-    for i, molecule in enumerate(crystal.molecules):
-        # Get center of mass (considering atomic masses)
+    for i, molecule in enumerate(crystal_molecules):
+        print(f"\nMolecule {i+1}: {molecule.get_chemical_formula()}")
+        
+        # Calculate geometric center (centroid)
+        centroid = molecule.get_centroid()
+        print(f"  Geometric center: ({centroid[0]:.4f}, {centroid[1]:.4f}, {centroid[2]:.4f})")
+        
+        # Calculate center of mass
         center_of_mass = molecule.get_center_of_mass()
+        print(f"  Center of mass: ({center_of_mass[0]:.4f}, {center_of_mass[1]:.4f}, {center_of_mass[2]:.4f})")
         
-        # Get geometric center (simple average of positions)
-        positions = molecule.get_positions()
-        geometric_center = np.mean(positions, axis=0)
-        
-        # Get chemical symbols
-        symbols = molecule.get_chemical_symbols()
-        unique_symbols = list(set(symbols))
-        composition = ", ".join([f"{symbol}{symbols.count(symbol)}" for symbol in unique_symbols])
-        
-        print(f"Molecule {i+1}:")
-        print(f"  Composition: {composition}")
-        print(f"  Atoms: {len(molecule)} ({', '.join(symbols)})")
-        print(f"  Center of mass (Cartesian): [{center_of_mass[0]:8.5f}, {center_of_mass[1]:8.5f}, {center_of_mass[2]:8.5f}]")
-        print(f"  Geometric center (Cartesian): [{geometric_center[0]:8.5f}, {geometric_center[1]:8.5f}, {geometric_center[2]:8.5f}]")
-        print()
-
-    # Visualize if requested
-    if visualize and ASE_AVAILABLE:
-        try:
-            print("Launching ASE visualization...")
-            view(crystal.to_ase_atoms())
-        except Exception as e:
-            print(f"✗ Error during visualization: {e}")
+        # Add atoms to collection for visualization
+        all_atoms.extend(molecule)
     
-    return True
+    # Create a combined ASE Atoms object for visualization
+    combined_system = Atoms(
+        symbols=[atom.symbol for atom in all_atoms],
+        positions=[atom.position for atom in all_atoms]
+    )
+    
+    return combined_system
 
 
 def main():
-    """Main function to run the molecule center analysis."""
-    # Check command line arguments
-    if len(sys.argv) < 2:
-        print("Usage: python molecule_center_analyzer_with_ase.py <cif_file_path> [--visualize]")
-        print("Example: python molecule_center_analyzer_with_ase.py data/sample.cif --visualize")
-        sys.exit(1)
+    """Main function to run the analysis."""
+    if not ASE_AVAILABLE:
+        print("This example requires ASE. Please install it with 'pip install ase'")
+        return
     
-    # Get command line arguments
-    cif_file_path = sys.argv[1]
-    visualize = "--visualize" in sys.argv or "-v" in sys.argv
-    
-    # Run the analysis
-    success = analyze_molecule_with_ase(cif_file_path, visualize)
-    
-    if success:
-        print("Analysis completed successfully.")
-        sys.exit(0)
-    else:
-        print("Analysis failed.")
-        sys.exit(1)
+    try:
+        # Create test molecules
+        molecules = create_test_molecules()
+        
+        # Analyze molecule centers
+        combined_system = analyze_molecule_centers(molecules)
+        
+        # Visualize (uncomment the next line to enable visualization)
+        # view(combined_system, viewer='x3d')
+        
+        print(f"\nTotal atoms in system: {len(combined_system)}")
+        print("Analysis completed successfully!")
+        
+    except Exception as e:
+        print(f"Error during analysis: {e}")
 
 
 if __name__ == "__main__":

@@ -1,107 +1,112 @@
 #!/usr/bin/env python3
 """
-Test metal bonding functionality.
+Test script for metal bonding functionality.
+
+This script tests the bonding analysis for metal-containing molecules.
 """
 
-import sys
-import os
-
-# Add project root to path if needed
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+def test_metal_bonding():
+    """Test bonding analysis for metal-containing molecules."""
+    try:
+        from ase import Atoms
+        ASE_AVAILABLE = True
+    except ImportError:
+        ASE_AVAILABLE = False
+        print("Warning: ASE is not available. Some functionality may be limited.")
+        return
+    
+    if not ASE_AVAILABLE:
+        print("This test requires ASE. Please install it with 'pip install ase'")
+        return
+    
+    print("Testing Metal Bonding Analysis")
+    print("=" * 30)
+    
+    # Create a simple metal-water complex: Cu(H2O)6
+    complex_structure = Atoms(
+        symbols=['Cu', 'O', 'H', 'H', 'O', 'H', 'H', 'O', 'H', 'H', 'O', 'H', 'H', 'O', 'H', 'H', 'O', 'H', 'H'],
+        positions=[
+            [0.0, 0.0, 0.0],      # Cu
+            [2.0, 0.0, 0.0],      # O1
+            [2.5, 0.5, 0.0],      # H1
+            [2.5, -0.5, 0.0],     # H2
+            [0.0, 2.0, 0.0],      # O2
+            [0.5, 2.5, 0.0],      # H3
+            [-0.5, 2.5, 0.0],     # H4
+            [-2.0, 0.0, 0.0],     # O3
+            [-2.5, 0.5, 0.0],     # H5
+            [-2.5, -0.5, 0.0],    # H6
+            [0.0, -2.0, 0.0],     # O4
+            [0.5, -2.5, 0.0],     # H7
+            [-0.5, -2.5, 0.0],    # H8
+            [0.0, 0.0, 2.0],      # O5
+            [0.5, 0.0, 2.5],      # H9
+            [-0.5, 0.0, 2.5],     # H10
+            [0.0, 0.0, -2.0],     # O6
+            [0.5, 0.0, -2.5],     # H11
+            [-0.5, 0.0, -2.5]     # H12
+        ]
+    )
+    
+    # Import CrystalMolecule after confirming ASE availability
+    from molcrys_kit.structures.molecule import CrystalMolecule
+    
+    # Convert to CrystalMolecule
+    molecule = CrystalMolecule(complex_structure)
+    
+    print(f"Complex: {molecule.get_chemical_formula()}")
+    print(f"Number of atoms: {len(molecule)}")
+    
+    # Analyze the bonding graph
+    graph = molecule.graph
+    
+    print(f"\nGraph nodes: {len(graph.nodes())}")
+    print(f"Graph edges: {len(graph.edges())}")
+    
+    # Check for metal bonds
+    cu_atom_index = None
+    oxygen_indices = []
+    
+    for node, data in graph.nodes(data=True):
+        if data['symbol'] == 'Cu':
+            cu_atom_index = node
+        elif data['symbol'] == 'O':
+            oxygen_indices.append(node)
+    
+    print(f"\nMetal center: Cu at index {cu_atom_index}")
+    print(f"Oxygen atoms at indices: {oxygen_indices}")
+    
+    # Check bonds between Cu and O atoms
+    metal_bonds = []
+    for o_index in oxygen_indices:
+        if graph.has_edge(cu_atom_index, o_index):
+            distance = graph[cu_atom_index][o_index]['distance']
+            metal_bonds.append((cu_atom_index, o_index, distance))
+    
+    print(f"\nMetal-oxygen bonds:")
+    for bond in metal_bonds:
+        print(f"  Cu({bond[0]}) - O({bond[1]}): {bond[2]:.3f} Å")
+    
+    # Check water molecules (H-O bonds)
+    water_molecules = []
+    for o_index in oxygen_indices:
+        h_neighbors = [n for n in graph.neighbors(o_index) if graph.nodes[n]['symbol'] == 'H']
+        if len(h_neighbors) >= 1:
+            water_molecules.append((o_index, h_neighbors))
+    
+    print(f"\nWater molecules:")
+    for o_index, h_indices in water_molecules:
+        print(f"  H2O with O at index {o_index}")
+        for h_index in h_indices:
+            if graph.has_edge(o_index, h_index):
+                distance = graph[o_index][h_index]['distance']
+                print(f"    O({o_index}) - H({h_index}): {distance:.3f} Å")
 
 
 def main():
-    try:
-        # Try to import required modules
-        from molcrys_kit.structures.atom import Atom
-        from molcrys_kit.structures.molecule import Molecule
-        from molcrys_kit.constants import is_metal_element
-
-        def test_metal_detection():
-            """Test metal element detection."""
-            print("Testing metal element detection:")
-            print(f"Is Cu a metal? {is_metal_element('Cu')}")  # Should be True
-            print(f"Is C a metal? {is_metal_element('C')}")    # Should be False
-            print(f"Is Fe a metal? {is_metal_element('Fe')}")  # Should be True
-            print(f"Is O a metal? {is_metal_element('O')}")    # Should be False
-            print()
-
-        def test_bond_detection():
-            """Test bond detection with different threshold factors."""
-            # Create a simple lattice (cubic box)
-            lattice = np.array([[10.0, 0.0, 0.0],
-                                [0.0, 10.0, 0.0],
-                                [0.0, 0.0, 10.0]])
-            
-            print("Testing bond detection with different element types:")
-            
-            # Test case 1: Metal-Metal (Cu-Cu)
-            print("1. Cu-Cu molecule (Metal-Metal):")
-            atoms_cu = [
-                Atom('Cu', np.array([0.0, 0.0, 0.0])),
-                Atom('Cu', np.array([0.0, 0.0, 1.0]))  # 1 Angstrom apart
-            ]
-            molecule_cu = Molecule(atoms_cu, lattice=lattice)
-            
-            # Test with different threshold factors
-            bonds_cu_09 = molecule_cu.get_bonds(threshold_factor=0.9)
-            print(f"   Bonds with factor 0.9: {len(bonds_cu_09)} bonds found")
-            
-            bonds_cu_12 = molecule_cu.get_bonds(threshold_factor=1.2)
-            print(f"   Bonds with factor 1.2: {len(bonds_cu_12)} bonds found")
-            
-            bonds_cu_15 = molecule_cu.get_bonds(threshold_factor=1.5)
-            print(f"   Bonds with factor 1.5: {len(bonds_cu_15)} bonds found")
-            print()
-            
-            # Test case 2: Non-Metal-Non-Metal (C-O)
-            print("2. CO molecule (Non-Metal-Non-Metal):")
-            atoms_co = [
-                Atom('C', np.array([0.0, 0.0, 0.0])),
-                Atom('O', np.array([0.0, 0.0, 1.2]))  # 1.2 Angstrom apart
-            ]
-            molecule_co = Molecule(atoms_co, lattice=lattice)
-            
-            # Test with different threshold factors
-            bonds_co_09 = molecule_co.get_bonds(threshold_factor=0.9)
-            print(f"   Bonds with factor 0.9: {len(bonds_co_09)} bonds found")
-            
-            bonds_co_12 = molecule_co.get_bonds(threshold_factor=1.2)
-            print(f"   Bonds with factor 1.2: {len(bonds_co_12)} bonds found")
-            
-            bonds_co_15 = molecule_co.get_bonds(threshold_factor=1.5)
-            print(f"   Bonds with factor 1.5: {len(bonds_co_15)} bonds found")
-            print()
-            
-            # Test case 3: Metal-Non-Metal (Na-Cl)
-            print("3. NaCl molecule (Metal-Non-Metal):")
-            atoms_nacl = [
-                Atom('Na', np.array([0.0, 0.0, 0.0])),
-                Atom('Cl', np.array([0.0, 0.0, 1.1]))  # 1.1 Angstrom apart
-            ]
-            molecule_nacl = Molecule(atoms_nacl, lattice=lattice)
-            
-            # Test with different threshold factors
-            bonds_nacl_09 = molecule_nacl.get_bonds(threshold_factor=0.9)
-            print(f"   Bonds with factor 0.9: {len(bonds_nacl_09)} bonds found")
-            
-            bonds_nacl_12 = molecule_nacl.get_bonds(threshold_factor=1.2)
-            print(f"   Bonds with factor 1.2: {len(bonds_nacl_12)} bonds found")
-            
-            bonds_nacl_15 = molecule_nacl.get_bonds(threshold_factor=1.5)
-            print(f"   Bonds with factor 1.5: {len(bonds_nacl_15)} bonds found")
-            print()
-
-        if __name__ == "__main__":
-            test_metal_detection()
-            test_bond_detection()
-            print("Test completed successfully!")
-
-    except ImportError as e:
-        print(f"Error importing modules: {e}")
-        print("Make sure you have installed the molcrys-kit package:")
-        print("pip install -e .")
-        return 1
+    """Run the metal bonding test."""
+    test_metal_bonding()
+    print("\n\nTest completed successfully!")
 
 
 if __name__ == "__main__":

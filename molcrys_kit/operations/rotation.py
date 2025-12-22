@@ -1,109 +1,115 @@
 """
 Rotation operations for molecular crystals.
 
-This module provides rigid-body rotation and translation operations for molecules.
+This module provides functions for rotating molecules and crystals.
 """
 
 import numpy as np
 from typing import Tuple
-from ..structures.molecule import Molecule
+from ..structures.molecule import CrystalMolecule
 
 
-def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
+def rotate_molecule_at_center(molecule: CrystalMolecule, axis: np.ndarray, angle: float) -> None:
     """
-    Generate a rotation matrix for rotating around an axis by an angle.
+    Rotate a molecule around its centroid by a specified angle around a given axis.
     
     Parameters
     ----------
-    axis : np.ndarray
-        3D vector representing the rotation axis.
-    angle : float
-        Rotation angle in radians.
-        
-    Returns
-    -------
-    np.ndarray
-        3x3 rotation matrix.
-    """
-    # Normalize the axis
-    axis = np.asarray(axis)
-    axis = axis / np.linalg.norm(axis)
-    
-    # Rodrigues' rotation formula
-    cos_angle = np.cos(angle)
-    sin_angle = np.sin(angle)
-    cross_term = np.array([[0, -axis[2], axis[1]],
-                           [axis[2], 0, -axis[0]],
-                           [-axis[1], axis[0], 0]])
-    
-    rotation = cos_angle * np.eye(3) + sin_angle * cross_term + (1 - cos_angle) * np.outer(axis, axis)
-    return rotation
-
-
-def rotate_molecule(molecule: Molecule, axis: np.ndarray, angle: float) -> None:
-    """
-    Rotate a molecule around an axis by an angle.
-    
-    Parameters
-    ----------
-    molecule : Molecule
+    molecule : CrystalMolecule
         The molecule to rotate.
     axis : np.ndarray
-        3D vector representing the rotation axis.
+        The rotation axis as a 3D vector.
     angle : float
-        Rotation angle in radians.
+        The rotation angle in degrees.
     """
-    # Generate rotation matrix
-    rot_matrix = rotation_matrix(axis, angle)
+    # Normalize the rotation axis
+    axis = np.array(axis) / np.linalg.norm(axis)
     
-    # Apply rotation to the molecule
-    molecule.rotate(rot_matrix)
+    # Convert angle to radians
+    angle_rad = np.radians(angle)
+    
+    # Get the centroid of the molecule
+    centroid = molecule.get_centroid()
+    
+    # Get current positions
+    positions = molecule.get_positions()
+    
+    # Translate molecule to origin (centered at centroid)
+    translated_positions = positions - centroid
+    
+    # Create rotation matrix using Rodrigues' rotation formula
+    cos_angle = np.cos(angle_rad)
+    sin_angle = np.sin(angle_rad)
+    cross_matrix = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+    
+    rotation_matrix = (
+        cos_angle * np.eye(3) +
+        sin_angle * cross_matrix +
+        (1 - cos_angle) * np.outer(axis, axis)
+    )
+    
+    # Apply rotation
+    rotated_positions = np.dot(translated_positions, rotation_matrix.T)
+    
+    # Translate back to original position
+    new_positions = rotated_positions + centroid
+    
+    # Update molecule positions
+    molecule.set_positions(new_positions)
 
 
-def translate_molecule(molecule: Molecule, vector: np.ndarray) -> None:
+def rotate_molecule_at_com(molecule: CrystalMolecule, axis: np.ndarray, angle: float) -> None:
     """
-    Translate a molecule by a vector.
+    Rotate a molecule around its center of mass by a specified angle around a given axis.
     
     Parameters
     ----------
-    molecule : Molecule
-        The molecule to translate.
-    vector : np.ndarray
-        Translation vector in fractional coordinates.
+    molecule : CrystalMolecule
+        The molecule to rotate.
+    axis : np.ndarray
+        The rotation axis as a 3D vector.
+    angle : float
+        The rotation angle in degrees.
     """
-    molecule.translate(vector)
-
-
-def euler_rotation_matrix(alpha: float, beta: float, gamma: float) -> np.ndarray:
-    """
-    Generate a rotation matrix from Euler angles (in ZXZ convention).
+    # Normalize the rotation axis
+    axis = np.array(axis) / np.linalg.norm(axis)
     
-    Parameters
-    ----------
-    alpha : float
-        First rotation angle around Z axis (radians).
-    beta : float
-        Second rotation angle around X axis (radians).
-    gamma : float
-        Third rotation angle around Z axis (radians).
-        
-    Returns
-    -------
-    np.ndarray
-        3x3 rotation matrix.
-    """
-    # Rotation matrices around principal axes
-    rz_alpha = np.array([[np.cos(alpha), -np.sin(alpha), 0],
-                         [np.sin(alpha), np.cos(alpha), 0],
-                         [0, 0, 1]])
+    # Convert angle to radians
+    angle_rad = np.radians(angle)
     
-    rx_beta = np.array([[1, 0, 0],
-                        [0, np.cos(beta), -np.sin(beta)],
-                        [0, np.sin(beta), np.cos(beta)]])
+    # Get the center of mass of the molecule
+    center_of_mass = molecule.get_center_of_mass()
     
-    rz_gamma = np.array([[np.cos(gamma), -np.sin(gamma), 0],
-                         [np.sin(gamma), np.cos(gamma), 0],
-                         [0, 0, 1]])
+    # Get current positions
+    positions = molecule.get_positions()
     
-    # Combined rotation: R = Rz(gamma) * Rx(beta) * Rz(alpha)
-    return rz_gamma @ rx_beta @ rz_alpha
+    # Translate molecule to origin (centered at center of mass)
+    translated_positions = positions - center_of_mass
+    
+    # Create rotation matrix using Rodrigues' rotation formula
+    cos_angle = np.cos(angle_rad)
+    sin_angle = np.sin(angle_rad)
+    cross_matrix = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+    
+    rotation_matrix = (
+        cos_angle * np.eye(3) +
+        sin_angle * cross_matrix +
+        (1 - cos_angle) * np.outer(axis, axis)
+    )
+    
+    # Apply rotation
+    rotated_positions = np.dot(translated_positions, rotation_matrix.T)
+    
+    # Translate back to original position
+    new_positions = rotated_positions + center_of_mass
+    
+    # Update molecule positions
+    molecule.set_positions(new_positions)

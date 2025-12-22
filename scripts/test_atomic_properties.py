@@ -1,110 +1,138 @@
 #!/usr/bin/env python3
 """
-Test atomic properties functionality.
+Test script for atomic properties functionality.
+
+This script tests the atomic property calculations for molecules.
 """
 
-import sys
-import os
 import numpy as np
 
-# Add project root to path if needed
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-def test_center_of_mass():
-    """Test center of mass calculation with real atomic masses."""
-    print("Testing Center of Mass Calculation")
-    print("=" * 40)
-    
+def test_atomic_properties():
+    """Test atomic properties calculations."""
     try:
         from ase import Atoms
-        from molcrys_kit.structures.molecule import Molecule
-        from molcrys_kit.constants import get_atomic_mass
-        
-        # Create a water molecule using ASE
-        atoms = Atoms(
-            symbols=['O', 'H', 'H'],
-            positions=[
-                [0.0, 0.0, 0.0],          # Oxygen
-                [0.0757, 0.0586, 0.0],    # Hydrogen
-                [-0.0757, 0.0586, 0.0]    # Hydrogen
-            ]
-        )
-        
-        water = Molecule(atoms)
-        
-        print("Water molecule:")
-        symbols = water.get_chemical_symbols()
-        for symbol in symbols:
-            mass = get_atomic_mass(symbol)
-            print(f"  {symbol}: mass = {mass:.3f} amu")
-        
-        com = water.get_center_of_mass()
-        print(f"\nCenter of mass: [{com[0]:8.5f}, {com[1]:8.5f}, {com[2]:8.5f}]")
-        
-        # Compare with simple geometric center
-        geometric_center = water.get_centroid()
-        print(f"Geometric center: [{geometric_center[0]:8.5f}, {geometric_center[1]:8.5f}, {geometric_center[2]:8.5f}]")
-        
-        print("\n✓ Center of mass calculation completed\n")
-        
-    except ImportError as e:
-        print(f"Skipping test due to missing dependencies: {e}\n")
-
-
-def test_molecular_graph():
-    """Test molecular graph representation."""
-    print("Testing Molecular Graph Representation")
-    print("=" * 40)
+        ASE_AVAILABLE = True
+    except ImportError:
+        ASE_AVAILABLE = False
+        print("Warning: ASE is not available. Some functionality may be limited.")
+        return
     
+    if not ASE_AVAILABLE:
+        print("This test requires ASE. Please install it with 'pip install ase'")
+        return
+    
+    print("Testing Atomic Properties")
+    print("=" * 25)
+    
+    # Create a water molecule
+    water = Atoms(
+        symbols=['O', 'H', 'H'],
+        positions=[
+            [0.0, 0.0, 0.0],
+            [0.757, 0.586, 0.0],
+            [-0.757, 0.586, 0.0]
+        ]
+    )
+    
+    # Import CrystalMolecule after confirming ASE availability
+    from molcrys_kit.structures.molecule import CrystalMolecule
+    
+    # Convert to CrystalMolecule
+    molecule = CrystalMolecule(water)
+    
+    print(f"Molecule: {molecule.get_chemical_formula()}")
+    print(f"Number of atoms: {len(molecule)}")
+    
+    # Test atomic properties
+    symbols = molecule.get_chemical_symbols()
+    positions = molecule.get_positions()
+    masses = molecule.get_masses()
+    
+    print("\nAtomic Properties:")
+    for i in range(len(molecule)):
+        print(f"  Atom {i+1}: {symbols[i]}")
+        print(f"    Position: ({positions[i][0]:.4f}, {positions[i][1]:.4f}, {positions[i][2]:.4f})")
+        print(f"    Mass: {masses[i]:.4f}")
+    
+    # Test molecular properties
+    print("\nMolecular Properties:")
+    
+    # Centroid
+    centroid = molecule.get_centroid()
+    print(f"  Centroid: ({centroid[0]:.4f}, {centroid[1]:.4f}, {centroid[2]:.4f})")
+    
+    # Center of mass
+    center_of_mass = molecule.get_center_of_mass()
+    print(f"  Center of mass: ({center_of_mass[0]:.4f}, {center_of_mass[1]:.4f}, {center_of_mass[2]:.4f})")
+    
+    # Check if they're different (they should be for a non-uniform mass distribution)
+    diff = np.linalg.norm(centroid - center_of_mass)
+    print(f"  Difference between centroid and COM: {diff:.6f}")
+
+
+def test_complex_molecule():
+    """Test properties of a more complex molecule."""
     try:
         from ase import Atoms
-        from molcrys_kit.structures.molecule import Molecule
-        
-        # Create a water molecule using ASE
-        atoms = Atoms(
-            symbols=['O', 'H', 'H'],
-            positions=[
-                [0.0, 0.0, 0.0],          # Oxygen
-                [0.0757, 0.0586, 0.0],    # Hydrogen
-                [-0.0757, 0.0586, 0.0]    # Hydrogen
-            ]
-        )
-        
-        water = Molecule(atoms)
-        graph = water.graph
-        
-        print("Water molecule graph:")
-        print(f"  Nodes: {graph.number_of_nodes()}")
-        print(f"  Edges: {graph.number_of_edges()}")
-        
-        for node, data in graph.nodes(data=True):
-            print(f"  Node {node}: {data['symbol']}")
-            
-        for u, v, data in graph.edges(data=True):
-            print(f"  Edge {u}-{v}: distance = {data['distance']:.3f}")
-        
-        print("\n✓ Molecular graph representation completed\n")
-        
-    except ImportError as e:
-        print(f"Skipping test due to missing dependencies: {e}\n")
+        ASE_AVAILABLE = True
+    except ImportError:
+        ASE_AVAILABLE = False
+        print("Warning: ASE is not available. Some functionality may be limited.")
+        return
+    
+    if not ASE_AVAILABLE:
+        print("This test requires ASE. Please install it with 'pip install ase'")
+        return
+    
+    print("\n\nTesting Complex Molecule")
+    print("=" * 25)
+    
+    # Create a methane molecule
+    methane = Atoms(
+        symbols=['C', 'H', 'H', 'H', 'H'],
+        positions=[
+            [0.0, 0.0, 0.0],        # Carbon
+            [0.631, 0.631, 0.631],  # H1
+            [-0.631, -0.631, 0.631], # H2
+            [-0.631, 0.631, -0.631], # H3
+            [0.631, -0.631, -0.631]  # H4
+        ]
+    )
+    
+    # Import CrystalMolecule after confirming ASE availability
+    from molcrys_kit.structures.molecule import CrystalMolecule
+    
+    # Convert to CrystalMolecule
+    molecule = CrystalMolecule(methane)
+    
+    print(f"Molecule: {molecule.get_chemical_formula()}")
+    print(f"Number of atoms: {len(molecule)}")
+    
+    # For a symmetric molecule like methane, centroid and COM should be nearly identical
+    centroid = molecule.get_centroid()
+    center_of_mass = molecule.get_center_of_mass()
+    diff = np.linalg.norm(centroid - center_of_mass)
+    
+    print(f"  Centroid: ({centroid[0]:.6f}, {centroid[1]:.6f}, {centroid[2]:.6f})")
+    print(f"  Center of mass: ({center_of_mass[0]:.6f}, {center_of_mass[1]:.6f}, {center_of_mass[2]:.6f})")
+    print(f"  Difference: {diff:.6f}")
+    
+    # Test ellipsoid properties
+    radii = molecule.get_ellipsoid_radii()
+    print(f"  Ellipsoid radii: {radii[0]:.3f} × {radii[1]:.3f} × {radii[2]:.3f}")
+    
+    # Test principal axes
+    axes = molecule.get_principal_axes()
+    print("  Principal axes:")
+    for i, axis in enumerate(axes):
+        print(f"    Axis {i+1}: ({axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f})")
 
 
 def main():
-    """Main function to run all tests."""
-    print("MolCrysKit Atomic Properties Test")
-    print("================================\n")
-    
-    try:
-        test_center_of_mass()
-        test_molecular_graph()
-        
-        print("All tests completed successfully!")
-        
-    except Exception as e:
-        print(f"Error running tests: {e}")
-        print("Make sure you have installed the molcrys-kit package:")
-        print("pip install -e .")
-        return 1
+    """Run all tests."""
+    test_atomic_properties()
+    test_complex_molecule()
+    print("\n\nAll tests completed successfully!")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """
 Molecule representation for molecular crystals.
 
-This module defines the Molecule class which represents a rigid body of atoms.
+This module defines the CrystalMolecule class which represents a rigid body of atoms.
 """
 
 import numpy as np
@@ -19,7 +19,7 @@ except ImportError:
 from ..constants import get_atomic_mass, has_atomic_mass, get_atomic_radius, has_atomic_radius
 
 
-class Molecule(Atoms):
+class CrystalMolecule(Atoms):
     """
     A molecule represented as an ASE Atoms object with additional functionality.
     
@@ -36,7 +36,7 @@ class Molecule(Atoms):
     
     def __init__(self, atoms: Atoms = None, crystal=None, **kwargs):
         """
-        Initialize a Molecule.
+        Initialize a CrystalMolecule.
         
         Parameters
         ----------
@@ -48,7 +48,7 @@ class Molecule(Atoms):
             Additional arguments passed to ASE Atoms constructor.
         """
         if not ASE_AVAILABLE:
-            raise ImportError("ASE is required for Molecule. Please install it with 'pip install ase'")
+            raise ImportError("ASE is required for CrystalMolecule. Please install it with 'pip install ase'")
         
         if atoms is not None:
             # Initialize from existing ASE Atoms object
@@ -285,4 +285,3 @@ class Molecule(Atoms):
             
         return tuple(axes[i] if np.linalg.norm(axes[i]) > 0 else np.array([1.0, 0.0, 0.0]) 
                     for i in range(3))
-
