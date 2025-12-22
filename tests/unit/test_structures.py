@@ -10,7 +10,8 @@ import numpy as np
 # Add the project root to the path so we can import molcrys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from molcrys_kit.structures import Atom, Molecule, MolecularCrystal
+from molcrys_kit.structures import Atom, MolecularCrystal
+from molcrys_kit.structures.molecule import CrystalMolecule
 from ase import Atoms
 
 def test_atom_creation():
@@ -28,14 +29,14 @@ def test_atom_creation():
 
 
 def test_molecule_creation():
-    """Test creation of Molecule objects."""
+    """Test creation of CrystalMolecule objects."""
     # Create a simple molecule using ASE Atoms
     atoms = Atoms(
         symbols=["C", "H", "H"],
         positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
     )
     
-    molecule = Molecule(atoms)
+    molecule = CrystalMolecule(atoms)
     assert len(molecule) == 3
     assert molecule.get_chemical_symbols()[0] == "C"
     
@@ -54,7 +55,7 @@ def test_molecule_graph():
         positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
     )
     
-    molecule = Molecule(atoms)
+    molecule = CrystalMolecule(atoms)
     graph = molecule.graph
     
     # Check that we have the right number of nodes
@@ -75,7 +76,7 @@ def test_crystal_creation():
     
     # Create a simple molecule using ASE Atoms
     atoms = Atoms(symbols=["C"], positions=[[1.0, 1.0, 1.0]])
-    molecule = Molecule(atoms)
+    molecule = CrystalMolecule(atoms)
     
     # Create crystal
     crystal = MolecularCrystal(lattice, [molecule])
@@ -96,7 +97,7 @@ def test_coordinate_transformations():
     
     # Create crystal
     atoms = Atoms(symbols=["C"], positions=[[1.0, 1.0, 1.0]])
-    molecule = Molecule(atoms)
+    molecule = CrystalMolecule(atoms)
     crystal = MolecularCrystal(lattice, [molecule])
     
     # Test fractional to cartesian conversion
