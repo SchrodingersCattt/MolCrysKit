@@ -18,6 +18,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Retrieve default atomic radii from crystal structures
 - Customize bond thresholds for specific atom pairs
 - Graph-based molecular representation using NetworkX
+- Convert molecular crystals to ASE Atoms objects with the to_ase method
 
 ## Dependencies
 
@@ -92,6 +93,10 @@ print(f"Space group: {crystal.get_space_group_symbol()}")
 
 # The crystal object contains all molecules identified in the CIF file
 # You can access individual molecules or perform analyses on the entire crystal structure
+
+# Convert molecular crystal to ASE Atoms object
+ase_atoms = crystal.to_ase()
+print(f"Converted to ASE Atoms: {len(ase_atoms)} atoms")
 ```
 
 ## Project Structure
@@ -178,16 +183,10 @@ slab = generate_topological_slab(
 )
 
 print(f"Generated slab with {len(slab.molecules)} molecules")
-symbols, positions = [], []
-for molecule in slab.molecules:
-    symbols.extend(molecule.get_chemical_symbols())
-    positions.extend(molecule.get_positions())
-slab_atoms_obj = Atoms(
-    symbols=symbols,
-    positions=positions,
-    cell=slab.lattice,
-    pbc=slab.pbc
-)
+
+# Convert the slab to ASE Atoms object using the to_ase method
+slab_atoms_obj = slab.to_ase()
+
 # Save the generated slab to a CIF file
 write_mol_crystal(slab_atoms_obj, 'slab.cif')
 ```

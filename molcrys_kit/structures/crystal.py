@@ -277,3 +277,32 @@ class MolecularCrystal:
             unwrapped_molecules.append(unwrapped_molecule)
 
         return unwrapped_molecules
+
+    def to_ase(self) -> Atoms:
+        """
+        Convert the MolecularCrystal to an ASE Atoms object.
+
+        This method combines all molecules in the crystal into a single ASE Atoms object,
+        preserving their positions and the crystal lattice.
+
+        Returns
+        -------
+        Atoms
+            An ASE Atoms object representing the entire crystal structure.
+        """
+        if not ASE_AVAILABLE:
+            raise ImportError(
+                "ASE is required for to_ase method. Please install it with 'pip install ase'"
+            )
+
+        symbols, positions = [], []
+        for molecule in self.molecules:
+            symbols.extend(molecule.get_chemical_symbols())
+            positions.extend(molecule.get_positions())
+
+        return Atoms(
+            symbols=symbols,
+            positions=positions,
+            cell=self.lattice,
+            pbc=self.pbc
+        )
