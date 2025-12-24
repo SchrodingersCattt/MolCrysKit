@@ -121,7 +121,7 @@ class TopologicalSlabGenerator:
                         break
                 elif k == 0:
                     if rhs % h == 0:
-                        stacking_vector = np.array(rhs // h, 0, w, dtype=int)
+                        stacking_vector = np.array([rhs // h, 0, w], dtype=int)
                         break
                 else:
                     # Use extended Euclidean to find a particular solution
