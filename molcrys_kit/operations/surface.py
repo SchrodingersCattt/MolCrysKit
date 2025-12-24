@@ -12,7 +12,7 @@ from functools import reduce
 
 # Import internal modules
 from ..structures.crystal import MolecularCrystal
-from ..utils.geometry import frac_to_cart, cart_to_frac
+from ..utils.geometry import cart_to_frac
 
 
 def _extended_gcd(a, b):
@@ -101,7 +101,7 @@ class TopologicalSlabGenerator:
         # We need to solve h*u + k*v + l*w = 1 for integers u, v, w
         # Since gcd(h, k, l) = 1, a solution exists
         stacking_vector = None
-        for w in range(abs(l) + 1):  # Try different values of w
+        for w in range(max(abs(l), g_hk) + 1):  # Changed from abs(l) + 1 to max(abs(l), g_hk) + 1 to ensure we check enough values
             # Now solve h*u + k*v = 1 - l*w
             rhs = 1 - l * w
             if rhs == 0 and h == 0 and k == 0:
@@ -125,11 +125,11 @@ class TopologicalSlabGenerator:
                         break
                 else:
                     # Use extended Euclidean to find a particular solution
-                    g_hk, p_hk, q_hk = _extended_gcd(h, k)
+                    # g_hk was already calculated earlier, no need to recalculate
                     if (rhs % g_hk) == 0:  # Check if solution exists
-                        # Scale the solution
-                        p_hk *= rhs // g_hk
-                        q_hk *= rhs // g_hk
+                        # Scale the solution (p and q were calculated earlier)
+                        p_hk = p * (rhs // g_hk)
+                        q_hk = q * (rhs // g_hk)
                         stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
                         break
         
