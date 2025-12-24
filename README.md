@@ -178,8 +178,16 @@ slab = generate_topological_slab(
 )
 
 print(f"Generated slab with {len(slab.molecules)} molecules")
-
+symbols, positions = [], []
+for molecule in slab.molecules:
+    symbols.extend(molecule.get_chemical_symbols())
+    positions.extend(molecule.get_positions())
+slab_atoms_obj = Atoms(
+    symbols=symbols,
+    positions=positions,
+    cell=slab.lattice,
+    pbc=slab.pbc
+)
 # Save the generated slab to a CIF file
-write_mol_crystal(slab, 'slab.cif')
+write_mol_crystal(slab_atoms_obj, 'slab.cif')
 ```
-

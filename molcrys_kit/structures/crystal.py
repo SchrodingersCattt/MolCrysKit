@@ -208,72 +208,72 @@ class MolecularCrystal:
     def get_unwrapped_molecules(self) -> List[CrystalMolecule]:
         """
         Reconstruct whole molecules across periodic boundaries to form continuous molecules.
-        
+
         This method performs a graph traversal (BFS) to unwrap molecules that span
         periodic boundaries, ensuring covalent bonds remain intact.
-        
+
         Returns
         -------
         List[CrystalMolecule]
             List of new CrystalMolecule objects with continuous coordinates.
         """
         unwrapped_molecules = []
-        
+
         # Pre-calculate inverse lattice matrix for efficiency
         inv_lattice = np.linalg.inv(self.lattice)
-        
+
         # Process each molecule
         for molecule in self.molecules:
             # Create a copy to work with
             mol_copy = molecule.copy()
-            
+
             # Get positions and graph
             positions = mol_copy.get_positions()
             graph = molecule.graph
-            
+
             # Track visited atoms to avoid reprocessing
             visited = set()
-            
+
             # Process each connected component in the molecule
             for node in graph.nodes():
                 if node in visited:
                     continue
-                
+
                 # BFS traversal starting from this node
                 queue = [node]
                 visited.add(node)
-                
+
                 while queue:
                     u = queue.pop(0)
-                    
+
                     # Check all neighbors of u
                     for v in graph.neighbors(u):
                         if v not in visited:
                             # Calculate distance vector
                             d = positions[v] - positions[u]
-                            
+
                             # Apply Minimum Image Convention (MIC)
                             # Convert to fractional coordinates using pre-calculated inv_lattice
                             frac_d = np.dot(d, inv_lattice)
-                            
+
                             # Apply MIC in fractional coordinates
                             frac_d = frac_d - np.round(frac_d)
-                            
+
                             # Convert back to Cartesian coordinates
                             d = np.dot(frac_d, self.lattice)
-                            
+
                             # Update position of v relative to u
                             positions[v] = positions[u] + d
-                            
+
                             # Mark as visited and add to queue
                             visited.add(v)
                             queue.append(v)
-            
+
             # Update positions in the molecule copy
             mol_copy.set_positions(positions)
-            
+
             # Create a new CrystalMolecule with unwrapped coordinates
             unwrapped_molecule = CrystalMolecule(mol_copy, self)
             unwrapped_molecules.append(unwrapped_molecule)
-        
+
         return unwrapped_molecules

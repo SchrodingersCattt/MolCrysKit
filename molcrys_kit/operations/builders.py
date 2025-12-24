@@ -18,8 +18,6 @@ except ImportError:
 from ..structures.crystal import MolecularCrystal
 
 
-
-
 def create_supercell(
     crystal: MolecularCrystal, scaling_factors: Tuple[int, int, int]
 ) -> MolecularCrystal:

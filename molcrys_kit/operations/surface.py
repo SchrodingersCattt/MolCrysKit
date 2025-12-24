@@ -36,43 +36,43 @@ def _gcd_multiple(numbers):
 class TopologicalSlabGenerator:
     """
     Generates surface slabs from molecular crystals while preserving molecular topology.
-    
+
     This class generates surface slabs based on molecular topology, ensuring that
     no intramolecular bonds are broken during the cutting process. Molecules are
     treated as rigid units, and their inclusion in a layer is determined by their
     centroid position.
     """
-    
+
     def __init__(self, crystal: MolecularCrystal):
         """
         Initialize the TopologicalSlabGenerator with a crystal structure.
-        
+
         Parameters
         ----------
         crystal : MolecularCrystal
             The molecular crystal to generate the surface slab from.
         """
         self.crystal = crystal
-    
+
     def _get_primitive_surface_vectors(self, h: int, k: int, l: int) -> np.ndarray:
         """
         Derives the integer basis transformation matrix (3x3) for the surface.
-        
+
         Given Miller indices (h, k, l), this method finds two in-plane lattice
         vectors (u, v) that lie in the plane and a third vector (w) that is
         perpendicular to the plane (stacking direction).
-        
+
         Parameters
         ----------
         h, k, l : int
             Miller indices of the surface plane.
-        
+
         Returns
         -------
         np.ndarray
             3x3 transformation matrix where rows are the new basis vectors
             in terms of the original lattice coordinates.
-        
+
         Raises
         ------
         ValueError
@@ -80,11 +80,11 @@ class TopologicalSlabGenerator:
         """
         if h == 0 and k == 0 and l == 0:
             raise ValueError("Miller indices cannot all be zero")
-        
+
         # Reduce Miller indices to be coprime
         g = _gcd_multiple([h, k, l])
         h, k, l = h // g, k // g, l // g
-        
+
         # Handle special case where plane is parallel to z-axis (001)
         if h == 0 and k == 0:
             v1 = np.array([1, 0, 0], dtype=int)
@@ -96,12 +96,14 @@ class TopologicalSlabGenerator:
             v1 = np.array([k // g_hk, -h // g_hk, 0], dtype=int)
             # v2 completes the primitive basis for the plane
             v2 = np.array([p * l, q * l, -g_hk], dtype=int)
-        
+
         # Find the stacking vector (v3) such that h*v3[0] + k*v3[1] + l*v3[2] = 1 (Bezout's identity)
         # We need to solve h*u + k*v + l*w = 1 for integers u, v, w
         # Since gcd(h, k, l) = 1, a solution exists
         stacking_vector = None
-        for w in range(max(abs(l), g_hk) + 1):  # Changed from abs(l) + 1 to max(abs(l), g_hk) + 1 to ensure we check enough values
+        for w in range(
+            max(abs(l), g_hk) + 1
+        ):  # Changed from abs(l) + 1 to max(abs(l), g_hk) + 1 to ensure we check enough values
             # Now solve h*u + k*v = 1 - l*w
             rhs = 1 - l * w
             if rhs == 0 and h == 0 and k == 0:
@@ -132,11 +134,18 @@ class TopologicalSlabGenerator:
                         q_hk = q * (rhs // g_hk)
                         stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
                         break
-        
+
         # If we couldn't find a suitable vector with the above method, try brute force
         if stacking_vector is None:
             # Try simple vectors [1,0,0], [0,1,0], [0,0,1] and their negatives
-            for w_test in [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1]]:
+            for w_test in [
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [-1, 0, 0],
+                [0, -1, 0],
+                [0, 0, -1],
+            ]:
                 w_test = np.array(w_test)
                 dot_product = h * w_test[0] + k * w_test[1] + l * w_test[2]
                 if dot_product == 1:
@@ -147,17 +156,21 @@ class TopologicalSlabGenerator:
                     break
 
         if stacking_vector is None:
-            raise ValueError(f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})")
-        
+            raise ValueError(
+                f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})"
+            )
+
         # Construct the transformation matrix (as column vectors)
         transformation_matrix = np.array([v1, v2, stacking_vector]).T
-        
+
         return transformation_matrix
-    
-    def build(self, miller_indices: Tuple[int, int, int], layers: int, vacuum: float) -> MolecularCrystal:
+
+    def build(
+        self, miller_indices: Tuple[int, int, int], layers: int, vacuum: float
+    ) -> MolecularCrystal:
         """
         Build a surface slab with the specified Miller indices, number of layers, and vacuum.
-        
+
         Parameters
         ----------
         miller_indices : Tuple[int, int, int]
@@ -166,37 +179,39 @@ class TopologicalSlabGenerator:
             Number of layers in the slab.
         vacuum : float
             Thickness of vacuum region to add above the slab (in Angstroms).
-        
+
         Returns
         -------
         MolecularCrystal
             The generated surface slab as a MolecularCrystal object.
         """
         h, k, l = miller_indices
-        
+
         # Get the transformation matrix
         transformation_matrix = self._get_primitive_surface_vectors(h, k, l)
-        
+
         # Calculate the new lattice
         old_lattice = self.crystal.lattice
-        new_lattice = transformation_matrix.T @ old_lattice  # New basis vectors in Cartesian
-        
+        new_lattice = (
+            transformation_matrix.T @ old_lattice
+        )  # New basis vectors in Cartesian
+
         # Get unwrapped molecules to handle periodic boundary conditions correctly
         unwrapped_molecules = self.crystal.get_unwrapped_molecules()
-        
+
         # Transform all molecular centroids to the new fractional coordinate system
         transformed_molecules = []
-        
+
         for mol in unwrapped_molecules:
             # Get the centroid of the molecule in Cartesian coordinates
             centroid_cart = mol.get_centroid()
-            
+
             # Convert to new fractional coordinates using the geometry utility
             centroid_frac_new = cart_to_frac(centroid_cart, new_lattice)
-            
+
             # Store the transformed centroid along with the molecule data
             transformed_molecules.append((mol, centroid_frac_new))
-        
+
         # Shift molecules to the fundamental layer (0 <= z < 1)
         shifted_molecules = []
         for mol, centroid_frac_new in transformed_molecules:
@@ -211,51 +226,53 @@ class TopologicalSlabGenerator:
             # Calculate shift in Cartesian coordinates
             shift_vector = (z_new - centroid_frac_new[2]) * new_lattice[2]
             new_positions = positions + shift_vector
-            
+
             # Store molecule with new positions and adjusted centroid
             shifted_molecules.append((mol, new_positions, adjusted_centroid))
-        
+
         # Now stack the molecules to create multiple layers
         all_atoms_list = []
-        
+
         for layer_idx in range(layers):
             for mol, positions, _ in shifted_molecules:
                 # Calculate the z-shift for this layer
                 layer_shift = layer_idx * new_lattice[2]  # Only z-direction shift
                 layer_positions = positions + layer_shift
-                
+
                 # Create a copy of the molecule with the new positions
                 layer_mol = mol.copy()
                 layer_mol.positions = layer_positions
                 all_atoms_list.append(layer_mol)
-        
+
         # Calculate the normal vector to the surface (a × b)
         cross_product = np.cross(new_lattice[0], new_lattice[1])
         normal_vector = cross_product / np.linalg.norm(cross_product)
-        
+
         # Calculate the projected slab thickness
         total_stacking_vector = layers * new_lattice[2]
         slab_thickness = abs(np.dot(total_stacking_vector, normal_vector))
-        
+
         # Construct the new orthogonal c vector
         c_ortho = (slab_thickness + vacuum) * normal_vector
-        
+
         # Create the final lattice with the orthogonal c vector
         final_lattice = new_lattice.copy()
         final_lattice[2] = c_ortho  # Replace the c vector with the orthogonal one
-        
+
         # Create the final molecular crystal with the new lattice
         final_molecules = all_atoms_list
-        
+
         # Create a new MolecularCrystal with the new lattice and molecules
         # Set PBC to (True, True, False) for a surface, or (True, True, True) with vacuum
         # Here we'll use (True, True, True) since we're adding vacuum
         slab = MolecularCrystal(
             lattice=final_lattice,
-            molecules=[mol for mol in final_molecules],  # All molecules in the stacked layers
-            pbc=(True, True, True)
+            molecules=[
+                mol for mol in final_molecules
+            ],  # All molecules in the stacked layers
+            pbc=(True, True, True),
         )
-        
+
         return slab
 
 
@@ -263,11 +280,11 @@ def generate_topological_slab(
     crystal: MolecularCrystal,
     miller_indices: Tuple[int, int, int],
     layers: int = 3,
-    vacuum: float = 10.0
+    vacuum: float = 10.0,
 ) -> MolecularCrystal:
     """
     Public API wrapper to generate a topological surface slab.
-    
+
     Parameters
     ----------
     crystal : MolecularCrystal
@@ -278,7 +295,7 @@ def generate_topological_slab(
         Number of layers in the slab (default: 3).
     vacuum : float, optional
         Thickness of vacuum region to add above the slab (in Angstroms, default: 10.0).
-    
+
     Returns
     -------
     MolecularCrystal
