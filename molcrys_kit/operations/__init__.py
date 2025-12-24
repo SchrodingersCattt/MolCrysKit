@@ -19,6 +19,8 @@ from .builders import (
     create_defect_structure,
 )
 
+from .surface import generate_topological_slab, TopologicalSlabGenerator
+
 __all__ = [
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
@@ -28,4 +30,6 @@ __all__ = [
     "rotate_molecule_at_com",
     "create_supercell",
     "create_defect_structure",
+    "generate_topological_slab",
+    "TopologicalSlabGenerator",
 ]

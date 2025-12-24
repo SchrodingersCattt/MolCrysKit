@@ -219,6 +219,9 @@ class MolecularCrystal:
         """
         unwrapped_molecules = []
         
+        # Pre-calculate inverse lattice matrix for efficiency
+        inv_lattice = np.linalg.inv(self.lattice)
+        
         # Process each molecule
         for molecule in self.molecules:
             # Create a copy to work with
@@ -250,8 +253,8 @@ class MolecularCrystal:
                             d = positions[v] - positions[u]
                             
                             # Apply Minimum Image Convention (MIC)
-                            # Convert to fractional coordinates
-                            frac_d = np.dot(d, np.linalg.inv(self.lattice))
+                            # Convert to fractional coordinates using pre-calculated inv_lattice
+                            frac_d = np.dot(d, inv_lattice)
                             
                             # Apply MIC in fractional coordinates
                             frac_d = frac_d - np.round(frac_d)
