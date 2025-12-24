@@ -84,6 +84,14 @@ for node, data in graph.nodes(data=True):
 for u, v, data in graph.edges(data=True):
     print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
 
+# Load a molecular crystal from a CIF file
+crystal = read_mol_crystal('bulk.cif')
+print(f"Loaded crystal with {len(crystal)} atoms and {len(crystal.molecules)} molecules")
+print(f"Cell parameters: {crystal.get_cell_lengths_and_angles()}")
+print(f"Space group: {crystal.get_space_group_symbol()}")
+
+# The crystal object contains all molecules identified in the CIF file
+# You can access individual molecules or perform analyses on the entire crystal structure
 ```
 
 ## Project Structure
@@ -136,3 +144,42 @@ Contributions are welcome! Please fork the repository and submit a pull request.
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Surface Generation (Slab Creation)
+
+MolCrysKit provides functionality for generating surface slabs from molecular crystals while preserving molecular topology. The surface generation ensures that intramolecular bonds are not broken during the cutting process, treating molecules as rigid units.
+
+### Key Features:
+- Miller index specification for surface orientation (h, k, l)
+- Preservation of molecular topology during cutting
+- Adjustable number of layers and vacuum spacing
+- Automatic molecular centroid-based layer assignment
+
+### Best Practices:
+- Choose Miller indices that align with crystal symmetry for optimal results
+- Use sufficient vacuum spacing (typically 10-20 Å) to avoid inter-slab interactions
+- Consider the number of layers needed for your specific application
+- Validate that molecules remain intact after slab generation
+
+### Basic Usage:
+```python
+from ase.io import write
+from molcrys_kit.operations import generate_topological_slab
+
+# Load a molecular crystal from a CIF file
+crystal = read_mol_crystal('bulk.cif')
+
+# Generate a surface slab with specific Miller indices
+slab = generate_topological_slab(
+    crystal=crystal,
+    miller_indices=(1, 1, 0),  # Miller indices of the surface
+    layers=3,                  # Number of layers in the slab
+    vacuum=10.0                # Vacuum thickness in Angstroms
+)
+
+print(f"Generated slab with {len(slab.molecules)} molecules")
+
+# Save the generated slab to a CIF file
+write_mol_crystal(slab, 'slab.cif')
+```
+

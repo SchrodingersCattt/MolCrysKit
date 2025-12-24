@@ -233,10 +233,16 @@ class TopologicalSlabGenerator:
         cross_product = np.cross(new_lattice[0], new_lattice[1])
         normal_vector = cross_product / np.linalg.norm(cross_product)
         
-        # Modify the c vector to add vacuum in the direction normal to the surface
-        vacuum_vector = vacuum * normal_vector
+        # Calculate the projected slab thickness
+        total_stacking_vector = layers * new_lattice[2]
+        slab_thickness = abs(np.dot(total_stacking_vector, normal_vector))
+        
+        # Construct the new orthogonal c vector
+        c_ortho = (slab_thickness + vacuum) * normal_vector
+        
+        # Create the final lattice with the orthogonal c vector
         final_lattice = new_lattice.copy()
-        final_lattice[2] = layers * new_lattice[2] + vacuum_vector
+        final_lattice[2] = c_ortho  # Replace the c vector with the orthogonal one
         
         # Create the final molecular crystal with the new lattice
         final_molecules = all_atoms_list
