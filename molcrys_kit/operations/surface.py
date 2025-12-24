@@ -6,14 +6,26 @@ while preserving molecular topology during the cutting process.
 """
 
 import numpy as np
-from typing import Tuple, List, Optional
+from typing import Tuple
 from math import gcd
 from functools import reduce
 
 # Import internal modules
 from ..structures.crystal import MolecularCrystal
-from ..structures.molecule import CrystalMolecule
-from ..utils.geometry import cart_to_frac, frac_to_cart
+from ..utils.geometry import frac_to_cart, cart_to_frac
+
+
+def _extended_gcd(a, b):
+    """
+    Extended Euclidean Algorithm.
+    Returns (g, x, y) such that a*x + b*y = g = gcd(a, b)
+    """
+    if a == 0:
+        return b, 0, 1
+    g, x1, y1 = _extended_gcd(b % a, a)
+    x = y1 - (b // a) * x1
+    y = x1
+    return g, x, y
 
 
 def _gcd_multiple(numbers):
@@ -69,59 +81,76 @@ class TopologicalSlabGenerator:
         if h == 0 and k == 0 and l == 0:
             raise ValueError("Miller indices cannot all be zero")
         
-        # Create a copy of the lattice for calculations
-        lattice = self.crystal.lattice
+        # Reduce Miller indices to be coprime
+        g = _gcd_multiple([h, k, l])
+        h, k, l = h // g, k // g, l // g
         
-        # Find two vectors in the plane (hkl)
-        # If h and k are not both 0
-        if abs(h) > 0 or abs(k) > 0:
-            # v1 is perpendicular to [h, k, l]
-            v1 = np.array([k, -h, 0], dtype=int)
-            # v2 is also perpendicular to [h, k, l] and independent of v1
-            # v2 = [l*h, l*k, -(h^2 + k^2)]
-            v2 = np.array([l * h, l * k, -(h * h + k * k)], dtype=int)
-        else:  # h=0, k=0 (plane is (001))
+        # Handle special case where plane is parallel to z-axis (001)
+        if h == 0 and k == 0:
             v1 = np.array([1, 0, 0], dtype=int)
             v2 = np.array([0, 1, 0], dtype=int)
-        
-        # Reduce v1 and v2 to primitive vectors by dividing by their GCDs
-        v1_gcd = _gcd_multiple(np.abs(v1))
-        if v1_gcd > 0:
-            v1 = v1 // v1_gcd
         else:
-            v1 = np.array([1, 0, 0], dtype=int)  # fallback
-            
-        v2_gcd = _gcd_multiple(np.abs(v2))
-        if v2_gcd > 0:
-            v2 = v2 // v2_gcd
-        else:
-            v2 = np.array([0, 1, 0], dtype=int)  # fallback
+            # General case using Extended Euclidean Algorithm
+            g_hk, p, q = _extended_gcd(h, k)
+            # v1 is perpendicular to [h, k, l] and primitive along its direction
+            v1 = np.array([k // g_hk, -h // g_hk, 0], dtype=int)
+            # v2 completes the primitive basis for the plane
+            v2 = np.array([p * l, q * l, -g_hk], dtype=int)
         
-        # Find the stacking vector (w) such that it's not in the plane
-        # Try simple vectors [1,0,0], [0,1,0], [0,0,1] to find one that's not perpendicular to [h,k,l]
+        # Find the stacking vector (v3) such that h*v3[0] + k*v3[1] + l*v3[2] = 1 (Bezout's identity)
+        # We need to solve h*u + k*v + l*w = 1 for integers u, v, w
+        # Since gcd(h, k, l) = 1, a solution exists
         stacking_vector = None
-        min_det = float('inf')
-        best_w = None
+        for w in range(abs(l) + 1):  # Try different values of w
+            # Now solve h*u + k*v = 1 - l*w
+            rhs = 1 - l * w
+            if rhs == 0 and h == 0 and k == 0:
+                # This case shouldn't happen since h, k, l are coprime and not all zero
+                continue
+            elif h == 0 and k == 0:
+                # Then l*w = 1, so l=1, w=1 or l=-1, w=-1
+                if l * w == 1:
+                    stacking_vector = np.array([0, 0, w], dtype=int)
+                    break
+            else:
+                # Solve h*u + k*v = rhs - l*w for u and v
+                # Using the extended Euclidean algorithm approach
+                if h == 0:
+                    if rhs % k == 0:
+                        stacking_vector = np.array([0, rhs // k, w], dtype=int)
+                        break
+                elif k == 0:
+                    if rhs % h == 0:
+                        stacking_vector = np.array(rhs // h, 0, w, dtype=int)
+                        break
+                else:
+                    # Use extended Euclidean to find a particular solution
+                    g_hk, p_hk, q_hk = _extended_gcd(h, k)
+                    if (rhs % g_hk) == 0:  # Check if solution exists
+                        # Scale the solution
+                        p_hk *= rhs // g_hk
+                        q_hk *= rhs // g_hk
+                        stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
+                        break
         
-        # Try various simple vectors as possible stacking directions
-        for w_test in [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1]]:
-            w_test = np.array(w_test)
-            # Check if w_test is not in the plane (h*k_test[0] + k*w_test[1] + l*w_test[2] != 0)
-            dot_product = h * w_test[0] + k * w_test[1] + l * w_test[2]
-            if dot_product != 0:
-                # Calculate determinant of matrix [v1, v2, w_test]
-                test_matrix = np.array([v1, v2, w_test]).T
-                det = abs(np.linalg.det(test_matrix))
-                if det < min_det:
-                    min_det = det
-                    best_w = w_test.copy()
-        
-        # If we couldn't find a suitable vector, default to [0, 0, 1]
-        if best_w is None:
-            best_w = np.array([0, 0, 1], dtype=int)
+        # If we couldn't find a suitable vector with the above method, try brute force
+        if stacking_vector is None:
+            # Try simple vectors [1,0,0], [0,1,0], [0,0,1] and their negatives
+            for w_test in [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1]]:
+                w_test = np.array(w_test)
+                dot_product = h * w_test[0] + k * w_test[1] + l * w_test[2]
+                if dot_product == 1:
+                    stacking_vector = w_test
+                    break
+                elif dot_product == -1:
+                    stacking_vector = -w_test  # This would give dot product of 1
+                    break
+
+        if stacking_vector is None:
+            raise ValueError(f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})")
         
         # Construct the transformation matrix (as column vectors)
-        transformation_matrix = np.array([v1, v2, best_w]).T
+        transformation_matrix = np.array([v1, v2, stacking_vector]).T
         
         return transformation_matrix
     
@@ -156,46 +185,48 @@ class TopologicalSlabGenerator:
         unwrapped_molecules = self.crystal.get_unwrapped_molecules()
         
         # Transform all molecular centroids to the new fractional coordinate system
-        new_lattice_inv = np.linalg.inv(new_lattice)
         transformed_molecules = []
         
         for mol in unwrapped_molecules:
             # Get the centroid of the molecule in Cartesian coordinates
             centroid_cart = mol.get_centroid()
             
-            # Convert to new fractional coordinates
-            centroid_frac_new = centroid_cart @ new_lattice_inv
+            # Convert to new fractional coordinates using the geometry utility
+            centroid_frac_new = cart_to_frac(centroid_cart, new_lattice)
             
-            # Store the transformed centroid along with a COPY of the molecule
-            transformed_molecules.append((mol.copy(), centroid_frac_new))
+            # Store the transformed centroid along with the molecule data
+            transformed_molecules.append((mol, centroid_frac_new))
         
         # Shift molecules to the fundamental layer (0 <= z < 1)
-        final_molecules = []
+        shifted_molecules = []
         for mol, centroid_frac_new in transformed_molecules:
             # Shift only the z-coordinate (index 2) to be in [0, 1)
-            z_shift = -centroid_frac_new[2] // 1  # How many unit cells to shift
+            # Use modulo to map to [0, 1) range
+            z_new = centroid_frac_new[2] % 1.0
             adjusted_centroid = centroid_frac_new.copy()
-            adjusted_centroid[2] += z_shift + 1  # Shift to [0, 1) range
-            
+            adjusted_centroid[2] = z_new
+
             # Shift all atoms in the molecule by the same amount
             positions = mol.get_positions()
-            shift_vector = (z_shift + 1) * new_lattice[2]  # Only z-direction shift
-            mol.positions = positions + shift_vector
+            # Calculate shift in Cartesian coordinates
+            shift_vector = (z_new - centroid_frac_new[2]) * new_lattice[2]
+            new_positions = positions + shift_vector
             
-            final_molecules.append((mol, adjusted_centroid))
+            # Store molecule with new positions and adjusted centroid
+            shifted_molecules.append((mol, new_positions, adjusted_centroid))
         
         # Now stack the molecules to create multiple layers
         all_atoms_list = []
         
         for layer_idx in range(layers):
-            for mol, _ in transformed_molecules:
-                # Create a copy of the molecule for this layer
+            for mol, positions, _ in shifted_molecules:
+                # Calculate the z-shift for this layer
+                layer_shift = layer_idx * new_lattice[2]  # Only z-direction shift
+                layer_positions = positions + layer_shift
+                
+                # Create a copy of the molecule with the new positions
                 layer_mol = mol.copy()
-                
-                # Shift the z-coordinate by layer_idx unit cells
-                shift_vector = layer_idx * new_lattice[2]  # Only z-direction shift
-                layer_mol.positions = layer_mol.get_positions() + shift_vector
-                
+                layer_mol.positions = layer_positions
                 all_atoms_list.append(layer_mol)
         
         # Calculate the normal vector to the surface (a × b)
