@@ -301,8 +301,5 @@ class MolecularCrystal:
             positions.extend(molecule.get_positions())
 
         return Atoms(
-            symbols=symbols,
-            positions=positions,
-            cell=self.lattice,
-            pbc=self.pbc
+            symbols=symbols, positions=positions, cell=self.lattice, pbc=self.pbc
         )
