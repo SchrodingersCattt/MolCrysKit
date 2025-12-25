@@ -6,6 +6,7 @@ while preserving molecular topology during the cutting process.
 """
 
 import numpy as np
+import math
 from typing import Tuple
 from math import gcd
 from functools import reduce
@@ -166,7 +167,7 @@ class TopologicalSlabGenerator:
         return transformation_matrix
 
     def build(
-        self, miller_indices: Tuple[int, int, int], layers: int, vacuum: float
+        self, miller_indices: Tuple[int, int, int], layers: int = 3, min_thickness: float = None, vacuum: float = 10.0
     ) -> MolecularCrystal:
         """
         Build a surface slab with the specified Miller indices, number of layers, and vacuum.
@@ -175,8 +176,11 @@ class TopologicalSlabGenerator:
         ----------
         miller_indices : Tuple[int, int, int]
             Miller indices (h, k, l) of the surface.
-        layers : int
-            Number of layers in the slab.
+        layers : int, optional
+            Number of unit planes in the slab. If not provided, min_thickness will be used to calculate layers.
+            Defaults to 3.
+        min_thickness : float, optional
+            Minimum thickness of the slab in Angstroms. If provided along with layers, layers will be used.
         vacuum : float
             Thickness of vacuum region to add above the slab (in Angstroms).
 
@@ -195,6 +199,15 @@ class TopologicalSlabGenerator:
         new_lattice = (
             transformation_matrix.T @ old_lattice
         )  # New basis vectors in Cartesian
+
+        # Calculate d_spacing (thickness of a single layer)
+        cross_product = np.cross(new_lattice[0], new_lattice[1])
+        normal_vector = cross_product / np.linalg.norm(cross_product)
+        d_spacing = abs(np.dot(new_lattice[2], normal_vector))
+        
+        # Determine number of layers based on parameters
+        if min_thickness is not None:
+            layers = max(1, math.ceil(min_thickness / d_spacing))
 
         # Get unwrapped molecules to handle periodic boundary conditions correctly
         unwrapped_molecules = self.crystal.get_unwrapped_molecules()
@@ -279,7 +292,8 @@ class TopologicalSlabGenerator:
 def generate_topological_slab(
     crystal: MolecularCrystal,
     miller_indices: Tuple[int, int, int],
-    layers: int = 3,
+    layers: int = None,
+    min_thickness: float = None,
     vacuum: float = 10.0,
 ) -> MolecularCrystal:
     """
@@ -292,7 +306,10 @@ def generate_topological_slab(
     miller_indices : Tuple[int, int, int]
         Miller indices (h, k, l) of the surface.
     layers : int, optional
-        Number of layers in the slab (default: 3).
+        Number of unit planes in the slab. If not provided, min_thickness will be used to calculate layers.
+    min_thickness : float, optional
+        Minimum thickness of the slab in Angstroms. If provided along with layers, layers will be used.
+        If neither is provided, defaults to 3 layers.
     vacuum : float, optional
         Thickness of vacuum region to add above the slab (in Angstroms, default: 10.0).
 
@@ -302,4 +319,4 @@ def generate_topological_slab(
         The generated surface slab as a MolecularCrystal object.
     """
     generator = TopologicalSlabGenerator(crystal)
-    return generator.build(miller_indices, layers, vacuum)
+    return generator.build(miller_indices, layers, min_thickness, vacuum)
