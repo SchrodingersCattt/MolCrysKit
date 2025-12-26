@@ -4,6 +4,8 @@ Output functionality for molecular crystal structures.
 This module provides functions for writing molecular crystal data to various formats.
 """
 
+import numpy as np
+from typing import List
 from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
 
@@ -78,6 +80,89 @@ def write_molecule_summary(molecule: CrystalMolecule) -> str:
     summary.append(f"Ellipsoid radii: {radii[0]:.3f} × {radii[1]:.3f} × {radii[2]:.3f}")
 
     return "\n".join(summary)
+
+
+def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
+    """
+    Write a crystal structure to CIF format.
+
+    Parameters
+    ----------
+    crystal : MolecularCrystal
+        The crystal to write.
+    filename : str, optional
+        The filename to write to. If None, returns the CIF string.
+
+    Returns
+    -------
+    str
+        CIF format string if filename is None, otherwise None.
+    """
+    lines = []
+    lines.append("data_crystal")
+    lines.append("_audit_creation_date              ?")
+    lines.append("_audit_creation_method            'MolCrysKit'")
+    lines.append("")
+    
+    # Add crystal system info (assuming general triclinic)
+    lines.append("_symmetry_space_group_name_H-M    'P 1'")
+    lines.append("_symmetry_Int_Tables_number       1")
+    lines.append("")
+    lines.append("loop_")
+    lines.append("  _symmetry_equiv_pos_as_xyz")
+    lines.append("  x,y,z")
+    lines.append("")
+    
+    # Add cell parameters
+    a, b, c, alpha, beta, gamma = crystal.get_lattice_parameters()
+    lines.append(f"_cell_length_a                    {a:.6f}")
+    lines.append(f"_cell_length_b                    {b:.6f}")
+    lines.append(f"_cell_length_c                    {c:.6f}")
+    lines.append(f"_cell_angle_alpha                 {alpha:.6f}")
+    lines.append(f"_cell_angle_beta                  {beta:.6f}")
+    lines.append(f"_cell_angle_gamma                 {gamma:.6f}")
+    lines.append("")
+    
+    # Add atom positions
+    lines.append("loop_")
+    lines.append("  _atom_site_label")
+    lines.append("  _atom_site_type_symbol")
+    lines.append("  _atom_site_fract_x")
+    lines.append("  _atom_site_fract_y")
+    lines.append("  _atom_site_fract_z")
+    lines.append("  _atom_site_U_iso_or_equiv")
+    lines.append("  _atom_site_adp_type")
+    
+    # Collect all atoms from all molecules
+    all_symbols = []
+    all_frac_positions = []
+    
+    for mol in crystal.molecules:
+        symbols = mol.get_chemical_symbols()
+        positions = mol.get_positions()
+        
+        for i, pos in enumerate(positions):
+            frac_pos = crystal.cartesian_to_fractional(pos)
+            # Ensure fractional coordinates are in [0,1)
+            frac_pos = frac_pos - np.floor(frac_pos)
+            
+            all_symbols.append(symbols[i])
+            all_frac_positions.append(frac_pos)
+    
+    # Write atom positions
+    for i, (symbol, frac_pos) in enumerate(zip(all_symbols, all_frac_positions)):
+        atom_label = f"{symbol}{i+1}"
+        lines.append(
+            f"  {atom_label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f}  .  Uiso"
+        )
+    
+    cif_string = "\n".join(lines) + "\n"
+
+    if filename is None:
+        return cif_string
+    else:
+        with open(filename, "w") as f:
+            f.write(cif_string)
 
 
 def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:
