@@ -19,6 +19,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Customize bond thresholds for specific atom pairs
 - Graph-based molecular representation using NetworkX
 - Convert molecular crystals to ASE Atoms objects with the to_ase method
+- Add hydrogen atoms to molecular crystals based on geometric rules
 
 ## Dependencies
 
@@ -97,6 +98,68 @@ print(f"Space group: {crystal.get_space_group_symbol()}")
 # Convert molecular crystal to ASE Atoms object
 ase_atoms = crystal.to_ase()
 print(f"Converted to ASE Atoms: {len(ase_atoms)} atoms")
+```
+
+## Hydrogenation
+
+MolCrysKit provides functionality to add hydrogen atoms to molecular crystals based on geometric rules and chemical constraints. This is particularly useful for generating complete structures from X-ray diffraction data, which often does not resolve hydrogen positions.
+
+### Key Features:
+- Automatic determination of hydrogen atom positions based on coordination geometry
+- Support for common coordination geometries (tetrahedral, trigonal pyramidal, bent, etc.)
+- Customizable rules for specific atom types
+- Configurable bond lengths for different atom pairs
+- Preservation of molecular topology during hydrogenation
+
+### Best Practices:
+- Verify that the crystal structure is of sufficient quality for hydrogen addition
+- Consider using custom rules for specific chemical environments
+- Validate the hydrogen-bonding network after hydrogenation
+- Use appropriate bond lengths for your specific system
+
+### Basic Usage:
+```python
+from molcrys_kit.operations import add_hydrogens
+
+# Load a molecular crystal from a CIF file
+crystal = read_mol_crystal('bulk.cif')
+
+# Add hydrogens with default rules
+hydrogenated_crystal = add_hydrogens(crystal)
+
+print(f"Original crystal has {len(crystal)} atoms")
+print(f"Hydrogenated crystal has {len(hydrogenated_crystal)} atoms")
+
+# Add hydrogens with custom rules
+custom_rules = [
+    {
+        "symbol": "N",              # Nitrogen atoms
+        "geometry": "trigonal_pyramidal",  # Geometry to use
+        "target_coordination": 3,   # Target coordination number
+    },
+    {
+        "symbol": "O",              # Oxygen atoms
+        "geometry": "bent",         # Geometry to use
+        "target_coordination": 2,   # Target coordination number
+    }
+]
+
+# Custom bond lengths for specific atom pairs
+custom_bond_lengths = {
+    "O-H": 0.96,  # Bond length in Angstroms
+    "N-H": 1.01,
+    "C-H": 1.09,
+}
+
+# Add hydrogens with custom rules and bond lengths
+hydrogenated_crystal = add_hydrogens(
+    crystal,
+    rules=custom_rules,
+    bond_lengths=custom_bond_lengths
+)
+
+# Save the hydrogenated crystal to a CIF file
+write_mol_crystal(hydrogenated_crystal, 'hydrogenated_bulk.cif')
 ```
 
 ## Project Structure

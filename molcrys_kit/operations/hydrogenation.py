@@ -18,6 +18,42 @@ from ..utils.geometry import (
 )
 
 
+def add_hydrogens(crystal, rules=None, bond_lengths=None):
+    """
+    Add hydrogen atoms to a molecular crystal based on geometric rules.
+
+    Parameters
+    ----------
+    crystal : MolecularCrystal
+        The molecular crystal to hydrogenate.
+    rules : Optional[List[Dict]]
+        Override rules for coordination geometry. Format:
+        [
+            {
+                "symbol": str,              # Required. E.g., "O", "N"
+                "neighbors": List[str],     # Optional. E.g., ["Cl", "S"]. Context condition.
+                "target_coordination": int, # Optional. Override coordination.
+                "geometry": str             # Optional. Override geometry.
+            },
+            ...
+        ]
+        
+        Processing Logic:
+        1. Specific rules (with neighbors) take priority
+        2. General rules (without neighbors) take second priority
+        3. Default rules are used if no user rules match
+    bond_lengths : Optional[Dict]
+        Override bond lengths for specific atom pairs.
+
+    Returns
+    -------
+    MolecularCrystal
+        New crystal with hydrogen atoms added.
+    """
+    hydrogenator = Hydrogenator(crystal)
+    return hydrogenator.add_hydrogens(rules=rules, bond_lengths=bond_lengths)
+
+
 class Hydrogenator:
     """
     Class for adding hydrogen atoms to molecular crystals based on geometric rules.
