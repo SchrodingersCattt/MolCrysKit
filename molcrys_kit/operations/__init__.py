@@ -41,7 +41,7 @@ __all__ = [
 def add_hydrogens(crystal, rules=None, bond_lengths=None):
     """
     Add hydrogen atoms to a molecular crystal based on geometric rules.
-    
+
     Parameters
     ----------
     crystal : MolecularCrystal
@@ -50,7 +50,7 @@ def add_hydrogens(crystal, rules=None, bond_lengths=None):
         Override rules for coordination geometry.
     bond_lengths : Optional[Dict]
         Override bond lengths for specific atom pairs.
-        
+
     Returns
     -------
     MolecularCrystal

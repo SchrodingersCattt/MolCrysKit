@@ -167,7 +167,11 @@ class TopologicalSlabGenerator:
         return transformation_matrix
 
     def build(
-        self, miller_indices: Tuple[int, int, int], layers: int = 3, min_thickness: float = None, vacuum: float = 10.0
+        self,
+        miller_indices: Tuple[int, int, int],
+        layers: int = 3,
+        min_thickness: float = None,
+        vacuum: float = 10.0,
     ) -> MolecularCrystal:
         """
         Build a surface slab with the specified Miller indices, number of layers, and vacuum.
@@ -204,7 +208,7 @@ class TopologicalSlabGenerator:
         cross_product = np.cross(new_lattice[0], new_lattice[1])
         normal_vector = cross_product / np.linalg.norm(cross_product)
         d_spacing = abs(np.dot(new_lattice[2], normal_vector))
-        
+
         # Determine number of layers based on parameters
         if min_thickness is not None:
             layers = max(1, math.ceil(min_thickness / d_spacing))

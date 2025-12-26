@@ -5,7 +5,7 @@ This module provides coordinate transformations and geometric calculations.
 """
 
 import numpy as np
-from typing import List, Tuple
+from typing import List
 from ..constants import get_atomic_mass, has_atomic_mass
 
 
@@ -235,7 +235,7 @@ def calculate_center_of_mass(atom_coords: np.ndarray, atom_symbols: list) -> np.
 def rotate_vector(vector: np.ndarray, axis: np.ndarray, angle_deg: float) -> np.ndarray:
     """
     Rotate a vector around an axis by an angle in degrees using Rodrigues' rotation formula.
-    
+
     Parameters
     ----------
     vector : np.ndarray
@@ -244,7 +244,7 @@ def rotate_vector(vector: np.ndarray, axis: np.ndarray, angle_deg: float) -> np.
         Axis of rotation (will be normalized).
     angle_deg : float
         Angle of rotation in degrees.
-    
+
     Returns
     -------
     np.ndarray
@@ -252,36 +252,36 @@ def rotate_vector(vector: np.ndarray, axis: np.ndarray, angle_deg: float) -> np.
     """
     # Convert angle to radians
     angle_rad = np.radians(angle_deg)
-    
+
     # Normalize the axis
     axis_norm = normalize_vector(axis)
-    
+
     # Apply Rodrigues' rotation formula:
     # v_rot = v*cos(θ) + (k × v)*sin(θ) + k*(k · v)*(1 - cos(θ))
     cos_theta = np.cos(angle_rad)
     sin_theta = np.sin(angle_rad)
-    
+
     cross_product = np.cross(axis_norm, vector)
     dot_product = np.dot(axis_norm, vector)
-    
+
     rotated_vector = (
-        vector * cos_theta +
-        cross_product * sin_theta +
-        axis_norm * dot_product * (1 - cos_theta)
+        vector * cos_theta
+        + cross_product * sin_theta
+        + axis_norm * dot_product * (1 - cos_theta)
     )
-    
+
     return rotated_vector
 
 
 def get_missing_vectors(
-    center: np.ndarray, 
-    existing_neighbors: List[np.ndarray], 
-    geometry_type: str, 
-    bond_length: float = 1.0
+    center: np.ndarray,
+    existing_neighbors: List[np.ndarray],
+    geometry_type: str,
+    bond_length: float = 1.0,
 ) -> List[np.ndarray]:
     """
     Calculate vectors for missing atoms based on coordination geometry.
-    
+
     Parameters
     ----------
     center : np.ndarray
@@ -289,20 +289,22 @@ def get_missing_vectors(
     existing_neighbors : List[np.ndarray]
         List of existing neighbor positions.
     geometry_type : str
-        Type of coordination geometry ('linear', 'trigonal_planar', 'tetrahedral', 
+        Type of coordination geometry ('linear', 'trigonal_planar', 'tetrahedral',
         'trigonal_bipyramidal', 'octahedral', 'bent', 'trigonal_pyramidal').
     bond_length : float
         Distance from center to new atoms.
-    
+
     Returns
     -------
     List[np.ndarray]
         List of vectors from center to missing atoms.
     """
     # Calculate vectors from center to existing neighbors
-    neighbor_vectors = [normalize_vector(neighbor - center) for neighbor in existing_neighbors]
-    
-    if geometry_type == 'linear':
+    neighbor_vectors = [
+        normalize_vector(neighbor - center) for neighbor in existing_neighbors
+    ]
+
+    if geometry_type == "linear":
         # Linear geometry (sp, coordination number = 2)
         if len(neighbor_vectors) == 0:
             # If no neighbors, return an arbitrary direction and its opposite
@@ -316,8 +318,8 @@ def get_missing_vectors(
         else:
             # More than 1 neighbor for linear geometry - return empty list
             return []
-    
-    elif geometry_type == 'trigonal_planar':
+
+    elif geometry_type == "trigonal_planar":
         # Trigonal planar geometry (sp2, coordination number = 3)
         if len(neighbor_vectors) == 0:
             # If no neighbors, return three vectors in a plane (e.g., xy-plane)
@@ -335,7 +337,7 @@ def get_missing_vectors(
             else:
                 perp = np.cross(n, np.array([1, 0, 0]))
             perp = normalize_vector(perp)
-            
+
             # Create two new vectors at 120 degrees to the existing one
             # First, rotate n around perp by 120 degrees
             v1 = rotate_vector(n, perp, 120)
@@ -352,8 +354,8 @@ def get_missing_vectors(
         else:
             # More than 2 neighbors for trigonal planar - return empty list
             return []
-    
-    elif geometry_type == 'tetrahedral':
+
+    elif geometry_type == "tetrahedral":
         # Tetrahedral geometry (sp3, coordination number = 4)
         if len(neighbor_vectors) == 0:
             # If no neighbors, return standard tetrahedral directions
@@ -362,7 +364,12 @@ def get_missing_vectors(
             v2 = normalize_vector(np.array([-1, -1, 1]))
             v3 = normalize_vector(np.array([-1, 1, -1]))
             v4 = normalize_vector(np.array([1, -1, -1]))
-            return [v1 * bond_length, v2 * bond_length, v3 * bond_length, v4 * bond_length]
+            return [
+                v1 * bond_length,
+                v2 * bond_length,
+                v3 * bond_length,
+                v4 * bond_length,
+            ]
         elif len(neighbor_vectors) == 1:
             # If one neighbor, place the other 3 to form a tetrahedron
             n = neighbor_vectors[0]
@@ -373,7 +380,7 @@ def get_missing_vectors(
                 u = np.cross(n, np.array([1, 0, 0]))
             u = normalize_vector(u)
             w = normalize_vector(np.cross(n, u))
-            
+
             # The ideal tetrahedral angle is ~109.47 degrees (109.47 = 180 - 70.53)
             # So we rotate the opposite of n by 70.53 degrees around u
             cone_angle = 180 - 109.47  # ~70.53 degrees
@@ -386,27 +393,27 @@ def get_missing_vectors(
             # Correct approach: Calculate bisector and perpendicular normal
             n1 = neighbor_vectors[0]
             n2 = neighbor_vectors[1]
-            
+
             # Calculate the bisector of the two existing vectors
             bisector = normalize_vector(n1 + n2)
-            
+
             # Calculate the perpendicular normal to the plane of the two vectors
             perpendicular_normal = normalize_vector(np.cross(n1, n2))
-            
+
             # Calculate the rotation axis that lies in the n1-n2 plane and is perpendicular to the bisector
             rotation_axis = normalize_vector(np.cross(bisector, perpendicular_normal))
-            
+
             # Tetrahedral angle (109.47°) - angle between bonds in a tetrahedron
             # The angle between individual bonds and their bisector is half this: 54.7356°
             tetrahedral_angle_half = 109.47 / 2  # ~54.7356 degrees
-            
+
             # The target vectors should be centered around the opposite of the bisector
             target_base = -bisector
-            
+
             # Rotate the target base around the rotation_axis by the tetrahedral angle
             v1 = rotate_vector(target_base, rotation_axis, tetrahedral_angle_half)
             v2 = rotate_vector(target_base, rotation_axis, -tetrahedral_angle_half)
-            
+
             return [v1 * bond_length, v2 * bond_length]
         elif len(neighbor_vectors) == 3:
             # If three neighbors, return the fourth position
@@ -417,8 +424,8 @@ def get_missing_vectors(
         else:
             # More than 3 neighbors for tetrahedral - return empty list
             return []
-    
-    elif geometry_type == 'trigonal_bipyramidal':
+
+    elif geometry_type == "trigonal_bipyramidal":
         # Trigonal bipyramidal geometry (sp3d, coordination number = 5)
         # 3 equatorial (in plane, 120 deg apart) + 2 axial (180 deg apart)
         if len(neighbor_vectors) == 0:
@@ -433,15 +440,15 @@ def get_missing_vectors(
                 v_equatorial2 * bond_length,
                 v_equatorial3 * bond_length,
                 v_axial1 * bond_length,
-                v_axial2 * bond_length
+                v_axial2 * bond_length,
             ]
         else:
             # For now, just return the remaining positions based on ideal geometry
             # This is a simplified approach; a more complex alignment would be needed for real cases
             # For now, return empty to indicate complexity
             return []
-    
-    elif geometry_type == 'octahedral':
+
+    elif geometry_type == "octahedral":
         # Octahedral geometry (sp3d2, coordination number = 6)
         # 6 directions along cartesian axes: ±x, ±y, ±z
         if len(neighbor_vectors) == 0:
@@ -452,7 +459,7 @@ def get_missing_vectors(
                 np.array([0, 1, 0]),
                 np.array([0, -1, 0]),
                 np.array([0, 0, 1]),
-                np.array([0, 0, -1])
+                np.array([0, 0, -1]),
             ]
             return [d * bond_length for d in directions]
         elif len(neighbor_vectors) == 1:
@@ -465,26 +472,26 @@ def get_missing_vectors(
             else:
                 perp = np.cross(n, np.array([1, 0, 0]))
             perp = normalize_vector(perp)
-            
+
             # Find another perpendicular to create a coordinate system
             perp2 = normalize_vector(np.cross(n, perp))
-            
+
             # In octahedral geometry, the orthogonal positions are along the perpendicular axes
             # We'll return positions based on the coordinate system defined by n, perp, perp2
             positions = []
             # Add positions along perp and perp2 directions
             positions.extend([perp * bond_length, -perp * bond_length])
             positions.extend([perp2 * bond_length, -perp2 * bond_length])
-            
+
             # Add position opposite to n
             positions.append(-n * bond_length)
-            
+
             return positions
         else:
             # More complex case - return empty for now
             return []
-    
-    elif geometry_type == 'bent':
+
+    elif geometry_type == "bent":
         # Bent geometry (like water, with 2 lone pairs)
         # This is for atoms with 2 bonds and 2 lone pairs (like oxygen in water)
         if len(neighbor_vectors) == 0:
@@ -502,15 +509,15 @@ def get_missing_vectors(
             else:
                 perp_axis = np.cross(n, np.array([1, 0, 0]))
             perp_axis = normalize_vector(perp_axis)
-            
+
             # Rotate the first neighbor by ~109.5 degrees around the perpendicular axis
             v = rotate_vector(n, perp_axis, 109.5)
             return [v * bond_length]
         else:
             # More than 1 neighbor for bent geometry - return empty list
             return []
-    
-    elif geometry_type == 'trigonal_pyramidal':
+
+    elif geometry_type == "trigonal_pyramidal":
         # Trigonal pyramidal geometry (like ammonia, with 1 lone pair)
         # This is similar to tetrahedral but with one position occupied by a lone pair
         if len(neighbor_vectors) == 0:
@@ -529,7 +536,7 @@ def get_missing_vectors(
             else:
                 perp1 = np.cross(n, np.array([1, 0, 0]))
             perp1 = normalize_vector(perp1)
-            
+
             # Rotate around the axis to get the second and third positions
             v1 = rotate_vector(n, perp1, 109.5)  # Tetrahedral angle
             # Find axis perpendicular to both n and v1 to get the third vector
@@ -549,20 +556,20 @@ def get_missing_vectors(
         else:
             # More than 2 neighbors for trigonal pyramidal - return empty list
             return []
-    
+
     # Unknown geometry type
     return []
 
 
 def calculate_dihedral_and_adjustment(
-    axis_start: np.ndarray, 
-    axis_end: np.ndarray, 
-    neighbors_start: List[np.ndarray], 
-    neighbors_end: List[np.ndarray]
+    axis_start: np.ndarray,
+    axis_end: np.ndarray,
+    neighbors_start: List[np.ndarray],
+    neighbors_end: List[np.ndarray],
 ) -> float:
     """
     Calculate rotation needed to achieve staggered conformation for connected sp3 centers.
-    
+
     Parameters
     ----------
     axis_start : np.ndarray
@@ -573,7 +580,7 @@ def calculate_dihedral_and_adjustment(
         Neighbor atoms connected to the start atom.
     neighbors_end : List[np.ndarray]
         Neighbor atoms connected to the end atom.
-    
+
     Returns
     -------
     float
@@ -581,12 +588,12 @@ def calculate_dihedral_and_adjustment(
     """
     # Calculate the bond axis vector
     bond_axis = normalize_vector(axis_end - axis_start)
-    
-    # For each set of neighbors, we need to find the average direction of the 
+
+    # For each set of neighbors, we need to find the average direction of the
     # bonds for the dihedral angle calculation
     if not neighbors_start or not neighbors_end:
         return 0.0  # No neighbors to align
-    
+
     # Calculate the average vector from axis_start to its neighbors
     avg_start_vector = np.zeros(3)
     for neighbor in neighbors_start:
@@ -594,8 +601,12 @@ def calculate_dihedral_and_adjustment(
         # Project onto plane perpendicular to bond axis
         projection = np.dot(vec, bond_axis) * bond_axis
         perp_vec = vec - projection
-        avg_start_vector += normalize_vector(perp_vec) if np.linalg.norm(perp_vec) > 1e-6 else np.zeros(3)
-    
+        avg_start_vector += (
+            normalize_vector(perp_vec)
+            if np.linalg.norm(perp_vec) > 1e-6
+            else np.zeros(3)
+        )
+
     # Calculate the average vector from axis_end to its neighbors
     avg_end_vector = np.zeros(3)
     for neighbor in neighbors_end:
@@ -603,18 +614,26 @@ def calculate_dihedral_and_adjustment(
         # Project onto plane perpendicular to bond axis
         projection = np.dot(vec, bond_axis) * bond_axis
         perp_vec = vec - projection
-        avg_end_vector += normalize_vector(perp_vec) if np.linalg.norm(perp_vec) > 1e-6 else np.zeros(3)
-    
+        avg_end_vector += (
+            normalize_vector(perp_vec)
+            if np.linalg.norm(perp_vec) > 1e-6
+            else np.zeros(3)
+        )
+
     # Normalize the average vectors
     if np.linalg.norm(avg_start_vector) > 1e-6:
         avg_start_vector = normalize_vector(avg_start_vector)
     else:
         # If no valid neighbors, use an arbitrary perpendicular direction
         if abs(bond_axis[2]) < 0.9:
-            avg_start_vector = normalize_vector(np.cross(bond_axis, np.array([0, 0, 1])))
+            avg_start_vector = normalize_vector(
+                np.cross(bond_axis, np.array([0, 0, 1]))
+            )
         else:
-            avg_start_vector = normalize_vector(np.cross(bond_axis, np.array([1, 0, 0])))
-    
+            avg_start_vector = normalize_vector(
+                np.cross(bond_axis, np.array([1, 0, 0]))
+            )
+
     if np.linalg.norm(avg_end_vector) > 1e-6:
         avg_end_vector = normalize_vector(avg_end_vector)
     else:
@@ -623,17 +642,17 @@ def calculate_dihedral_and_adjustment(
             avg_end_vector = normalize_vector(np.cross(bond_axis, np.array([0, 0, 1])))
         else:
             avg_end_vector = normalize_vector(np.cross(bond_axis, np.array([1, 0, 0])))
-    
+
     # Calculate the current dihedral angle
     # Project both vectors onto a plane perpendicular to the bond axis
     current_angle = angle_between_vectors(avg_start_vector, avg_end_vector)
-    
+
     # Calculate the angle needed to achieve 60 degrees (staggered)
     # We want the angle between the planes to be 60 degrees
     target_angle = np.radians(60.0)
-    
+
     # Calculate the difference
     angle_diff = target_angle - current_angle
-    
+
     # Convert to degrees
     return np.degrees(angle_diff)
