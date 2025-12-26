@@ -103,7 +103,8 @@ def main():
     # Define rules for the Ammonium Cation (CH3NH3+)
     rules = {
         "global_overrides": {
-            "N": {"geometry": "tetrahedral", "target_coordination": 4}
+            "N": {"geometry": "tetrahedral", "target_coordination": 4},
+            "O": {"target_coordination": 1, "geometry": "bent"}
             # Note: C defaults to tetrahedral/coord=4, so it needs 3 H automatically.
             # Note: N defaults to coord=3 usually, so we override it to 4 to get NH3+.
         }
