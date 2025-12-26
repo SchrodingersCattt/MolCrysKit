@@ -13,7 +13,9 @@ from ..structures.molecule import CrystalMolecule
 from ..utils.geometry import (
     get_missing_vectors,
     calculate_dihedral_and_adjustment,
-    normalize_vector
+    normalize_vector,
+    cart_to_frac,
+    frac_to_cart
 )
 
 
@@ -173,7 +175,62 @@ class Hydrogenator:
         # Now perform optimization step for staggered conformations
         new_crystal = self._optimize_conformations(new_crystal, effective_bond_lengths)
         
-        return new_crystal
+        # Wrap the molecules back into the unit cell to handle PBC correctly
+        wrapped_molecules = self._wrap_molecules_to_cell(new_crystal.molecules)
+        
+        # Create the final crystal with wrapped molecules
+        final_crystal = MolecularCrystal(
+            lattice=self.crystal.lattice,
+            molecules=wrapped_molecules,
+            pbc=self.crystal.pbc
+        )
+        
+        return final_crystal
+    
+    def _wrap_molecules_to_cell(self, molecules: List[Atoms]) -> List[Atoms]:
+        """
+        Wrap molecules back into the unit cell to handle PBC correctly.
+        
+        Parameters
+        ----------
+        molecules : List[Atoms]
+            List of molecules to wrap.
+            
+        Returns
+        -------
+        List[Atoms]
+            List of wrapped molecules.
+        """
+        wrapped_molecules = []
+        
+        for mol in molecules:
+            # Calculate the center of mass of the molecule
+            symbols = mol.get_chemical_symbols()
+            positions = mol.get_positions()
+            
+            # Calculate center of mass
+            from ..utils.geometry import calculate_center_of_mass
+            com = calculate_center_of_mass(positions, symbols)
+            
+            # Convert COM to fractional coordinates
+            frac_com = cart_to_frac(com, self.crystal.lattice)
+            
+            # Determine the shift integer
+            shift = np.floor(frac_com)
+            
+            # Convert shift back to Cartesian coordinates
+            shift_cart = frac_to_cart(shift, self.crystal.lattice)
+            
+            # Shift all atoms in the molecule by the same amount
+            new_positions = positions - shift_cart
+            
+            # Create a new molecule with shifted positions
+            new_mol = mol.copy()
+            new_mol.set_positions(new_positions)
+            
+            wrapped_molecules.append(new_mol)
+        
+        return wrapped_molecules
     
     def _optimize_conformations(
         self, 

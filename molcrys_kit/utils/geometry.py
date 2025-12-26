@@ -382,28 +382,31 @@ def get_missing_vectors(
             v3 = rotate_vector(v1, n, 240)
             return [v1 * bond_length, v2 * bond_length, v3 * bond_length]
         elif len(neighbor_vectors) == 2:
-            # If two neighbors, find plane perpendicular to the N1-Center-N2 plane
+            # If two neighbors, find vectors for the remaining two positions
+            # Correct approach: Calculate bisector and perpendicular normal
             n1 = neighbor_vectors[0]
             n2 = neighbor_vectors[1]
             
-            # Calculate cross product to get the perpendicular direction
-            cross = np.cross(n1, n2)
-            if np.linalg.norm(cross) < 1e-6:  # Vectors are collinear
-                # Find an arbitrary perpendicular
-                if abs(n1[2]) < 0.9:
-                    perp = np.cross(n1, np.array([0, 0, 1]))
-                else:
-                    perp = np.cross(n1, np.array([1, 0, 0]))
-                perp = normalize_vector(perp)
-            else:
-                perp = normalize_vector(cross)
-            
-            # Find the bisector of the angle between n1 and n2
+            # Calculate the bisector of the two existing vectors
             bisector = normalize_vector(n1 + n2)
             
-            # Rotate bisector around perp to get two new vectors
-            v1 = rotate_vector(bisector, perp, 90)
-            v2 = rotate_vector(bisector, perp, -90)
+            # Calculate the perpendicular normal to the plane of the two vectors
+            perpendicular_normal = normalize_vector(np.cross(n1, n2))
+            
+            # Calculate the rotation axis that lies in the n1-n2 plane and is perpendicular to the bisector
+            rotation_axis = normalize_vector(np.cross(bisector, perpendicular_normal))
+            
+            # Tetrahedral angle (109.47°) - angle between bonds in a tetrahedron
+            # The angle between individual bonds and their bisector is half this: 54.7356°
+            tetrahedral_angle_half = 109.47 / 2  # ~54.7356 degrees
+            
+            # The target vectors should be centered around the opposite of the bisector
+            target_base = -bisector
+            
+            # Rotate the target base around the rotation_axis by the tetrahedral angle
+            v1 = rotate_vector(target_base, rotation_axis, tetrahedral_angle_half)
+            v2 = rotate_vector(target_base, rotation_axis, -tetrahedral_angle_half)
+            
             return [v1 * bond_length, v2 * bond_length]
         elif len(neighbor_vectors) == 3:
             # If three neighbors, return the fourth position
