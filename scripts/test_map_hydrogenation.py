@@ -100,15 +100,14 @@ def main():
     # Create the output directory if it doesn't exist
     os.makedirs("output", exist_ok=True)
 
-    # Define rules for the Ammonium Cation (CH3NH3+)
-    rules = {
-        "global_overrides": {
-            "N": {"geometry": "tetrahedral", "target_coordination": 4},
-            "O": {"target_coordination": 1, "geometry": "bent"},
-            # Note: C defaults to tetrahedral/coord=4, so it needs 3 H automatically.
-            # Note: N defaults to coord=3 usually, so we override it to 4 to get NH3+.
-        }
-    }
+    # Define rules for the Ammonium Cation (CH3NH3+) using the new flat list format
+    rules = [
+        # N should be Ammonium (coord=4) - general rule
+        {"symbol": "N", "target_coordination": 4, "geometry": "tetrahedral"},
+        
+        # O atoms bonded to Cl should have coordination 1 (not adding H) - specific rule
+        {"symbol": "O", "neighbors": ["Cl"], "target_coordination": 1}
+    ]
 
     input_path = "examples/MAP.cif"
     if not os.path.exists(input_path):

@@ -58,20 +58,29 @@ class Hydrogenator:
         }
 
     def add_hydrogens(
-        self, rules: Optional[Dict] = None, bond_lengths: Optional[Dict] = None
+        self, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None
     ) -> MolecularCrystal:
         """
         Add hydrogen atoms to the crystal based on geometric rules.
 
         Parameters
         ----------
-        rules : Optional[Dict]
+        rules : Optional[List[Dict]]
             Override rules for coordination geometry. Format:
-            {
-                "global_overrides": {
-                    "N": {"geometry": "tetrahedral", "target_coordination": 4}
-                }
-            }
+            [
+                {
+                    "symbol": str,              # Required. E.g., "O", "N"
+                    "neighbors": List[str],     # Optional. E.g., ["Cl", "S"]. Context condition.
+                    "target_coordination": int, # Optional. Override coordination.
+                    "geometry": str             # Optional. Override geometry.
+                },
+                ...
+            ]
+            
+            Processing Logic:
+            1. Specific rules (with neighbors) take priority
+            2. General rules (without neighbors) take second priority
+            3. Default rules are used if no user rules match
         bond_lengths : Optional[Dict]
             Override bond lengths for specific atom pairs (e.g., "C-H": 1.09).
 
@@ -80,10 +89,19 @@ class Hydrogenator:
         MolecularCrystal
             New crystal with hydrogen atoms added.
         """
-        # Merge default and user-provided rules
-        effective_rules = self.default_rules.copy()
-        if rules and "global_overrides" in rules:
-            effective_rules.update(rules["global_overrides"])
+        # Process the rules into specific and general categories
+        specific_rules = []
+        general_rules = {}
+        
+        if rules:
+            for rule in rules:
+                if "neighbors" in rule and rule["neighbors"]:
+                    # This is a specific rule with neighbor conditions
+                    specific_rules.append(rule)
+                else:
+                    # This is a general rule without neighbor conditions
+                    symbol = rule["symbol"]
+                    general_rules[symbol] = {k: v for k, v in rule.items() if k != "symbol"}
 
         # Merge default and user-provided bond lengths
         effective_bond_lengths = self.default_bond_lengths.copy()
@@ -114,11 +132,19 @@ class Hydrogenator:
                 symbol = symbols[atom_idx]
 
                 # Skip if this atom type doesn't have hydrogenation rules
-                if symbol not in effective_rules:
+                if symbol not in self.default_rules:
                     continue
 
-                # Get the rule for this atom type
-                rule = effective_rules[symbol]
+                # Determine which rule to apply based on priority system
+                rule = self._get_applicable_rule(
+                    symbol, 
+                    atom_idx, 
+                    symbols, 
+                    graph, 
+                    specific_rules, 
+                    general_rules
+                )
+
                 target_coord = rule["target_coordination"]
 
                 # Find current coordination number (number of bonded atoms)
@@ -181,6 +207,35 @@ class Hydrogenator:
         )
 
         return final_crystal
+
+    def _get_applicable_rule(self, symbol, atom_idx, symbols, graph, specific_rules, general_rules):
+        """
+        Determine which rule to apply based on the priority system:
+        1. Specific rules (with neighbors) take priority
+        2. General rules (without neighbors) take second priority
+        3. Default rules are used if no user rules match
+        """
+        # Step 1: Check specific rules (with neighbors)
+        neighbors = list(graph.neighbors(atom_idx))
+        neighbor_symbols = [symbols[n] for n in neighbors]
+
+        for rule in specific_rules:
+            if rule["symbol"] == symbol:
+                # Check if any of the neighbors match the rule's neighbor conditions
+                if any(neighbor_symbol in rule["neighbors"] for neighbor_symbol in neighbor_symbols):
+                    # Apply this specific rule and stop matching
+                    result_rule = self.default_rules[symbol].copy()
+                    result_rule.update({k: v for k, v in rule.items() if k != "symbol"})
+                    return result_rule
+
+        # Step 2: Check general rules (without neighbors)
+        if symbol in general_rules:
+            result_rule = self.default_rules[symbol].copy()
+            result_rule.update(general_rules[symbol])
+            return result_rule
+
+        # Step 3: Fall back to default rules
+        return self.default_rules[symbol]
 
     def _wrap_molecules_to_cell(self, molecules: List[Atoms]) -> List[Atoms]:
         """

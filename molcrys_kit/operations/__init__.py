@@ -46,8 +46,22 @@ def add_hydrogens(crystal, rules=None, bond_lengths=None):
     ----------
     crystal : MolecularCrystal
         The molecular crystal to hydrogenate.
-    rules : Optional[Dict]
-        Override rules for coordination geometry.
+    rules : Optional[List[Dict]]
+        Override rules for coordination geometry. Format:
+        [
+            {
+                "symbol": str,              # Required. E.g., "O", "N"
+                "neighbors": List[str],     # Optional. E.g., ["Cl", "S"]. Context condition.
+                "target_coordination": int, # Optional. Override coordination.
+                "geometry": str             # Optional. Override geometry.
+            },
+            ...
+        ]
+        
+        Processing Logic:
+        1. Specific rules (with neighbors) take priority
+        2. General rules (without neighbors) take second priority
+        3. Default rules are used if no user rules match
     bond_lengths : Optional[Dict]
         Override bond lengths for specific atom pairs.
 

@@ -18,14 +18,12 @@ def main():
     # Create the output directory if it doesn't exist
     os.makedirs("output", exist_ok=True)
 
-    # Define rules for the Ammonium Cation (CH3NH3+)
-    rules = {
-        "global_overrides": {
-            "N": {"geometry": "tetrahedral", "target_coordination": 4}
-            # Note: C defaults to tetrahedral/coord=4, so it needs 3 H automatically.
-            # Note: N defaults to coord=3 usually, so we override it to 4 to get NH3+.
-        }
-    }
+    # Define rules for the Ammonium Cation (CH3NH3+) using the new flat list format
+    rules = [
+        {"symbol": "N", "geometry": "tetrahedral", "target_coordination": 4}
+        # Note: C defaults to tetrahedral/coord=4, so it needs 3 H automatically.
+        # Note: N defaults to coord=3 usually, so we override it to 4 to get NH3+.
+    ]
 
     # Try to load the input file
     input_path = "examples/MAP.cif"
