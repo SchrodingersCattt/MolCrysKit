@@ -1,30 +1,36 @@
 """
-Molecule representation for molecular crystals.
+Molecular representation for molecular crystals.
 
-This module defines the CrystalMolecule class which represents a rigid body of atoms.
+This module defines the CrystalMolecule class which represents molecules
+in molecular crystals with additional functionality.
 """
 
 import numpy as np
-from typing import Tuple
 import networkx as nx
+from typing import Tuple, Optional
+from ase import Atoms as AseAtoms
+from ase import Atom as AseAtom
 
 try:
-    from ase import Atoms
-
+    from ..constants import (
+        get_atomic_radius,
+        has_atomic_radius,
+        is_metal_element,
+    )
+    # Import the new config
+    from ..constants.config import BONDING_CONFIG
     ASE_AVAILABLE = True
 except ImportError:
     ASE_AVAILABLE = False
-    Atoms = object  # Placeholder for type hints
-
-from ..constants import get_atomic_radius, has_atomic_radius
 
 
-class CrystalMolecule(Atoms):
+class CrystalMolecule:
     """
-    A molecule represented as an ASE Atoms object with additional functionality.
+    A molecule represented with ASE Atoms functionality but using composition instead of inheritance.
 
-    This class inherits from ASE Atoms and adds molecular-specific properties
-    and methods including graph representation of internal connectivity.
+    This class holds an ASE Atoms object as a private attribute and exposes only necessary methods
+    by delegation, adding molecular-specific properties and methods including graph 
+    representation of internal connectivity.
 
     Attributes
     ----------
@@ -34,14 +40,14 @@ class CrystalMolecule(Atoms):
         Reference to the parent crystal structure, used for coordinate conversions.
     """
 
-    def __init__(self, atoms: Atoms = None, crystal=None, **kwargs):
+    def __init__(self, atoms=None, crystal=None, **kwargs):
         """
         Initialize a CrystalMolecule.
 
         Parameters
         ----------
-        atoms : Atoms, optional
-            ASE Atoms object to initialize the molecule with.
+        atoms : AseAtoms or CrystalMolecule, optional
+            ASE Atoms object or CrystalMolecule to initialize the molecule with.
         crystal : object, optional
             Parent crystal structure containing this molecule.
         **kwargs : dict
@@ -53,11 +59,16 @@ class CrystalMolecule(Atoms):
             )
 
         if atoms is not None:
-            # Initialize from existing ASE Atoms object
-            super().__init__(atoms)
+            # Check if atoms is already a CrystalMolecule instance
+            if isinstance(atoms, CrystalMolecule):
+                # Use the backend atoms from the CrystalMolecule
+                self._backend_atoms = AseAtoms(atoms._backend_atoms)
+            else:
+                # Initialize from existing ASE Atoms object
+                self._backend_atoms = AseAtoms(atoms)
         else:
             # Initialize with provided kwargs
-            super().__init__(**kwargs)
+            self._backend_atoms = AseAtoms(**kwargs)
 
         self.crystal = crystal
         self._graph = None
@@ -138,24 +149,18 @@ class CrystalMolecule(Atoms):
             symbols = self.get_chemical_symbols()
 
             # Simple bonding criteria based on atomic radii
-            from ..constants import (
-                is_metal_element,
-                METAL_THRESHOLD_FACTOR,
-                NON_METAL_THRESHOLD_FACTOR,
-            )
-
             for i in range(len(self)):
                 radius_i = (
                     get_atomic_radius(symbols[i])
                     if has_atomic_radius(symbols[i])
-                    else 0.5
+                    else BONDING_CONFIG["DEFAULT_ATOMIC_RADIUS"]
                 )
                 is_metal_i = is_metal_element(symbols[i])
                 for j in range(i + 1, len(self)):
                     radius_j = (
                         get_atomic_radius(symbols[j])
                         if has_atomic_radius(symbols[j])
-                        else 0.5
+                        else BONDING_CONFIG["DEFAULT_ATOMIC_RADIUS"]
                     )
                     is_metal_j = is_metal_element(symbols[j])
 
@@ -164,13 +169,11 @@ class CrystalMolecule(Atoms):
 
                     # Determine threshold factor based on element types
                     if is_metal_i and is_metal_j:  # Metal-Metal
-                        factor = METAL_THRESHOLD_FACTOR
+                        factor = BONDING_CONFIG["METAL_THRESHOLD_FACTOR"]
                     elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
-                        factor = NON_METAL_THRESHOLD_FACTOR
+                        factor = BONDING_CONFIG["NON_METAL_THRESHOLD_FACTOR"]
                     else:  # Metal-Non-metal
-                        factor = (
-                            METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR
-                        ) / 2
+                        factor = BONDING_CONFIG["METAL_NON_METAL_THRESHOLD_FACTOR"]
 
                     # Bonding threshold as sum of covalent radii multiplied by factor
                     threshold = (radius_i + radius_j) * factor
@@ -311,3 +314,40 @@ class CrystalMolecule(Atoms):
             axes[i] if np.linalg.norm(axes[i]) > 0 else np.array([1.0, 0.0, 0.0])
             for i in range(3)
         )
+
+    # Delegate necessary ASE Atoms methods to the backend atoms object
+    def get_positions(self):
+        return self._backend_atoms.get_positions()
+    
+    def set_positions(self, positions):
+        self._backend_atoms.set_positions(positions)
+        
+    def get_chemical_symbols(self):
+        return self._backend_atoms.get_chemical_symbols()
+        
+    def get_chemical_formula(self):
+        return self._backend_atoms.get_chemical_formula()
+        
+    def get_atomic_numbers(self):
+        return self._backend_atoms.get_atomic_numbers()
+        
+    def get_masses(self):
+        return self._backend_atoms.get_masses()
+        
+    def get_pbc(self):
+        return self._backend_atoms.get_pbc()
+        
+    def get_cell(self):
+        return self._backend_atoms.get_cell()
+        
+    def get_distance(self, a0, a1, mic=False):
+        return self._backend_atoms.get_distance(a0, a1, mic=mic)
+        
+    def __len__(self):
+        return len(self._backend_atoms)
+        
+    def copy(self):
+        # Create a new CrystalMolecule with a copy of the backend atoms
+        copied_atoms = self._backend_atoms.copy()
+        new_molecule = CrystalMolecule(atoms=copied_atoms, crystal=self.crystal)
+        return new_molecule

@@ -6,8 +6,9 @@ based on geometric rules and chemical constraints.
 """
 
 import numpy as np
+import logging
 from typing import Dict, List, Optional
-from ase import Atoms
+from ase import Atoms as AseAtoms
 from ..structures.crystal import MolecularCrystal
 from ..utils.geometry import (
     get_missing_vectors,
@@ -16,6 +17,14 @@ from ..utils.geometry import (
     cart_to_frac,
     frac_to_cart,
 )
+from ..constants.config import (
+    BOND_LENGTHS,
+    COORDINATION_RULES,
+    SP3_ELEMENTS,
+    BONDING_CONFIG
+)
+
+logger = logging.getLogger(__name__)
 
 
 def add_hydrogens(crystal, rules=None, bond_lengths=None):
@@ -72,26 +81,9 @@ class Hydrogenator:
         # Use unwrapped molecules to handle periodic boundary conditions properly
         self.unwrapped_molecules = crystal.get_unwrapped_molecules()
 
-        # Default coordination rules for common elements
-        self.default_rules = {
-            "C": {"geometry": "tetrahedral", "target_coordination": 4},
-            "N": {
-                "geometry": "trigonal_pyramidal",
-                "target_coordination": 3,
-            },  # Default for N
-            "O": {"geometry": "bent", "target_coordination": 2},
-            "S": {"geometry": "tetrahedral", "target_coordination": 4},
-            "P": {"geometry": "tetrahedral", "target_coordination": 4},
-        }
-
-        # Default bond lengths (in Angstroms)
-        self.default_bond_lengths = {
-            "C-H": 1.09,
-            "N-H": 1.01,
-            "O-H": 0.96,
-            "S-H": 1.34,
-            "P-H": 1.42,
-        }
+        # Use configuration constants instead of hardcoded values
+        self.default_rules = COORDINATION_RULES
+        self.default_bond_lengths = BOND_LENGTHS
 
     def add_hydrogens(
         self, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None
@@ -169,6 +161,7 @@ class Hydrogenator:
 
                 # Skip if this atom type doesn't have hydrogenation rules
                 if symbol not in self.default_rules:
+                    logger.warning(f"No hydrogenation rule found for element {symbol}")
                     continue
 
                 # Determine which rule to apply based on priority system
@@ -207,7 +200,7 @@ class Hydrogenator:
 
                 # Get the bond length for this atom type
                 bond_key = f"{symbol}-H"
-                bond_len = effective_bond_lengths.get(bond_key, 1.0)
+                bond_len = effective_bond_lengths.get(bond_key, BONDING_CONFIG["DEFAULT_ATOMIC_RADIUS"])
 
                 # Calculate positions for new hydrogen atoms
                 missing_vectors = get_missing_vectors(
@@ -218,8 +211,21 @@ class Hydrogenator:
                 for i in range(min(h_to_add, len(missing_vectors))):
                     h_pos = center_pos + missing_vectors[i]
 
-                    # Append the new hydrogen atom
-                    new_atoms = new_atoms + Atoms(symbols=["H"], positions=[h_pos])
+                    # Append the new hydrogen atom to the backend ASE atoms object
+                    current_symbols = new_atoms._backend_atoms.get_chemical_symbols()
+                    current_positions = new_atoms._backend_atoms.get_positions()
+                    
+                    # Create new arrays with the additional hydrogen
+                    new_symbols = current_symbols + ["H"]
+                    new_positions = np.vstack([current_positions, [h_pos]])
+                    
+                    # Update the backend atoms object with new symbols and positions
+                    new_atoms._backend_atoms = AseAtoms(
+                        symbols=new_symbols,
+                        positions=new_positions,
+                        cell=new_atoms._backend_atoms.get_cell(),
+                        pbc=new_atoms._backend_atoms.get_pbc()
+                    )
 
             # Add the modified molecule to the new molecules list
             new_molecules.append(new_atoms)
@@ -273,20 +279,24 @@ class Hydrogenator:
         # Step 3: Fall back to default rules
         return self.default_rules[symbol]
 
-    def _wrap_molecules_to_cell(self, molecules: List[Atoms]) -> List[Atoms]:
+    def _wrap_molecules_to_cell(self, molecules: List[AseAtoms]) -> List[AseAtoms]:
         """
         Wrap molecules back into the unit cell to handle PBC correctly.
 
         Parameters
         ----------
-        molecules : List[Atoms]
+        molecules : List[AseAtoms]
             List of molecules to wrap.
 
         Returns
         -------
-        List[Atoms]
+        List[AseAtoms]
             List of wrapped molecules.
         """
+        if not molecules:
+            logger.warning("No molecules to wrap")
+            return []
+
         wrapped_molecules = []
 
         for mol in molecules:
@@ -372,7 +382,7 @@ class Hydrogenator:
                     )
 
                     # If adjustment is significant, rotate the attached H atoms
-                    if abs(adjustment) > 5:  # Only if significant adjustment needed
+                    if abs(adjustment) > BONDING_CONFIG["SIGNIFICANT_ROTATION_ANGLE"]:  # Only if significant adjustment needed
                         # Rotate H atoms connected to atom1 around the bond axis
                         self._rotate_hydrogens_around_bond(
                             new_mol, atom1, atom2, adjustment
@@ -388,7 +398,7 @@ class Hydrogenator:
         return optimized_crystal
 
     def _rotate_hydrogens_around_bond(
-        self, mol: Atoms, atom1_idx: int, atom2_idx: int, angle_deg: float
+        self, mol: AseAtoms, atom1_idx: int, atom2_idx: int, angle_deg: float
     ):
         """
         Rotate hydrogen atoms connected to atom1 around the atom1-atom2 bond.
@@ -402,7 +412,7 @@ class Hydrogenator:
             if symbol == "H":
                 # Check if this hydrogen is connected to atom1 by checking distance
                 dist = mol.get_distance(atom1_idx, atom_idx, mic=False)
-                if dist < 1.5:  # Typical H-X distance is less than 1.5 Å
+                if dist < BONDING_CONFIG["TYPICAL_HYDROGEN_X_DISTANCE"]:  # Typical H-X distance threshold
                     h_indices.append(atom_idx)
 
         if not h_indices:

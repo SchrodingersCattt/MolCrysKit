@@ -8,7 +8,7 @@ where well-defined molecules occupy crystallographic sites.
 
 __version__ = "0.1.0"
 
-from .structures.atom import Atom
+from .structures.atom import MolAtom
 from .structures.molecule import CrystalMolecule
 from .structures.crystal import MolecularCrystal
 from .io.cif import read_mol_crystal
@@ -17,7 +17,7 @@ from .io.cif import read_mol_crystal
 Molecule = CrystalMolecule
 
 __all__ = [
-    "Atom",
+    "MolAtom",
     "CrystalMolecule",
     "MolecularCrystal",
     "read_mol_crystal",

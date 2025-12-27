@@ -1,7 +1,7 @@
 """
 Atom representation for molecular crystals.
 
-This module defines the Atom class which represents atomic species and coordinates
+This module defines the MolAtom class which represents atomic species and coordinates
 in molecular crystals.
 """
 
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class Atom:
+class MolAtom:
     """
     Represents an atom in a molecular crystal.
 
@@ -48,16 +48,16 @@ class Atom:
         """
         return np.dot(self.frac_coords, lattice)
 
-    def copy(self) -> "Atom":
+    def copy(self) -> "MolAtom":
         """
         Create a copy of the atom.
 
         Returns
         -------
-        Atom
+        MolAtom
             A copy of the atom with the same properties.
         """
-        return Atom(
+        return MolAtom(
             symbol=self.symbol,
             frac_coords=self.frac_coords.copy(),
             occupancy=self.occupancy,

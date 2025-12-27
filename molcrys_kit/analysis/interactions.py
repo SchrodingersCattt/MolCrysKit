@@ -1,3 +1,18 @@
+# molcrys_kit/constants/config.py
+"""
+Configuration constants for molecular crystal analysis.
+"""
+
+# Default bonding configuration parameters
+BONDING_CONFIG = {
+    "MAX_HYDROGEN_BOND_DISTANCE": 3.5,  # Maximum H...acceptor distance in Å
+    "MIN_COVALENT_DISTANCE": 0.8,        # Minimum covalent bond distance in Å
+    "MAX_COVALENT_DISTANCE": 1.2,        # Maximum covalent bond distance in Å
+    "MIN_HYDROGEN_BOND_ANGLE": 120.0,    # Minimum donor-H-acceptor angle in degrees
+}
+
+# Elements commonly involved in hydrogen bonding
+ELECTRONEGATIVE_ELEMENTS = ["N", "O", "F", "Cl", "S"]  # Added Cl and S for broader applicability
 """
 Analysis of intermolecular interactions in molecular crystals.
 
@@ -8,6 +23,10 @@ interactions such as hydrogen bonds, halogen bonds, and other non-covalent inter
 import numpy as np
 from typing import List
 from ..structures.molecule import CrystalMolecule
+from ..constants.config import (
+    BONDING_CONFIG,
+    ELECTRONEGATIVE_ELEMENTS,
+)
 
 
 class HydrogenBond:
@@ -62,7 +81,7 @@ class HydrogenBond:
 
 
 def find_hydrogen_bonds(
-    molecules: List[CrystalMolecule], max_distance: float = 3.5
+    molecules: List[CrystalMolecule], max_distance: float = None
 ) -> List[HydrogenBond]:
     """
     Identify potential hydrogen bonds between molecules in a molecular crystal.
@@ -75,18 +94,19 @@ def find_hydrogen_bonds(
     ----------
     molecules : List[CrystalMolecule]
         List of molecules in the crystal.
-    max_distance : float, default=3.5
+    max_distance : float, default=None
         Maximum distance (in Angstroms) between H and acceptor atoms for a hydrogen bond.
+        If None, uses the default from BONDING_CONFIG.
 
     Returns
     -------
     List[HydrogenBond]
         List of identified hydrogen bonds.
     """
+    if max_distance is None:
+        max_distance = BONDING_CONFIG["MAX_HYDROGEN_BOND_DISTANCE"]
+        
     hydrogen_bonds = []
-
-    # Define electronegative elements that commonly participate in hydrogen bonding
-    electronegative_elements = ["N", "O", "F"]
 
     # Check all pairs of molecules
     for i, mol1 in enumerate(molecules):
@@ -112,67 +132,87 @@ def find_hydrogen_bonds(
                 (mol1, mol2, pos1, pos2, symbols1, symbols2),
                 (mol2, mol1, pos2, pos1, symbols2, symbols1),
             ]:
-                # Look for donor-hydrogen pairs in the donor molecule
-                for h_idx, h_symbol in enumerate(donor_symbols):
-                    if h_symbol != "H":
-                        continue
+                # Find hydrogen atoms in the donor molecule
+                h_indices = [idx for idx, symbol in enumerate(donor_symbols) if symbol == "H"]
+                
+                if not h_indices:
+                    continue  # No hydrogen atoms in this molecule
 
-                    # Find the atom bonded to this hydrogen (the donor atom)
+                # Find electronegative atoms in the acceptor molecule
+                acceptor_indices = [
+                    idx for idx, symbol in enumerate(acceptor_symbols) 
+                    if symbol in ELECTRONEGATIVE_ELEMENTS
+                ]
+                
+                if not acceptor_indices:
+                    continue  # No acceptor atoms in the acceptor molecule
+
+                # Vectorized distance calculation between H atoms and acceptor atoms
+                h_positions = np.array([donor_pos[h_idx] for h_idx in h_indices])
+                acceptor_positions = np.array([acceptor_pos[acc_idx] for acc_idx in acceptor_indices])
+                
+                # Calculate all distances at once using broadcasting
+                # Shape: (num_h, num_acceptors, 3)
+                diff_vectors = h_positions[:, np.newaxis, :] - acceptor_positions[np.newaxis, :, :]
+                # Shape: (num_h, num_acceptors)
+                distances = np.linalg.norm(diff_vectors, axis=2)
+
+                # Find pairs that satisfy the distance criterion
+                valid_pairs = np.where(distances <= max_distance)
+                h_valid_idx, acc_valid_idx = valid_pairs
+                
+                # Process valid pairs
+                for h_idx_local, acc_idx_local in zip(h_valid_idx, acc_valid_idx):
+                    h_idx = h_indices[h_idx_local]
+                    acc_idx = acceptor_indices[acc_idx_local]
+                    distance = distances[h_idx_local, acc_idx_local]
+
+                    # Find the donor atom (the electronegative atom bonded to this H in the donor)
                     donor_atom_idx = None
+                    h_pos = donor_pos[h_idx]
+                    
                     for atom_idx, symbol in enumerate(donor_symbols):
-                        if symbol in electronegative_elements:
-                            distance = np.linalg.norm(
-                                donor_pos[atom_idx] - donor_pos[h_idx]
-                            )
+                        if symbol in ELECTRONEGATIVE_ELEMENTS:
+                            d_h_distance = np.linalg.norm(donor_pos[atom_idx] - h_pos)
                             # Typical covalent bond distance range
-                            if 0.8 <= distance <= 1.2:
+                            if (BONDING_CONFIG["MIN_COVALENT_DISTANCE"] <= d_h_distance <= 
+                                BONDING_CONFIG["MAX_COVALENT_DISTANCE"]):
                                 donor_atom_idx = atom_idx
                                 break
 
                     if donor_atom_idx is None:
                         continue  # No suitable donor atom found for this hydrogen
 
-                    # Check distances to all electronegative atoms in the acceptor molecule
-                    for acc_idx, acc_symbol in enumerate(acceptor_symbols):
-                        if acc_symbol not in electronegative_elements:
-                            continue
+                    # Check the donor-H-acceptor angle
+                    donor_atom_pos = donor_pos[donor_atom_idx]
+                    acc_atom_pos = acceptor_pos[acc_idx]
 
-                        distance = np.linalg.norm(
-                            donor_pos[h_idx] - acceptor_pos[acc_idx]
+                    # Vector from H to donor atom
+                    dh_vector = donor_atom_pos - h_pos
+                    # Vector from H to acceptor atom
+                    ha_vector = acc_atom_pos - h_pos
+
+                    # Calculate angle (in radians)
+                    cos_angle = np.dot(dh_vector, ha_vector) / (
+                        np.linalg.norm(dh_vector) * np.linalg.norm(ha_vector)
+                    )
+                    # Clamp to avoid numerical errors
+                    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                    angle = np.arccos(cos_angle)
+
+                    # Convert to degrees
+                    angle_deg = np.degrees(angle)
+
+                    # Acceptable angles are close to linear (180°)
+                    if angle_deg >= BONDING_CONFIG["MIN_HYDROGEN_BOND_ANGLE"]:
+                        hb = HydrogenBond(
+                            donor=donor_mol,
+                            acceptor=acceptor_mol,
+                            distance=distance,
+                            donor_atom_index=donor_atom_idx,
+                            hydrogen_index=h_idx,
+                            acceptor_atom_index=acc_idx,
                         )
-
-                        if distance <= max_distance:
-                            # Check the donor-H-acceptor angle
-                            donor_atom_pos = donor_pos[donor_atom_idx]
-                            h_pos = donor_pos[h_idx]
-                            acc_atom_pos = acceptor_pos[acc_idx]
-
-                            # Vector from H to donor atom
-                            dh_vector = donor_atom_pos - h_pos
-                            # Vector from H to acceptor atom
-                            ha_vector = acc_atom_pos - h_pos
-
-                            # Calculate angle (in radians)
-                            cos_angle = np.dot(dh_vector, ha_vector) / (
-                                np.linalg.norm(dh_vector) * np.linalg.norm(ha_vector)
-                            )
-                            # Clamp to avoid numerical errors
-                            cos_angle = np.clip(cos_angle, -1.0, 1.0)
-                            angle = np.arccos(cos_angle)
-
-                            # Convert to degrees
-                            angle_deg = np.degrees(angle)
-
-                            # Acceptable angles are close to linear (180°)
-                            if angle_deg >= 120:  # At least 120°
-                                hb = HydrogenBond(
-                                    donor=donor_mol,
-                                    acceptor=acceptor_mol,
-                                    distance=distance,
-                                    donor_atom_index=donor_atom_idx,
-                                    hydrogen_index=h_idx,
-                                    acceptor_atom_index=acc_idx,
-                                )
-                                hydrogen_bonds.append(hb)
+                        hydrogen_bonds.append(hb)
 
     return hydrogen_bonds
