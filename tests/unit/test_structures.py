@@ -10,14 +10,14 @@ import numpy as np
 # Add the project root to the path so we can import molcrys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from molcrys_kit.structures import Atom, MolecularCrystal  # noqa: E402
+from molcrys_kit.structures import MolAtom, MolecularCrystal  # noqa: E402
 from molcrys_kit.structures.molecule import CrystalMolecule  # noqa: E402
 from ase import Atoms  # noqa: E402
 
 
 def test_atom_creation():
-    """Test creating an Atom."""
-    atom = Atom("C", np.array([0.1, 0.2, 0.3]), 1.0)
+    """Test creating an MolAtom."""
+    atom = MolAtom("C", np.array([0.1, 0.2, 0.3]), 1.0)
     assert atom.symbol == "C"
     assert np.allclose(atom.frac_coords, np.array([0.1, 0.2, 0.3]))
     assert atom.occupancy == 1.0
@@ -29,8 +29,8 @@ def test_atom_creation():
     assert atom_copy.occupancy == atom.occupancy
 
 
-def test_crystal_molecule_inheritance():
-    """Test that CrystalMolecule correctly inherits from ase.Atoms."""
+def test_crystal_molecule_composition():
+    """Test that CrystalMolecule correctly uses ASE Atoms via composition."""
     # Create a simple molecule using ASE Atoms
     atoms = Atoms(
         symbols=["C", "H", "H"],
@@ -39,7 +39,7 @@ def test_crystal_molecule_inheritance():
 
     molecule = CrystalMolecule(atoms)
 
-    # Test inheritance - should have ASE Atoms methods
+    # Test composition - should have ASE Atoms methods via delegation
     assert hasattr(molecule, "get_positions")
     assert hasattr(molecule, "get_chemical_symbols")
     assert hasattr(molecule, "get_chemical_formula")
@@ -195,7 +195,7 @@ def run_tests():
     """Run all tests."""
     tests = [
         test_atom_creation,
-        test_crystal_molecule_inheritance,
+        test_crystal_molecule_composition,
         test_crystal_molecule_creation,
         test_crystal_molecule_graph,
         test_crystal_molecule_centroid_and_com,
