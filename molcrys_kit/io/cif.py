@@ -2,6 +2,7 @@
 CIF file parsing for molecular crystals.
 
 This module provides functionality to parse CIF files into MolecularCrystal objects.
+It includes tools for handling disorder information and identifying molecular units.
 """
 
 from typing import List, Tuple, Optional, Dict
@@ -9,6 +10,7 @@ import warnings
 import re
 import numpy as np
 import networkx as nx
+from dataclasses import dataclass
 
 try:
     from pymatgen.io.cif import CifParser
@@ -28,7 +30,6 @@ except ImportError:
 
 from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
-from ..analysis.disorder import DisorderInfo
 from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
@@ -38,24 +39,50 @@ from ..constants import (
 )
 
 
+@dataclass
+class DisorderInfo:
+    """
+    Data class to store raw extracted disorder data from CIF files.
+    
+    Fields:
+    - labels: Original atom labels (e.g., "C1A", "H2'")
+    - symbols: Element symbols
+    - frac_coords: nx3 array of fractional coordinates
+    - occupancies: Site occupancy (default to 1.0 if missing)
+    - disorder_groups: Integer tags (default to 0 if missing or '.' in CIF)
+    """
+    labels: List[str]
+    symbols: List[str]
+    frac_coords: np.ndarray  # shape (n, 3)
+    occupancies: List[float]
+    disorder_groups: List[int]
+    
+    def summary(self):
+        """Print statistics about the disorder information."""
+        print(f"Disorder Summary:")
+        print(f"  Total atoms: {len(self.labels)}")
+        print(f"  Unique elements: {len(set(self.symbols))}")
+        print(f"  Atoms with occupancy < 1.0: {sum(1 for occ in self.occupancies if occ < 1.0)}")
+        print(f"  Unique disorder groups: {len(set(self.disorder_groups))}")
+        print(f"  Disorder groups range: {min(self.disorder_groups)} to {max(self.disorder_groups)}")
+
+
 def _clean_species_string(species_string: str) -> str:
     """
-    Clean species string by removing occupancy information and other non-element data.
+    Clean up species strings from CIF files.
 
-    For example:
-    - 'O:0.5' -> 'O'
-    - 'Fe:?' -> 'Fe'
-    - 'Ni:1.0(3)' -> 'Ni'
+    This function handles common issues with species strings in CIF files,
+    such as charge indicators and isotopes.
 
     Parameters
     ----------
     species_string : str
-        Raw species string from pymatgen site.
+        Raw species string from CIF.
 
     Returns
     -------
     str
-        Cleaned atomic symbol.
+        Cleaned species string with only the element symbol.
     """
     # Pre-compile regular expressions for better performance
     _CLEAN_PATTERN = re.compile(r":.*")
