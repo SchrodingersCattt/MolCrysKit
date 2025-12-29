@@ -117,17 +117,22 @@ class DisorderGraphBuilder:
                 # Calculate minimum image distance
                 distance = minimum_image_distance(frac_i, frac_j, self.lattice)
                 
-                # If distance is below threshold, add exclusion edge
+                # If distance is below threshold, check if atoms are bonded
                 if distance < threshold:
-                    # Only add if not already added with explicit conflict
-                    if not self.graph.has_edge(i, j):
-                        self.graph.add_edge(i, j, conflict_type="geometric", distance=distance)
-                    else:
-                        # If there's already a connection, check if we should update the type
-                        # Explicit conflicts take priority over geometric
-                        if self.graph[i][j]['conflict_type'] != 'explicit':
-                            self.graph[i][j]['conflict_type'] = 'geometric'
-                            self.graph[i][j]['distance'] = distance
+                    # Check if the atoms are bonded - if so, don't add geometric conflict
+                    symbol_i = self.info.symbols[i]
+                    symbol_j = self.info.symbols[j]
+                    
+                    if not self._are_bonded(symbol_i, symbol_j, distance):
+                        # Only add if not already added with explicit conflict
+                        if not self.graph.has_edge(i, j):
+                            self.graph.add_edge(i, j, conflict_type="geometric", distance=distance)
+                        else:
+                            # If there's already a connection, check if we should update the type
+                            # Explicit conflicts take priority over geometric
+                            if self.graph[i][j]['conflict_type'] != 'explicit':
+                                self.graph[i][j]['conflict_type'] = 'geometric'
+                                self.graph[i][j]['distance'] = distance
     
     def _resolve_valence_conflicts(self):
         """
