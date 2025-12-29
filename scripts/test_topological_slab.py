@@ -54,7 +54,7 @@ def main():
     try:
         slab = generate_topological_slab(
             crystal=crystal,
-            miller_indices=(0, 1, 0),
+            miller_indices=(1, 1, 0),
             layers=3,
             # min_thickness=10,
             vacuum=10.0,
