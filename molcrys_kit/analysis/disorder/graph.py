@@ -8,6 +8,7 @@ coexist in the same physical structure based on raw disorder data.
 import numpy as np
 import networkx as nx
 from typing import List, Tuple, Dict, Set
+from itertools import combinations
 from .info import DisorderInfo
 from ...utils.geometry import minimum_image_distance, angle_between_vectors, frac_to_cart
 
@@ -69,7 +70,8 @@ class DisorderGraphBuilder:
         Add edges between atoms that have different non-zero disorder groups.
         
         Rule: If two atoms have non-zero disorder groups and group_A != group_B,
-        they are mutually exclusive.
+        they are mutually exclusive IF AND ONLY IF they belong to the same assembly
+        or they are close enough (< 5.0 Å) if assemblies are not specified.
         """
         n_atoms = len(self.info.labels)
         
@@ -83,15 +85,36 @@ class DisorderGraphBuilder:
             for j in range(i + 1, n_atoms):
                 group_j = self.info.disorder_groups[j]
                 
-                # If both have non-zero groups and they are different, add exclusion
+                # If both have non-zero groups and they are different, check additional conditions
                 if group_j != 0 and group_i != group_j:
-                    # Only add if not already added with a different conflict type
-                    if not self.graph.has_edge(i, j):
-                        self.graph.add_edge(i, j, conflict_type="explicit")
-                    else:
-                        # If already exists, update to explicit if it's not already explicit
-                        if self.graph[i][j]['conflict_type'] != 'explicit':
-                            self.graph[i][j]['conflict_type'] = 'explicit'
+                    # Check if both atoms have assembly information
+                    assembly_i = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+                    assembly_j = self.info.assemblies[j] if j < len(self.info.assemblies) else ""
+                    
+                    # Determine if there should be a conflict based on assembly or distance
+                    has_conflict = False
+                    
+                    if assembly_i != "" and assembly_j != "" and assembly_i == assembly_j:
+                        # Same non-empty assembly: they have a conflict
+                        has_conflict = True
+                    elif assembly_i == "" and assembly_j == "":
+                        # Both have empty assemblies: use distance heuristic (5.0 Å)
+                        frac_i = self.info.frac_coords[i]
+                        frac_j = self.info.frac_coords[j]
+                        distance = minimum_image_distance(frac_i, frac_j, self.lattice)
+                        if distance < 5.0:
+                            has_conflict = True
+                    # If one has assembly and the other doesn't, no conflict by this rule
+                    
+                    # Only add the conflict if conditions are met
+                    if has_conflict:
+                        # Only add if not already added with a different conflict type
+                        if not self.graph.has_edge(i, j):
+                            self.graph.add_edge(i, j, conflict_type="explicit")
+                        else:
+                            # If already exists, update to explicit if it's not already explicit
+                            if self.graph[i][j]['conflict_type'] != 'explicit':
+                                self.graph[i][j]['conflict_type'] = 'explicit'
     
     def _add_geometric_conflicts(self, threshold: float = 0.8):
         """
@@ -203,18 +226,18 @@ class DisorderGraphBuilder:
             True if atoms are considered bonded
         """
         # Define bonding thresholds based on element types
-        if {'H', 'D'}.intersection({symbol1, symbol2}):
+        if bool({'H', 'D'}.intersection({symbol1, symbol2})):
             # H/D with any other element
-            if {'C', 'N', 'O', 'S', 'P'}.intersection({symbol1, symbol2}):
+            if bool({'C', 'N', 'O', 'S', 'P'}.intersection({symbol1, symbol2})):
                 return 0.6 < distance < 1.4
-            elif {'H', 'D'}.intersection({symbol1, symbol2}):
+            elif bool({'H', 'D'}.intersection({symbol1, symbol2})):
                 return False  # H-H unlikely to bond
             else:
                 return 0.8 < distance < 1.8
-        elif {'C', 'N', 'O'}.intersection({symbol1, symbol2}):
+        elif bool({'C', 'N', 'O'}.intersection({symbol1, symbol2})):
             # C, N, O with each other
             return 0.8 < distance < 1.9
-        elif {'C', 'N', 'O'}.intersection({symbol1}) and {'C', 'N', 'O'}.intersection({symbol2}):
+        elif bool({'C', 'N', 'O'}.intersection({symbol1}) and {'C', 'N', 'O'}.intersection({symbol2})):
             # C-N, C-O, N-O
             return 0.8 < distance < 2.0
         else:
@@ -320,7 +343,7 @@ class DisorderGraphBuilder:
         n_atoms = len(atom_indices)
         
         # For each combination of 4 atoms, check if they form a valid tetrahedron
-        valid_groups = []
+        candidates = []  # Store (score, group_indices) tuples
         
         for combo in combinations(range(n_atoms), 4):
             combo_indices = [atom_indices[i] for i in combo]
@@ -342,28 +365,25 @@ class DisorderGraphBuilder:
                     angle_deg = np.degrees(angle_rad)
                     angles.append(angle_deg)
             
-            # Check if angles are consistent with tetrahedral geometry (~109.5°)
-            # In a perfect tetrahedron, the angle between center-atom vectors is ~109.5°
-            # Allow some tolerance (e.g., 109.5° ± 20°)
-            tetrahedral_matches = [a for a in angles if 89.5 <= a <= 129.5]
-            
-            # A valid tetrahedron should have 6 angles, with most around 109.5°
-            # For our purposes, if at least 2 angles are in the right range, consider it a valid group
-            if len(tetrahedral_matches) >= 2:
-                valid_groups.append(combo_indices)
+            # Calculate score based on deviation from ideal tetrahedral angle (109.5°)
+            # Lower score means better tetrahedral geometry
+            if len(angles) > 0:
+                score = sum(abs(angle - 109.5) for angle in angles)
+                candidates.append((score, combo_indices))
         
-        # Look for two disjoint groups among valid groups using nested loop
-        # Iterate i from 0 to len-1
-        for i in range(len(valid_groups)):
-            # Iterate j from i+1 to len-1
-            for j in range(i+1, len(valid_groups)):
-                # Check intersection: set(valid_groups[i]).isdisjoint(set(valid_groups[j]))
-                if set(valid_groups[i]).isdisjoint(set(valid_groups[j])):
+        # Sort candidates by score (ascending - best geometry first)
+        candidates.sort(key=lambda x: x[0])
+        
+        # Look for two disjoint groups among the best candidates
+        for i in range(len(candidates)):
+            part_a = candidates[i][1]  # Best group A
+            for j in range(i+1, len(candidates)):
+                part_b = candidates[j][1]  # Next best group B
+                
+                # Check if they are disjoint
+                if set(part_a).isdisjoint(set(part_b)):
                     # Found two disjoint tetrahedral groups - add exclusions between them
-                    part_a = valid_groups[i]
-                    part_b = valid_groups[j]
-                    
-                    # Add exclusion edges between ALL atoms in Part A and ALL atoms in Part B
+                    # Rule 1: Full exclusion edges between all atoms in Part A and all atoms in Part B
                     for atom_a in part_a:
                         for atom_b in part_b:
                             # Only add if not already added with explicit or geometric conflict
@@ -375,7 +395,33 @@ class DisorderGraphBuilder:
                                 if current_type not in ['explicit', 'geometric']:
                                     self.graph[atom_a][atom_b]['conflict_type'] = 'valence_geometry'
                     
-                    # Return after finding the first valid disjoint pair
+                    # Rule 2: Identify "Rogue Atoms" and enforce strict exclusions
+                    # These are atoms that didn't make the cut for the best geometries
+                    all_neighbors_set = set(atom_indices)
+                    valid_geometry_atoms = set(part_a + part_b)
+                    rogue_atoms = all_neighbors_set - valid_geometry_atoms
+                    
+                    # Add exclusion edges between Rogue Atoms and EVERYONE in A and B
+                    for rogue in rogue_atoms:
+                        for atom_a in part_a:
+                            # Add exclusion between rogue and atom in A
+                            if not self.graph.has_edge(rogue, atom_a):
+                                self.graph.add_edge(rogue, atom_a, conflict_type="valence_geometry")
+                            else:
+                                current_type = self.graph[rogue][atom_a]['conflict_type']
+                                if current_type not in ['explicit', 'geometric']:
+                                    self.graph[rogue][atom_a]['conflict_type'] = 'valence_geometry'
+                        
+                        for atom_b in part_b:
+                            # Add exclusion between rogue and atom in B
+                            if not self.graph.has_edge(rogue, atom_b):
+                                self.graph.add_edge(rogue, atom_b, conflict_type="valence_geometry")
+                            else:
+                                current_type = self.graph[rogue][atom_b]['conflict_type']
+                                if current_type not in ['explicit', 'geometric']:
+                                    self.graph[rogue][atom_b]['conflict_type'] = 'valence_geometry'
+                    
+                    # Return after finding the best disjoint pair
                     return
         
         # Fallback: If loop finishes without finding disjoint sets, do nothing

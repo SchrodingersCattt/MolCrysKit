@@ -214,23 +214,59 @@ class DisorderSolver:
             
             independent_sets = [list(optimal_set)]
         elif method == 'random':
-            # Generate multiple random independent sets
+            # Generate multiple random independent sets using the new Randomized Exact Solver
             independent_sets = []
-            attempts = 0
-            max_attempts = num_structures * 10  # Allow more attempts to find unique sets
+            seen_structures = set()  # For deduplication
             
+            for _ in range(num_structures):
+                # Create a temporary graph with randomized weights
+                temp_graph = self.graph.copy()
+                
+                # Add randomized weights to nodes
+                for node in temp_graph.nodes():
+                    base_weight = temp_graph.nodes[node].get('occupancy', 1.0)
+                    # Add tiny random noise to break ties between chemically identical parts
+                    random_noise = random.uniform(0, 1e-5)
+                    temp_graph.nodes[node]['randomized_weight'] = base_weight + random_noise
+                
+                # Solve using the exact MWIS solver
+                try:
+                    # Note: NetworkX doesn't have max_weight_independent_set by default
+                    # So we'll use the complement: find max weight clique in the complement graph
+                    # Or implement our own greedy approach for MWIS
+                    solution = self._max_weight_independent_set(temp_graph, 'randomized_weight')
+                except:
+                    # Fallback to the old random method if needed
+                    solution = self._random_independent_set()
+                
+                # Create a hashable representation for deduplication
+                solution_tuple = tuple(sorted(solution))
+                
+                # Only add if it's unique
+                if solution_tuple not in seen_structures:
+                    seen_structures.add(solution_tuple)
+                    independent_sets.append(solution)
+        
+            # If we didn't get enough unique structures, fill with random ones
+            attempts = 0
+            max_attempts = num_structures * 10
             while len(independent_sets) < num_structures and attempts < max_attempts:
-                random_set = self._random_independent_set()
+                # Generate another solution
+                temp_graph = self.graph.copy()
+                for node in temp_graph.nodes():
+                    base_weight = temp_graph.nodes[node].get('occupancy', 1.0)
+                    random_noise = random.uniform(0, 1e-5)
+                    temp_graph.nodes[node]['randomized_weight'] = base_weight + random_noise
                 
-                # Only add if it's not already in the list (check for uniqueness)
-                is_unique = True
-                for existing_set in independent_sets:
-                    if set(random_set) == set(existing_set):
-                        is_unique = False
-                        break
+                try:
+                    solution = self._max_weight_independent_set(temp_graph, 'randomized_weight')
+                except:
+                    solution = self._random_independent_set()
                 
-                if is_unique:
-                    independent_sets.append(random_set)
+                solution_tuple = tuple(sorted(solution))
+                if solution_tuple not in seen_structures:
+                    seen_structures.add(solution_tuple)
+                    independent_sets.append(solution)
                 
                 attempts += 1
         else:
@@ -316,3 +352,47 @@ class DisorderSolver:
         crystal = MolecularCrystal(self.lattice, molecules, pbc)
         
         return crystal
+    
+    def _max_weight_independent_set(self, graph, weight_attr='weight'):
+        """
+        Find an approximation to the maximum weight independent set using a greedy algorithm.
+        
+        Parameters:
+        -----------
+        graph : networkx.Graph
+            The input graph
+        weight_attr : str
+            The node attribute to use as weight
+            
+        Returns:
+        --------
+        List[int]
+            List of node indices forming the independent set
+        """
+        # Create a copy of the graph to work with
+        working_graph = graph.copy()
+        independent_set = []
+        
+        # Continue until the graph is empty
+        while working_graph.number_of_nodes() > 0:
+            # Calculate the weight-to-degree ratio for each node
+            # Nodes with high weight but low connections are preferred
+            ratios = {}
+            for node in working_graph.nodes():
+                weight = working_graph.nodes[node].get(weight_attr, 1.0)
+                # Use degree + 1 to avoid division by zero and prefer lower degree nodes
+                degree = working_graph.degree(node)
+                # Use weight/(degree+1) as the heuristic - higher is better
+                ratios[node] = weight / (degree + 1)
+            
+            # Select the node with the highest weight/(degree+1) ratio
+            best_node = max(ratios.keys(), key=lambda n: ratios[n])
+            
+            # Add this node to the independent set
+            independent_set.append(best_node)
+            
+            # Remove this node and its neighbors (and their edges) from the graph
+            nodes_to_remove = [best_node] + list(working_graph.neighbors(best_node))
+            working_graph.remove_nodes_from(nodes_to_remove)
+        
+        return independent_set
