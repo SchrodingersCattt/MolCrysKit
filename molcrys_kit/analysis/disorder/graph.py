@@ -302,9 +302,9 @@ class DisorderGraphBuilder:
                             if current_type not in ['explicit', 'geometric']:
                                 self.graph[i_idx][j_idx]['conflict_type'] = 'valence'
     
-    def _find_tetrahedral_groups(self, atom_indices: List[int], cart_positions: List[np.ndarray], center_idx: int):
+    def _find_tetrahedral_groups(self, atom_indices: List[int], cart_positions: List[np.ndarray]):
         """
-        Find two tetrahedral groups among 8 atoms around a center (like in DAP-4).
+        Find two disjoint tetrahedral groups among 8 atoms around a center (like in DAP-4).
         
         Parameters:
         -----------
@@ -312,21 +312,14 @@ class DisorderGraphBuilder:
             Indices of the 8 surrounding atoms
         cart_positions : List[np.ndarray]
             Cartesian positions of the 8 atoms relative to center
-        center_idx : int
-            Index of the center atom
         """
         if len(atom_indices) != 8:
             return  # Need exactly 8 atoms for this logic
-        
-        # This is a simplified implementation - we'll look for groups of atoms
-        # that could form valid tetrahedral geometries around the center
         
         # Calculate angles between all atom pairs as seen from the center (which is at origin now)
         n_atoms = len(atom_indices)
         
         # For each combination of 4 atoms, check if they form a valid tetrahedron
-        from itertools import combinations
-        
         valid_groups = []
         
         for combo in combinations(range(n_atoms), 4):
@@ -341,30 +334,49 @@ class DisorderGraphBuilder:
                     v2 = combo_positions[j]
                     
                     # Calculate angle between vectors from center to these atoms
+                    if np.allclose(v1, 0) or np.allclose(v2, 0):
+                        # If position is at center, skip (would cause issues with angle calculation)
+                        continue
+                        
                     angle_rad = angle_between_vectors(v1, v2)
                     angle_deg = np.degrees(angle_rad)
                     angles.append(angle_deg)
             
             # Check if angles are consistent with tetrahedral geometry (~109.5°)
-            # Allow some tolerance (e.g., 109.5° ± 15°)
-            tetrahedral_angles = [a for a in angles if 94.5 <= abs(a - 180) <= 124.5 or abs(a) <= 15.5]
+            # In a perfect tetrahedron, the angle between center-atom vectors is ~109.5°
+            # Allow some tolerance (e.g., 109.5° ± 20°)
+            tetrahedral_matches = [a for a in angles if 89.5 <= a <= 129.5]
             
-            # A valid tetrahedron should have 0 or 2 angles of ~109.5°, others are ~70.5°
-            # For simplicity, we'll check if there are at least 2 angles near 109.5°
-            if len(tetrahedral_angles) >= 2:
+            # A valid tetrahedron should have 6 angles, with most around 109.5°
+            # For our purposes, if at least 2 angles are in the right range, consider it a valid group
+            if len(tetrahedral_matches) >= 2:
                 valid_groups.append(combo_indices)
         
-        # If we found 2 valid groups, make all atoms in group A exclusive to all atoms in group B
-        if len(valid_groups) >= 2:
-            group_a = valid_groups[0]
-            group_b = valid_groups[1]
-            
-            for atom_a in group_a:
-                for atom_b in group_b:
-                    self.graph.add_edge(atom_a, atom_b, conflict_type="valence_geometry")
-        else:
-            # If we couldn't identify clear geometric groups, fall back to making all low-occ atoms exclusive
-            for i_idx in atom_indices:
-                for j_idx in atom_indices:
-                    if i_idx < j_idx:
-                        self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
+        # Look for two disjoint groups among valid groups using nested loop
+        # Iterate i from 0 to len-1
+        for i in range(len(valid_groups)):
+            # Iterate j from i+1 to len-1
+            for j in range(i+1, len(valid_groups)):
+                # Check intersection: set(valid_groups[i]).isdisjoint(set(valid_groups[j]))
+                if set(valid_groups[i]).isdisjoint(set(valid_groups[j])):
+                    # Found two disjoint tetrahedral groups - add exclusions between them
+                    part_a = valid_groups[i]
+                    part_b = valid_groups[j]
+                    
+                    # Add exclusion edges between ALL atoms in Part A and ALL atoms in Part B
+                    for atom_a in part_a:
+                        for atom_b in part_b:
+                            # Only add if not already added with explicit or geometric conflict
+                            if not self.graph.has_edge(atom_a, atom_b):
+                                self.graph.add_edge(atom_a, atom_b, conflict_type="valence_geometry")
+                            else:
+                                # Update to valence_geometry if it's not already explicit or geometric
+                                current_type = self.graph[atom_a][atom_b]['conflict_type']
+                                if current_type not in ['explicit', 'geometric']:
+                                    self.graph[atom_a][atom_b]['conflict_type'] = 'valence_geometry'
+                    
+                    # Return after finding the first valid disjoint pair
+                    return
+        
+        # Fallback: If loop finishes without finding disjoint sets, do nothing
+        # The geometric or explicit checks will handle other conflicts
