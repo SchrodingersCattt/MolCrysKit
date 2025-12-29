@@ -7,6 +7,7 @@ This module provides functionality to parse CIF files into MolecularCrystal obje
 from typing import List, Tuple, Optional, Dict
 import warnings
 import re
+import numpy as np
 import networkx as nx
 
 try:
@@ -27,6 +28,7 @@ except ImportError:
 
 from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
+from ..analysis.disorder import DisorderInfo
 from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
@@ -63,6 +65,98 @@ def _clean_species_string(species_string: str) -> str:
     # Extract only the alphabetic part as the element symbol
     element_match = _ELEMENT_PATTERN.search(cleaned)
     return element_match.group(0) if element_match else cleaned
+
+
+def scan_cif_disorder(filepath: str) -> DisorderInfo:
+    """
+    Scan a CIF file and extract raw disorder-related metadata without any logical processing.
+    
+    This function extracts the raw data exactly as it appears in the CIF file, preserving
+    label suffixes and treating missing/invalid values as defaults.
+    
+    Parameters
+    ----------
+    filepath : str
+        Path to the CIF file.
+        
+    Returns
+    -------
+    DisorderInfo
+        Object containing raw extracted disorder data.
+    """
+    if not PYMATGEN_AVAILABLE:
+        raise ImportError(
+            "pymatgen is required for CIF parsing. Please install it with 'pip install pymatgen'"
+        )
+
+    # Parse the CIF file using pymatgen to get the raw data dictionary
+    parser = CifParser(filepath, occupancy_tolerance=1, site_tolerance=1e-2)
+    cif_data = parser.as_dict()
+    
+    # We'll use the first data block for simplicity
+    first_key = list(cif_data.keys())[0]
+    data_block = cif_data[first_key]
+    
+    # Extract raw data fields
+    labels = data_block.get("_atom_site_label", [])
+    symbols = data_block.get("_atom_site_type_symbol", [])
+    
+    # Extract fractional coordinates
+    frac_x = data_block.get("_atom_site_fract_x", [])
+    frac_y = data_block.get("_atom_site_fract_y", [])
+    frac_z = data_block.get("_atom_site_fract_z", [])
+    
+    # Convert fractional coordinates to numpy array
+    n_atoms = len(labels)
+    frac_coords = np.zeros((n_atoms, 3))
+    
+    for i in range(n_atoms):
+        try:
+            frac_coords[i, 0] = float(frac_x[i]) if i < len(frac_x) else 0.0
+            frac_coords[i, 1] = float(frac_y[i]) if i < len(frac_y) else 0.0
+            frac_coords[i, 2] = float(frac_z[i]) if i < len(frac_z) else 0.0
+        except (ValueError, TypeError):
+            # If conversion fails, keep as 0.0
+            continue
+    
+    # Extract occupancies - default to 1.0 if missing or invalid
+    occupancies = []
+    raw_occupancies = data_block.get("_atom_site_occupancy", [])
+    
+    for i in range(n_atoms):
+        if i < len(raw_occupancies) and raw_occupancies[i] not in [".", "?", None]:
+            try:
+                occupancies.append(float(raw_occupancies[i]))
+            except (ValueError, TypeError):
+                occupancies.append(1.0)  # Default to 1.0 if conversion fails
+        else:
+            occupancies.append(1.0)  # Default to 1.0 if missing
+    
+    # Extract disorder groups - default to 0 if missing or invalid
+    disorder_groups = []
+    raw_groups = data_block.get("_atom_site_disorder_group", [])
+    
+    for i in range(n_atoms):
+        if i < len(raw_groups) and raw_groups[i] not in [".", "?", None]:
+            try:
+                disorder_groups.append(int(float(raw_groups[i])))  # Convert to int via float to handle any decimals
+            except (ValueError, TypeError):
+                disorder_groups.append(0)  # Default to 0 if conversion fails
+        else:
+            disorder_groups.append(0)  # Default to 0 if missing
+    
+    # Ensure all arrays have the same length by padding if necessary
+    min_len = n_atoms
+    labels = labels[:min_len] if len(labels) >= min_len else labels + [""] * (min_len - len(labels))
+    symbols = symbols[:min_len] if len(symbols) >= min_len else symbols + [""] * (min_len - len(symbols))
+    
+    return DisorderInfo(
+        labels=labels,
+        symbols=symbols,
+        frac_coords=frac_coords,
+        occupancies=occupancies,
+        disorder_groups=disorder_groups
+    )
 
 
 def read_mol_crystal(
