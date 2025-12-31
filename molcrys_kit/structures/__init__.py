@@ -11,3 +11,10 @@ from .crystal import MolecularCrystal
 
 # For backward compatibility
 Molecule = CrystalMolecule
+
+__all__ = [
+    "MolAtom",
+    "CrystalMolecule",
+    "MolecularCrystal",
+    "Molecule",
+]
