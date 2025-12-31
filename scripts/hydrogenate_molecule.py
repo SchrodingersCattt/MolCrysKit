@@ -21,7 +21,12 @@ def main():
     # Define rules for the Ammonium Cation (CH3NH3+) using the new flat list format
     rules = [
         {"symbol": "N", "geometry": "tetrahedral", "target_coordination": 4},
-        {"symbol": "O", "neighbor": ["Cl"], "geometry": "bend", "target_coordination": 1},
+        {
+            "symbol": "O",
+            "neighbor": ["Cl"],
+            "geometry": "bend",
+            "target_coordination": 1,
+        },
         # Note: C defaults to tetrahedral/coord=4, so it needs 3 H automatically.
         # Note: N defaults to coord=3 usually, so we override it to 4 to get NH3+.
     ]
