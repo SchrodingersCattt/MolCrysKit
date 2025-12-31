@@ -12,6 +12,7 @@ and saves them to the output directory.
 """
 
 import os
+import traceback
 from pathlib import Path
 from molcrys_kit.analysis.disorder import process_disordered_cif
 from molcrys_kit.io import write_cif
@@ -55,6 +56,7 @@ def process_disordered_cif_files():
             print(f"  - Saved optimal structure to {optimal_filename}")
             
         except Exception as e:
+            traceback.print_exc()
             print(f"  - Error processing {cif_file} with optimal method: {e}")
         
         # Process with random method to generate multiple structures
