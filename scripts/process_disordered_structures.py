@@ -55,6 +55,7 @@ def process_disordered_cif_files():
             optimal_filename = output_dir / f"{base_name}_optimal_0.cif"
             write_cif(optimal_structures[0], str(optimal_filename))
             print(f"  - Saved optimal structure to {optimal_filename}")
+            print(f"  - Number of atoms in optimal structure: {len(optimal_structures[0].to_ase())}")
             
         except Exception as e:
             traceback.print_exc()
@@ -73,6 +74,7 @@ def process_disordered_cif_files():
                 random_filename = output_dir / f"{base_name}_random_{i}.cif"
                 write_cif(structure, str(random_filename))
                 print(f"  - Saved random structure {i} to {random_filename}")
+                print(f"  - Number of atoms in random structure {i}: {len(structure.to_ase())}")
                 
         except Exception as e:
             print(f"  - Error processing {cif_file} with random method: {e}")
