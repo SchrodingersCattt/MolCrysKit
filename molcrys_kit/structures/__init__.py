@@ -6,8 +6,6 @@ molecules, and crystals.
 """
 
 from .molecule import CrystalMolecule
-from .atom import MolAtom
-from .crystal import MolecularCrystal
 
 # For backward compatibility
 Molecule = CrystalMolecule

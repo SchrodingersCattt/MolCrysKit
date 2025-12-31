@@ -37,7 +37,7 @@ def add_hydrogens(crystal, rules=None, bond_lengths=None):
             },
             ...
         ]
-        
+
         Processing Logic:
         1. Specific rules (with neighbors) take priority
         2. General rules (without neighbors) take second priority
@@ -112,7 +112,7 @@ class Hydrogenator:
                 },
                 ...
             ]
-            
+
             Processing Logic:
             1. Specific rules (with neighbors) take priority
             2. General rules (without neighbors) take second priority
@@ -128,7 +128,7 @@ class Hydrogenator:
         # Process the rules into specific and general categories
         specific_rules = []
         general_rules = {}
-        
+
         if rules:
             for rule in rules:
                 if "neighbors" in rule and rule["neighbors"]:
@@ -137,7 +137,9 @@ class Hydrogenator:
                 else:
                     # This is a general rule without neighbor conditions
                     symbol = rule["symbol"]
-                    general_rules[symbol] = {k: v for k, v in rule.items() if k != "symbol"}
+                    general_rules[symbol] = {
+                        k: v for k, v in rule.items() if k != "symbol"
+                    }
 
         # Merge default and user-provided bond lengths
         effective_bond_lengths = self.default_bond_lengths.copy()
@@ -173,12 +175,7 @@ class Hydrogenator:
 
                 # Determine which rule to apply based on priority system
                 rule = self._get_applicable_rule(
-                    symbol, 
-                    atom_idx, 
-                    symbols, 
-                    graph, 
-                    specific_rules, 
-                    general_rules
+                    symbol, atom_idx, symbols, graph, specific_rules, general_rules
                 )
 
                 target_coord = rule["target_coordination"]
@@ -244,7 +241,9 @@ class Hydrogenator:
 
         return final_crystal
 
-    def _get_applicable_rule(self, symbol, atom_idx, symbols, graph, specific_rules, general_rules):
+    def _get_applicable_rule(
+        self, symbol, atom_idx, symbols, graph, specific_rules, general_rules
+    ):
         """
         Determine which rule to apply based on the priority system:
         1. Specific rules (with neighbors) take priority
@@ -258,7 +257,10 @@ class Hydrogenator:
         for rule in specific_rules:
             if rule["symbol"] == symbol:
                 # Check if any of the neighbors match the rule's neighbor conditions
-                if any(neighbor_symbol in rule["neighbors"] for neighbor_symbol in neighbor_symbols):
+                if any(
+                    neighbor_symbol in rule["neighbors"]
+                    for neighbor_symbol in neighbor_symbols
+                ):
                     # Apply this specific rule and stop matching
                     result_rule = self.default_rules[symbol].copy()
                     result_rule.update({k: v for k, v in rule.items() if k != "symbol"})

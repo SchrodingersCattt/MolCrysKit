@@ -104,9 +104,8 @@ def main():
     rules = [
         # N should be Ammonium (coord=4) - general rule
         {"symbol": "N", "target_coordination": 4, "geometry": "tetrahedral"},
-        
         # O atoms bonded to Cl should have coordination 1 (not adding H) - specific rule
-        {"symbol": "O", "neighbors": ["Cl"], "target_coordination": 1}
+        {"symbol": "O", "neighbors": ["Cl"], "target_coordination": 1},
     ]
 
     input_path = "examples/MAP.cif"
