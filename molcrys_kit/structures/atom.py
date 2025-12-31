@@ -48,13 +48,13 @@ class MolAtom:
         """
         return np.dot(self.frac_coords, lattice)
 
-    def copy(self) -> "Atom":
+    def copy(self) -> "MolAtom":
         """
         Create a copy of the atom.
 
         Returns
         -------
-        Atom
+        MolAtom
             A copy of the atom with the same properties.
         """
         return MolAtom(

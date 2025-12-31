@@ -169,7 +169,7 @@ write_mol_crystal(hydrogenated_crystal, 'hydrogenated_bulk.cif')
   - `constants/` - Physical constants and atomic properties
   - `io/` - Input/output functionality (CIF parsing, etc.)
   - `operations/` - Operations on molecular structures (rotation, perturbation, etc.)
-  - `structures/` - Core structural classes (Atom, CrystalMolecule, Crystal)
+  - `structures/` - Core structural classes (MolAtom, CrystalMolecule, Crystal)
   - `utils/` - Utility functions and helper classes
 - `scripts/` - Example scripts demonstrating various functionalities
 - `tests/` - Unit tests and integration tests
