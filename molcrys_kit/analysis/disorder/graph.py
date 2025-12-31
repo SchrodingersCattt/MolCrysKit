@@ -7,6 +7,7 @@ coexist in the same physical structure based on raw disorder data.
 
 import numpy as np
 import networkx as nx
+import re  # <--- NEW IMPORT
 from typing import List, Tuple, Dict, Set
 from itertools import combinations
 from .info import DisorderInfo
@@ -47,15 +48,14 @@ class DisorderGraphBuilder:
     
     def build(self) -> nx.Graph:
         """
-        Build the exclusion graph by applying the 3-layer conflict detection logic.
-        
-        Returns:
-        --------
-        networkx.Graph
-            The exclusion graph where edges represent mutually exclusive atoms
+        Build the exclusion graph by applying the multi-layer conflict detection logic.
         """
         # Layer 1: Explicit conflicts based on disorder groups
         self._add_explicit_conflicts()
+        
+        # Layer 1.5: Global Symmetry Clashes (NEW)
+        # Must run BEFORE geometric checks to catch "Same Group" overlapping ghosts
+        self._add_symmetry_conflicts(default_threshold=1.35)
         
         # Layer 2: Geometric conflicts based on atomic distances
         self._add_geometric_conflicts(threshold=0.8)
@@ -116,6 +116,67 @@ class DisorderGraphBuilder:
                             if self.graph[i][j]['conflict_type'] != 'explicit':
                                 self.graph[i][j]['conflict_type'] = 'explicit'
     
+    def _add_symmetry_conflicts(self, default_threshold: float = 1.35):
+        """
+        Layer 1.5: Detect conflicts between symmetry equivalents (clones) within the same group.
+        
+        Uses an occupancy-adaptive threshold:
+        - Low occupancy (< 0.5): Uses strict threshold (2.0 A). Assumes atoms are 
+          mutually exclusive alternatives (e.g. 4-fold disorder).
+        - High occupancy (>= 0.5): Uses default threshold (1.35 A). Allows potential 
+          symmetry-generated bonds (e.g. disordered dimers) to persist.
+        """
+        n_atoms = len(self.info.labels)
+        
+        # Define strict threshold for low occupancy atoms
+        STRICT_THRESHOLD = 2.0
+        
+        for i in range(n_atoms):
+            group_i = self.info.disorder_groups[i]
+            if group_i == 0: continue 
+            
+            occ_i = self.info.occupancies[i]
+            
+            for j in range(i + 1, n_atoms):
+                group_j = self.info.disorder_groups[j]
+                
+                # Only check Same Group
+                if group_i == group_j:
+                    
+                    # 1. Clean Labels to find Root
+                    match_i = re.match(r"([A-Za-z]+[0-9]*)", self.info.labels[i])
+                    match_j = re.match(r"([A-Za-z]+[0-9]*)", self.info.labels[j])
+                    
+                    root_i = match_i.group(1) if match_i else self.info.labels[i]
+                    root_j = match_j.group(1) if match_j else self.info.labels[j]
+                    
+                    # 2. Check Identity (Clones)
+                    if root_i == root_j:
+                        
+                        # 3. Determine Dynamic Threshold
+                        # If either atom has low occupancy (< 0.5), we assume they cannot 
+                        # bond to their own clone. Be strict.
+                        occ_j = self.info.occupancies[j]
+                        if occ_i < 0.5 or occ_j < 0.5:
+                            threshold = STRICT_THRESHOLD
+                        else:
+                            threshold = default_threshold
+                        
+                        # 4. Check Distance
+                        frac_i = self.info.frac_coords[i]
+                        frac_j = self.info.frac_coords[j]
+                        dist = minimum_image_distance(frac_i, frac_j, self.lattice)
+                        
+                        if dist < threshold:
+                            print(f"[DEBUG] Symmetry Clash: {self.info.labels[i]} <-> {self.info.labels[j]} "
+                                  f"(Root {root_i}, Occ {occ_i:.2f}/{occ_j:.2f}, Dist {dist:.2f} A). "
+                                  f"Threshold used: {threshold} A. MARKING CONFLICT.")
+                            
+                            if not self.graph.has_edge(i, j):
+                                self.graph.add_edge(i, j, conflict_type="symmetry_clash", distance=dist)
+                            else:
+                                self.graph[i][j]['conflict_type'] = 'symmetry_clash'
+
     def _add_geometric_conflicts(self, threshold: float = 0.8):
         """
         Add edges between atoms that are too close to coexist (hard sphere collision).
