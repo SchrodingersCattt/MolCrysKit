@@ -8,14 +8,7 @@ import numpy as np
 from typing import Tuple
 import networkx as nx
 
-try:
-    from ase import Atoms
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = object  # Placeholder for type hints
-
+from ase import Atoms
 from ..constants import get_atomic_radius, has_atomic_radius
 
 
@@ -47,10 +40,6 @@ class CrystalMolecule(Atoms):
         **kwargs : dict
             Additional arguments passed to ASE Atoms constructor.
         """
-        if not ASE_AVAILABLE:
-            raise ImportError(
-                "ASE is required for CrystalMolecule. Please install it with 'pip install ase'"
-            )
 
         if atoms is not None:
             # Initialize from existing ASE Atoms object

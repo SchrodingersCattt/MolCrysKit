@@ -7,13 +7,7 @@ This module provides functionality to build complex structures from simpler unit
 import numpy as np
 from typing import Tuple
 
-try:
-    from ase import Atoms
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = object  # Placeholder
+from ase import Atoms
 
 from ..structures.crystal import MolecularCrystal
 
@@ -36,37 +30,36 @@ def create_supercell(
     MolecularCrystal
         Supercell structure.
     """
-    if not ASE_AVAILABLE:
-        raise ImportError(
-            "ASE is required for supercell creation. Please install it with 'pip install ase'"
-        )
 
-    n1, n2, n3 = scaling_factors
+    # Create ASE Atoms object from the crystal
+    symbols = []
+    positions = []
 
-    # Create new lattice vectors
-    new_lattice = np.array(
-        [crystal.lattice[0] * n1, crystal.lattice[1] * n2, crystal.lattice[2] * n3]
-    )
+    for mol in crystal.molecules:
+        mol_symbols = mol.get_chemical_symbols()
+        mol_positions = mol.get_positions()
+        symbols.extend(mol_symbols)
+        positions.extend(mol_positions)
 
-    # Generate new molecules by replicating in all directions
-    new_molecules = []
-    for i in range(n1):
-        for j in range(n2):
-            for k in range(n3):
-                # Translation vector for this cell
-                translation = np.array([i, j, k])
+    # Create ASE Atoms object
+    atoms = Atoms(symbols=symbols, positions=positions, cell=crystal.lattice, pbc=True)
 
-                # Copy all molecules and translate them
-                for molecule in crystal.molecules:
-                    # Create a copy of the ASE Atoms object
-                    new_molecule = molecule.copy()
-                    # Apply translation
-                    positions = new_molecule.get_positions()
-                    positions += np.dot(translation, crystal.lattice)
-                    new_molecule.set_positions(positions)
-                    new_molecules.append(new_molecule)
+    # Scale the cell by the given factors
+    scaled_cell = crystal.lattice.copy()
+    scaled_cell[0, :] *= m
+    scaled_cell[1, :] *= n
+    scaled_cell[2, :] *= p
 
-    return MolecularCrystal(new_lattice, new_molecules, crystal.pbc)
+    # Create the supercell using ASE
+    atoms.set_cell(scaled_cell, scale_atoms=False)
+    supercell = atoms.repeat((m, n, p))
+
+    # Rebuild the crystal structure from the supercell
+    from ..io.cif import identify_molecules
+
+    molecules = identify_molecules(supercell)
+
+    return MolecularCrystal(scaled_cell, molecules, crystal.pbc)
 
 
 def create_defect_structure(
@@ -89,10 +82,6 @@ def create_defect_structure(
     MolecularCrystal
         Crystal structure with the defect.
     """
-    if not ASE_AVAILABLE:
-        raise ImportError(
-            "ASE is required for defect structure creation. Please install it with 'pip install ase'"
-        )
 
     # This is a simplified placeholder implementation
     # A real implementation would modify the crystal according to the defect type

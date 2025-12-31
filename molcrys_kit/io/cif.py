@@ -12,23 +12,12 @@ import numpy as np
 import networkx as nx
 from dataclasses import dataclass
 
-try:
-    from pymatgen.io.cif import CifParser
-    from pymatgen.core.operations import SymmOp
-    from pymatgen.core.lattice import Lattice
+from pymatgen.io.cif import CifParser
+from pymatgen.core.operations import SymmOp
+from pymatgen.core.lattice import Lattice
 
-    PYMATGEN_AVAILABLE = True
-except ImportError:
-    PYMATGEN_AVAILABLE = False
-
-try:
-    from ase import Atoms
-    from ase.neighborlist import neighbor_list
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = object  # Placeholder
+from ase import Atoms
+from ase.neighborlist import neighbor_list
 
 from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
@@ -211,11 +200,6 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
     DisorderInfo
         Object containing raw extracted disorder data for the full unit cell.
     """
-    if not PYMATGEN_AVAILABLE:
-        raise ImportError(
-            "pymatgen is required for CIF parsing. Please install it with 'pip install pymatgen'"
-        )
-
     # Parse the CIF file using pymatgen to get the raw data dictionary
     parser = CifParser(filepath, occupancy_tolerance=1, site_tolerance=1e-2)
     cif_data = parser.as_dict()
@@ -424,15 +408,6 @@ def read_mol_crystal(
     MolecularCrystal
         Parsed crystal structure with identified molecular units.
     """
-    if not PYMATGEN_AVAILABLE:
-        raise ImportError(
-            "pymatgen is required for CIF parsing. Please install it with 'pip install pymatgen'"
-        )
-
-    if not ASE_AVAILABLE:
-        raise ImportError(
-            "ASE is required for molecule representation. Please install it with 'pip install ase'"
-        )
 
     # Parse the CIF file using pymatgen with special options for handling disordered structures
     # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
@@ -537,10 +512,6 @@ def identify_molecules(
     List[CrystalMolecule]
         List of CrystalMolecule objects, each representing a molecular unit.
     """
-    if not ASE_AVAILABLE:
-        raise ImportError(
-            "ASE is required for molecule identification. Please install it with 'pip install ase'"
-        )
 
     # Build a global graph for the entire crystal structure
     crystal_graph = nx.Graph()

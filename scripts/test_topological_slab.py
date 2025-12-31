@@ -6,27 +6,16 @@ import matplotlib.pyplot as plt
 project_root = "/aisi-nas/guomingyu/personal/MolCrysKit"
 sys.path.insert(0, project_root)
 
-try:
-    from molcrys_kit.io.cif import read_mol_crystal
-    from molcrys_kit.operations import generate_topological_slab
-    from molcrys_kit.io.cif import identify_molecules
-    import pymatgen
-    from ase import Atoms
-    from ase.visualize.plot import plot_atoms
-
-    PYMATGEN_AVAILABLE = True
-    ASE_AVAILABLE = True
-except ImportError as e:
-    print(f"Error importing modules: {e}")
-    PYMATGEN_AVAILABLE = False
-    ASE_AVAILABLE = False
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.operations import generate_topological_slab
+from molcrys_kit.io.cif import identify_molecules
+from ase.visualize.plot import plot_atoms
 
 
 def main():
     """Main function to test topological slab generation."""
-    if not PYMATGEN_AVAILABLE or not ASE_AVAILABLE:
-        print("Error: Required packages (pymatgen and/or ASE) not available")
-        return
+    # This check is no longer needed since modules are directly imported
+    # If required packages are not available, import errors will be raised at the top of the file
 
     cif_path = os.path.join(project_root, "examples", "PUBMUU03.cif")
 

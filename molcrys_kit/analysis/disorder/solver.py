@@ -10,23 +10,9 @@ import networkx as nx
 import random
 from typing import List
 
-try:
-    from ase import Atoms
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = object  # Placeholder
+from ase import Atoms
 
 from ...structures.crystal import MolecularCrystal
-from ...structures.molecule import CrystalMolecule
-from ...constants import (
-    get_atomic_radius,
-    has_atomic_radius,
-    is_metal_element,
-    METAL_THRESHOLD_FACTOR,
-    NON_METAL_THRESHOLD_FACTOR,
-)
 from .info import DisorderInfo
 from ...io.cif import identify_molecules
 

@@ -8,13 +8,7 @@ for molecular crystals.
 import numpy as np
 from typing import List, Tuple
 
-try:
-    from ase import Atoms
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = object  # Placeholder for type hints
+from ase import Atoms
 
 from .molecule import CrystalMolecule
 from ..constants import ATOMIC_RADII
@@ -84,10 +78,6 @@ class MolecularCrystal:
         MolecularCrystal
             New crystal representing the supercell.
         """
-        if not ASE_AVAILABLE:
-            raise ImportError(
-                "ASE is required for supercell generation. Please install it with 'pip install ase'"
-            )
 
         # Create new lattice vectors
         new_lattice = np.array(
@@ -290,10 +280,6 @@ class MolecularCrystal:
         Atoms
             An ASE Atoms object representing the entire crystal structure.
         """
-        if not ASE_AVAILABLE:
-            raise ImportError(
-                "ASE is required for to_ase method. Please install it with 'pip install ase'"
-            )
 
         symbols, positions = [], []
         for molecule in self.molecules:

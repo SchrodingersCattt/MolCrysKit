@@ -9,23 +9,13 @@ import sys
 # Add the project root to the path so we can import molcrys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-try:
-    from ase import Atoms
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = None
+from ase import Atoms
 
 from molcrys_kit.io.cif import identify_molecules
 
 
 def test_simple_molecular_system():
     """Test identify_molecules with a simple system of bonded and isolated atoms."""
-    if not ASE_AVAILABLE:
-        print("Skipping test: ASE not available")
-        return
-
     # Create a simple system with:
     # 1. Two bonded atoms (H and O, forming a fragment of a molecule)
     # 2. One isolated atom (Cl)
@@ -83,10 +73,6 @@ def test_simple_molecular_system():
 
 def test_more_complex_system():
     """Test identify_molecules with a more complex system."""
-    if not ASE_AVAILABLE:
-        print("Skipping test: ASE not available")
-        return
-
     # Create a system with:
     # 1. Water molecule (O, H, H)
     # 2. Ammonia molecule (N, H, H, H)

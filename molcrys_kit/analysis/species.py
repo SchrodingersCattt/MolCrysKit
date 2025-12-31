@@ -6,13 +6,7 @@ This module identifies discrete molecular units in periodic crystals.
 
 from typing import List
 
-try:
-    from ase import Atoms
-
-    ASE_AVAILABLE = True
-except ImportError:
-    ASE_AVAILABLE = False
-    Atoms = object  # Placeholder
+from ase import Atoms
 
 from ..structures.crystal import MolecularCrystal
 
@@ -36,10 +30,6 @@ def identify_molecules(crystal: MolecularCrystal) -> List[Atoms]:
     List[Atoms]
         List of identified molecular units as ASE Atoms objects.
     """
-    if not ASE_AVAILABLE:
-        raise ImportError(
-            "ASE is required for molecule identification. Please install it with 'pip install ase'"
-        )
 
     # For the new design, molecules are already ASE Atoms objects
     # NOTE: If you used parse_cif() instead of parse_cif_advanced(), all atoms might be in one molecule
