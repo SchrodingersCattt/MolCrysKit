@@ -289,6 +289,16 @@ class DisorderGraphBuilder:
         if len(atom_indices) < 2:
             return  # Need at least 2 atoms to create exclusions
         
+        # DEBUG: Print information about the center and its neighbors
+        center_label = self.info.labels[center_idx]
+        print(f"[DEBUG] Processing clique for Center Atom: {center_label} (Idx: {center_idx})")
+        print(f"[DEBUG] Neighbors involved:")
+        for idx in atom_indices:
+            label = self.info.labels[idx]
+            occ = self.info.occupancies[idx]
+            group = self.info.disorder_groups[idx]
+            print(f"  - Atom {idx} ({label}): Occ={occ}, Group={group}")
+        
         # Calculate positions relative to the center
         center_frac = self.info.frac_coords[center_idx]
         relative_positions = []
@@ -313,17 +323,28 @@ class DisorderGraphBuilder:
             self._find_tetrahedral_groups(atom_indices, cart_positions)
         else:
             # For other cases, if all have low occupancy, make them all mutually exclusive
+            # CRITICAL FIX: Only make atoms mutually exclusive if they belong to different disorder groups
             for i_idx in atom_indices:
                 for j_idx in atom_indices:
                     if i_idx < j_idx:
-                        # Only add if not already added with explicit or geometric conflict
+                        group_i = self.info.disorder_groups[i_idx]
+                        group_j = self.info.disorder_groups[j_idx]
+
+                        # CRITICAL FIX: Allow atoms from the same disorder group to coexist in a clique
+                        if group_i != 0 and group_j != 0 and group_i == group_j:
+                            # Log logic for verification
+                            print(f"  > Keeping {self.info.labels[i_idx]} and {self.info.labels[j_idx]} linked (Same Group {group_i})")
+                            continue
+
                         if not self.graph.has_edge(i_idx, j_idx):
                             self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
+                            print(f"  > Adding valence conflict between {self.info.labels[i_idx]} (Grp {group_i}) and {self.info.labels[j_idx]} (Grp {group_j})")
                         else:
-                            # Update to valence if it's not already explicit or geometric
-                            current_type = self.graph[i_idx][j_idx]['conflict_type']
+                            # Upgrade existing conflict type if necessary
+                            current_type = self.graph[i_idx][j_idx].get('conflict_type')
                             if current_type not in ['explicit', 'geometric']:
                                 self.graph[i_idx][j_idx]['conflict_type'] = 'valence'
+                                print(f"  > Upgraded conflict between {self.info.labels[i_idx]} (Grp {group_i}) and {self.info.labels[j_idx]} (Grp {group_j}) to valence")
     
     def _find_tetrahedral_groups(self, atom_indices: List[int], cart_positions: List[np.ndarray]):
         """

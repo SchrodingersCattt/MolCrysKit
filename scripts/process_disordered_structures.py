@@ -25,7 +25,8 @@ def process_disordered_cif_files():
     input_files = [
         "examples/PAP-M5.cif",
         "examples/PAP-H4.cif", 
-        "examples/DAP-4.cif"
+        "examples/DAP-4.cif",
+        "examples/EAP-8.cif"
     ]
     
     # Create output directory if it doesn't exist
