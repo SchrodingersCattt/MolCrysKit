@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class Atom:
+class MolAtom:
     """
     Represents an atom in a molecular crystal.
 
@@ -57,7 +57,7 @@ class Atom:
         Atom
             A copy of the atom with the same properties.
         """
-        return Atom(
+        return MolAtom(
             symbol=self.symbol,
             frac_coords=self.frac_coords.copy(),
             occupancy=self.occupancy,
