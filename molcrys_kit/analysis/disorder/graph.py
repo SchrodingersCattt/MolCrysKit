@@ -168,10 +168,6 @@ class DisorderGraphBuilder:
                         dist = minimum_image_distance(frac_i, frac_j, self.lattice)
                         
                         if dist < threshold:
-                            print(f"[DEBUG] Symmetry Clash: {self.info.labels[i]} <-> {self.info.labels[j]} "
-                                  f"(Root {root_i}, Occ {occ_i:.2f}/{occ_j:.2f}, Dist {dist:.2f} A). "
-                                  f"Threshold used: {threshold} A. MARKING CONFLICT.")
-                            
                             if not self.graph.has_edge(i, j):
                                 self.graph.add_edge(i, j, conflict_type="symmetry_clash", distance=dist)
                             else:
@@ -349,17 +345,7 @@ class DisorderGraphBuilder:
         """
         if len(atom_indices) < 2:
             return  # Need at least 2 atoms to create exclusions
-        
-        # DEBUG: Print information about the center and its neighbors
-        center_label = self.info.labels[center_idx]
-        print(f"[DEBUG] Processing clique for Center Atom: {center_label} (Idx: {center_idx})")
-        print(f"[DEBUG] Neighbors involved:")
-        for idx in atom_indices:
-            label = self.info.labels[idx]
-            occ = self.info.occupancies[idx]
-            group = self.info.disorder_groups[idx]
-            print(f"  - Atom {idx} ({label}): Occ={occ}, Group={group}")
-        
+                
         # Calculate positions relative to the center
         center_frac = self.info.frac_coords[center_idx]
         relative_positions = []
