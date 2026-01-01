@@ -8,6 +8,46 @@ interactions such as hydrogen bonds, halogen bonds, and other non-covalent inter
 import numpy as np
 from typing import List
 from ..structures.molecule import CrystalMolecule
+from ..constants import (
+    METAL_THRESHOLD_FACTOR,
+    NON_METAL_THRESHOLD_FACTOR,
+)
+
+
+def get_bonding_threshold(
+    radius_i: float, radius_j: float, is_metal_i: bool, is_metal_j: bool
+) -> float:
+    """
+    Calculate the bonding threshold based on atomic radii and element types.
+
+    Parameters
+    ----------
+    radius_i : float
+        Atomic radius of the first atom.
+    radius_j : float
+        Atomic radius of the second atom.
+    is_metal_i : bool
+        Whether the first atom is a metal.
+    is_metal_j : bool
+        Whether the second atom is a metal.
+
+    Returns
+    -------
+    float
+        The bonding threshold distance.
+    """
+    # Determine threshold factor based on element types
+    if is_metal_i and is_metal_j:  # Metal-Metal
+        factor = METAL_THRESHOLD_FACTOR
+    elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
+        factor = NON_METAL_THRESHOLD_FACTOR
+    else:  # Metal-Non-metal
+        factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+
+    # Bonding threshold as sum of covalent radii multiplied by factor
+    threshold = (radius_i + radius_j) * factor
+
+    return threshold
 
 
 class HydrogenBond:

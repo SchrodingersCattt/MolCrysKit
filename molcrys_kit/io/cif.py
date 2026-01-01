@@ -25,9 +25,8 @@ from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
     is_metal_element,
-    METAL_THRESHOLD_FACTOR,
-    NON_METAL_THRESHOLD_FACTOR,
 )
+from ..utils.geometry import minimum_image_distance
 
 
 @dataclass
@@ -177,9 +176,6 @@ def _are_coords_close(
     bool
         True if the coordinates are close enough to be considered the same.
     """
-    # Calculate the minimum image distance
-    from ..utils.geometry import minimum_image_distance
-
     distance = minimum_image_distance(coord1, coord2, lattice.matrix)
     return distance < tol
 
@@ -554,16 +550,12 @@ def identify_molecules(
             is_metal_i = is_metal_element(symbols[i])
             is_metal_j = is_metal_element(symbols[j])
 
-            # Determine threshold factor based on element types
-            if is_metal_i and is_metal_j:  # Metal-Metal
-                factor = METAL_THRESHOLD_FACTOR
-            elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
-                factor = NON_METAL_THRESHOLD_FACTOR
-            else:  # Metal-Non-metal
-                factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+            # Calculate bonding threshold using the shared function
+            from ..analysis.interactions import get_bonding_threshold
 
-            # Bonding threshold as sum of covalent radii multiplied by factor
-            threshold = (radius_i + radius_j) * factor
+            threshold = get_bonding_threshold(
+                radius_i, radius_j, is_metal_i, is_metal_j
+            )
 
         # Add edge if atoms are close enough to be bonded
         if distance < threshold:

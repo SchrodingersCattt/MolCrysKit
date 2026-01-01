@@ -20,21 +20,21 @@ def test_identify_molecules():
     """Test identifying molecules in a crystal."""
     # Create a simple crystal with two water molecules
     h2o1 = Atoms(
-        symbols=['O', 'H', 'H'],
-        positions=[[0.0, 0.0, 0.0], [0.757, 0.586, 0.0], [-0.757, 0.586, 0.0]]
+        symbols=["O", "H", "H"],
+        positions=[[0.0, 0.0, 0.0], [0.757, 0.586, 0.0], [-0.757, 0.586, 0.0]],
     )
     h2o2 = Atoms(
-        symbols=['O', 'H', 'H'],
-        positions=[[3.0, 0.0, 0.0], [3.757, 0.586, 0.0], [2.243, 0.586, 0.0]]
+        symbols=["O", "H", "H"],
+        positions=[[3.0, 0.0, 0.0], [3.757, 0.586, 0.0], [2.243, 0.586, 0.0]],
     )
-    
+
     # Create a crystal with these molecules
     lattice = np.eye(3) * 10.0  # 10x10x10 Angstrom box
     crystal = MolecularCrystal(lattice, [CrystalMolecule(h2o1), CrystalMolecule(h2o2)])
-    
+
     # Identify molecules
     molecules = identify_molecules(crystal)
-    
+
     # Should return the list of molecules in the crystal
     assert len(molecules) == 2
     assert isinstance(molecules[0], CrystalMolecule)
@@ -45,22 +45,22 @@ def test_assign_atoms_to_molecules():
     """Test assigning atoms to molecules in a crystal."""
     # Create a simple crystal with one water molecule
     h2o = Atoms(
-        symbols=['O', 'H', 'H'],
-        positions=[[0.0, 0.0, 0.0], [0.757, 0.586, 0.0], [-0.757, 0.586, 0.0]]
+        symbols=["O", "H", "H"],
+        positions=[[0.0, 0.0, 0.0], [0.757, 0.586, 0.0], [-0.757, 0.586, 0.0]],
     )
-    
+
     # Create a crystal with this molecule
     lattice = np.eye(3) * 10.0  # 10x10x10 Angstrom box
     original_crystal = MolecularCrystal(lattice, [CrystalMolecule(h2o)])
-    
+
     # Assign atoms to molecules (should return the same crystal in current implementation)
     new_crystal = assign_atoms_to_molecules(original_crystal)
-    
+
     # Check that the returned crystal has the same properties
     assert np.allclose(new_crystal.lattice, original_crystal.lattice)
     assert len(new_crystal.molecules) == len(original_crystal.molecules)
     assert isinstance(new_crystal.molecules[0], CrystalMolecule)
-    
+
     # The function should return the same crystal in current implementation
     assert new_crystal is original_crystal
 
@@ -70,10 +70,10 @@ def test_identify_molecules_empty_crystal():
     # Create an empty crystal
     lattice = np.eye(3) * 10.0
     crystal = MolecularCrystal(lattice, [])
-    
+
     # Identify molecules
     molecules = identify_molecules(crystal)
-    
+
     # Should return an empty list
     assert len(molecules) == 0
 
@@ -83,10 +83,10 @@ def test_assign_atoms_to_molecules_empty_crystal():
     # Create an empty crystal
     lattice = np.eye(3) * 10.0
     original_crystal = MolecularCrystal(lattice, [])
-    
+
     # Assign atoms to molecules
     new_crystal = assign_atoms_to_molecules(original_crystal)
-    
+
     # Should return the same crystal object
     assert new_crystal is original_crystal
     assert len(new_crystal.molecules) == 0

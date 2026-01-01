@@ -252,27 +252,27 @@ def rotate_vector(vector: np.ndarray, axis: np.ndarray, angle_deg: float) -> np.
     """
     # Convert angle to radians
     angle_rad = np.radians(angle_deg)
-    
+
     # Get the rotation matrix
     rotation_matrix = get_rotation_matrix(axis, angle_rad)
-    
+
     # Apply the rotation to the vector
     rotated_vector = np.dot(rotation_matrix, vector)
-    
+
     return rotated_vector
 
 
 def get_rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
     """
     Create a rotation matrix using Rodrigues' rotation formula.
-    
+
     Parameters
     ----------
     axis : np.ndarray
         The rotation axis (will be normalized).
     angle : float
         The rotation angle in radians.
-        
+
     Returns
     -------
     np.ndarray
@@ -281,26 +281,26 @@ def get_rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
     # Normalize the rotation axis
     axis = np.asarray(axis, dtype=np.float64)
     axis = axis / np.linalg.norm(axis)
-    
+
     # Convert angle to radians if it's in degrees (assuming it's in radians based on the function signature)
     angle_rad = angle
-    
+
     # Calculate trigonometric values
     cos_angle = np.cos(angle_rad)
     sin_angle = np.sin(angle_rad)
-    
+
     # Create the cross product matrix (skew-symmetric matrix)
     cross_matrix = np.array(
         [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
     )
-    
+
     # Apply Rodrigues' rotation formula to create rotation matrix
     rotation_matrix = (
         cos_angle * np.eye(3)
         + sin_angle * cross_matrix
         + (1 - cos_angle) * np.outer(axis, axis)
     )
-    
+
     return rotation_matrix
 
 

@@ -16,6 +16,7 @@ from ..utils.geometry import (
     cart_to_frac,
     frac_to_cart,
     rotate_vector,
+    calculate_center_of_mass,
 )
 
 
@@ -297,9 +298,6 @@ class Hydrogenator:
             symbols = mol.get_chemical_symbols()
             positions = mol.get_positions()
 
-            # Calculate center of mass
-            from ..utils.geometry import calculate_center_of_mass
-
             com = calculate_center_of_mass(positions, symbols)
 
             # Convert COM to fractional coordinates
@@ -428,4 +426,3 @@ class Hydrogenator:
             new_positions[h_idx] = positions[atom1_idx] + rotated_h_vector
 
         mol.set_positions(new_positions)
-
