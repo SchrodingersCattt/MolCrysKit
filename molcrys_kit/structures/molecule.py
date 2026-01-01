@@ -9,9 +9,10 @@ from typing import Tuple
 import networkx as nx
 
 from ase import Atoms
-from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
 
 from ..constants import (
+    get_atomic_radius,
+    has_atomic_radius,
     is_metal_element,
     METAL_THRESHOLD_FACTOR,
     NON_METAL_THRESHOLD_FACTOR,

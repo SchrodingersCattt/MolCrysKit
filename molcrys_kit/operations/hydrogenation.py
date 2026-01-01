@@ -148,7 +148,6 @@ class Hydrogenator:
             # Create a new ASE Atoms object to add hydrogens to
             # Start with the same atoms and positions
             new_atoms = original_mol.copy()
-            new_positions = positions.copy()
 
             # Get the connectivity graph
             graph = unwrapped_mol.graph
@@ -326,8 +325,6 @@ class Hydrogenator:
 
             # Create a copy of the original molecule
             new_mol = original_mol.copy()
-            new_symbols = new_mol.get_chemical_symbols()
-            new_positions = new_mol.get_positions()
 
             # Get the connectivity graph
             graph = unwrapped_mol.graph

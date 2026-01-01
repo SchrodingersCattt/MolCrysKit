@@ -353,8 +353,6 @@ def get_missing_vectors(
     elif geometry_type == "trigonal_planar":
         # Trigonal planar geometry (sp2, coordination number = 3)
         if len(neighbor_vectors) == 0:
-            # If no neighbors, return three vectors in a plane (e.g., xy-plane)
-            angle = 2 * np.pi / 3  # 120 degrees
             v1 = np.array([1.0, 0.0, 0.0])
             v2 = rotate_vector(v1, np.array([0, 0, 1]), 120)
             v3 = rotate_vector(v1, np.array([0, 0, 1]), 240)

@@ -224,26 +224,15 @@ class DisorderSolver:
             Reconstructed ordered crystal structure
         """
         # Filter the DisorderInfo data for the selected atoms
-        selected_labels = [self.info.labels[i] for i in independent_set]
         selected_symbols = [self.info.symbols[i] for i in independent_set]
         selected_frac_coords = self.info.frac_coords[independent_set]
 
-        # Force occupancy to 1.0 for all selected atoms
-        selected_occupancies = [1.0 for _ in independent_set]
-
-        # Create ASE Atoms object
-        try:
-            atoms = Atoms(
-                symbols=selected_symbols,
-                scaled_positions=selected_frac_coords,
-                cell=self.lattice,
-                pbc=True,
-            )
-        except ImportError:
-            raise ImportError(
-                "ASE is required for crystal reconstruction. "
-                "Please install it with 'pip install ase'"
-            )
+        atoms = Atoms(
+            symbols=selected_symbols,
+            scaled_positions=selected_frac_coords,
+            cell=self.lattice,
+            pbc=True,
+        )
 
         # Rebuild molecular topology using the imported function
         molecules = identify_molecules(atoms)
