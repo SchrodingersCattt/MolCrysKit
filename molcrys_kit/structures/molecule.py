@@ -152,18 +152,10 @@ class CrystalMolecule(Atoms):
                     # Calculate distance
                     distance = np.linalg.norm(positions[i] - positions[j])
 
-                    # Determine threshold factor based on element types
-                    if is_metal_i and is_metal_j:  # Metal-Metal
-                        factor = METAL_THRESHOLD_FACTOR
-                    elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
-                        factor = NON_METAL_THRESHOLD_FACTOR
-                    else:  # Metal-Non-metal
-                        factor = (
-                            METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR
-                        ) / 2
-
-                    # Bonding threshold as sum of covalent radii multiplied by factor
-                    threshold = (radius_i + radius_j) * factor
+                    # Use the shared utility function for bonding threshold
+                    # Import locally to avoid circular import issues
+                    from ..analysis.interactions import get_bonding_threshold
+                    threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
 
                     if distance < threshold:
                         self._graph.add_edge(i, j, distance=distance)
