@@ -15,6 +15,7 @@ from ..utils.geometry import (
     normalize_vector,
     cart_to_frac,
     frac_to_cart,
+    rotate_vector,
 )
 
 
@@ -420,32 +421,11 @@ class Hydrogenator:
             # Vector from atom1 to hydrogen
             h_vector = positions[h_idx] - positions[atom1_idx]
 
-            # Rotate the vector around the bond axis
-            rotated_h_vector = self._rotate_vector_around_axis(
-                h_vector, rotation_axis, angle_deg
-            )
+            # Rotate the vector around the bond axis using the utility function
+            rotated_h_vector = rotate_vector(h_vector, rotation_axis, angle_deg)
 
             # Update the hydrogen position
             new_positions[h_idx] = positions[atom1_idx] + rotated_h_vector
 
         mol.set_positions(new_positions)
 
-    def _rotate_vector_around_axis(
-        self, vector: np.ndarray, axis: np.ndarray, angle_deg: float
-    ) -> np.ndarray:
-        """
-        Rotate a vector around an axis by an angle in degrees.
-        This is a simplified implementation of Rodrigues' rotation formula.
-        """
-        angle_rad = np.radians(angle_deg)
-        cos_angle = np.cos(angle_rad)
-        sin_angle = np.sin(angle_rad)
-
-        # Rodrigues' rotation formula
-        rotated_vector = (
-            vector * cos_angle
-            + np.cross(axis, vector) * sin_angle
-            + axis * np.dot(axis, vector) * (1 - cos_angle)
-        )
-
-        return rotated_vector

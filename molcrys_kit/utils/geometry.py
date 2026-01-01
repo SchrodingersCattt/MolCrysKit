@@ -252,25 +252,56 @@ def rotate_vector(vector: np.ndarray, axis: np.ndarray, angle_deg: float) -> np.
     """
     # Convert angle to radians
     angle_rad = np.radians(angle_deg)
-
-    # Normalize the axis
-    axis_norm = normalize_vector(axis)
-
-    # Apply Rodrigues' rotation formula:
-    # v_rot = v*cos(θ) + (k × v)*sin(θ) + k*(k · v)*(1 - cos(θ))
-    cos_theta = np.cos(angle_rad)
-    sin_theta = np.sin(angle_rad)
-
-    cross_product = np.cross(axis_norm, vector)
-    dot_product = np.dot(axis_norm, vector)
-
-    rotated_vector = (
-        vector * cos_theta
-        + cross_product * sin_theta
-        + axis_norm * dot_product * (1 - cos_theta)
-    )
-
+    
+    # Get the rotation matrix
+    rotation_matrix = get_rotation_matrix(axis, angle_rad)
+    
+    # Apply the rotation to the vector
+    rotated_vector = np.dot(rotation_matrix, vector)
+    
     return rotated_vector
+
+
+def get_rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
+    """
+    Create a rotation matrix using Rodrigues' rotation formula.
+    
+    Parameters
+    ----------
+    axis : np.ndarray
+        The rotation axis (will be normalized).
+    angle : float
+        The rotation angle in radians.
+        
+    Returns
+    -------
+    np.ndarray
+        A 3x3 rotation matrix.
+    """
+    # Normalize the rotation axis
+    axis = np.asarray(axis, dtype=np.float64)
+    axis = axis / np.linalg.norm(axis)
+    
+    # Convert angle to radians if it's in degrees (assuming it's in radians based on the function signature)
+    angle_rad = angle
+    
+    # Calculate trigonometric values
+    cos_angle = np.cos(angle_rad)
+    sin_angle = np.sin(angle_rad)
+    
+    # Create the cross product matrix (skew-symmetric matrix)
+    cross_matrix = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
+    
+    # Apply Rodrigues' rotation formula to create rotation matrix
+    rotation_matrix = (
+        cos_angle * np.eye(3)
+        + sin_angle * cross_matrix
+        + (1 - cos_angle) * np.outer(axis, axis)
+    )
+    
+    return rotation_matrix
 
 
 def get_missing_vectors(

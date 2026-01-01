@@ -6,6 +6,7 @@ This module provides functions for rotating molecules and crystals.
 
 import numpy as np
 from ..structures.molecule import CrystalMolecule
+from ..utils.geometry import get_rotation_matrix
 
 
 def rotate_molecule_at_center(
@@ -23,11 +24,11 @@ def rotate_molecule_at_center(
     angle : float
         The rotation angle in degrees.
     """
-    # Normalize the rotation axis
-    axis = np.array(axis) / np.linalg.norm(axis)
-
     # Convert angle to radians
     angle_rad = np.radians(angle)
+
+    # Get the rotation matrix using the utility function
+    rotation_matrix = get_rotation_matrix(axis, angle_rad)
 
     # Get the centroid of the molecule
     centroid = molecule.get_centroid()
@@ -37,19 +38,6 @@ def rotate_molecule_at_center(
 
     # Translate molecule to origin (centered at centroid)
     translated_positions = positions - centroid
-
-    # Create rotation matrix using Rodrigues' rotation formula
-    cos_angle = np.cos(angle_rad)
-    sin_angle = np.sin(angle_rad)
-    cross_matrix = np.array(
-        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
-    )
-
-    rotation_matrix = (
-        cos_angle * np.eye(3)
-        + sin_angle * cross_matrix
-        + (1 - cos_angle) * np.outer(axis, axis)
-    )
 
     # Apply rotation
     rotated_positions = np.dot(translated_positions, rotation_matrix.T)
@@ -76,11 +64,11 @@ def rotate_molecule_at_com(
     angle : float
         The rotation angle in degrees.
     """
-    # Normalize the rotation axis
-    axis = np.array(axis) / np.linalg.norm(axis)
-
     # Convert angle to radians
     angle_rad = np.radians(angle)
+
+    # Get the rotation matrix using the utility function
+    rotation_matrix = get_rotation_matrix(axis, angle_rad)
 
     # Get the center of mass of the molecule
     center_of_mass = molecule.get_center_of_mass()
@@ -90,19 +78,6 @@ def rotate_molecule_at_com(
 
     # Translate molecule to origin (centered at center of mass)
     translated_positions = positions - center_of_mass
-
-    # Create rotation matrix using Rodrigues' rotation formula
-    cos_angle = np.cos(angle_rad)
-    sin_angle = np.sin(angle_rad)
-    cross_matrix = np.array(
-        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
-    )
-
-    rotation_matrix = (
-        cos_angle * np.eye(3)
-        + sin_angle * cross_matrix
-        + (1 - cos_angle) * np.outer(axis, axis)
-    )
 
     # Apply rotation
     rotated_positions = np.dot(translated_positions, rotation_matrix.T)

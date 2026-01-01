@@ -7,6 +7,7 @@ and perturbations to molecular crystals and individual molecules.
 
 import numpy as np
 from ..structures.molecule import CrystalMolecule
+from ..utils.geometry import get_rotation_matrix
 
 
 def apply_gaussian_displacement_molecule(
@@ -99,18 +100,8 @@ def apply_random_rotation(molecule: CrystalMolecule, max_angle: float = 10.0) ->
     # Convert to radians
     angle_rad = np.radians(angle)
 
-    # Create rotation matrix using Rodrigues' rotation formula
-    cos_angle = np.cos(angle_rad)
-    sin_angle = np.sin(angle_rad)
-    cross_matrix = np.array(
-        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
-    )
-
-    rotation_matrix = (
-        cos_angle * np.eye(3)
-        + sin_angle * cross_matrix
-        + (1 - cos_angle) * np.outer(axis, axis)
-    )
+    # Get the rotation matrix using the utility function
+    rotation_matrix = get_rotation_matrix(axis, angle_rad)
 
     # Get molecule centroid
     centroid = molecule.get_centroid()
