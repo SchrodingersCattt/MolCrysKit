@@ -49,7 +49,11 @@ class DisorderInfo:
     frac_coords: np.ndarray  # shape (n, 3)
     occupancies: List[float]
     disorder_groups: List[int]
-    assemblies: List[str]  # New field for assembly information
+    assemblies: List[str] = None  # New field for assembly information
+
+    def __post_init__(self):
+        if self.assemblies is None:
+            self.assemblies = []
 
     def summary(self):
         """Print statistics about the disorder information."""
