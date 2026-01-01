@@ -74,26 +74,12 @@ class Hydrogenator:
         # Use unwrapped molecules to handle periodic boundary conditions properly
         self.unwrapped_molecules = crystal.get_unwrapped_molecules()
 
-        # Default coordination rules for common elements
-        self.default_rules = {
-            "C": {"geometry": "tetrahedral", "target_coordination": 4},
-            "N": {
-                "geometry": "trigonal_pyramidal",
-                "target_coordination": 3,
-            },  # Default for N
-            "O": {"geometry": "bent", "target_coordination": 2},
-            "S": {"geometry": "tetrahedral", "target_coordination": 4},
-            "P": {"geometry": "tetrahedral", "target_coordination": 4},
-        }
+        # Import the constants here to avoid circular imports
+        from ..constants.config import COORDINATION_RULES, BOND_LENGTHS
 
-        # Default bond lengths (in Angstroms)
-        self.default_bond_lengths = {
-            "C-H": 1.09,
-            "N-H": 1.01,
-            "O-H": 0.96,
-            "S-H": 1.34,
-            "P-H": 1.42,
-        }
+        # Use imported constants instead of hardcoding them
+        self.default_rules = COORDINATION_RULES
+        self.default_bond_lengths = BOND_LENGTHS
 
     def add_hydrogens(
         self, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None

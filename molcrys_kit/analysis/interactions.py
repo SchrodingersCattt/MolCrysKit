@@ -6,12 +6,14 @@ interactions such as hydrogen bonds, halogen bonds, and other non-covalent inter
 """
 
 import numpy as np
-from typing import List
-from ..structures.molecule import CrystalMolecule
+from typing import List, TYPE_CHECKING
 from ..constants import (
     METAL_THRESHOLD_FACTOR,
     NON_METAL_THRESHOLD_FACTOR,
 )
+
+if TYPE_CHECKING:
+    pass
 
 
 def get_bonding_threshold(
@@ -60,8 +62,8 @@ class HydrogenBond:
 
     def __init__(
         self,
-        donor: CrystalMolecule,
-        acceptor: CrystalMolecule,
+        donor,
+        acceptor,
         distance: float,
         donor_atom_index: int,
         hydrogen_index: int,
@@ -101,9 +103,7 @@ class HydrogenBond:
         )
 
 
-def find_hydrogen_bonds(
-    molecules: List[CrystalMolecule], max_distance: float = 3.5
-) -> List[HydrogenBond]:
+def find_hydrogen_bonds(molecules: List, max_distance: float = 3.5) -> List:
     """
     Identify potential hydrogen bonds between molecules in a molecular crystal.
 

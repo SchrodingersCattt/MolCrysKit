@@ -10,7 +10,12 @@ import networkx as nx
 
 from ase import Atoms
 from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
-from ..analysis.interactions import get_bonding_threshold
+
+from ..constants import (
+    is_metal_element,
+    METAL_THRESHOLD_FACTOR,
+    NON_METAL_THRESHOLD_FACTOR,
+)
 
 
 class CrystalMolecule(Atoms):
@@ -115,6 +120,7 @@ class CrystalMolecule(Atoms):
         """
         Build the graph representation of the molecule's internal connectivity.
         """
+
         self._graph = nx.Graph()
 
         # Add nodes (atoms)
@@ -145,10 +151,18 @@ class CrystalMolecule(Atoms):
                     # Calculate distance
                     distance = np.linalg.norm(positions[i] - positions[j])
 
-                    # Calculate bonding threshold using the shared function
-                    threshold = get_bonding_threshold(
-                        radius_i, radius_j, is_metal_i, is_metal_j
-                    )
+                    # Determine threshold factor based on element types
+                    if is_metal_i and is_metal_j:  # Metal-Metal
+                        factor = METAL_THRESHOLD_FACTOR
+                    elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
+                        factor = NON_METAL_THRESHOLD_FACTOR
+                    else:  # Metal-Non-metal
+                        factor = (
+                            METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR
+                        ) / 2
+
+                    # Bonding threshold as sum of covalent radii multiplied by factor
+                    threshold = (radius_i + radius_j) * factor
 
                     if distance < threshold:
                         self._graph.add_edge(i, j, distance=distance)
