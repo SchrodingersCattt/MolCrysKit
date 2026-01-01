@@ -301,3 +301,24 @@ class CrystalMolecule(Atoms):
             axes[i] if np.linalg.norm(axes[i]) > 0 else np.array([1.0, 0.0, 0.0])
             for i in range(3)
         )
+
+    def to_ase(self) -> Atoms:
+        """
+        Convert the CrystalMolecule to an ASE Atoms object.
+
+        This method returns the CrystalMolecule as an ASE Atoms object,
+        preserving its positions and any associated cell information.
+
+        Returns
+        -------
+        Atoms
+            An ASE Atoms object representing this molecule.
+        """
+        # Since CrystalMolecule already inherits from Atoms, we can simply return self
+        # But we'll make sure all relevant properties are preserved
+        return Atoms(
+            symbols=self.get_chemical_symbols(),
+            positions=self.get_positions(),
+            cell=self.get_cell() if hasattr(self, 'get_cell') and self.get_cell() is not None else np.zeros((3, 3)),
+            pbc=self.get_pbc() if hasattr(self, 'get_pbc') and self.get_pbc() is not None else [False, False, False]
+        )
