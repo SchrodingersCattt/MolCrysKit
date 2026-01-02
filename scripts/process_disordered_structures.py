@@ -12,6 +12,7 @@ and saves them to the output directory.
 """
 
 import os
+import time
 import traceback
 from pathlib import Path
 from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
@@ -45,9 +46,13 @@ def generate_ordered_replicas_from_disordered_sites_files():
 
         # Process with optimal method
         try:
+            start_time = time.time()
             optimal_structures = generate_ordered_replicas_from_disordered_sites(
                 cif_file, generate_count=1, method="optimal"
             )
+            end_time = time.time()
+            processing_time = end_time - start_time
+            print(f"  - Optimal method took {processing_time:.2f} seconds")
 
             # Save optimal structure
             optimal_filename = output_dir / f"{base_name}_optimal_0.cif"
@@ -63,9 +68,13 @@ def generate_ordered_replicas_from_disordered_sites_files():
 
         # Process with random method to generate multiple structures
         try:
+            start_time = time.time()
             random_structures = generate_ordered_replicas_from_disordered_sites(
                 cif_file, generate_count=5, method="random"
             )
+            end_time = time.time()
+            processing_time = end_time - start_time
+            print(f"  - Random method took {processing_time:.2f} seconds")
 
             # Save multiple random structures
             for i, structure in enumerate(random_structures):
