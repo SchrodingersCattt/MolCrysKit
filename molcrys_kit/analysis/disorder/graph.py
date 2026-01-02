@@ -11,8 +11,8 @@ import re
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
+from ...constants.config import DISORDER_CONFIG
 from ...utils.geometry import (
-    minimum_image_distance,
     angle_between_vectors,
     frac_to_cart,
 )
@@ -51,7 +51,7 @@ class DisorderGraphBuilder:
                 occupancy=info.occupancies[i],
                 disorder_group=info.disorder_groups[i],
             )
-        
+
         # Precompute distance matrix and root labels
         self._precompute_metrics()
 
@@ -59,25 +59,23 @@ class DisorderGraphBuilder:
         """
         Precompute distance matrix and root labels to avoid repeated calculations.
         """
-        n_atoms = len(self.info.labels)
-        
         # Precompute distance matrix using vectorization
         coords = self.info.frac_coords  # shape (n, 3)
-        
+
         # Calculate coordinate differences with broadcasting: (n, 1, 3) - (1, n, 3) -> (n, n, 3)
         coord_diffs = coords[:, None, :] - coords[None, :, :]  # Shape: (n, n, 3)
-        
+
         # Apply minimum image convention
         coord_diffs = coord_diffs - np.round(coord_diffs)
-        
+
         # Convert to Cartesian coordinates using lattice
-        cart_diffs = np.einsum('nij,jk->nik', coord_diffs, self.lattice)
-        
+        cart_diffs = np.einsum("nij,jk->nik", coord_diffs, self.lattice)
+
         # Calculate distances
         distances = np.linalg.norm(cart_diffs, axis=2)
-        
+
         self.dist_matrix = distances
-        
+
         # Precompute root labels (e.g., "C1" from "C1A")
         self.root_labels = []
         for label in self.info.labels:
@@ -163,18 +161,18 @@ class DisorderGraphBuilder:
 
     def _add_symmetry_conflicts(self, default_threshold: float = 1.35):
         """
-        Layer 1.5: Detect conflicts between symmetry equivalents (clones) within the same group.
+        Layer 1.5: Detect conflicts between atoms from different symmetry images in negative PART groups.
 
-        Uses an occupancy-adaptive threshold:
-        - Low occupancy (< 0.5): Uses strict threshold (2.0 A). Assumes atoms are
-          mutually exclusive alternatives (e.g. 4-fold disorder).
-        - High occupancy (>= 0.5): Uses default threshold (1.35 A). Allows potential
-          symmetry-generated bonds (e.g. disordered dimers) to persist.
+        This prevents "Frankenstein Molecules" by ensuring that atoms from competing symmetry images
+        (e.g., Image A vs Image B) cannot coexist in the same structure, regardless of their element types.
         """
         n_atoms = len(self.info.labels)
 
         # Define strict threshold for low occupancy atoms
         STRICT_THRESHOLD = 2.0
+
+        # Get the symmetry site radius from config
+        radius_threshold = DISORDER_CONFIG["SYMMETRY_SITE_RADIUS"]
 
         for i in range(n_atoms):
             group_i = self.info.disorder_groups[i]
@@ -186,9 +184,40 @@ class DisorderGraphBuilder:
             for j in range(i + 1, n_atoms):
                 group_j = self.info.disorder_groups[j]
 
-                # Only check Same Group
-                if group_i == group_j:
-                    # Use precomputed root labels
+                # Check if both atoms are in the same disorder group and the group is negative (SHELX-style PART -n)
+                if group_i == group_j and group_i < 0:
+                    # Check spatial overlap
+                    dist = self.dist_matrix[i, j]
+
+                    if dist < radius_threshold:
+                        # Check if atoms have different symmetry operation origins
+                        if (
+                            hasattr(self.info, "sym_op_indices")
+                            and len(self.info.sym_op_indices) > i
+                            and len(self.info.sym_op_indices) > j
+                            and self.info.sym_op_indices[i]
+                            != self.info.sym_op_indices[j]
+                        ):
+                            # These atoms belong to competing symmetry images (e.g., Image A vs Image B)
+                            # CRITICAL: Do NOT check if labels are the same. Even if one is Nitrogen
+                            # and the other is Hydrogen, they CANNOT coexist if from different images.
+                            # Action: Add Exclusion Edge (conflict_type="symmetry_provenance")
+                            if not self.graph.has_edge(i, j):
+                                self.graph.add_edge(
+                                    i,
+                                    j,
+                                    conflict_type="symmetry_provenance",
+                                    distance=dist,
+                                )
+                            else:
+                                self.graph[i][j][
+                                    "conflict_type"
+                                ] = "symmetry_provenance"
+                        # If same SymOp Index, atoms are part of the same molecular image, do nothing
+
+                # Legacy fallback: ensure existing occupancy/distance logic runs for non-negative groups
+                elif group_i == group_j:
+                    # Use precomputed root labels for general disorder cases
                     root_i = self.root_labels[i]
                     root_j = self.root_labels[j]
 
@@ -223,23 +252,17 @@ class DisorderGraphBuilder:
         threshold : float
             Distance threshold (in Angstroms) below which atoms are considered colliding
         """
-        n_atoms = len(self.info.labels)
-
         # Vectorized computation of geometric conflicts
         # Create a mask for distances below threshold
         dist_mask = self.dist_matrix < threshold
-        
+
         # Only consider upper triangle to avoid duplicate edges
         triu_mask = np.triu(dist_mask, k=1)
-        
+
         # Get indices where conflicts exist
         conflict_indices = np.where(triu_mask)
-        
-        for i, j in zip(conflict_indices[0], conflict_indices[1]):
-            # Get fractional coordinates
-            frac_i = self.info.frac_coords[i]
-            frac_j = self.info.frac_coords[j]
 
+        for i, j in zip(conflict_indices[0], conflict_indices[1]):
             # If distance is below threshold, check if atoms are bonded
             distance = self.dist_matrix[i, j]
 
@@ -277,13 +300,13 @@ class DisorderGraphBuilder:
         # Vectorized computation of bonded atoms (using a generous threshold)
         # Create a mask for distances that indicate bonding
         dist_mask = self.dist_matrix < 2.2  # generous threshold
-        
+
         # Only consider upper triangle to avoid duplicate edges
         triu_mask = np.triu(dist_mask, k=1)
-        
+
         # Get indices where bonds exist
         bond_indices = np.where(triu_mask)
-        
+
         for i, j in zip(bond_indices[0], bond_indices[1]):
             # Calculate distance (already available in dist_matrix)
             distance = self.dist_matrix[i, j]

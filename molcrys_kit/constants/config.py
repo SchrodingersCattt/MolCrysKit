@@ -41,3 +41,9 @@ ELECTRONEGATIVE_ELEMENTS = ["N", "O", "F"]
 
 # Sp3 hybridized elements
 SP3_ELEMENTS = ["C", "N", "O", "S", "P"]
+
+# Configuration for disorder handling
+DISORDER_CONFIG = {
+    "SYMMETRY_SITE_RADIUS": 3.75,  # Maximum distance (in Angstroms) to consider symmetry-generated
+    # atoms as competing for the same physical site
+}

@@ -14,8 +14,6 @@ from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
     is_metal_element,
-    METAL_THRESHOLD_FACTOR,
-    NON_METAL_THRESHOLD_FACTOR,
 )
 
 
@@ -155,7 +153,10 @@ class CrystalMolecule(Atoms):
                     # Use the shared utility function for bonding threshold
                     # Import locally to avoid circular import issues
                     from ..analysis.interactions import get_bonding_threshold
-                    threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
+
+                    threshold = get_bonding_threshold(
+                        radius_i, radius_j, is_metal_i, is_metal_j
+                    )
 
                     if distance < threshold:
                         self._graph.add_edge(i, j, distance=distance)
@@ -311,6 +312,10 @@ class CrystalMolecule(Atoms):
         return Atoms(
             symbols=self.get_chemical_symbols(),
             positions=self.get_positions(),
-            cell=self.get_cell() if hasattr(self, 'get_cell') and self.get_cell() is not None else np.zeros((3, 3)),
-            pbc=self.get_pbc() if hasattr(self, 'get_pbc') and self.get_pbc() is not None else [False, False, False]
+            cell=self.get_cell()
+            if hasattr(self, "get_cell") and self.get_cell() is not None
+            else np.zeros((3, 3)),
+            pbc=self.get_pbc()
+            if hasattr(self, "get_pbc") and self.get_pbc() is not None
+            else [False, False, False],
         )

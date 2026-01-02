@@ -254,9 +254,9 @@ class DisorderSolver:
         sorted_nodes = sorted(
             working_graph.nodes(data=True),
             key=lambda x: x[1].get(weight_attr, 1.0) / (working_graph.degree(x[0]) + 1),
-            reverse=True
+            reverse=True,
         )
-        
+
         independent_set = []
 
         # Continue until the graph is empty

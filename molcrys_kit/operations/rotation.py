@@ -9,7 +9,9 @@ from ..structures.molecule import CrystalMolecule
 from ..utils.geometry import get_rotation_matrix
 
 
-def _rotate_molecule_around_point(molecule: CrystalMolecule, point: np.ndarray, axis: np.ndarray, angle: float) -> None:
+def _rotate_molecule_around_point(
+    molecule: CrystalMolecule, point: np.ndarray, axis: np.ndarray, angle: float
+) -> None:
     """
     Rotate a molecule around a specified point by a specified angle around a given axis.
 

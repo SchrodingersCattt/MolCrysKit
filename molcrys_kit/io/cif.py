@@ -41,6 +41,7 @@ class DisorderInfo:
     - occupancies: Site occupancy (default to 1.0 if missing)
     - disorder_groups: Integer tags (default to 0 if missing or '.' in CIF)
     - assemblies: Assembly ID for each atom (default to empty string if missing)
+    - sym_op_indices: Index of the generating symmetry operation for each atom
     """
 
     labels: List[str]
@@ -49,10 +50,13 @@ class DisorderInfo:
     occupancies: List[float]
     disorder_groups: List[int]
     assemblies: List[str] = None  # New field for assembly information
+    sym_op_indices: List[int] = None  # New field for symmetry operation indices
 
     def __post_init__(self):
         if self.assemblies is None:
             self.assemblies = []
+        if self.sym_op_indices is None:
+            self.sym_op_indices = []
 
     def summary(self):
         """Print statistics about the disorder information."""
@@ -66,6 +70,8 @@ class DisorderInfo:
         print(
             f"  Disorder groups range: {min(self.disorder_groups)} to {max(self.disorder_groups)}"
         )
+        if self.sym_op_indices:
+            print(f"  Unique sym op indices: {len(set(self.sym_op_indices))}")
 
 
 def _clean_species_string(species_string: str) -> str:
@@ -336,6 +342,7 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
     all_occupancies = []
     all_disorder_groups = []
     all_assemblies = []  # New list for assemblies
+    all_sym_op_indices = []  # New list for symmetry operation indices
 
     # For each original atom, apply each symmetry operation
     for i in range(len(labels)):
@@ -344,8 +351,8 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
 
         original_coord = frac_coords[i]
 
-        # Apply each symmetry operation
-        for op in sym_ops:
+        # Apply each symmetry operation with its index
+        for op_idx, op in enumerate(sym_ops):
             # Calculate new coordinate by applying the symmetry operation
             new_coord = op.operate(original_coord)
 
@@ -372,6 +379,7 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
                 all_assemblies.append(
                     assemblies[i]
                 )  # Copy the assembly ID to the new atom
+                all_sym_op_indices.append(op_idx)  # Store the symmetry operation index
 
     # Convert lists to appropriate formats
     all_frac_coords = np.array(all_frac_coords)
@@ -383,6 +391,7 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
         occupancies=all_occupancies,
         disorder_groups=all_disorder_groups,
         assemblies=all_assemblies,  # Include assemblies in the return
+        sym_op_indices=all_sym_op_indices,  # Include symmetry operation indices in the return
     )
 
 
