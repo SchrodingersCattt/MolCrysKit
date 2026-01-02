@@ -14,11 +14,11 @@ and saves them to the output directory.
 import os
 import traceback
 from pathlib import Path
-from molcrys_kit.analysis.disorder import process_disordered_cif
+from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
 from molcrys_kit.io import write_cif
 
 
-def process_disordered_cif_files():
+def generate_ordered_replicas_from_disordered_sites_files():
     """Process disordered CIF files and save resolved structures."""
 
     # Define the input files to process
@@ -45,7 +45,7 @@ def process_disordered_cif_files():
 
         # Process with optimal method
         try:
-            optimal_structures = process_disordered_cif(
+            optimal_structures = generate_ordered_replicas_from_disordered_sites(
                 cif_file, generate_count=1, method="optimal"
             )
 
@@ -63,7 +63,7 @@ def process_disordered_cif_files():
 
         # Process with random method to generate multiple structures
         try:
-            random_structures = process_disordered_cif(
+            random_structures = generate_ordered_replicas_from_disordered_sites(
                 cif_file, generate_count=5, method="random"
             )
 
@@ -83,4 +83,4 @@ def process_disordered_cif_files():
 
 
 if __name__ == "__main__":
-    process_disordered_cif_files()
+    generate_ordered_replicas_from_disordered_sites_files()

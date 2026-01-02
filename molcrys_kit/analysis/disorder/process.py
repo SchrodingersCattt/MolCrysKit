@@ -12,7 +12,7 @@ from .solver import DisorderSolver
 from ...io.cif import scan_cif_disorder  # Correct import from io module
 
 
-def process_disordered_cif(
+def generate_ordered_replicas_from_disordered_sites(
     filepath: str, generate_count: int = 1, method: str = "optimal"
 ) -> List[MolecularCrystal]:
     """
