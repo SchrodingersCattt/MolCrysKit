@@ -26,6 +26,7 @@ def generate_ordered_replicas_from_disordered_sites_files():
 
     # Define the input files to process
     input_files = [
+        "examples/1-HTP.cif",
         "examples/PAP-M5.cif",
         "examples/PAP-H4.cif",
         "examples/DAP-4.cif",
