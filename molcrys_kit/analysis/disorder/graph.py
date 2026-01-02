@@ -7,7 +7,7 @@ coexist in the same physical structure based on raw disorder data.
 
 import numpy as np
 import networkx as nx
-import re  # <--- NEW IMPORT
+import re
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
@@ -51,6 +51,39 @@ class DisorderGraphBuilder:
                 occupancy=info.occupancies[i],
                 disorder_group=info.disorder_groups[i],
             )
+        
+        # Precompute distance matrix and root labels
+        self._precompute_metrics()
+
+    def _precompute_metrics(self):
+        """
+        Precompute distance matrix and root labels to avoid repeated calculations.
+        """
+        n_atoms = len(self.info.labels)
+        
+        # Precompute distance matrix using vectorization
+        coords = self.info.frac_coords  # shape (n, 3)
+        
+        # Calculate coordinate differences with broadcasting: (n, 1, 3) - (1, n, 3) -> (n, n, 3)
+        coord_diffs = coords[:, None, :] - coords[None, :, :]  # Shape: (n, n, 3)
+        
+        # Apply minimum image convention
+        coord_diffs = coord_diffs - np.round(coord_diffs)
+        
+        # Convert to Cartesian coordinates using lattice
+        cart_diffs = np.einsum('nij,jk->nik', coord_diffs, self.lattice)
+        
+        # Calculate distances
+        distances = np.linalg.norm(cart_diffs, axis=2)
+        
+        self.dist_matrix = distances
+        
+        # Precompute root labels (e.g., "C1" from "C1A")
+        self.root_labels = []
+        for label in self.info.labels:
+            match = re.match(r"([A-Za-z]+[0-9]*)", label)
+            root_label = match.group(1) if match else label
+            self.root_labels.append(root_label)
 
     def build(self) -> nx.Graph:
         """
@@ -113,9 +146,7 @@ class DisorderGraphBuilder:
                         has_conflict = True
                     elif assembly_i == "" and assembly_j == "":
                         # Both have empty assemblies: use distance heuristic (5.0 Å)
-                        frac_i = self.info.frac_coords[i]
-                        frac_j = self.info.frac_coords[j]
-                        distance = minimum_image_distance(frac_i, frac_j, self.lattice)
+                        distance = self.dist_matrix[i, j]
                         if distance < 5.0:
                             has_conflict = True
                     # If one has assembly and the other doesn't, no conflict by this rule
@@ -157,16 +188,13 @@ class DisorderGraphBuilder:
 
                 # Only check Same Group
                 if group_i == group_j:
-                    # 1. Clean Labels to find Root
-                    match_i = re.match(r"([A-Za-z]+[0-9]*)", self.info.labels[i])
-                    match_j = re.match(r"([A-Za-z]+[0-9]*)", self.info.labels[j])
+                    # Use precomputed root labels
+                    root_i = self.root_labels[i]
+                    root_j = self.root_labels[j]
 
-                    root_i = match_i.group(1) if match_i else self.info.labels[i]
-                    root_j = match_j.group(1) if match_j else self.info.labels[j]
-
-                    # 2. Check Identity (Clones)
+                    # Check Identity (Clones)
                     if root_i == root_j:
-                        # 3. Determine Dynamic Threshold
+                        # Determine Dynamic Threshold
                         # If either atom has low occupancy (< 0.5), we assume they cannot
                         # bond to their own clone. Be strict.
                         occ_j = self.info.occupancies[j]
@@ -175,10 +203,8 @@ class DisorderGraphBuilder:
                         else:
                             threshold = default_threshold
 
-                        # 4. Check Distance
-                        frac_i = self.info.frac_coords[i]
-                        frac_j = self.info.frac_coords[j]
-                        dist = minimum_image_distance(frac_i, frac_j, self.lattice)
+                        # Use precomputed distance
+                        dist = self.dist_matrix[i, j]
 
                         if dist < threshold:
                             if not self.graph.has_edge(i, j):
@@ -199,37 +225,40 @@ class DisorderGraphBuilder:
         """
         n_atoms = len(self.info.labels)
 
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                # Skip if same atom (shouldn't happen but just in case)
-                if i == j:
-                    continue
+        # Vectorized computation of geometric conflicts
+        # Create a mask for distances below threshold
+        dist_mask = self.dist_matrix < threshold
+        
+        # Only consider upper triangle to avoid duplicate edges
+        triu_mask = np.triu(dist_mask, k=1)
+        
+        # Get indices where conflicts exist
+        conflict_indices = np.where(triu_mask)
+        
+        for i, j in zip(conflict_indices[0], conflict_indices[1]):
+            # Get fractional coordinates
+            frac_i = self.info.frac_coords[i]
+            frac_j = self.info.frac_coords[j]
 
-                # Get fractional coordinates
-                frac_i = self.info.frac_coords[i]
-                frac_j = self.info.frac_coords[j]
+            # If distance is below threshold, check if atoms are bonded
+            distance = self.dist_matrix[i, j]
 
-                # Calculate minimum image distance
-                distance = minimum_image_distance(frac_i, frac_j, self.lattice)
+            # Check if the atoms are bonded - if so, don't add geometric conflict
+            symbol_i = self.info.symbols[i]
+            symbol_j = self.info.symbols[j]
 
-                # If distance is below threshold, check if atoms are bonded
-                if distance < threshold:
-                    # Check if the atoms are bonded - if so, don't add geometric conflict
-                    symbol_i = self.info.symbols[i]
-                    symbol_j = self.info.symbols[j]
-
-                    if not self._are_bonded(symbol_i, symbol_j, distance):
-                        # Only add if not already added with explicit conflict
-                        if not self.graph.has_edge(i, j):
-                            self.graph.add_edge(
-                                i, j, conflict_type="geometric", distance=distance
-                            )
-                        else:
-                            # If there's already a connection, check if we should update the type
-                            # Explicit conflicts take priority over geometric
-                            if self.graph[i][j]["conflict_type"] != "explicit":
-                                self.graph[i][j]["conflict_type"] = "geometric"
-                                self.graph[i][j]["distance"] = distance
+            if not self._are_bonded(symbol_i, symbol_j, distance):
+                # Only add if not already added with explicit conflict
+                if not self.graph.has_edge(i, j):
+                    self.graph.add_edge(
+                        i, j, conflict_type="geometric", distance=distance
+                    )
+                else:
+                    # If there's already a connection, check if we should update the type
+                    # Explicit conflicts take priority over geometric
+                    if self.graph[i][j]["conflict_type"] != "explicit":
+                        self.graph[i][j]["conflict_type"] = "geometric"
+                        self.graph[i][j]["distance"] = distance
 
     def _resolve_valence_conflicts(self):
         """
@@ -245,24 +274,29 @@ class DisorderGraphBuilder:
         for i in range(n_atoms):
             connectivity_graph.add_node(i)
 
-        # Add edges for bonded atoms (using a generous threshold)
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                frac_i = self.info.frac_coords[i]
-                frac_j = self.info.frac_coords[j]
+        # Vectorized computation of bonded atoms (using a generous threshold)
+        # Create a mask for distances that indicate bonding
+        dist_mask = self.dist_matrix < 2.2  # generous threshold
+        
+        # Only consider upper triangle to avoid duplicate edges
+        triu_mask = np.triu(dist_mask, k=1)
+        
+        # Get indices where bonds exist
+        bond_indices = np.where(triu_mask)
+        
+        for i, j in zip(bond_indices[0], bond_indices[1]):
+            # Calculate distance (already available in dist_matrix)
+            distance = self.dist_matrix[i, j]
 
-                # Calculate distance
-                distance = minimum_image_distance(frac_i, frac_j, self.lattice)
+            # Determine if bonded based on element types
+            symbol_i = self.info.symbols[i].strip()
+            symbol_j = self.info.symbols[j].strip()
 
-                # Use element-dependent bonding thresholds
-                symbol_i = self.info.symbols[i].strip()
-                symbol_j = self.info.symbols[j].strip()
+            # Determine if bonded based on element types
+            is_bonded = self._are_bonded(symbol_i, symbol_j, distance)
 
-                # Determine if bonded based on element types
-                is_bonded = self._are_bonded(symbol_i, symbol_j, distance)
-
-                if is_bonded:
-                    connectivity_graph.add_edge(i, j, distance=distance)
+            if is_bonded:
+                connectivity_graph.add_edge(i, j, distance=distance)
 
         # Identify overcrowded centers
         for center_idx in range(n_atoms):

@@ -71,7 +71,7 @@ class DisorderSolver:
             working_graph = self.graph.copy()
             optimal_set = set()
 
-            # Sort nodes by their occupancy in descending order
+            # Sort nodes by their occupancy in descending order ONCE
             sorted_nodes = sorted(
                 working_graph.nodes(data=True),
                 key=lambda x: x[1].get("occupancy", 1.0),
@@ -79,10 +79,8 @@ class DisorderSolver:
             )
 
             # Greedy approach to find an independent set
-            while sorted_nodes:
-                # Pick the node with the highest occupancy
-                node, data = sorted_nodes.pop(0)
-
+            # Process nodes in the pre-sorted order
+            for node, data in sorted_nodes:
                 # If this node is still in the graph, add it to the independent set
                 if working_graph.has_node(node):
                     optimal_set.add(node)
@@ -93,17 +91,6 @@ class DisorderSolver:
 
                     # Update the working graph
                     working_graph.remove_nodes_from(nodes_to_remove)
-
-                    # Re-sort the remaining nodes
-                    sorted_nodes = sorted(
-                        [
-                            (n, d)
-                            for n, d in working_graph.nodes(data=True)
-                            if (n, d) in sorted_nodes
-                        ],
-                        key=lambda x: x[1].get("occupancy", 1.0),
-                        reverse=True,
-                    )
 
             independent_sets = [list(optimal_set)]
         elif method == "random":
@@ -263,26 +250,24 @@ class DisorderSolver:
         working_graph = graph.copy()
         independent_set = []
 
+        # Pre-sort nodes by weight-to-degree ratio once
+        sorted_nodes = sorted(
+            working_graph.nodes(data=True),
+            key=lambda x: x[1].get(weight_attr, 1.0) / (working_graph.degree(x[0]) + 1),
+            reverse=True
+        )
+        
+        independent_set = []
+
         # Continue until the graph is empty
-        while working_graph.number_of_nodes() > 0:
-            # Calculate the weight-to-degree ratio for each node
-            # Nodes with high weight but low connections are preferred
-            ratios = {}
-            for node in working_graph.nodes():
-                weight = working_graph.nodes[node].get(weight_attr, 1.0)
-                # Use degree + 1 to avoid division by zero and prefer lower degree nodes
-                degree = working_graph.degree(node)
-                # Use weight/(degree+1) as the heuristic - higher is better
-                ratios[node] = weight / (degree + 1)
+        for node, node_data in sorted_nodes:
+            # Check if node still exists in working graph
+            if working_graph.has_node(node):
+                # Add this node to the independent set
+                independent_set.append(node)
 
-            # Select the node with the highest weight/(degree+1) ratio
-            best_node = max(ratios.keys(), key=lambda n: ratios[n])
-
-            # Add this node to the independent set
-            independent_set.append(best_node)
-
-            # Remove this node and its neighbors (and their edges) from the graph
-            nodes_to_remove = [best_node] + list(working_graph.neighbors(best_node))
-            working_graph.remove_nodes_from(nodes_to_remove)
+                # Remove this node and its neighbors (and their edges) from the graph
+                nodes_to_remove = [node] + list(working_graph.neighbors(node))
+                working_graph.remove_nodes_from(nodes_to_remove)
 
         return independent_set
