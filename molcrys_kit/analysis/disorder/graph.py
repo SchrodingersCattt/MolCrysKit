@@ -598,6 +598,3 @@ class DisorderGraphBuilder:
 
                     # Return after finding the best disjoint pair
                     return
-
-        # Fallback: If loop finishes without finding disjoint sets, do nothing
-        # The geometric or explicit checks will handle other conflicts
