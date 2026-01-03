@@ -28,6 +28,8 @@ dependencies = [
     "numpy>=1.18.0",
     "scipy>=1.4.0",
     "networkx>=2.5.0",
+    "ase>=3.26.0",
+    "pymatgen",
 ]
 
 [project.optional-dependencies]
