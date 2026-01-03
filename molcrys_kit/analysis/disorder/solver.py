@@ -8,9 +8,11 @@ into valid, ordered MolecularCrystal objects by solving the Maximum Independent 
 import numpy as np
 import networkx as nx
 import random
+import re
 from typing import List
 
 from ase import Atoms
+from ase.geometry import get_distances
 
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
@@ -43,7 +45,8 @@ class DisorderSolver:
     def _identify_atom_groups(self):
         """
         Group atoms by key: (disorder_group, assembly).
-        Atoms with disorder_group=0 are single-atom groups.
+        Then use spatial clustering to identify rigid bodies based on distance.
+        Finally, check for internal conflicts in each component and explode if needed.
         Store as self.atom_groups (List of Lists of indices).
         """
         # Dictionary to map group key to list of atom indices
@@ -67,17 +70,69 @@ class DisorderSolver:
                 
                 groups_map[group_key].append(i)
         
-        # Add all the grouped atoms to atom_groups
+        # Process each initial group with spatial clustering
         for group_atoms in groups_map.values():
-            if len(group_atoms) > 0:
+            if len(group_atoms) == 1:
+                # Single atom group - add directly
                 self.atom_groups.append(group_atoms)
+            else:
+                # Perform spatial clustering on this group
+                # Build a temporary distance graph using ASE's get_distances
+                group_coords = self.info.frac_coords[group_atoms]
+                cart_coords = np.dot(group_coords, self.lattice)
+                
+                # Calculate pairwise distances between atoms in the group
+                # Using ASE's get_distances which handles PBC
+                dist_matrix = get_distances(cart_coords, cart_coords, cell=self.lattice, pbc=True)[1]
+                
+                # Create a temporary graph for clustering
+                temp_graph = nx.Graph()
+                temp_graph.add_nodes_from(range(len(group_atoms)))
+                
+                # Connect atoms if distance < 1.8 Å (typical bond length)
+                cutoff = 1.8
+                for i in range(len(group_atoms)):
+                    for j in range(i + 1, len(group_atoms)):
+                        if dist_matrix[i, j] < cutoff:
+                            temp_graph.add_edge(i, j)
+                
+                # Find connected components (potential "Rigid Bodies")
+                components = list(nx.connected_components(temp_graph))
+                
+                # For each component, check if it contains internal conflicts
+                for comp in components:
+                    comp_list = list(comp)
+                    comp_atoms = [group_atoms[i] for i in comp_list]
+                    
+                    # Check if this component has any internal conflicts in the main graph
+                    has_internal_conflict = False
+                    comp_atoms_set = set(comp_atoms)
+                    
+                    # Check all pairs of atoms in this component for conflicts in the main graph
+                    for idx1 in comp_atoms:
+                        for idx2 in comp_atoms:
+                            if idx1 != idx2 and self.graph.has_edge(idx1, idx2):
+                                has_internal_conflict = True
+                                break
+                        if has_internal_conflict:
+                            break
+                    
+                    if has_internal_conflict:
+                        # Explode into single-atom groups
+                        for atom_idx in comp_atoms:
+                            self.atom_groups.append([atom_idx])
+                    else:
+                        # Keep as a rigid body group
+                        self.atom_groups.append(comp_atoms)
 
-    def _max_weight_independent_set_by_groups(self, weight_attr="occupancy"):
+    def _max_weight_independent_set_by_groups(self, graph=None, weight_attr="occupancy"):
         """
         Find an independent set using Group-Based solving approach.
         
         Parameters:
         -----------
+        graph : networkx.Graph, optional
+            Graph to work with. If None, uses self.graph
         weight_attr : str
             The node attribute to use as weight (default: occupancy)
 
@@ -86,14 +141,15 @@ class DisorderSolver:
         List[int]
             List of node indices forming the independent set
         """
+        # Use provided graph or fallback to self.graph
+        working_graph = graph.copy() if graph is not None else self.graph.copy()
+        
         # Calculate weight for each Group (sum of atom weights)
         group_weights = []
         for group in self.atom_groups:
-            total_weight = sum(self.graph.nodes[node].get(weight_attr, 1.0) for node in group)
+            # Use the working graph to get weights (in case nodes were removed)
+            total_weight = sum(working_graph.nodes[node].get(weight_attr, 1.0) for node in group if working_graph.has_node(node))
             group_weights.append(total_weight)
-        
-        # Create a copy of the graph to work with
-        working_graph = self.graph.copy()
         
         # Sort Groups by weight (descending)
         sorted_group_indices = sorted(range(len(self.atom_groups)), key=lambda i: group_weights[i], reverse=True)
@@ -137,6 +193,131 @@ class DisorderSolver:
         
         return independent_set
 
+    def _apply_stoichiometry_constraints(self, graph):
+        """
+        Apply stoichiometry constraints to the graph by removing excess atom groups
+        that would violate the expected stoichiometry if all selected.
+        
+        Parameters:
+        -----------
+        graph : networkx.Graph
+            The exclusion graph to modify
+        
+        Returns:
+        --------
+        networkx.Graph
+            Modified graph with excess atoms removed
+        """
+        # Initialize atom groups if not already done
+        if not self.atom_groups:
+            self._identify_atom_groups()
+        
+        # Create a mapping from source atom label (e.g., "N1") to its groups
+        family_groups = {}
+        for group_idx, group in enumerate(self.atom_groups):
+            if not group:  # Skip empty groups
+                continue
+            # Get the source atom label from the first atom in the group
+            # All atoms in the same group should have the same base label
+            source_label = self.info.labels[group[0]]
+            # Extract the base label using regex: element symbol + number (e.g., "C1", "C12", "Fe1")
+            match = re.match(r"^([A-Za-z]{1,2}\d+)", source_label)
+            if match:
+                base_label = match.group(1)
+            else:
+                base_label = source_label  # Fallback if no match
+            
+            if base_label not in family_groups:
+                family_groups[base_label] = []
+            family_groups[base_label].append((group_idx, group))
+        
+        # Process each family to apply stoichiometry constraints
+        modified_graph = graph.copy()
+        for base_label, groups_with_idx in family_groups.items():
+            if not groups_with_idx:
+                continue
+                
+            # Extract all atom indices in this family
+            family_atom_indices = []
+            for group_idx, group in groups_with_idx:
+                family_atom_indices.extend(group)
+            
+            # Calculate target count for this family
+            family_occupancies = [self.info.occupancies[i] for i in family_atom_indices]
+            target_count = int(round(sum(family_occupancies)))
+            
+            # Identify "Sites": A "Site" is a set of mutually conflicting groups within the family
+            # Construct a subgraph of the family's groups
+            family_subgraph = nx.Graph()
+            for i, (group_idx1, group1) in enumerate(groups_with_idx):
+                for j, (group_idx2, group2) in enumerate(groups_with_idx[i+1:], i+1):
+                    # Check if any atom in group1 conflicts with any atom in group2
+                    conflict = False
+                    for atom1 in group1:
+                        for atom2 in group2:
+                            if modified_graph.has_edge(atom1, atom2):
+                                conflict = True
+                                break
+                        if conflict:
+                            break
+                    
+                    if conflict:
+                        family_subgraph.add_edge(group_idx1, group_idx2)
+            
+            # Find connected components in the subgraph (these represent "Sites")
+            if family_subgraph.number_of_nodes() > 0:
+                components = list(nx.connected_components(family_subgraph))
+                num_sites = len(components)
+                
+                # Also add isolated nodes as separate sites
+                all_group_indices = {group_idx for group_idx, _ in groups_with_idx}
+                component_nodes = set()
+                for comp in components:
+                    component_nodes.update(comp)
+                
+                isolated_nodes = all_group_indices - component_nodes
+                num_sites += len(isolated_nodes)
+            else:
+                # All groups are isolated
+                num_sites = len(groups_with_idx)
+            
+            # Enforce stoichiometry constraints
+            if num_sites > target_count:
+                # We need to remove atoms from some sites
+                # Randomly select target_count components (Sites) to KEEP
+                if target_count <= 0:
+                    # Remove all groups in this family
+                    groups_to_remove = groups_with_idx
+                else:
+                    # Create list of all components (connected + isolated)
+                    all_components = list(nx.connected_components(family_subgraph))
+                    # Add isolated nodes as single-node components
+                    isolated_nodes = all_group_indices - set(family_subgraph.nodes())
+                    for node in isolated_nodes:
+                        all_components.append({node})
+                    
+                    # Randomly select which components to keep
+                    if len(all_components) <= target_count:
+                        # We don't need to remove anything
+                        continue
+                    
+                    selected_components = random.sample(all_components, target_count)
+                    selected_group_indices = set()
+                    for comp in selected_components:
+                        selected_group_indices.update(comp)
+                    
+                    # Groups to remove are those not in selected components
+                    groups_to_remove = [(idx, group) for idx, group in groups_with_idx 
+                                        if idx not in selected_group_indices]
+                
+                # Remove the unselected groups from the graph
+                for group_idx, group in groups_to_remove:
+                    for atom_idx in group:
+                        if modified_graph.has_node(atom_idx):
+                            modified_graph.remove_node(atom_idx)
+        
+        return modified_graph
+
     def solve(
         self, num_structures: int = 1, method: str = "optimal"
     ) -> List[MolecularCrystal]:
@@ -159,27 +340,50 @@ class DisorderSolver:
         self._identify_atom_groups()
         
         if method == "optimal":
+            # Apply stoichiometry constraints to the graph
+            working_graph = self._apply_stoichiometry_constraints(self.graph)
+            
             # Use max weight independent set with occupancy as weight
-            # First, ensure each node has an occupancy attribute for the weight
-            for i, node in enumerate(self.graph.nodes()):
-                if "occupancy" not in self.graph.nodes[node]:
-                    # Use the occupancy from DisorderInfo
-                    self.graph.nodes[node]["occupancy"] = self.info.occupancies[i]
+            # First, ensure each node in the working graph has an occupancy attribute for the weight
+            for node in working_graph.nodes():
+                if "occupancy" not in working_graph.nodes[node]:
+                    # Use the occupancy from DisorderInfo - find the corresponding atom index
+                    atom_idx = node  # node should be the atom index
+                    if atom_idx < len(self.info.occupancies):
+                        working_graph.nodes[node]["occupancy"] = self.info.occupancies[atom_idx]
 
             # Find the optimal independent set using Group-Based approach
-            independent_sets = [self._max_weight_independent_set_by_groups("occupancy")]
+            # Temporarily update atom_groups to reflect the modified graph
+            original_atom_groups = self.atom_groups
+            # Re-identify groups based on the modified graph (only for the nodes that remain)
+            temp_groups = []
+            for group in self.atom_groups:
+                # Only keep groups that have at least one atom still in the working graph
+                remaining_atoms = [atom for atom in group if working_graph.has_node(atom)]
+                if remaining_atoms:
+                    temp_groups.append(remaining_atoms)
+            self.atom_groups = temp_groups
+            
+            independent_sets = [self._max_weight_independent_set_by_groups(graph=working_graph, weight_attr="occupancy")]
+            self.atom_groups = original_atom_groups  # Restore original groups
         elif method == "random":
             # Generate multiple random independent sets using Group-Based approach with randomized weights
             independent_sets = []
             seen_structures = set()  # For deduplication
 
             for _ in range(num_structures):
-                # Create a temporary graph with randomized weights
-                temp_graph = self.graph.copy()
-
+                # Apply stoichiometry constraints to the temporary graph
+                temp_graph = self._apply_stoichiometry_constraints(self.graph)
+                
                 # Add randomized weights to nodes
                 for node in temp_graph.nodes():
                     base_weight = temp_graph.nodes[node].get("occupancy", 1.0)
+                    # If no occupancy attribute exists, use from DisorderInfo
+                    if base_weight == 1.0 and "occupancy" not in temp_graph.nodes[node]:
+                        atom_idx = node
+                        if atom_idx < len(self.info.occupancies):
+                            base_weight = self.info.occupancies[atom_idx]
+                            temp_graph.nodes[node]["occupancy"] = base_weight
                     # Add tiny random noise to break ties between chemically identical parts
                     random_noise = random.uniform(0, 1e-5)
                     temp_graph.nodes[node]["randomized_weight"] = (
@@ -188,7 +392,19 @@ class DisorderSolver:
 
                 # Solve using the Group-Based MWIS solver
                 try:
-                    solution = self._max_weight_independent_set_by_groups("randomized_weight")
+                    # Temporarily update atom_groups to reflect the modified graph
+                    original_atom_groups = self.atom_groups
+                    # Re-identify groups based on the modified graph (only for the nodes that remain)
+                    temp_groups = []
+                    for group in self.atom_groups:
+                        # Only keep groups that have at least one atom still in the temp_graph
+                        remaining_atoms = [atom for atom in group if temp_graph.has_node(atom)]
+                        if remaining_atoms:
+                            temp_groups.append(remaining_atoms)
+                    self.atom_groups = temp_groups
+                    
+                    solution = self._max_weight_independent_set_by_groups(graph=temp_graph, weight_attr="randomized_weight")
+                    self.atom_groups = original_atom_groups  # Restore original groups
                 except:
                     # Fallback to the old random method if needed
                     solution = self._random_independent_set()
@@ -205,17 +421,36 @@ class DisorderSolver:
             attempts = 0
             max_attempts = num_structures * 10
             while len(independent_sets) < num_structures and attempts < max_attempts:
-                # Generate another solution
-                temp_graph = self.graph.copy()
+                # Apply stoichiometry constraints to the temporary graph
+                temp_graph = self._apply_stoichiometry_constraints(self.graph)
+                
                 for node in temp_graph.nodes():
                     base_weight = temp_graph.nodes[node].get("occupancy", 1.0)
+                    # If no occupancy attribute exists, use from DisorderInfo
+                    if base_weight == 1.0 and "occupancy" not in temp_graph.nodes[node]:
+                        atom_idx = node
+                        if atom_idx < len(self.info.occupancies):
+                            base_weight = self.info.occupancies[atom_idx]
+                            temp_graph.nodes[node]["occupancy"] = base_weight
                     random_noise = random.uniform(0, 1e-5)
                     temp_graph.nodes[node]["randomized_weight"] = (
                         base_weight + random_noise
                     )
 
                 try:
-                    solution = self._max_weight_independent_set_by_groups("randomized_weight")
+                    # Temporarily update atom_groups to reflect the modified graph
+                    original_atom_groups = self.atom_groups
+                    # Re-identify groups based on the modified graph (only for the nodes that remain)
+                    temp_groups = []
+                    for group in self.atom_groups:
+                        # Only keep groups that have at least one atom still in the temp_graph
+                        remaining_atoms = [atom for atom in group if temp_graph.has_node(atom)]
+                        if remaining_atoms:
+                            temp_groups.append(remaining_atoms)
+                    self.atom_groups = temp_groups
+                    
+                    solution = self._max_weight_independent_set_by_groups(graph=temp_graph, weight_attr="randomized_weight")
+                    self.atom_groups = original_atom_groups  # Restore original groups
                 except:
                     solution = self._random_independent_set()
 
