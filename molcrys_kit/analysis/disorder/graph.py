@@ -11,7 +11,7 @@ import re
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
-from ...constants.config import DISORDER_CONFIG
+from ...constants.config import DISORDER_CONFIG, BONDING_THRESHOLDS, MAX_COORDINATION_NUMBERS, DEFAULT_MAX_COORDINATION
 from ...utils.geometry import (
     angle_between_vectors,
     frac_to_cart,
@@ -359,23 +359,23 @@ class DisorderGraphBuilder:
         if bool({"H", "D"}.intersection({symbol1, symbol2})):
             # H/D with any other element
             if bool({"C", "N", "O", "S", "P"}.intersection({symbol1, symbol2})):
-                return 0.6 < distance < 1.4
+                return BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
             elif bool({"H", "D"}.intersection({symbol1, symbol2})):
-                return False  # H-H unlikely to bond
+                return BONDING_THRESHOLDS["HH_BOND_POSSIBLE"]  # H-H unlikely to bond
             else:
-                return 0.8 < distance < 1.8
+                return BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
         elif bool({"C", "N", "O"}.intersection({symbol1, symbol2})):
             # C, N, O with each other
-            return 0.8 < distance < 1.9
+            return BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
         elif bool(
             {"C", "N", "O"}.intersection({symbol1})
             and {"C", "N", "O"}.intersection({symbol2})
         ):
             # C-N, C-O, N-O
-            return 0.8 < distance < 2.0
+            return BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
         else:
             # General threshold for other element pairs
-            return 0.5 < distance < 2.2
+            return BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
 
     def _get_max_coordination(self, element_symbol: str) -> int:
         """
@@ -393,35 +393,7 @@ class DisorderGraphBuilder:
         """
         element = element_symbol.strip().title()  # Capitalize first letter
 
-        # Common coordination numbers for main group elements
-        coordination_map = {
-            "H": 1,
-            "D": 1,
-            "C": 4,
-            "Si": 4,
-            "N": 4,
-            "P": 4,  # Usually 3+1 for N/P with lone pair
-            "O": 2,
-            "S": 2,
-            "Se": 2,
-            "Te": 2,
-            "F": 1,
-            "Cl": 1,
-            "Br": 1,
-            "I": 1,
-            # Common metals
-            "Li": 4,
-            "Na": 6,
-            "K": 8,
-            "Mg": 6,
-            "Ca": 6,
-            "Sr": 6,
-            "Ba": 8,
-            "Al": 4,
-            "Ga": 4,
-        }
-
-        return coordination_map.get(element, 6)  # Default to 6 if unknown
+        return MAX_COORDINATION_NUMBERS.get(element, DEFAULT_MAX_COORDINATION)  # Default to 6 if unknown
 
     def _decompose_cliques(self, atom_indices: List[int], center_idx: int):
         """
