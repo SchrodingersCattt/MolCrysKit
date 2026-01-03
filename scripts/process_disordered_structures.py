@@ -29,11 +29,11 @@ def generate_ordered_replicas_from_disordered_sites_files():
     input_files = glob.glob("examples/TIL*.cif")
     input_files += glob.glob("examples/1_*.cif")
     input_files += [
+        "examples/EAP-8.cif",
         "examples/1-HTP.cif",
         "examples/PAP-M5.cif",
         "examples/PAP-H4.cif",
         "examples/DAP-4.cif",
-        "examples/EAP-8.cif",
     ]
 
     # Create output directory if it doesn't exist
