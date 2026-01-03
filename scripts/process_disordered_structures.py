@@ -11,6 +11,7 @@ It uses the disorder handling pipeline to generate ordered structures
 and saves them to the output directory.
 """
 
+import glob
 import os
 import time
 import traceback
@@ -25,7 +26,9 @@ def generate_ordered_replicas_from_disordered_sites_files():
     """Process disordered CIF files and save resolved structures."""
 
     # Define the input files to process
-    input_files = [
+    input_files = glob.glob("examples/TIL*.cif")
+    input_files += glob.glob("examples/1_*.cif")
+    input_files += [
         "examples/1-HTP.cif",
         "examples/PAP-M5.cif",
         "examples/PAP-H4.cif",

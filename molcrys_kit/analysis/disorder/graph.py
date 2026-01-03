@@ -11,7 +11,7 @@ import re
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
-from ...constants.config import DISORDER_CONFIG, BONDING_THRESHOLDS, MAX_COORDINATION_NUMBERS, DEFAULT_MAX_COORDINATION
+from ...constants.config import DISORDER_CONFIG, BONDING_THRESHOLDS, MAX_COORDINATION_NUMBERS, DEFAULT_MAX_COORDINATION, TRANSITION_METALS
 from ...utils.geometry import (
     angle_between_vectors,
     frac_to_cart,
@@ -50,6 +50,7 @@ class DisorderGraphBuilder:
                 frac_coord=info.frac_coords[i],
                 occupancy=info.occupancies[i],
                 disorder_group=info.disorder_groups[i],
+                assembly=info.assemblies[i] if i < len(info.assemblies) else ""
             )
 
         # Precompute distance matrix and root labels
@@ -87,15 +88,15 @@ class DisorderGraphBuilder:
         """
         Build the exclusion graph by applying the multi-layer conflict detection logic.
         """
-        # Layer 1: Explicit conflicts based on disorder groups
+        # Layer 1: Explicit conflicts based on disorder groups and assemblies
         self._add_explicit_conflicts()
 
         # Layer 1.5: Global Symmetry Clashes (NEW)
         # Must run BEFORE geometric checks to catch "Same Group" overlapping ghosts
         self._add_symmetry_conflicts(default_threshold=1.35)
 
-        # Layer 2: Geometric conflicts based on atomic distances
-        self._add_geometric_conflicts(threshold=0.8)
+        # Layer 2: Geometric conflicts based on atomic distances with context-aware thresholds
+        self._add_geometric_conflicts()
 
         # Layer 3: Valence/inferred conflicts based on coordination geometry
         self._resolve_valence_conflicts()
@@ -108,12 +109,13 @@ class DisorderGraphBuilder:
 
         Rule: If two atoms have non-zero disorder groups and group_A != group_B,
         they are mutually exclusive IF AND ONLY IF they belong to the same assembly
-        or they are close enough (< 5.0 Å) if assemblies are not specified.
+        or they are close enough (< ASSEMBLY_CONFLICT_THRESHOLD Å) if assemblies are not specified.
         """
         n_atoms = len(self.info.labels)
 
         for i in range(n_atoms):
             group_i = self.info.disorder_groups[i]
+            assembly_i = self.graph.nodes[i]["assembly"]
 
             # Only consider non-zero groups
             if group_i == 0:
@@ -121,17 +123,10 @@ class DisorderGraphBuilder:
 
             for j in range(i + 1, n_atoms):
                 group_j = self.info.disorder_groups[j]
+                assembly_j = self.graph.nodes[j]["assembly"]
 
                 # If both have non-zero groups and they are different, check additional conditions
                 if group_j != 0 and group_i != group_j:
-                    # Check if both atoms have assembly information
-                    assembly_i = (
-                        self.info.assemblies[i] if i < len(self.info.assemblies) else ""
-                    )
-                    assembly_j = (
-                        self.info.assemblies[j] if j < len(self.info.assemblies) else ""
-                    )
-
                     # Determine if there should be a conflict based on assembly or distance
                     has_conflict = False
 
@@ -143,9 +138,9 @@ class DisorderGraphBuilder:
                         # Same non-empty assembly: they have a conflict
                         has_conflict = True
                     elif assembly_i == "" and assembly_j == "":
-                        # Both have empty assemblies: use distance heuristic (5.0 Å)
+                        # Both have empty assemblies: use distance heuristic (ASSEMBLY_CONFLICT_THRESHOLD)
                         distance = self.dist_matrix[i, j]
-                        if distance < 5.0:
+                        if distance < DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]:
                             has_conflict = True
                     # If one has assembly and the other doesn't, no conflict by this rule
 
@@ -243,45 +238,104 @@ class DisorderGraphBuilder:
                             else:
                                 self.graph[i][j]["conflict_type"] = "symmetry_clash"
 
-    def _add_geometric_conflicts(self, threshold: float = 0.8):
+    def _add_geometric_conflicts(self):
         """
         Add edges between atoms that are too close to coexist (hard sphere collision).
+        Uses context-aware thresholds based on disorder groups.
+        """
+        n_atoms = len(self.info.labels)
+        
+        # Vectorized computation of geometric conflicts with context-aware thresholds
+        for i in range(n_atoms):
+            for j in range(i + 1, n_atoms):
+                # Get distance
+                dist = self.dist_matrix[i, j]
+                
+                # Get disorder groups
+                group_i = self.info.disorder_groups[i]
+                group_j = self.info.disorder_groups[j]
+                
+                # Get symbols
+                symbol_i = self.info.symbols[i]
+                symbol_j = self.info.symbols[j]
+                
+                # Exclusion Rule: If atoms are in different non-zero groups, they represent competing realities
+                # and should not be considered for bonding but rather for exclusion
+                if group_i != 0 and group_j != 0 and group_i != group_j:
+                    threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]  # 2.2
+                else:
+                    threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]  # 0.85
+                
+                # Check if atoms are bonded using context-aware bonding logic
+                if not self._are_bonded(symbol_i, symbol_j, dist, group_i, group_j):
+                    # If distance is below threshold, add geometric conflict
+                    if dist < threshold:
+                        # Only add if not already added with explicit conflict
+                        if not self.graph.has_edge(i, j):
+                            self.graph.add_edge(
+                                i, j, conflict_type="geometric", distance=dist
+                            )
+                        else:
+                            # If there's already a connection, check if we should update the type
+                            # Explicit conflicts take priority over geometric
+                            if self.graph[i][j]["conflict_type"] != "explicit":
+                                self.graph[i][j]["conflict_type"] = "geometric"
+                                self.graph[i][j]["distance"] = dist
 
+    def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
+        """
+        Determine if two atoms are bonded based on element types, distance and disorder groups.
+        
         Parameters:
         -----------
-        threshold : float
-            Distance threshold (in Angstroms) below which atoms are considered colliding
+        s1, s2 : str
+            Element symbols
+        dist : float
+            Distance between atoms
+        group1, group2 : int
+            Disorder groups of the atoms (default to 0 for backward compatibility)
+            
+        Returns:
+        --------
+        bool
+            True if atoms are considered bonded
         """
-        # Vectorized computation of geometric conflicts
-        # Create a mask for distances below threshold
-        dist_mask = self.dist_matrix < threshold
-
-        # Only consider upper triangle to avoid duplicate edges
-        triu_mask = np.triu(dist_mask, k=1)
-
-        # Get indices where conflicts exist
-        conflict_indices = np.where(triu_mask)
-
-        for i, j in zip(conflict_indices[0], conflict_indices[1]):
-            # If distance is below threshold, check if atoms are bonded
-            distance = self.dist_matrix[i, j]
-
-            # Check if the atoms are bonded - if so, don't add geometric conflict
-            symbol_i = self.info.symbols[i]
-            symbol_j = self.info.symbols[j]
-
-            if not self._are_bonded(symbol_i, symbol_j, distance):
-                # Only add if not already added with explicit conflict
-                if not self.graph.has_edge(i, j):
-                    self.graph.add_edge(
-                        i, j, conflict_type="geometric", distance=distance
-                    )
-                else:
-                    # If there's already a connection, check if we should update the type
-                    # Explicit conflicts take priority over geometric
-                    if self.graph[i][j]["conflict_type"] != "explicit":
-                        self.graph[i][j]["conflict_type"] = "geometric"
-                        self.graph[i][j]["distance"] = distance
+        # Exclusion Rule: If atoms are in different non-zero groups, they represent alternative realities
+        # and never bond
+        if group1 != 0 and group2 != 0 and group1 != group2:
+            return False
+        
+        # Ionic Rule: If one is Metal and other is Non-Metal and dist > METAL_NONMETAL_COVALENT_MAX
+        is_metal1 = s1 in TRANSITION_METALS
+        is_metal2 = s2 in TRANSITION_METALS
+        is_nonmetal1 = not is_metal1
+        is_nonmetal2 = not is_metal2
+        
+        if (is_metal1 and is_nonmetal2) or (is_metal2 and is_nonmetal1):
+            if dist > BONDING_THRESHOLDS["METAL_NONMETAL_COVALENT_MAX"]:
+                return False
+        
+        # Original bonding logic
+        if bool({"H", "D"}.intersection({s1, s2})):
+            # H/D with any other element
+            if bool({"C", "N", "O", "S", "P"}.intersection({s1, s2})):
+                return BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
+            elif bool({"H", "D"}.intersection({s1, s2})):
+                return BONDING_THRESHOLDS["HH_BOND_POSSIBLE"]  # H-H unlikely to bond
+            else:
+                return BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
+        elif bool({"C", "N", "O"}.intersection({s1, s2})):
+            # C, N, O with each other
+            return BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
+        elif bool(
+            {"C", "N", "O"}.intersection({s1})
+            and {"C", "N", "O"}.intersection({s2})
+        ):
+            # C-N, C-O, N-O
+            return BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
+        else:
+            # General threshold for other element pairs
+            return BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
 
     def _resolve_valence_conflicts(self):
         """
@@ -299,7 +353,7 @@ class DisorderGraphBuilder:
 
         # Vectorized computation of bonded atoms (using a generous threshold)
         # Create a mask for distances that indicate bonding
-        dist_mask = self.dist_matrix < 2.2  # generous threshold
+        dist_mask = self.dist_matrix < DISORDER_CONFIG["VALENCE_PRESCREEN_THRESHOLD"]  # Use new config value
 
         # Only consider upper triangle to avoid duplicate edges
         triu_mask = np.triu(dist_mask, k=1)
@@ -315,18 +369,27 @@ class DisorderGraphBuilder:
             symbol_i = self.info.symbols[i].strip()
             symbol_j = self.info.symbols[j].strip()
 
-            # Determine if bonded based on element types
-            is_bonded = self._are_bonded(symbol_i, symbol_j, distance)
+            # Determine if bonded based on element types and disorder groups
+            group_i = self.info.disorder_groups[i]
+            group_j = self.info.disorder_groups[j]
+            
+            is_bonded = self._are_bonded(symbol_i, symbol_j, distance, group_i, group_j)
 
             if is_bonded:
                 connectivity_graph.add_edge(i, j, distance=distance)
 
         # Identify overcrowded centers
         for center_idx in range(n_atoms):
+            # Ammonium Protection: If center is 'N' and neighbors <= 4, skip decomposition
+            center_symbol = self.info.symbols[center_idx]
+            if center_symbol == 'N':
+                neighbors = list(connectivity_graph.neighbors(center_idx))
+                if len(neighbors) <= 4:
+                    continue  # Skip decomposition for N with <= 4 neighbors
+
             neighbors = list(connectivity_graph.neighbors(center_idx))
 
             # Get max coordination number for this element
-            center_symbol = self.info.symbols[center_idx]
             max_coordination = self._get_max_coordination(center_symbol)
 
             # Check if overcrowded and has low occupancy neighbors
@@ -338,44 +401,6 @@ class DisorderGraphBuilder:
                 if len(low_occ_neighbors) > 1:
                     # Try to decompose the overcrowded situation using geometric analysis
                     self._decompose_cliques(low_occ_neighbors, center_idx)
-
-    def _are_bonded(self, symbol1: str, symbol2: str, distance: float) -> bool:
-        """
-        Determine if two atoms are bonded based on element types and distance.
-
-        Parameters:
-        -----------
-        symbol1, symbol2 : str
-            Element symbols
-        distance : float
-            Distance between atoms
-
-        Returns:
-        --------
-        bool
-            True if atoms are considered bonded
-        """
-        # Define bonding thresholds based on element types
-        if bool({"H", "D"}.intersection({symbol1, symbol2})):
-            # H/D with any other element
-            if bool({"C", "N", "O", "S", "P"}.intersection({symbol1, symbol2})):
-                return BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
-            elif bool({"H", "D"}.intersection({symbol1, symbol2})):
-                return BONDING_THRESHOLDS["HH_BOND_POSSIBLE"]  # H-H unlikely to bond
-            else:
-                return BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
-        elif bool({"C", "N", "O"}.intersection({symbol1, symbol2})):
-            # C, N, O with each other
-            return BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
-        elif bool(
-            {"C", "N", "O"}.intersection({symbol1})
-            and {"C", "N", "O"}.intersection({symbol2})
-        ):
-            # C-N, C-O, N-O
-            return BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
-        else:
-            # General threshold for other element pairs
-            return BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
 
     def _get_max_coordination(self, element_symbol: str) -> int:
         """

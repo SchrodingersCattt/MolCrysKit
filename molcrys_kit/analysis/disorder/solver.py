@@ -38,12 +38,110 @@ class DisorderSolver:
         self.info = info
         self.graph = graph
         self.lattice = lattice
+        self.atom_groups = []  # Will store groups of atoms by (disorder_group, assembly)
+
+    def _identify_atom_groups(self):
+        """
+        Group atoms by key: (disorder_group, assembly).
+        Atoms with disorder_group=0 are single-atom groups.
+        Store as self.atom_groups (List of Lists of indices).
+        """
+        # Dictionary to map group key to list of atom indices
+        groups_map = {}
+        
+        for i in range(len(self.info.labels)):
+            # Get disorder group and assembly for this atom
+            disorder_group = self.info.disorder_groups[i]
+            assembly = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+            
+            # For atoms with disorder_group=0, make them single-atom groups
+            if disorder_group == 0:
+                # Create a single-atom group for this atom
+                self.atom_groups.append([i])
+            else:
+                # Group by (disorder_group, assembly)
+                group_key = (disorder_group, assembly)
+                
+                if group_key not in groups_map:
+                    groups_map[group_key] = []
+                
+                groups_map[group_key].append(i)
+        
+        # Add all the grouped atoms to atom_groups
+        for group_atoms in groups_map.values():
+            if len(group_atoms) > 0:
+                self.atom_groups.append(group_atoms)
+
+    def _max_weight_independent_set_by_groups(self, weight_attr="occupancy"):
+        """
+        Find an independent set using Group-Based solving approach.
+        
+        Parameters:
+        -----------
+        weight_attr : str
+            The node attribute to use as weight (default: occupancy)
+
+        Returns:
+        --------
+        List[int]
+            List of node indices forming the independent set
+        """
+        # Calculate weight for each Group (sum of atom weights)
+        group_weights = []
+        for group in self.atom_groups:
+            total_weight = sum(self.graph.nodes[node].get(weight_attr, 1.0) for node in group)
+            group_weights.append(total_weight)
+        
+        # Create a copy of the graph to work with
+        working_graph = self.graph.copy()
+        
+        # Sort Groups by weight (descending)
+        sorted_group_indices = sorted(range(len(self.atom_groups)), key=lambda i: group_weights[i], reverse=True)
+        
+        independent_set = []
+        
+        # Iterate Groups in descending order of weight
+        for group_idx in sorted_group_indices:
+            group = self.atom_groups[group_idx]
+            
+            # Check if ALL atoms in the Group are currently available in the graph
+            all_available = all(working_graph.has_node(node) for node in group)
+            
+            # Check if none of the atoms in the group have conflicts with already selected nodes
+            no_conflicts = True
+            for node in group:
+                for selected_node in independent_set:
+                    if working_graph.has_edge(node, selected_node):
+                        no_conflicts = False
+                        break
+                if not no_conflicts:
+                    break
+            
+            # If the group is valid, add all its atoms to the independent set
+            if all_available and no_conflicts:
+                # Add all atoms in this group to the independent set
+                independent_set.extend(group)
+                
+                # Remove all group members AND their neighbors from the graph
+                nodes_to_remove = []
+                for node in group:
+                    nodes_to_remove.append(node)
+                    # Add neighbors of this node
+                    nodes_to_remove.extend(list(working_graph.neighbors(node)))
+                
+                # Remove duplicates
+                nodes_to_remove = list(set(nodes_to_remove))
+                
+                # Remove from working graph
+                working_graph.remove_nodes_from(nodes_to_remove)
+        
+        return independent_set
 
     def solve(
         self, num_structures: int = 1, method: str = "optimal"
     ) -> List[MolecularCrystal]:
         """
-        Solve the disorder problem and generate ordered structures.
+        Solve the disorder problem and generate ordered structures using Group-Based approach.
 
         Parameters:
         -----------
@@ -57,6 +155,9 @@ class DisorderSolver:
         List[MolecularCrystal]
             List of ordered molecular crystal structures
         """
+        # Initialize atom groups
+        self._identify_atom_groups()
+        
         if method == "optimal":
             # Use max weight independent set with occupancy as weight
             # First, ensure each node has an occupancy attribute for the weight
@@ -65,36 +166,10 @@ class DisorderSolver:
                     # Use the occupancy from DisorderInfo
                     self.graph.nodes[node]["occupancy"] = self.info.occupancies[i]
 
-            # Find the optimal independent set
-            # NetworkX doesn't have max_weight_independent_set, using a greedy approach instead
-            # Create a copy of the graph to work with
-            working_graph = self.graph.copy()
-            optimal_set = set()
-
-            # Sort nodes by their occupancy in descending order ONCE
-            sorted_nodes = sorted(
-                working_graph.nodes(data=True),
-                key=lambda x: x[1].get("occupancy", 1.0),
-                reverse=True,
-            )
-
-            # Greedy approach to find an independent set
-            # Process nodes in the pre-sorted order
-            for node, data in sorted_nodes:
-                # If this node is still in the graph, add it to the independent set
-                if working_graph.has_node(node):
-                    optimal_set.add(node)
-
-                    # Remove this node and its neighbors from the graph
-                    nodes_to_remove = [node]
-                    nodes_to_remove.extend(list(working_graph.neighbors(node)))
-
-                    # Update the working graph
-                    working_graph.remove_nodes_from(nodes_to_remove)
-
-            independent_sets = [list(optimal_set)]
+            # Find the optimal independent set using Group-Based approach
+            independent_sets = [self._max_weight_independent_set_by_groups("occupancy")]
         elif method == "random":
-            # Generate multiple random independent sets using the new Randomized Exact Solver
+            # Generate multiple random independent sets using Group-Based approach with randomized weights
             independent_sets = []
             seen_structures = set()  # For deduplication
 
@@ -111,14 +186,9 @@ class DisorderSolver:
                         base_weight + random_noise
                     )
 
-                # Solve using the exact MWIS solver
+                # Solve using the Group-Based MWIS solver
                 try:
-                    # Note: NetworkX doesn't have max_weight_independent_set by default
-                    # So we'll use the complement: find max weight clique in the complement graph
-                    # Or implement our own greedy approach for MWIS
-                    solution = self._max_weight_independent_set(
-                        temp_graph, "randomized_weight"
-                    )
+                    solution = self._max_weight_independent_set_by_groups("randomized_weight")
                 except:
                     # Fallback to the old random method if needed
                     solution = self._random_independent_set()
@@ -145,9 +215,7 @@ class DisorderSolver:
                     )
 
                 try:
-                    solution = self._max_weight_independent_set(
-                        temp_graph, "randomized_weight"
-                    )
+                    solution = self._max_weight_independent_set_by_groups("randomized_weight")
                 except:
                     solution = self._random_independent_set()
 
@@ -229,45 +297,3 @@ class DisorderSolver:
         crystal = MolecularCrystal(self.lattice, molecules, pbc)
 
         return crystal
-
-    def _max_weight_independent_set(self, graph, weight_attr="weight"):
-        """
-        Find an approximation to the maximum weight independent set using a greedy algorithm.
-
-        Parameters:
-        -----------
-        graph : networkx.Graph
-            The input graph
-        weight_attr : str
-            The node attribute to use as weight
-
-        Returns:
-        --------
-        List[int]
-            List of node indices forming the independent set
-        """
-        # Create a copy of the graph to work with
-        working_graph = graph.copy()
-        independent_set = []
-
-        # Pre-sort nodes by weight-to-degree ratio once
-        sorted_nodes = sorted(
-            working_graph.nodes(data=True),
-            key=lambda x: x[1].get(weight_attr, 1.0) / (working_graph.degree(x[0]) + 1),
-            reverse=True,
-        )
-
-        independent_set = []
-
-        # Continue until the graph is empty
-        for node, node_data in sorted_nodes:
-            # Check if node still exists in working graph
-            if working_graph.has_node(node):
-                # Add this node to the independent set
-                independent_set.append(node)
-
-                # Remove this node and its neighbors (and their edges) from the graph
-                nodes_to_remove = [node] + list(working_graph.neighbors(node))
-                working_graph.remove_nodes_from(nodes_to_remove)
-
-        return independent_set
