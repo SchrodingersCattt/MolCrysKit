@@ -17,7 +17,7 @@ def main():
     # This check is no longer needed since modules are directly imported
     # If required packages are not available, import errors will be raised at the top of the file
 
-    cif_path = os.path.join(project_root, "examples", "PUBMUU03.cif")
+    cif_path = os.path.join(project_root, "examples", "DAP-4_order.cif")
 
     # Check if the file exists
     if not os.path.exists(cif_path):
@@ -43,7 +43,7 @@ def main():
     try:
         slab = generate_topological_slab(
             crystal=crystal,
-            miller_indices=(1, 1, 0),
+            miller_indices=(1, 1, 1),
             layers=3,
             # min_thickness=10,
             vacuum=10.0,
