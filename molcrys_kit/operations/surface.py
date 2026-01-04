@@ -136,26 +136,6 @@ class TopologicalSlabGenerator:
                         stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
                         break
 
-        # If we couldn't find a suitable vector with the above method, try brute force
-        if stacking_vector is None:
-            # Try simple vectors [1,0,0], [0,1,0], [0,0,1] and their negatives
-            for w_test in [
-                [1, 0, 0],
-                [0, 1, 0],
-                [0, 0, 1],
-                [-1, 0, 0],
-                [0, -1, 0],
-                [0, 0, -1],
-            ]:
-                w_test = np.array(w_test)
-                dot_product = h * w_test[0] + k * w_test[1] + l * w_test[2]
-                if dot_product == 1:
-                    stacking_vector = w_test
-                    break
-                elif dot_product == -1:
-                    stacking_vector = -w_test  # This would give dot product of 1
-                    break
-
         if stacking_vector is None:
             raise ValueError(
                 f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})"
@@ -304,11 +284,10 @@ class TopologicalSlabGenerator:
         target_axes = np.column_stack([new_x_axis, new_y_axis, new_z_axis])
 
         # Calculate rotation matrix that transforms original axes to target axes
-        rotation_matrix = target_axes @ np.linalg.inv(original_axes)
+        rotation_matrix = target_axes.T
 
         # Apply rotation to the final lattice vectors
-        rotated_lattice = rotation_matrix @ final_lattice.T
-        rotated_lattice = rotated_lattice.T  # Transpose back to have vectors as rows
+        rotated_lattice = (rotation_matrix @ final_lattice.T).T
 
         # Apply the same rotation to all atomic positions
         rotated_molecules = []
