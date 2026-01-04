@@ -184,6 +184,9 @@ class TopologicalSlabGenerator:
             transformation_matrix.T @ old_lattice
         )  # New basis vectors in Cartesian
 
+        # Pre-calculate the inverse of the new lattice to avoid repeated matrix inversions
+        inv_new_lattice = np.linalg.inv(new_lattice)
+
         # Calculate d_spacing (thickness of a single layer)
         cross_product = np.cross(new_lattice[0], new_lattice[1])
         normal_vector = cross_product / np.linalg.norm(cross_product)
@@ -197,14 +200,15 @@ class TopologicalSlabGenerator:
         unwrapped_molecules = self.crystal.get_unwrapped_molecules()
 
         # Transform all molecular centroids to the new fractional coordinate system
+        # Using pre-calculated inverse matrix for efficiency
         transformed_molecules = []
 
         for mol in unwrapped_molecules:
             # Get the centroid of the molecule in Cartesian coordinates
             centroid_cart = mol.get_centroid()
 
-            # Convert to new fractional coordinates using the geometry utility
-            centroid_frac_new = cart_to_frac(centroid_cart, new_lattice)
+            # Convert to new fractional coordinates using the pre-calculated inverse
+            centroid_frac_new = np.dot(centroid_cart, inv_new_lattice)
 
             # Store the transformed centroid along with the molecule data
             transformed_molecules.append((mol, centroid_frac_new))
@@ -255,7 +259,7 @@ class TopologicalSlabGenerator:
 
         # --- NEW: Align lattice vectors with standard crystallographic conventions ---
         # Align the primary vector (a) with x-axis and secondary (b) in xy-plane
-        # The third vector (c) will be aligned with the z-axis after rotation
+        # The third vector (c) will be aligned with z-axis after rotation
         
         # Define the current basis vectors
         a_vector = final_lattice[0]  # Primary vector (u)
@@ -289,43 +293,38 @@ class TopologicalSlabGenerator:
         # Apply rotation to the final lattice vectors
         rotated_lattice = (rotation_matrix @ final_lattice.T).T
 
-        # Apply the same rotation to all atomic positions
-        rotated_molecules = []
-        for mol in all_atoms_list:
-            mol_copy = mol.copy()
-            original_positions = mol_copy.get_positions()
-            rotated_positions = (rotation_matrix @ original_positions.T).T
-            mol_copy.set_positions(rotated_positions)
-            rotated_molecules.append(mol_copy)
+        # Pre-calculate the inverse of the rotated lattice for efficiency
+        inv_rotated_lattice = np.linalg.inv(rotated_lattice)
 
-        # --- NEW: Implement molecular-aware wrapping ---
-        # Calculate molecular centroids in the rotated lattice fractional coordinates
-        wrapped_molecules = []
-        for mol in rotated_molecules:
-            mol_copy = mol.copy()
-            positions = mol_copy.get_positions()
+        # --- OPTIMIZED: Implement molecular-aware wrapping with unified transformation ---
+        # Apply rotation and wrapping in a single loop to avoid multiple copies
+        for mol in all_atoms_list:
+            # Apply rotation to all atomic positions at once
+            original_positions = mol.get_positions()
+            rotated_positions = (rotation_matrix @ original_positions.T).T
+            mol.set_positions(rotated_positions)
             
-            # Calculate molecular centroid in fractional coordinates relative to rotated lattice
-            centroid_cart = np.mean(positions, axis=0)
-            centroid_frac = cart_to_frac(centroid_cart, rotated_lattice)
+            # Calculate molecular centroid in the rotated lattice fractional coordinates
+            centroid_cart = np.mean(rotated_positions, axis=0)
+            
+            # Calculate fractional coordinates using pre-calculated inverse
+            centroid_frac = np.dot(centroid_cart, inv_rotated_lattice)
             
             # Wrap the centroid to be within [0, 1) fractional coordinates
             wrapped_centroid_frac = centroid_frac - np.floor(centroid_frac)
             
             # Calculate the shift vector to move the centroid to the wrapped position
-            target_centroid_cart = frac_to_cart(wrapped_centroid_frac, rotated_lattice)
+            target_centroid_cart = np.dot(wrapped_centroid_frac, rotated_lattice)
             shift_vector = target_centroid_cart - centroid_cart
             
             # Apply the same shift to all atoms in the molecule to maintain molecular integrity
-            new_positions = positions + shift_vector
-            mol_copy.set_positions(new_positions)
-            
-            wrapped_molecules.append(mol_copy)
+            new_positions = rotated_positions + shift_vector
+            mol.set_positions(new_positions)
 
         # Create the final molecular crystal with the rotated lattice and wrapped molecules
         slab = MolecularCrystal(
             lattice=rotated_lattice,
-            molecules=[mol for mol in wrapped_molecules],
+            molecules=[mol for mol in all_atoms_list],  # Use the in-place modified molecules
             pbc=(True, True, False),  # PBC is False in the surface normal (z) direction
         )
 
