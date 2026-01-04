@@ -4,6 +4,40 @@ Configuration module for MolCrysKit.
 This module provides access to configuration parameters and constants used throughout the package.
 """
 
+# Transition metals set
+TRANSITION_METALS = {
+    "Sc",
+    "Ti",
+    "V",
+    "Cr",
+    "Mn",
+    "Fe",
+    "Co",
+    "Ni",
+    "Cu",
+    "Zn",
+    "Y",
+    "Zr",
+    "Nb",
+    "Mo",
+    "Tc",
+    "Ru",
+    "Rh",
+    "Pd",
+    "Ag",
+    "Cd",
+    "La",
+    "Hf",
+    "Ta",
+    "W",
+    "Re",
+    "Os",
+    "Ir",
+    "Pt",
+    "Au",
+    "Hg",
+}
+
 # Global threshold factors for bond detection
 BONDING_CONFIG = {
     "METAL_THRESHOLD_FACTOR": 0.35,
@@ -46,6 +80,11 @@ SP3_ELEMENTS = ["C", "N", "O", "S", "P"]
 DISORDER_CONFIG = {
     "SYMMETRY_SITE_RADIUS": 3.75,  # Maximum distance (in Angstroms) to consider symmetry-generated
     # atoms as competing for the same physical site
+    "VALENCE_PRESCREEN_THRESHOLD": 1.95,  # Tightened to exclude salt interactions
+    "HARD_SPHERE_THRESHOLD": 0.85,  # Small threshold. Applied to compatible atoms to allow normal packing
+    "DISORDER_CLASH_THRESHOLD": 2.2,  # Large threshold. Applied to COMPETING disorder parts to ensure split sites are exclusive
+    "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
+    "SKIP_METAL_VALENCE_CHECK": True,  # Skip metal valence checks
 }
 
 # Bonding thresholds for disorder analysis
@@ -53,25 +92,22 @@ BONDING_THRESHOLDS = {
     # H/D with C, N, O, S, P
     "H_CNO_THRESHOLD_MIN": 0.6,
     "H_CNO_THRESHOLD_MAX": 1.4,
-    
     # H/D with other elements
     "H_OTHER_THRESHOLD_MIN": 0.8,
     "H_OTHER_THRESHOLD_MAX": 1.8,
-    
     # C, N, O with each other
     "CNO_THRESHOLD_MIN": 0.8,
     "CNO_THRESHOLD_MAX": 1.9,
-    
     # C-N, C-O, N-O
     "CNO_PAIR_THRESHOLD_MIN": 0.8,
     "CNO_PAIR_THRESHOLD_MAX": 2.0,
-    
     # General threshold for other element pairs
     "GENERAL_THRESHOLD_MIN": 0.5,
     "GENERAL_THRESHOLD_MAX": 2.2,
-    
     # H-H unlikely to bond
     "HH_BOND_POSSIBLE": False,
+    # Metal-Organic bonds threshold
+    "METAL_NONMETAL_COVALENT_MAX": 2.05,  # Strict cutoff for Metal-Organic bonds
 }
 
 # Maximum coordination numbers for elements

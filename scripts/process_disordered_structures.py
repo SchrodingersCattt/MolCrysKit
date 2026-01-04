@@ -11,6 +11,7 @@ It uses the disorder handling pipeline to generate ordered structures
 and saves them to the output directory.
 """
 
+import glob
 import os
 import time
 import traceback
@@ -24,14 +25,17 @@ from molcrys_kit.io import write_cif
 def generate_ordered_replicas_from_disordered_sites_files():
     """Process disordered CIF files and save resolved structures."""
 
+    input_files = []
     # Define the input files to process
-    input_files = [
+    input_files += [
+        "examples/EAP-8.cif",
         "examples/1-HTP.cif",
         "examples/PAP-M5.cif",
         "examples/PAP-H4.cif",
         "examples/DAP-4.cif",
-        "examples/EAP-8.cif",
     ]
+    input_files += glob.glob("examples/TIL*.cif")
+    input_files += glob.glob("examples/1_*.cif")
 
     # Create output directory if it doesn't exist
     output_dir = Path("output/disorder_resolution")

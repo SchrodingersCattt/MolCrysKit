@@ -11,7 +11,13 @@ import re
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
-from ...constants.config import DISORDER_CONFIG, BONDING_THRESHOLDS, MAX_COORDINATION_NUMBERS, DEFAULT_MAX_COORDINATION
+from ...constants.config import (
+    DISORDER_CONFIG,
+    BONDING_THRESHOLDS,
+    MAX_COORDINATION_NUMBERS,
+    DEFAULT_MAX_COORDINATION,
+    TRANSITION_METALS,
+)
 from ...utils.geometry import (
     angle_between_vectors,
     frac_to_cart,
@@ -21,27 +27,15 @@ from ...utils.geometry import (
 class DisorderGraphBuilder:
     """
     Builds an exclusion graph from DisorderInfo data.
-
-    The exclusion graph represents mutual exclusivity between atoms -
-    if there's an edge between two atoms, they cannot coexist in the same structure.
     """
 
     def __init__(self, info: DisorderInfo, lattice: np.ndarray):
-        """
-        Initialize the graph builder.
-
-        Parameters:
-        -----------
-        info : DisorderInfo
-            Raw disorder data from Phase 1
-        lattice : np.ndarray
-            3x3 matrix representing the lattice vectors
-        """
         self.info = info
         self.lattice = lattice
         self.graph = nx.Graph()
+        self.conformers = []
 
-        # Add nodes to the graph (each node is an atom index)
+        # Add nodes
         for i in range(len(info.labels)):
             self.graph.add_node(
                 i,
@@ -50,33 +44,19 @@ class DisorderGraphBuilder:
                 frac_coord=info.frac_coords[i],
                 occupancy=info.occupancies[i],
                 disorder_group=info.disorder_groups[i],
+                assembly=info.assemblies[i] if i < len(info.assemblies) else "",
             )
 
-        # Precompute distance matrix and root labels
         self._precompute_metrics()
 
     def _precompute_metrics(self):
-        """
-        Precompute distance matrix and root labels to avoid repeated calculations.
-        """
-        # Precompute distance matrix using vectorization
-        coords = self.info.frac_coords  # shape (n, 3)
-
-        # Calculate coordinate differences with broadcasting: (n, 1, 3) - (1, n, 3) -> (n, n, 3)
-        coord_diffs = coords[:, None, :] - coords[None, :, :]  # Shape: (n, n, 3)
-
-        # Apply minimum image convention
+        coords = self.info.frac_coords
+        # Precompute distance matrix with PBC
+        coord_diffs = coords[:, None, :] - coords[None, :, :]
         coord_diffs = coord_diffs - np.round(coord_diffs)
-
-        # Convert to Cartesian coordinates using lattice
         cart_diffs = np.einsum("nij,jk->nik", coord_diffs, self.lattice)
+        self.dist_matrix = np.linalg.norm(cart_diffs, axis=2)
 
-        # Calculate distances
-        distances = np.linalg.norm(cart_diffs, axis=2)
-
-        self.dist_matrix = distances
-
-        # Precompute root labels (e.g., "C1" from "C1A")
         self.root_labels = []
         for label in self.info.labels:
             match = re.match(r"([A-Za-z]+[0-9]*)", label)
@@ -85,488 +65,398 @@ class DisorderGraphBuilder:
 
     def build(self) -> nx.Graph:
         """
-        Build the exclusion graph by applying the multi-layer conflict detection logic.
+        Build the exclusion graph using the Conformer-Centric Architecture.
         """
-        # Layer 1: Explicit conflicts based on disorder groups
+        self._identify_conformers()
+        self._add_conformer_conflicts()
         self._add_explicit_conflicts()
-
-        # Layer 1.5: Global Symmetry Clashes (NEW)
-        # Must run BEFORE geometric checks to catch "Same Group" overlapping ghosts
-        self._add_symmetry_conflicts(default_threshold=1.35)
-
-        # Layer 2: Geometric conflicts based on atomic distances
-        self._add_geometric_conflicts(threshold=0.8)
-
-        # Layer 3: Valence/inferred conflicts based on coordination geometry
+        self._add_geometric_conflicts()
         self._resolve_valence_conflicts()
-
         return self.graph
 
-    def _add_explicit_conflicts(self):
+    def _identify_conformers(self):
         """
-        Add edges between atoms that have different non-zero disorder groups.
-
-        Rule: If two atoms have non-zero disorder groups and group_A != group_B,
-        they are mutually exclusive IF AND ONLY IF they belong to the same assembly
-        or they are close enough (< 5.0 Å) if assemblies are not specified.
+        Identify discrete conformers (clusters) using connectivity, PART rules, AND Symmetry.
+        Prevents 'Frankenstein' merging of symmetry images.
         """
         n_atoms = len(self.info.labels)
+        has_sym_info = hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
+
+        bond_graph = nx.Graph()
+        bond_graph.add_nodes_from(range(n_atoms))
 
         for i in range(n_atoms):
-            group_i = self.info.disorder_groups[i]
-
-            # Only consider non-zero groups
-            if group_i == 0:
-                continue
-
             for j in range(i + 1, n_atoms):
+                group_i = self.info.disorder_groups[i]
                 group_j = self.info.disorder_groups[j]
 
-                # If both have non-zero groups and they are different, check additional conditions
-                if group_j != 0 and group_i != group_j:
-                    # Check if both atoms have assembly information
-                    assembly_i = (
-                        self.info.assemblies[i] if i < len(self.info.assemblies) else ""
-                    )
-                    assembly_j = (
-                        self.info.assemblies[j] if j < len(self.info.assemblies) else ""
-                    )
+                # Check bonding validity
+                if (group_i == group_j and group_i != 0) or (
+                    group_i == 0 or group_j == 0
+                ):
+                    # Anti-Frankenstein: Do not bond two disordered atoms if they come from different SymOps
+                    if group_i != 0 and group_j != 0 and has_sym_info:
+                        idx_i = (
+                            self.info.sym_op_indices[i]
+                            if i < len(self.info.sym_op_indices)
+                            else 0
+                        )
+                        idx_j = (
+                            self.info.sym_op_indices[j]
+                            if j < len(self.info.sym_op_indices)
+                            else 0
+                        )
+                        if idx_i != idx_j:
+                            continue
 
-                    # Determine if there should be a conflict based on assembly or distance
-                    has_conflict = False
-
-                    if (
-                        assembly_i != ""
-                        and assembly_j != ""
-                        and assembly_i == assembly_j
-                    ):
-                        # Same non-empty assembly: they have a conflict
-                        has_conflict = True
-                    elif assembly_i == "" and assembly_j == "":
-                        # Both have empty assemblies: use distance heuristic (5.0 Å)
-                        distance = self.dist_matrix[i, j]
-                        if distance < 5.0:
-                            has_conflict = True
-                    # If one has assembly and the other doesn't, no conflict by this rule
-
-                    # Only add the conflict if conditions are met
-                    if has_conflict:
-                        # Only add if not already added with a different conflict type
-                        if not self.graph.has_edge(i, j):
-                            self.graph.add_edge(i, j, conflict_type="explicit")
-                        else:
-                            # If already exists, update to explicit if it's not already explicit
-                            if self.graph[i][j]["conflict_type"] != "explicit":
-                                self.graph[i][j]["conflict_type"] = "explicit"
-
-    def _add_symmetry_conflicts(self, default_threshold: float = 1.35):
-        """
-        Layer 1.5: Detect conflicts between atoms from different symmetry images in negative PART groups.
-
-        This prevents "Frankenstein Molecules" by ensuring that atoms from competing symmetry images
-        (e.g., Image A vs Image B) cannot coexist in the same structure, regardless of their element types.
-        """
-        n_atoms = len(self.info.labels)
-
-        # Define strict threshold for low occupancy atoms
-        STRICT_THRESHOLD = 2.0
-
-        # Get the symmetry site radius from config
-        radius_threshold = DISORDER_CONFIG["SYMMETRY_SITE_RADIUS"]
-
-        for i in range(n_atoms):
-            group_i = self.info.disorder_groups[i]
-            if group_i == 0:
-                continue
-
-            occ_i = self.info.occupancies[i]
-
-            for j in range(i + 1, n_atoms):
-                group_j = self.info.disorder_groups[j]
-
-                # Check if both atoms are in the same disorder group and the group is negative (SHELX-style PART -n)
-                if group_i == group_j and group_i < 0:
-                    # Check spatial overlap
                     dist = self.dist_matrix[i, j]
+                    symbol_i = self.info.symbols[i]
+                    symbol_j = self.info.symbols[j]
 
-                    if dist < radius_threshold:
-                        # Check if atoms have different symmetry operation origins
-                        if (
-                            hasattr(self.info, "sym_op_indices")
-                            and len(self.info.sym_op_indices) > i
-                            and len(self.info.sym_op_indices) > j
-                            and self.info.sym_op_indices[i]
-                            != self.info.sym_op_indices[j]
-                        ):
-                            # These atoms belong to competing symmetry images (e.g., Image A vs Image B)
-                            # CRITICAL: Do NOT check if labels are the same. Even if one is Nitrogen
-                            # and the other is Hydrogen, they CANNOT coexist if from different images.
-                            # Action: Add Exclusion Edge (conflict_type="symmetry_provenance")
-                            if not self.graph.has_edge(i, j):
-                                self.graph.add_edge(
-                                    i,
-                                    j,
-                                    conflict_type="symmetry_provenance",
-                                    distance=dist,
-                                )
-                            else:
-                                self.graph[i][j][
-                                    "conflict_type"
-                                ] = "symmetry_provenance"
-                        # If same SymOp Index, atoms are part of the same molecular image, do nothing
+                    if self._are_bonded(symbol_i, symbol_j, dist, group_i, group_j):
+                        if not (group_i < 0 and group_j < 0 and group_i != group_j):
+                            bond_graph.add_edge(i, j)
 
-                # Legacy fallback: ensure existing occupancy/distance logic runs for non-negative groups
-                elif group_i == group_j:
-                    # Use precomputed root labels for general disorder cases
-                    root_i = self.root_labels[i]
-                    root_j = self.root_labels[j]
+        molecule_components = list(nx.connected_components(bond_graph))
+        self.conformers = []
 
-                    # Check Identity (Clones)
-                    if root_i == root_j:
-                        # Determine Dynamic Threshold
-                        # If either atom has low occupancy (< 0.5), we assume they cannot
-                        # bond to their own clone. Be strict.
-                        occ_j = self.info.occupancies[j]
-                        if occ_i < 0.5 or occ_j < 0.5:
-                            threshold = STRICT_THRESHOLD
+        for component in molecule_components:
+            atoms_by_key = {}
+            for atom_idx in component:
+                part_id = self.info.disorder_groups[atom_idx]
+                if part_id != 0:
+                    sym_op = 0
+                    if has_sym_info and atom_idx < len(self.info.sym_op_indices):
+                        sym_op = self.info.sym_op_indices[atom_idx]
+
+                    key = (part_id, sym_op)
+                    if key not in atoms_by_key:
+                        atoms_by_key[key] = set()
+                    atoms_by_key[key].add(atom_idx)
+
+            for key, atom_set in atoms_by_key.items():
+                if atom_set:
+                    self.conformers.append(atom_set)
+
+    def _get_robust_centroid(self, atom_indices: List[int]) -> np.ndarray:
+        """
+        Calculate centroid handling PBC by unwrapping molecule around the first atom.
+        """
+        if not atom_indices:
+            return np.array([0.0, 0.0, 0.0])
+
+        coords = self.info.frac_coords[list(atom_indices)]
+        if len(coords) == 1:
+            return coords[0]
+
+        # Unwrap coordinates relative to the first atom
+        ref = coords[0]
+        diffs = coords - ref
+        # Minimum image for diffs
+        diffs = diffs - np.round(diffs)
+        unwrapped_coords = ref + diffs
+
+        # Calculate mean
+        mean_coord = np.mean(unwrapped_coords, axis=0)
+
+        # Wrap back to unit cell
+        return mean_coord - np.floor(mean_coord)
+
+    def _add_conformer_conflicts(self):
+        """
+        Add conflicts using Dual-Track Logic.
+        """
+        SITE_RADIUS = 3.0
+        GHOST_CLASH_THRESHOLD = 2.0
+
+        for i, conf_a in enumerate(self.conformers):
+            for j, conf_b in enumerate(self.conformers):
+                if i >= j:
+                    continue
+
+                atoms_a = list(conf_a)
+                atoms_b = list(conf_b)
+
+                part_a = self.info.disorder_groups[atoms_a[0]]
+                part_b = self.info.disorder_groups[atoms_b[0]]
+
+                centroid_a = self._get_robust_centroid(atoms_a)
+                centroid_b = self._get_robust_centroid(atoms_b)
+
+                diff_vec = centroid_a - centroid_b
+                diff_vec = diff_vec - np.round(diff_vec)
+                cart_dist_vec = np.dot(diff_vec, self.lattice)
+                centroid_dist = np.linalg.norm(cart_dist_vec)
+
+                if part_a != part_b:
+                    if centroid_dist < SITE_RADIUS:
+                        self._add_conflict_edge(atoms_a, atoms_b, "logical_alternative")
+                        continue
+
+                is_diff_sym = self._has_different_symmetry_provenance(atoms_a, atoms_b)
+
+                if part_a == part_b and is_diff_sym:
+                    if centroid_dist < SITE_RADIUS:
+                        has_clash = False
+                        for aa in atoms_a:
+                            for bb in atoms_b:
+                                if self.dist_matrix[aa, bb] < GHOST_CLASH_THRESHOLD:
+                                    has_clash = True
+                                    break
+                            if has_clash:
+                                break
+
+                        if has_clash:
+                            self._add_conflict_edge(atoms_a, atoms_b, "symmetry_clash")
+
+    def _add_conflict_edge(self, atoms_a, atoms_b, type_str):
+        for u in atoms_a:
+            for v in atoms_b:
+                if not self.graph.has_edge(u, v):
+                    self.graph.add_edge(u, v, conflict_type=type_str)
+
+    def _has_different_symmetry_provenance(
+        self, atoms_a: List[int], atoms_b: List[int]
+    ) -> bool:
+        if not hasattr(self.info, "sym_op_indices") or not self.info.sym_op_indices:
+            return False
+        for a in atoms_a:
+            for b in atoms_b:
+                if a < len(self.info.sym_op_indices) and b < len(
+                    self.info.sym_op_indices
+                ):
+                    if self.info.sym_op_indices[a] != self.info.sym_op_indices[b]:
+                        return True
+        return False
+
+    def _add_explicit_conflicts(self):
+        n_atoms = len(self.info.labels)
+        for i in range(n_atoms):
+            if self.info.disorder_groups[i] == 0:
+                continue
+            for j in range(i + 1, n_atoms):
+                if self.info.disorder_groups[j] == 0:
+                    continue
+                if self.info.disorder_groups[i] == self.info.disorder_groups[j]:
+                    continue
+
+                assembly_i = self.graph.nodes[i]["assembly"]
+                assembly_j = self.graph.nodes[j]["assembly"]
+
+                has_conflict = False
+                if assembly_i and assembly_j and assembly_i == assembly_j:
+                    has_conflict = True
+                elif not assembly_i and not assembly_j:
+                    if (
+                        self.dist_matrix[i, j]
+                        < DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]
+                    ):
+                        has_conflict = True
+
+                if has_conflict and not self.graph.has_edge(i, j):
+                    self.graph.add_edge(i, j, conflict_type="explicit")
+
+    def _add_geometric_conflicts(self):
+        n_atoms = len(self.info.labels)
+        for i in range(n_atoms):
+            for j in range(i + 1, n_atoms):
+                dist = self.dist_matrix[i, j]
+                g_i = self.info.disorder_groups[i]
+                g_j = self.info.disorder_groups[j]
+
+                threshold = (
+                    DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+                    if (g_i != 0 and g_j != 0 and g_i != g_j)
+                    else DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
+                )
+
+                symbol_i = self.info.symbols[i]
+                symbol_j = self.info.symbols[j]
+
+                if dist < threshold:
+                    if not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
+                        if not self.graph.has_edge(i, j):
+                            self.graph.add_edge(
+                                i, j, conflict_type="geometric", distance=dist
+                            )
                         else:
-                            threshold = default_threshold
+                            if (
+                                self.graph[i][j]["conflict_type"]
+                                != "conformer_competition"
+                            ):
+                                self.graph[i][j]["conflict_type"] = "geometric"
+                                self.graph[i][j]["distance"] = dist
 
-                        # Use precomputed distance
-                        dist = self.dist_matrix[i, j]
+    def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
+        if group1 != 0 and group2 != 0 and group1 != group2:
+            return False
 
-                        if dist < threshold:
-                            if not self.graph.has_edge(i, j):
-                                self.graph.add_edge(
-                                    i, j, conflict_type="symmetry_clash", distance=dist
-                                )
-                            else:
-                                self.graph[i][j]["conflict_type"] = "symmetry_clash"
+        is_metal1 = s1 in TRANSITION_METALS
+        is_metal2 = s2 in TRANSITION_METALS
+        is_nonmetal1 = not is_metal1
+        is_nonmetal2 = not is_metal2
+        if (is_metal1 and is_nonmetal2) or (is_metal2 and is_nonmetal1):
+            if dist > BONDING_THRESHOLDS["METAL_NONMETAL_COVALENT_MAX"]:
+                return False
 
-    def _add_geometric_conflicts(self, threshold: float = 0.8):
-        """
-        Add edges between atoms that are too close to coexist (hard sphere collision).
-
-        Parameters:
-        -----------
-        threshold : float
-            Distance threshold (in Angstroms) below which atoms are considered colliding
-        """
-        # Vectorized computation of geometric conflicts
-        # Create a mask for distances below threshold
-        dist_mask = self.dist_matrix < threshold
-
-        # Only consider upper triangle to avoid duplicate edges
-        triu_mask = np.triu(dist_mask, k=1)
-
-        # Get indices where conflicts exist
-        conflict_indices = np.where(triu_mask)
-
-        for i, j in zip(conflict_indices[0], conflict_indices[1]):
-            # If distance is below threshold, check if atoms are bonded
-            distance = self.dist_matrix[i, j]
-
-            # Check if the atoms are bonded - if so, don't add geometric conflict
-            symbol_i = self.info.symbols[i]
-            symbol_j = self.info.symbols[j]
-
-            if not self._are_bonded(symbol_i, symbol_j, distance):
-                # Only add if not already added with explicit conflict
-                if not self.graph.has_edge(i, j):
-                    self.graph.add_edge(
-                        i, j, conflict_type="geometric", distance=distance
-                    )
-                else:
-                    # If there's already a connection, check if we should update the type
-                    # Explicit conflicts take priority over geometric
-                    if self.graph[i][j]["conflict_type"] != "explicit":
-                        self.graph[i][j]["conflict_type"] = "geometric"
-                        self.graph[i][j]["distance"] = distance
+        if bool({"H", "D"}.intersection({s1, s2})):
+            if bool({"C", "N", "O", "S", "P"}.intersection({s1, s2})):
+                return (
+                    BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"]
+                    < dist
+                    < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
+                )
+            elif bool({"H", "D"}.intersection({s1, s2})):
+                return BONDING_THRESHOLDS["HH_BOND_POSSIBLE"]
+            else:
+                return (
+                    BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"]
+                    < dist
+                    < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
+                )
+        elif bool({"C", "N", "O"}.intersection({s1, s2})):
+            return (
+                BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"]
+                < dist
+                < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
+            )
+        elif bool(
+            {"C", "N", "O"}.intersection({s1}) and {"C", "N", "O"}.intersection({s2})
+        ):
+            return (
+                BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"]
+                < dist
+                < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
+            )
+        else:
+            return (
+                BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"]
+                < dist
+                < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
+            )
 
     def _resolve_valence_conflicts(self):
-        """
-        Detect and resolve valence conflicts (implicit disorder like in 'DAP-4').
-
-        This handles cases where atoms are not explicitly grouped but would
-        overcrowd a coordination environment (like 8 H atoms around a N atom).
-        """
         n_atoms = len(self.info.labels)
-
-        # Build connectivity graph for neighbors
         connectivity_graph = nx.Graph()
         for i in range(n_atoms):
             connectivity_graph.add_node(i)
 
-        # Vectorized computation of bonded atoms (using a generous threshold)
-        # Create a mask for distances that indicate bonding
-        dist_mask = self.dist_matrix < 2.2  # generous threshold
+        # Simple connectivity for valence check
+        for i in range(n_atoms):
+            for j in range(i + 1, n_atoms):
+                if self.dist_matrix[i, j] < 2.0:
+                    if self._are_bonded(
+                        self.info.symbols[i],
+                        self.info.symbols[j],
+                        self.dist_matrix[i, j],
+                        self.info.disorder_groups[i],
+                        self.info.disorder_groups[j],
+                    ):
+                        connectivity_graph.add_edge(i, j)
 
-        # Only consider upper triangle to avoid duplicate edges
-        triu_mask = np.triu(dist_mask, k=1)
-
-        # Get indices where bonds exist
-        bond_indices = np.where(triu_mask)
-
-        for i, j in zip(bond_indices[0], bond_indices[1]):
-            # Calculate distance (already available in dist_matrix)
-            distance = self.dist_matrix[i, j]
-
-            # Determine if bonded based on element types
-            symbol_i = self.info.symbols[i].strip()
-            symbol_j = self.info.symbols[j].strip()
-
-            # Determine if bonded based on element types
-            is_bonded = self._are_bonded(symbol_i, symbol_j, distance)
-
-            if is_bonded:
-                connectivity_graph.add_edge(i, j, distance=distance)
-
-        # Identify overcrowded centers
         for center_idx in range(n_atoms):
             neighbors = list(connectivity_graph.neighbors(center_idx))
-
-            # Get max coordination number for this element
-            center_symbol = self.info.symbols[center_idx]
-            max_coordination = self._get_max_coordination(center_symbol)
-
-            # Check if overcrowded and has low occupancy neighbors
-            if len(neighbors) > max_coordination:
-                low_occ_neighbors = [
-                    n for n in neighbors if self.info.occupancies[n] < 1.0
-                ]
-
-                if len(low_occ_neighbors) > 1:
-                    # Try to decompose the overcrowded situation using geometric analysis
-                    self._decompose_cliques(low_occ_neighbors, center_idx)
-
-    def _are_bonded(self, symbol1: str, symbol2: str, distance: float) -> bool:
-        """
-        Determine if two atoms are bonded based on element types and distance.
-
-        Parameters:
-        -----------
-        symbol1, symbol2 : str
-            Element symbols
-        distance : float
-            Distance between atoms
-
-        Returns:
-        --------
-        bool
-            True if atoms are considered bonded
-        """
-        # Define bonding thresholds based on element types
-        if bool({"H", "D"}.intersection({symbol1, symbol2})):
-            # H/D with any other element
-            if bool({"C", "N", "O", "S", "P"}.intersection({symbol1, symbol2})):
-                return BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
-            elif bool({"H", "D"}.intersection({symbol1, symbol2})):
-                return BONDING_THRESHOLDS["HH_BOND_POSSIBLE"]  # H-H unlikely to bond
-            else:
-                return BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
-        elif bool({"C", "N", "O"}.intersection({symbol1, symbol2})):
-            # C, N, O with each other
-            return BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
-        elif bool(
-            {"C", "N", "O"}.intersection({symbol1})
-            and {"C", "N", "O"}.intersection({symbol2})
-        ):
-            # C-N, C-O, N-O
-            return BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
-        else:
-            # General threshold for other element pairs
-            return BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"] < distance < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
-
-    def _get_max_coordination(self, element_symbol: str) -> int:
-        """
-        Get the maximum coordination number for an element.
-
-        Parameters:
-        -----------
-        element_symbol : str
-            Element symbol
-
-        Returns:
-        --------
-        int
-            Maximum expected coordination number
-        """
-        element = element_symbol.strip().title()  # Capitalize first letter
-
-        return MAX_COORDINATION_NUMBERS.get(element, DEFAULT_MAX_COORDINATION)  # Default to 6 if unknown
+            if not neighbors:
+                continue
+            sym = self.info.symbols[center_idx]
+            max_c = MAX_COORDINATION_NUMBERS.get(sym, DEFAULT_MAX_COORDINATION)
+            if len(neighbors) > max_c:
+                low_occ = [n for n in neighbors if self.info.occupancies[n] < 1.0]
+                if len(low_occ) > 1:
+                    self._decompose_cliques(low_occ, center_idx)
 
     def _decompose_cliques(self, atom_indices: List[int], center_idx: int):
-        """
-        Decompose overcrowded atom sets into mutually exclusive subsets.
-
-        Parameters:
-        -----------
-        atom_indices : List[int]
-            Indices of atoms that are overcrowding around a center
-        center_idx : int
-            Index of the center atom
-        """
-        if len(atom_indices) < 2:
-            return  # Need at least 2 atoms to create exclusions
-
-        # Calculate positions relative to the center
         center_frac = self.info.frac_coords[center_idx]
         relative_positions = []
-
         for idx in atom_indices:
             atom_frac = self.info.frac_coords[idx]
-            # Apply minimum image convention relative to center
             delta = atom_frac - center_frac
-            delta = delta - np.round(delta)  # Minimum image
+            delta = delta - np.round(delta)
             relative_positions.append(delta)
 
-        # Convert to Cartesian coordinates
-        cart_positions = []
-        for rel_pos in relative_positions:
-            cart_pos = frac_to_cart(rel_pos, self.lattice)
-            cart_positions.append(cart_pos)
+        cart_positions = [frac_to_cart(rel, self.lattice) for rel in relative_positions]
 
-        # For now, use a simple approach: group atoms that form valid geometries
-        # In the case of the "ammonium" example (8 H around N), we expect 2 sets of 4
+        # [FIX] Handle 8 atoms (Tetrahedral) and 6 atoms (Trigonal/Octahedral) cases
         if len(atom_indices) == 8 and self.info.symbols[center_idx] in ["N", "P"]:
-            # Try to find two tetrahedral arrangements among 8 atoms
             self._find_tetrahedral_groups(atom_indices, cart_positions)
+        elif len(atom_indices) == 6 and self.info.symbols[center_idx] in ["N"]:
+            self._find_trigonal_groups(atom_indices, cart_positions)
         else:
-            # For other cases, if all have low occupancy, make them all mutually exclusive
-            # CRITICAL FIX: Only make atoms mutually exclusive if they belong to different disorder groups
+            # Fallback: mutually exclusive
             for i_idx in atom_indices:
                 for j_idx in atom_indices:
                     if i_idx < j_idx:
-                        group_i = self.info.disorder_groups[i_idx]
-                        group_j = self.info.disorder_groups[j_idx]
-
-                        # CRITICAL FIX: Allow atoms from the same disorder group to coexist in a clique
-                        if group_i != 0 and group_j != 0 and group_i == group_j:
+                        g_i = self.info.disorder_groups[i_idx]
+                        g_j = self.info.disorder_groups[j_idx]
+                        if g_i != 0 and g_j != 0 and g_i == g_j:
                             continue
-
                         if not self.graph.has_edge(i_idx, j_idx):
                             self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
-                        else:
-                            # Upgrade existing conflict type if necessary
-                            current_type = self.graph[i_idx][j_idx].get("conflict_type")
-                            if current_type not in ["explicit", "geometric"]:
-                                self.graph[i_idx][j_idx]["conflict_type"] = "valence"
 
-    def _find_tetrahedral_groups(
-        self, atom_indices: List[int], cart_positions: List[np.ndarray]
-    ):
-        """
-        Find two disjoint tetrahedral groups among 8 atoms around a center (like in DAP-4).
-
-        Parameters:
-        -----------
-        atom_indices : List[int]
-            Indices of the 8 surrounding atoms
-        cart_positions : List[np.ndarray]
-            Cartesian positions of the 8 atoms relative to center
-        """
-        if len(atom_indices) != 8:
-            return  # Need exactly 8 atoms for this logic
-
-        # Calculate angles between all atom pairs as seen from the center (which is at origin now)
-        n_atoms = len(atom_indices)
-
-        # For each combination of 4 atoms, check if they form a valid tetrahedron
-        candidates = []  # Store (score, group_indices) tuples
-
-        for combo in combinations(range(n_atoms), 4):
-            combo_indices = [atom_indices[i] for i in combo]
-            combo_positions = [cart_positions[i] for i in combo]
-
-            # Calculate angles between all pairs of positions
+    def _find_tetrahedral_groups(self, atom_indices, cart_positions):
+        n = len(atom_indices)
+        candidates = []
+        for combo in combinations(range(n), 4):
+            combo_pos = [cart_positions[i] for i in combo]
             angles = []
             for i in range(4):
                 for j in range(i + 1, 4):
-                    v1 = combo_positions[i]
-                    v2 = combo_positions[j]
-
-                    # Calculate angle between vectors from center to these atoms
+                    v1 = combo_pos[i]
+                    v2 = combo_pos[j]
                     if np.allclose(v1, 0) or np.allclose(v2, 0):
-                        # If position is at center, skip (would cause issues with angle calculation)
                         continue
+                    angles.append(np.degrees(angle_between_vectors(v1, v2)))
+            if angles:
+                score = sum(abs(a - 109.5) for a in angles)
+                candidates.append((score, [atom_indices[i] for i in combo]))
 
-                    angle_rad = angle_between_vectors(v1, v2)
-                    angle_deg = np.degrees(angle_rad)
-                    angles.append(angle_deg)
-
-            # Calculate score based on deviation from ideal tetrahedral angle (109.5°)
-            # Lower score means better tetrahedral geometry
-            if len(angles) > 0:
-                score = sum(abs(angle - 109.5) for angle in angles)
-                candidates.append((score, combo_indices))
-
-        # Sort candidates by score (ascending - best geometry first)
         candidates.sort(key=lambda x: x[0])
+        self._apply_disjoint_groups(candidates, atom_indices)
 
-        # Look for two disjoint groups among the best candidates
+    def _find_trigonal_groups(self, atom_indices, cart_positions):
+        """Find 2 sets of 3 atoms (NH3 geometry)"""
+        n = len(atom_indices)
+        candidates = []
+        for combo in combinations(range(n), 3):
+            combo_pos = [cart_positions[i] for i in combo]
+            angles = []
+            for i in range(3):
+                for j in range(i + 1, 3):
+                    v1 = combo_pos[i]
+                    v2 = combo_pos[j]
+                    if np.allclose(v1, 0) or np.allclose(v2, 0):
+                        continue
+                    angles.append(np.degrees(angle_between_vectors(v1, v2)))
+            if angles:
+                # Target angle 107-109 for NH3
+                score = sum(abs(a - 109.5) for a in angles)
+                candidates.append((score, [atom_indices[i] for i in combo]))
+
+        candidates.sort(key=lambda x: x[0])
+        self._apply_disjoint_groups(candidates, atom_indices)
+
+    def _apply_disjoint_groups(self, candidates, all_atoms):
+        """Helper to apply exclusions based on best disjoint candidate groups."""
+        all_atoms_set = set(all_atoms)
         for i in range(len(candidates)):
-            part_a = candidates[i][1]  # Best group A
+            part_a = candidates[i][1]
             for j in range(i + 1, len(candidates)):
-                part_b = candidates[j][1]  # Next best group B
-
-                # Check if they are disjoint
+                part_b = candidates[j][1]
                 if set(part_a).isdisjoint(set(part_b)):
-                    # Found two disjoint tetrahedral groups - add exclusions between them
-                    # Rule 1: Full exclusion edges between all atoms in Part A and all atoms in Part B
-                    for atom_a in part_a:
-                        for atom_b in part_b:
-                            # Only add if not already added with explicit or geometric conflict
-                            if not self.graph.has_edge(atom_a, atom_b):
+                    # Mutually exclude Part A and Part B
+                    for u in part_a:
+                        for v in part_b:
+                            if not self.graph.has_edge(u, v):
                                 self.graph.add_edge(
-                                    atom_a, atom_b, conflict_type="valence_geometry"
+                                    u, v, conflict_type="valence_geometry"
                                 )
-                            else:
-                                # Update to valence_geometry if it's not already explicit or geometric
-                                current_type = self.graph[atom_a][atom_b][
-                                    "conflict_type"
-                                ]
-                                if current_type not in ["explicit", "geometric"]:
-                                    self.graph[atom_a][atom_b][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
 
-                    # Rule 2: Identify "Rogue Atoms" and enforce strict exclusions
-                    # These are atoms that didn't make the cut for the best geometries
-                    all_neighbors_set = set(atom_indices)
-                    valid_geometry_atoms = set(part_a + part_b)
-                    rogue_atoms = all_neighbors_set - valid_geometry_atoms
-
-                    # Add exclusion edges between Rogue Atoms and EVERYONE in A and B
-                    for rogue in rogue_atoms:
-                        for atom_a in part_a:
-                            # Add exclusion between rogue and atom in A
-                            if not self.graph.has_edge(rogue, atom_a):
+                    # Exclude Rogue atoms from both
+                    rogues = all_atoms_set - set(part_a) - set(part_b)
+                    for r in rogues:
+                        for target in list(part_a) + list(part_b):
+                            if not self.graph.has_edge(r, target):
                                 self.graph.add_edge(
-                                    rogue, atom_a, conflict_type="valence_geometry"
+                                    r, target, conflict_type="valence_geometry"
                                 )
-                            else:
-                                current_type = self.graph[rogue][atom_a][
-                                    "conflict_type"
-                                ]
-                                if current_type not in ["explicit", "geometric"]:
-                                    self.graph[rogue][atom_a][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
-
-                        for atom_b in part_b:
-                            # Add exclusion between rogue and atom in B
-                            if not self.graph.has_edge(rogue, atom_b):
-                                self.graph.add_edge(
-                                    rogue, atom_b, conflict_type="valence_geometry"
-                                )
-                            else:
-                                current_type = self.graph[rogue][atom_b][
-                                    "conflict_type"
-                                ]
-                                if current_type not in ["explicit", "geometric"]:
-                                    self.graph[rogue][atom_b][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
-
-                    # Return after finding the best disjoint pair
                     return
