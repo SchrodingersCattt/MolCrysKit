@@ -8,11 +8,16 @@ coexist in the same physical structure based on raw disorder data.
 import numpy as np
 import networkx as nx
 import re
-from typing import List, Set
+from typing import List
 from itertools import combinations
-from ase.geometry import get_distances
 from .info import DisorderInfo
-from ...constants.config import DISORDER_CONFIG, BONDING_THRESHOLDS, MAX_COORDINATION_NUMBERS, DEFAULT_MAX_COORDINATION, TRANSITION_METALS
+from ...constants.config import (
+    DISORDER_CONFIG,
+    BONDING_THRESHOLDS,
+    MAX_COORDINATION_NUMBERS,
+    DEFAULT_MAX_COORDINATION,
+    TRANSITION_METALS,
+)
 from ...utils.geometry import (
     angle_between_vectors,
     frac_to_cart,
@@ -39,7 +44,7 @@ class DisorderGraphBuilder:
                 frac_coord=info.frac_coords[i],
                 occupancy=info.occupancies[i],
                 disorder_group=info.disorder_groups[i],
-                assembly=info.assemblies[i] if i < len(info.assemblies) else ""
+                assembly=info.assemblies[i] if i < len(info.assemblies) else "",
             )
 
         self._precompute_metrics()
@@ -68,7 +73,7 @@ class DisorderGraphBuilder:
         self._add_geometric_conflicts()
         self._resolve_valence_conflicts()
         return self.graph
-    
+
     def _identify_conformers(self):
         """
         Identify discrete conformers (clusters) using connectivity, PART rules, AND Symmetry.
@@ -79,19 +84,28 @@ class DisorderGraphBuilder:
 
         bond_graph = nx.Graph()
         bond_graph.add_nodes_from(range(n_atoms))
-        
+
         for i in range(n_atoms):
             for j in range(i + 1, n_atoms):
                 group_i = self.info.disorder_groups[i]
                 group_j = self.info.disorder_groups[j]
-                
+
                 # Check bonding validity
-                if (group_i == group_j and group_i != 0) or (group_i == 0 or group_j == 0):
-                    
+                if (group_i == group_j and group_i != 0) or (
+                    group_i == 0 or group_j == 0
+                ):
                     # Anti-Frankenstein: Do not bond two disordered atoms if they come from different SymOps
                     if group_i != 0 and group_j != 0 and has_sym_info:
-                        idx_i = self.info.sym_op_indices[i] if i < len(self.info.sym_op_indices) else 0
-                        idx_j = self.info.sym_op_indices[j] if j < len(self.info.sym_op_indices) else 0
+                        idx_i = (
+                            self.info.sym_op_indices[i]
+                            if i < len(self.info.sym_op_indices)
+                            else 0
+                        )
+                        idx_j = (
+                            self.info.sym_op_indices[j]
+                            if j < len(self.info.sym_op_indices)
+                            else 0
+                        )
                         if idx_i != idx_j:
                             continue
 
@@ -102,10 +116,10 @@ class DisorderGraphBuilder:
                     if self._are_bonded(symbol_i, symbol_j, dist, group_i, group_j):
                         if not (group_i < 0 and group_j < 0 and group_i != group_j):
                             bond_graph.add_edge(i, j)
-        
+
         molecule_components = list(nx.connected_components(bond_graph))
         self.conformers = []
-        
+
         for component in molecule_components:
             atoms_by_key = {}
             for atom_idx in component:
@@ -114,12 +128,12 @@ class DisorderGraphBuilder:
                     sym_op = 0
                     if has_sym_info and atom_idx < len(self.info.sym_op_indices):
                         sym_op = self.info.sym_op_indices[atom_idx]
-                    
+
                     key = (part_id, sym_op)
                     if key not in atoms_by_key:
                         atoms_by_key[key] = set()
                     atoms_by_key[key].add(atom_idx)
-            
+
             for key, atom_set in atoms_by_key.items():
                 if atom_set:
                     self.conformers.append(atom_set)
@@ -129,22 +143,22 @@ class DisorderGraphBuilder:
         Calculate centroid handling PBC by unwrapping molecule around the first atom.
         """
         if not atom_indices:
-            return np.array([0., 0., 0.])
-            
+            return np.array([0.0, 0.0, 0.0])
+
         coords = self.info.frac_coords[list(atom_indices)]
         if len(coords) == 1:
             return coords[0]
-            
+
         # Unwrap coordinates relative to the first atom
         ref = coords[0]
         diffs = coords - ref
         # Minimum image for diffs
         diffs = diffs - np.round(diffs)
         unwrapped_coords = ref + diffs
-        
+
         # Calculate mean
         mean_coord = np.mean(unwrapped_coords, axis=0)
-        
+
         # Wrap back to unit cell
         return mean_coord - np.floor(mean_coord)
 
@@ -152,34 +166,35 @@ class DisorderGraphBuilder:
         """
         Add conflicts using Dual-Track Logic.
         """
-        SITE_RADIUS = 3.0  
-        GHOST_CLASH_THRESHOLD = 2.0 
+        SITE_RADIUS = 3.0
+        GHOST_CLASH_THRESHOLD = 2.0
 
         for i, conf_a in enumerate(self.conformers):
             for j, conf_b in enumerate(self.conformers):
-                if i >= j: continue
-                
+                if i >= j:
+                    continue
+
                 atoms_a = list(conf_a)
                 atoms_b = list(conf_b)
-                
+
                 part_a = self.info.disorder_groups[atoms_a[0]]
                 part_b = self.info.disorder_groups[atoms_b[0]]
-                
+
                 centroid_a = self._get_robust_centroid(atoms_a)
                 centroid_b = self._get_robust_centroid(atoms_b)
-                
+
                 diff_vec = centroid_a - centroid_b
                 diff_vec = diff_vec - np.round(diff_vec)
                 cart_dist_vec = np.dot(diff_vec, self.lattice)
                 centroid_dist = np.linalg.norm(cart_dist_vec)
-                
+
                 if part_a != part_b:
                     if centroid_dist < SITE_RADIUS:
                         self._add_conflict_edge(atoms_a, atoms_b, "logical_alternative")
-                        continue 
+                        continue
 
                 is_diff_sym = self._has_different_symmetry_provenance(atoms_a, atoms_b)
-                
+
                 if part_a == part_b and is_diff_sym:
                     if centroid_dist < SITE_RADIUS:
                         has_clash = False
@@ -188,8 +203,9 @@ class DisorderGraphBuilder:
                                 if self.dist_matrix[aa, bb] < GHOST_CLASH_THRESHOLD:
                                     has_clash = True
                                     break
-                            if has_clash: break
-                        
+                            if has_clash:
+                                break
+
                         if has_clash:
                             self._add_conflict_edge(atoms_a, atoms_b, "symmetry_clash")
 
@@ -199,12 +215,16 @@ class DisorderGraphBuilder:
                 if not self.graph.has_edge(u, v):
                     self.graph.add_edge(u, v, conflict_type=type_str)
 
-    def _has_different_symmetry_provenance(self, atoms_a: List[int], atoms_b: List[int]) -> bool:
+    def _has_different_symmetry_provenance(
+        self, atoms_a: List[int], atoms_b: List[int]
+    ) -> bool:
         if not hasattr(self.info, "sym_op_indices") or not self.info.sym_op_indices:
             return False
         for a in atoms_a:
             for b in atoms_b:
-                if a < len(self.info.sym_op_indices) and b < len(self.info.sym_op_indices):
+                if a < len(self.info.sym_op_indices) and b < len(
+                    self.info.sym_op_indices
+                ):
                     if self.info.sym_op_indices[a] != self.info.sym_op_indices[b]:
                         return True
         return False
@@ -212,21 +232,27 @@ class DisorderGraphBuilder:
     def _add_explicit_conflicts(self):
         n_atoms = len(self.info.labels)
         for i in range(n_atoms):
-            if self.info.disorder_groups[i] == 0: continue
+            if self.info.disorder_groups[i] == 0:
+                continue
             for j in range(i + 1, n_atoms):
-                if self.info.disorder_groups[j] == 0: continue
-                if self.info.disorder_groups[i] == self.info.disorder_groups[j]: continue
-                
+                if self.info.disorder_groups[j] == 0:
+                    continue
+                if self.info.disorder_groups[i] == self.info.disorder_groups[j]:
+                    continue
+
                 assembly_i = self.graph.nodes[i]["assembly"]
                 assembly_j = self.graph.nodes[j]["assembly"]
-                
+
                 has_conflict = False
                 if assembly_i and assembly_j and assembly_i == assembly_j:
                     has_conflict = True
                 elif not assembly_i and not assembly_j:
-                    if self.dist_matrix[i, j] < DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]:
+                    if (
+                        self.dist_matrix[i, j]
+                        < DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]
+                    ):
                         has_conflict = True
-                
+
                 if has_conflict and not self.graph.has_edge(i, j):
                     self.graph.add_edge(i, j, conflict_type="explicit")
 
@@ -237,25 +263,34 @@ class DisorderGraphBuilder:
                 dist = self.dist_matrix[i, j]
                 g_i = self.info.disorder_groups[i]
                 g_j = self.info.disorder_groups[j]
-                
-                threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"] if (g_i!=0 and g_j!=0 and g_i!=g_j) else DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
-                
+
+                threshold = (
+                    DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+                    if (g_i != 0 and g_j != 0 and g_i != g_j)
+                    else DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
+                )
+
                 symbol_i = self.info.symbols[i]
                 symbol_j = self.info.symbols[j]
-                
+
                 if dist < threshold:
                     if not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
                         if not self.graph.has_edge(i, j):
-                            self.graph.add_edge(i, j, conflict_type="geometric", distance=dist)
+                            self.graph.add_edge(
+                                i, j, conflict_type="geometric", distance=dist
+                            )
                         else:
-                            if self.graph[i][j]["conflict_type"] != "conformer_competition":
+                            if (
+                                self.graph[i][j]["conflict_type"]
+                                != "conformer_competition"
+                            ):
                                 self.graph[i][j]["conflict_type"] = "geometric"
                                 self.graph[i][j]["distance"] = dist
 
     def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
         if group1 != 0 and group2 != 0 and group1 != group2:
             return False
-        
+
         is_metal1 = s1 in TRANSITION_METALS
         is_metal2 = s2 in TRANSITION_METALS
         is_nonmetal1 = not is_metal1
@@ -263,36 +298,66 @@ class DisorderGraphBuilder:
         if (is_metal1 and is_nonmetal2) or (is_metal2 and is_nonmetal1):
             if dist > BONDING_THRESHOLDS["METAL_NONMETAL_COVALENT_MAX"]:
                 return False
-        
+
         if bool({"H", "D"}.intersection({s1, s2})):
             if bool({"C", "N", "O", "S", "P"}.intersection({s1, s2})):
-                return BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
+                return (
+                    BONDING_THRESHOLDS["H_CNO_THRESHOLD_MIN"]
+                    < dist
+                    < BONDING_THRESHOLDS["H_CNO_THRESHOLD_MAX"]
+                )
             elif bool({"H", "D"}.intersection({s1, s2})):
                 return BONDING_THRESHOLDS["HH_BOND_POSSIBLE"]
             else:
-                return BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
+                return (
+                    BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MIN"]
+                    < dist
+                    < BONDING_THRESHOLDS["H_OTHER_THRESHOLD_MAX"]
+                )
         elif bool({"C", "N", "O"}.intersection({s1, s2})):
-            return BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
-        elif bool({"C", "N", "O"}.intersection({s1}) and {"C", "N", "O"}.intersection({s2})):
-            return BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
+            return (
+                BONDING_THRESHOLDS["CNO_THRESHOLD_MIN"]
+                < dist
+                < BONDING_THRESHOLDS["CNO_THRESHOLD_MAX"]
+            )
+        elif bool(
+            {"C", "N", "O"}.intersection({s1}) and {"C", "N", "O"}.intersection({s2})
+        ):
+            return (
+                BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MIN"]
+                < dist
+                < BONDING_THRESHOLDS["CNO_PAIR_THRESHOLD_MAX"]
+            )
         else:
-            return BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"] < dist < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
+            return (
+                BONDING_THRESHOLDS["GENERAL_THRESHOLD_MIN"]
+                < dist
+                < BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"]
+            )
 
     def _resolve_valence_conflicts(self):
         n_atoms = len(self.info.labels)
         connectivity_graph = nx.Graph()
-        for i in range(n_atoms): connectivity_graph.add_node(i)
-        
+        for i in range(n_atoms):
+            connectivity_graph.add_node(i)
+
         # Simple connectivity for valence check
         for i in range(n_atoms):
-            for j in range(i+1, n_atoms):
-                if self.dist_matrix[i,j] < 2.0:
-                     if self._are_bonded(self.info.symbols[i], self.info.symbols[j], self.dist_matrix[i,j], self.info.disorder_groups[i], self.info.disorder_groups[j]):
-                         connectivity_graph.add_edge(i,j)
-        
+            for j in range(i + 1, n_atoms):
+                if self.dist_matrix[i, j] < 2.0:
+                    if self._are_bonded(
+                        self.info.symbols[i],
+                        self.info.symbols[j],
+                        self.dist_matrix[i, j],
+                        self.info.disorder_groups[i],
+                        self.info.disorder_groups[j],
+                    ):
+                        connectivity_graph.add_edge(i, j)
+
         for center_idx in range(n_atoms):
             neighbors = list(connectivity_graph.neighbors(center_idx))
-            if not neighbors: continue
+            if not neighbors:
+                continue
             sym = self.info.symbols[center_idx]
             max_c = MAX_COORDINATION_NUMBERS.get(sym, DEFAULT_MAX_COORDINATION)
             if len(neighbors) > max_c:
@@ -306,7 +371,7 @@ class DisorderGraphBuilder:
         for idx in atom_indices:
             atom_frac = self.info.frac_coords[idx]
             delta = atom_frac - center_frac
-            delta = delta - np.round(delta) 
+            delta = delta - np.round(delta)
             relative_positions.append(delta)
 
         cart_positions = [frac_to_cart(rel, self.lattice) for rel in relative_positions]
@@ -323,13 +388,14 @@ class DisorderGraphBuilder:
                     if i_idx < j_idx:
                         g_i = self.info.disorder_groups[i_idx]
                         g_j = self.info.disorder_groups[j_idx]
-                        if g_i != 0 and g_j != 0 and g_i == g_j: continue
+                        if g_i != 0 and g_j != 0 and g_i == g_j:
+                            continue
                         if not self.graph.has_edge(i_idx, j_idx):
                             self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
 
     def _find_tetrahedral_groups(self, atom_indices, cart_positions):
         n = len(atom_indices)
-        candidates = [] 
+        candidates = []
         for combo in combinations(range(n), 4):
             combo_pos = [cart_positions[i] for i in combo]
             angles = []
@@ -337,7 +403,8 @@ class DisorderGraphBuilder:
                 for j in range(i + 1, 4):
                     v1 = combo_pos[i]
                     v2 = combo_pos[j]
-                    if np.allclose(v1, 0) or np.allclose(v2, 0): continue
+                    if np.allclose(v1, 0) or np.allclose(v2, 0):
+                        continue
                     angles.append(np.degrees(angle_between_vectors(v1, v2)))
             if angles:
                 score = sum(abs(a - 109.5) for a in angles)
@@ -349,7 +416,7 @@ class DisorderGraphBuilder:
     def _find_trigonal_groups(self, atom_indices, cart_positions):
         """Find 2 sets of 3 atoms (NH3 geometry)"""
         n = len(atom_indices)
-        candidates = [] 
+        candidates = []
         for combo in combinations(range(n), 3):
             combo_pos = [cart_positions[i] for i in combo]
             angles = []
@@ -357,7 +424,8 @@ class DisorderGraphBuilder:
                 for j in range(i + 1, 3):
                     v1 = combo_pos[i]
                     v2 = combo_pos[j]
-                    if np.allclose(v1, 0) or np.allclose(v2, 0): continue
+                    if np.allclose(v1, 0) or np.allclose(v2, 0):
+                        continue
                     angles.append(np.degrees(angle_between_vectors(v1, v2)))
             if angles:
                 # Target angle 107-109 for NH3
@@ -379,12 +447,16 @@ class DisorderGraphBuilder:
                     for u in part_a:
                         for v in part_b:
                             if not self.graph.has_edge(u, v):
-                                self.graph.add_edge(u, v, conflict_type="valence_geometry")
-                    
+                                self.graph.add_edge(
+                                    u, v, conflict_type="valence_geometry"
+                                )
+
                     # Exclude Rogue atoms from both
                     rogues = all_atoms_set - set(part_a) - set(part_b)
                     for r in rogues:
                         for target in list(part_a) + list(part_b):
                             if not self.graph.has_edge(r, target):
-                                self.graph.add_edge(r, target, conflict_type="valence_geometry")
+                                self.graph.add_edge(
+                                    r, target, conflict_type="valence_geometry"
+                                )
                     return

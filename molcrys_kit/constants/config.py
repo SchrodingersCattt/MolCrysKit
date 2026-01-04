@@ -6,9 +6,36 @@ This module provides access to configuration parameters and constants used throu
 
 # Transition metals set
 TRANSITION_METALS = {
-    "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
-    "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd",
-    "La", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg"
+    "Sc",
+    "Ti",
+    "V",
+    "Cr",
+    "Mn",
+    "Fe",
+    "Co",
+    "Ni",
+    "Cu",
+    "Zn",
+    "Y",
+    "Zr",
+    "Nb",
+    "Mo",
+    "Tc",
+    "Ru",
+    "Rh",
+    "Pd",
+    "Ag",
+    "Cd",
+    "La",
+    "Hf",
+    "Ta",
+    "W",
+    "Re",
+    "Os",
+    "Ir",
+    "Pt",
+    "Au",
+    "Hg",
 }
 
 # Global threshold factors for bond detection
@@ -65,26 +92,20 @@ BONDING_THRESHOLDS = {
     # H/D with C, N, O, S, P
     "H_CNO_THRESHOLD_MIN": 0.6,
     "H_CNO_THRESHOLD_MAX": 1.4,
-    
     # H/D with other elements
     "H_OTHER_THRESHOLD_MIN": 0.8,
     "H_OTHER_THRESHOLD_MAX": 1.8,
-    
     # C, N, O with each other
     "CNO_THRESHOLD_MIN": 0.8,
     "CNO_THRESHOLD_MAX": 1.9,
-    
     # C-N, C-O, N-O
     "CNO_PAIR_THRESHOLD_MIN": 0.8,
     "CNO_PAIR_THRESHOLD_MAX": 2.0,
-    
     # General threshold for other element pairs
     "GENERAL_THRESHOLD_MIN": 0.5,
     "GENERAL_THRESHOLD_MAX": 2.2,
-    
     # H-H unlikely to bond
     "HH_BOND_POSSIBLE": False,
-    
     # Metal-Organic bonds threshold
     "METAL_NONMETAL_COVALENT_MAX": 2.05,  # Strict cutoff for Metal-Organic bonds
 }
