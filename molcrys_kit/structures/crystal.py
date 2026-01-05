@@ -52,6 +52,44 @@ class MolecularCrystal:
         self.molecules = [CrystalMolecule(mol, self) for mol in molecules]
         self.pbc = pbc
 
+    @classmethod
+    def from_ase(cls, atoms: Atoms, bond_thresholds=None) -> "MolecularCrystal":
+        """
+        Create a MolecularCrystal from an ASE Atoms object.
+
+        This method takes an ASE Atoms object and identifies molecular units
+        within it using graph-based approach, then creates a MolecularCrystal
+        object containing these molecules.
+
+        Parameters
+        ----------
+        atoms : Atoms
+            ASE Atoms object representing the molecular crystal.
+        bond_thresholds : dict, optional
+            Custom dictionary with atom pairs as keys and bonding thresholds as values.
+            Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
+            be the distance thresholds for bonding in Angstroms.
+
+        Returns
+        -------
+        MolecularCrystal
+            A MolecularCrystal object containing the identified molecular units.
+        """
+        # Import identify_molecules inside the method to avoid circular import
+        from ..io.cif import identify_molecules
+        
+        # Extract lattice (cell) from the ASE Atoms object
+        lattice = atoms.get_cell()
+
+        # Extract PBC (periodic boundary conditions) from the ASE Atoms object
+        pbc = tuple(atoms.get_pbc())
+
+        # Identify molecular units using graph-based approach
+        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
+
+        # Create and return a new MolecularCrystal instance
+        return cls(lattice, molecules, pbc)
+
     def get_default_atomic_radii(self):
         """
         Get the default atomic radii parameters.

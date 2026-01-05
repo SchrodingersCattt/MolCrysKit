@@ -1,273 +1,317 @@
 #!/usr/bin/env python
 """
-Visualize the construction of Disorder Exclusion Graphs using PHYSICAL COORDINATES.
-(Clean Version: Hides Periodic Boundary Crossing Edges)
+Visualize Disorder Exclusion Graphs with MOLECULAR UNWRAPPING.
 
-This script processes the example disordered CIF files and generates
-plots where nodes are placed at their actual projected (XY) coordinates.
-It automatically filters out edges that wrap around periodic boundaries
-to avoid visual clutter ("long lines crossing the cell").
+Features:
+1. Infer Chemical Bonds using PBC (Minimum Image Convention).
+2. Unwrap/Recenter molecules: Shifts atom coordinates so molecules appear contiguous
+   rather than fragmented by the unit cell box.
+3. Draws thick chemical bonds (skeleton) + thin colored conflict lines.
 """
 
-import glob
+import sys
 import os
+import glob
+import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-import numpy as np
 from pathlib import Path
-from molcrys_kit.io.cif import scan_cif_disorder
-from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
 
-# Define color scheme for different conflict types
-COLOR_MAP = {
-    "conformer_competition": "#e74c3c",  # Red
-    "explicit": "#2ecc71",  # Green
-    "geometric": "#3498db",  # Blue
-    "valence": "#f39c12",  # Orange
-    "valence_geometry": "#9b59b6",  # Purple
+# Add project root to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+try:
+    from molcrys_kit.io.cif import scan_cif_disorder
+    from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
+except ImportError:
+    pass
+
+# --- CONSTANTS ---
+# Covalent Radii (Angstroms)
+COVALENT_RADII = {
+    "H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57, 
+    "Cl": 1.02, "Br": 1.20, "I": 1.39, "S": 1.05, "P": 1.07,
+    "Si": 1.11, "B": 0.84, "Fe": 1.32, "Cu": 1.32, "Zn": 1.22
 }
 
+COLOR_MAP = {
+    "logical_alternative": "#e74c3c",   # Red
+    "symmetry_clash": "#8e44ad",       # Purple
+    "conformer_competition": "#e74c3c", # Red
+    "explicit": "#2ecc71",             # Green
+    "geometric": "#3498db",            # Blue
+    "valence": "#f39c12",              # Orange
+    "valence_geometry": "#9b59b6",     # Dark Purple
+}
 
-def get_physical_positions(graph, lattice_matrix):
+BOND_COLOR = "#34495e"
+BOND_TOLERANCE = 1.3  # Liberal tolerance to catch bonds
+
+def get_element_radius(label):
+    import re
+    match = re.match(r"([A-Z][a-z]?)", label)
+    if match:
+        el = match.group(1)
+        return COVALENT_RADII.get(el, 1.1)
+    return 1.1
+
+def get_projection_matrix(lattice_matrix):
+    """Rotation matrix to align Lattice Vector A to X-axis and B to XY plane."""
+    a_vec = lattice_matrix[0]
+    b_vec = lattice_matrix[1]
+    a_norm = a_vec / np.linalg.norm(a_vec)
+    b_proj = b_vec - np.dot(b_vec, a_norm) * a_norm
+    if np.linalg.norm(b_proj) < 1e-6:
+        b_perp = np.array([0, 1, 0])
+    else:
+        b_perp = b_proj / np.linalg.norm(b_proj)
+    new_z = np.cross(a_norm, b_perp)
+    new_z = new_z / np.linalg.norm(new_z)
+    return np.array([a_norm, b_perp, new_z])
+
+def mic_displacement(frac_u, frac_v):
+    """Calculate Minimum Image displacement vector in fractional coordinates."""
+    diff = frac_u - frac_v
+    # Round to nearest integer to find the closest image
+    image_shift = np.round(diff)
+    return diff - image_shift, image_shift
+
+def infer_bonds_pbc(graph, lattice_matrix):
     """
-    Extract physical coordinates from graph nodes and project to 2D.
-    Returns a dictionary {node_idx: (x, y)} for nx.draw.
+    Detect chemical bonds considering Periodic Boundary Conditions.
+    Returns: List of (u, v, shift_vector)
     """
-    pos = {}
-    for n in graph.nodes():
-        # Get fractional coords stored in node
-        frac = graph.nodes[n].get("frac_coord")
-        if frac is None:
-            pos[n] = (0, 0)
+    bonds = []
+    nodes = list(graph.nodes(data=True))
+    
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            u, data_u = nodes[i]
+            v, data_v = nodes[j]
+            
+            if "frac_coord" not in data_u or "frac_coord" not in data_v:
+                continue
+
+            # Disorder Group Check (Basic Filter)
+            g_u = data_u.get("disorder_group", 0)
+            g_v = data_v.get("disorder_group", 0)
+            # Valid bond if same group, or one connects to backbone (0)
+            if g_u != 0 and g_v != 0 and g_u != g_v:
+                continue
+
+            # PBC Distance Calculation
+            frac_diff, _ = mic_displacement(data_u["frac_coord"], data_v["frac_coord"])
+            cart_dist = np.linalg.norm(np.dot(frac_diff, lattice_matrix))
+            
+            r_u = get_element_radius(data_u.get("label", ""))
+            r_v = get_element_radius(data_v.get("label", ""))
+            
+            if cart_dist < (r_u + r_v) * BOND_TOLERANCE:
+                bonds.append((u, v))
+    return bonds
+
+def unwrap_molecular_coordinates(graph, lattice_matrix):
+    """
+    Traverses the chemical bond network to 'unwrap' coordinates.
+    This reconstructs the molecule visually so it is contiguous, 
+    fixing atoms that are split across the PBC box edges.
+    """
+    # 1. Infer bonds to establish connectivity
+    bonds = infer_bonds_pbc(graph, lattice_matrix)
+    
+    # 2. Build a temporary graph for traversal
+    bond_graph = nx.Graph()
+    bond_graph.add_nodes_from(graph.nodes(data=True))
+    bond_graph.add_edges_from(bonds)
+    
+    # 3. Traversal and Unwrapping
+    unwrapped_frac_coords = {}
+    visited = set()
+    
+    components = list(nx.connected_components(bond_graph))
+    
+    for comp in components:
+        # Pick a root node for this molecule/fragment
+        root = list(comp)[0]
+        if "frac_coord" not in graph.nodes[root]:
             continue
-
-        # Convert to Cartesian: Cartesian = Frac * Lattice
-        cart = np.dot(frac, lattice_matrix)
-
-        # Project to 2D (XY plane)
-        pos[n] = (cart[0], cart[1])
-    return pos
-
-
-def is_pbc_artifact(u_idx, v_idx, graph, lattice_matrix, tolerance=2.0):
-    """
-    Check if an edge is a Periodic Boundary Condition (PBC) artifact.
-
-    A PBC artifact occurs when two atoms are close in 3D (across the boundary)
-    but far apart in the non-periodic 2D projection, causing a long line
-    to be drawn across the unit cell.
-
-    Returns:
-        True if the edge is an artifact and should be hidden.
-    """
-    node_u = graph.nodes[u_idx]
-    node_v = graph.nodes[v_idx]
-
-    if "frac_coord" not in node_u or "frac_coord" not in node_v:
-        return False
-
-    frac_u = node_u["frac_coord"]
-    frac_v = node_v["frac_coord"]
-
-    # 1. Calculate Visual Distance (Non-Periodic Cartesian)
-    # This matches exactly how matplotlib draws the line
-    delta_frac_visual = frac_u - frac_v
-    cart_visual = np.dot(delta_frac_visual, lattice_matrix)
-    dist_visual = np.linalg.norm(cart_visual)
-
-    # 2. Calculate Physical Distance (Minimum Image Convention)
-    # This is the real chemical distance
-    delta_frac_mic = delta_frac_visual - np.round(delta_frac_visual)
-    cart_mic = np.dot(delta_frac_mic, lattice_matrix)
-    dist_mic = np.linalg.norm(cart_mic)
-
-    # 3. If Visual Distance is significantly larger than Physical Distance,
-    # it means the edge wraps around the boundary.
-    if dist_visual > dist_mic + tolerance:
-        return True
-
-    return False
-
-
-def plot_graph(graph, lattice_matrix, title, filename):
-    """
-    Helper function to plot and save the current state of the graph
-    using PHYSICAL POSITIONS and filtering PBC artifacts.
-    """
-    plt.figure(figsize=(10, 10))
-
-    # Use physical positions
-    pos = get_physical_positions(graph, lattice_matrix)
-
-    # Draw nodes
-    node_colors = []
-    labels = {}
+            
+        unwrapped_frac_coords[root] = graph.nodes[root]["frac_coord"].copy()
+        
+        # BFS traversal
+        queue = [root]
+        visited.add(root)
+        
+        while queue:
+            parent = queue.pop(0)
+            parent_frac = unwrapped_frac_coords[parent]
+            
+            for neighbor in bond_graph.neighbors(parent):
+                if neighbor not in visited:
+                    if "frac_coord" not in graph.nodes[neighbor]:
+                        continue
+                        
+                    # Get raw coords
+                    neigh_raw_frac = graph.nodes[neighbor]["frac_coord"]
+                    
+                    # Find shift required to make neighbor close to parent
+                    # diff_mic is the vector pointing from Parent -> Neighbor (shortest path)
+                    diff_mic, image_shift = mic_displacement(neigh_raw_frac, parent_frac)
+                    
+                    # The unwrapped position is simply Parent + Shortest_Vector
+                    # Note: mic_displacement(u, v) = u - v - shift
+                    # So u_mic = v + (u - v - shift) -> No, simpler:
+                    # We want: Neigh_New ~= Parent_Ref
+                    # Neigh_New = Neigh_Raw - round(Neigh_Raw - Parent_Ref)
+                    
+                    shift = np.round(neigh_raw_frac - parent_frac)
+                    unwrapped_frac = neigh_raw_frac - shift
+                    
+                    unwrapped_frac_coords[neighbor] = unwrapped_frac
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+                    
+    # 4. Project to 2D Cartesian
+    rot_matrix = get_projection_matrix(lattice_matrix)
+    pos = {}
+    
+    # Calculate center of mass to center the plot
+    if unwrapped_frac_coords:
+        all_coords = np.array(list(unwrapped_frac_coords.values()))
+        center_frac = np.mean(all_coords, axis=0)
+    else:
+        center_frac = np.array([0.5, 0.5, 0.5])
 
     for n in graph.nodes():
-        group = graph.nodes[n].get("disorder_group", 0)
-        # Label with Element + Index (e.g., C12)
-        node_label = graph.nodes[n].get("label", str(n))
-        labels[n] = node_label
-
-        if group == 0:
-            node_colors.append("#bdc3c7")  # Gray for backbone
-        elif group == 1:
-            node_colors.append("#ffffff")  # White for Part 1
-        elif group == 2:
-            node_colors.append("#7f8c8d")  # Dark Gray for Part 2
+        if n in unwrapped_frac_coords:
+            # Shift relative to center to keep numbers reasonable
+            frac = unwrapped_frac_coords[n] - center_frac
+            cart = np.dot(frac, lattice_matrix)
+            aligned = np.dot(rot_matrix, cart)
+            pos[n] = (aligned[0], aligned[1])
         else:
-            node_colors.append("#95a5a6")
+            # Fallback
+            pos[n] = (np.random.rand(), np.random.rand())
+            
+    return pos, bonds
 
-    # Draw nodes with black borders
-    nx.draw_networkx_nodes(
-        graph, pos, node_color=node_colors, edgecolors="black", node_size=300
+def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
+    plt.figure(figsize=(14, 12))
+    
+    # --- Step 1: Unwrap Coordinates ---
+    # This is the critical fix for "connections across box"
+    pos, valid_bonds = unwrap_molecular_coordinates(graph, lattice_matrix)
+    
+    # --- Step 2: Draw Chemical Bonds (Skeleton) ---
+    nx.draw_networkx_edges(
+        graph, pos,
+        edgelist=valid_bonds,
+        edge_color=BOND_COLOR,
+        width=3.0,      # Thick lines
+        alpha=0.5,      # Semi-transparent
+        label="chemical_bond"
     )
 
-    # Draw simple labels inside nodes
-    nx.draw_networkx_labels(graph, pos, labels=labels, font_size=6)
+    # --- Step 3: Draw Nodes ---
+    node_colors = []
+    labels = {}
+    node_sizes = []
+    
+    # Dynamic sizing
+    base_size = 300 if len(graph.nodes) < 50 else 150
+    
+    for n in graph.nodes():
+        group = graph.nodes[n].get("disorder_group", 0)
+        # Clean labels (e.g. C1_part1 -> C1)
+        lbl = str(graph.nodes[n].get("label", str(n)))
+        labels[n] = lbl.split('_')[0] 
+        node_sizes.append(base_size)
 
-    # Draw edges by type, filtering out PBC artifacts
+        if group == 0:
+            node_colors.append("#ecf0f1") # Light Gray
+        elif group == 1:
+            node_colors.append("#ffffff") # White
+        else:
+            node_colors.append("#bdc3c7") # Gray
+
+    nx.draw_networkx_nodes(
+        graph, pos,
+        node_color=node_colors,
+        edgecolors=BOND_COLOR,
+        linewidths=1.5,
+        node_size=node_sizes
+    )
+    
+    # Optional: Draw text if not too crowded
+    if len(graph.nodes) < 100:
+        nx.draw_networkx_labels(graph, pos, labels, font_size=8, font_weight='bold')
+
+    # --- Step 4: Draw Conflicts (Logic) ---
     edges = graph.edges(data=True)
-    if edges:
-        for edge_type, color in COLOR_MAP.items():
-            # Filter edges of this type AND filter out PBC artifacts
-            specific_edges = []
-            for u, v, d in edges:
-                if d.get("conflict_type") == edge_type:
-                    # Check for visual artifact
-                    if not is_pbc_artifact(u, v, graph, lattice_matrix):
-                        specific_edges.append((u, v))
+    
+    for edge_type, color in COLOR_MAP.items():
+        specific_edges = []
+        for u, v, d in edges:
+            if d.get("conflict_type") == edge_type:
+                # Since we unwrapped, checking for artifacts is less critical,
+                # but we should ensure we don't draw lines between conformers that are far apart visually
+                # (though unwrapping usually fixes this for bonded parts).
+                specific_edges.append((u, v))
+        
+        if specific_edges:
+            nx.draw_networkx_edges(
+                graph, pos,
+                edgelist=specific_edges,
+                edge_color=color,
+                width=1.5,
+                alpha=0.8,
+                style="dashed" if edge_type == "logical_alternative" else "solid"
+            )
 
-            if specific_edges:
-                nx.draw_networkx_edges(
-                    graph,
-                    pos,
-                    edgelist=specific_edges,
-                    edge_color=color,
-                    width=2.0,
-                    label=edge_type,
-                    alpha=0.7,
-                )
+    # Legend construction
+    from matplotlib.lines import Line2D
+    legend_elements = [Line2D([0], [0], color=BOND_COLOR, lw=3, label='Bond')]
+    for et, col in COLOR_MAP.items():
+        # Only add to legend if present in graph
+        if any(d.get("conflict_type") == et for _, _, d in edges):
+            legend_elements.append(Line2D([0], [0], color=col, lw=1.5, label=et))
 
-    plt.title(title)
-
-    # Turn on axis for geometric context (Angstroms)
-    plt.axis("on")
-    plt.xlabel("X (Å)")
-    plt.ylabel("Y (Å)")
-    plt.grid(True, linestyle="--", alpha=0.3)
-
-    # Ensure aspect ratio is equal
-    plt.gca().set_aspect("equal", adjustable="box")
-
-    # Add legend
-    plt.legend(loc="upper right", title="Conflict Types")
-
+    plt.title(title, fontsize=16)
+    plt.axis('equal')
+    plt.axis('off') # Hide axes as coordinates are relative/unwrapped
+    plt.legend(handles=legend_elements, loc="upper right", frameon=True)
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
 
 
-def visualize_disorder_graph_pipeline():
-    """Run the visualization pipeline on all example files."""
-
-    input_files = []
-    # Define input files
-    input_files += [
-        "examples/EAP-8.cif",
-        "examples/1-HTP.cif",
-        "examples/PAP-M5.cif",
-        "examples/PAP-H4.cif",
-        "examples/DAP-4.cif",
-    ]
-    input_files += glob.glob("examples/TIL*.cif")
-    input_files += glob.glob("examples/1_*.cif")
-
-    # Create output directory
-    output_base = Path("output/graph_visualization_clean")
-    output_base.mkdir(parents=True, exist_ok=True)
-
+def main():
+    input_files = glob.glob("examples/*.cif")
+    
+    output_dir = Path("output/graph_viz_unwrapped")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
     for cif_file in input_files:
-        if not os.path.exists(cif_file):
-            continue
+        if not os.path.exists(cif_file): continue
+        print(f"Processing {cif_file}...")
+        
+        from pymatgen.io.cif import CifParser
+        parser = CifParser(cif_file)
+        structure = parser.parse_structures()[0]
+        lattice = structure.lattice.matrix
+        info = scan_cif_disorder(cif_file)
+        
+        builder = DisorderGraphBuilder(info, lattice)
+        # ... (Run your builder pipeline steps here: identify_conformers, conflicts, etc.)
+        builder._identify_conformers()
+        builder._add_explicit_conflicts()
+        builder._resolve_valence_conflicts()
 
-        print(f"Visualizing graph construction for {cif_file}...")
-        base_name = Path(cif_file).stem
-        file_out_dir = output_base / base_name
-        file_out_dir.mkdir(exist_ok=True)
-
-        try:
-            # --- Phase 1: Data Extraction ---
-            info = scan_cif_disorder(cif_file)
-
-            # Extract lattice
-            from pymatgen.io.cif import CifParser
-
-            parser = CifParser(cif_file)
-            structure = parser.parse_structures()[0]
-            lattice_matrix = structure.lattice.matrix
-
-            # --- Phase 2: Graph Building ---
-            builder = DisorderGraphBuilder(info, lattice_matrix)
-
-            # SNAPSHOT 0: Initial Nodes
-            plot_graph(
-                builder.graph,
-                lattice_matrix,
-                f"{base_name} - Step 0: Initial Atoms (XY Plane)",
-                file_out_dir / "step_0_nodes.png",
-            )
-
-            # Step 1: Conformer Conflicts
-            builder._identify_conformers()
-            builder._add_conformer_conflicts()
-            plot_graph(
-                builder.graph,
-                lattice_matrix,
-                f"{base_name} - Step 1: Conformer Competition",
-                file_out_dir / "step_1_conformer_conflicts.png",
-            )
-
-            # Step 2: Explicit Conflicts
-            builder._add_explicit_conflicts()
-            plot_graph(
-                builder.graph,
-                lattice_matrix,
-                f"{base_name} - Step 2: Explicit PART Conflicts",
-                file_out_dir / "step_2_explicit_conflicts.png",
-            )
-
-            # Step 3: Geometric Conflicts
-            builder._add_geometric_conflicts()
-            plot_graph(
-                builder.graph,
-                lattice_matrix,
-                f"{base_name} - Step 3: Geometric Clashes",
-                file_out_dir / "step_3_geometric_conflicts.png",
-            )
-
-            # Step 4: Valence Conflicts (Final)
-            builder._resolve_valence_conflicts()
-            plot_graph(
-                builder.graph,
-                lattice_matrix,
-                f"{base_name} - Step 4: Valence/Overcrowding (Final)",
-                file_out_dir / "step_4_final.png",
-            )
-
-            print(f"  - Saved clean visualizations to {file_out_dir}")
-
-        except ImportError:
-            print("  - Error: pymatgen is required for lattice extraction.")
-            break
-        except Exception as e:
-            print(f"  - Error processing {cif_file}: {e}")
-            import traceback
-
-            traceback.print_exc()
-
-    print("\nVisualization complete!")
-
+        plot_unwrapped_graph(
+            builder.graph, lattice, 
+            f"{Path(cif_file).stem} - Unwrapped Molecular View", 
+            output_dir / f"{Path(cif_file).stem}_unwrapped.png"
+        )
 
 if __name__ == "__main__":
-    visualize_disorder_graph_pipeline()
+    main()
