@@ -52,6 +52,10 @@ class MolecularCrystal:
         self.molecules = [CrystalMolecule(mol, self) for mol in molecules]
         self.pbc = pbc
 
+    def __repr__(self):
+        """String representation of the molecular crystal."""
+        return f"MolecularCrystal(lattice={self.lattice.tolist()}, molecules_count={len(self.molecules)}, pbc={self.pbc})"
+
     @classmethod
     def from_ase(cls, atoms: Atoms, bond_thresholds=None) -> "MolecularCrystal":
         """

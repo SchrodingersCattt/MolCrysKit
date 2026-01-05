@@ -57,6 +57,10 @@ class CrystalMolecule(Atoms):
         self._graph = None
         self._adjust_positions_for_pbc()
 
+    def __repr__(self):
+        """String representation of the crystal molecule."""
+        return f"CrystalMolecule(chemical_formula='{self.get_chemical_formula()}', atoms_count={len(self)})"
+
     def _adjust_positions_for_pbc(self):
         """
         Adjust atomic positions to be contiguous for molecules that span periodic boundaries.

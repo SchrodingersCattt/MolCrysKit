@@ -32,6 +32,10 @@ class MolAtom:
         """Ensure frac_coords is a numpy array."""
         self.frac_coords = np.array(self.frac_coords)
 
+    def __repr__(self):
+        """String representation of the atom."""
+        return f"MolAtom(symbol='{self.symbol}', frac_coords={self.frac_coords.tolist()}, occupancy={self.occupancy})"
+
     def to_cartesian(self, lattice: np.ndarray) -> np.ndarray:
         """
         Convert fractional coordinates to cartesian coordinates.
