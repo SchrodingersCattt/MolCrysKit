@@ -5,7 +5,7 @@ This module provides functionality for generating vacancies (defects) by removin
 specific molecular clusters based on spatial relationships.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 from ..structures.crystal import MolecularCrystal
 from ..analysis.stoichiometry import StoichiometryAnalyzer
 from ..utils.geometry import minimum_image_distance
@@ -185,7 +185,8 @@ class VacancyGenerator:
         target_spec: Optional[Dict[str, int]] = None,
         seed_index: Optional[int] = None,
         method: str = "spatial_cluster",
-    ) -> MolecularCrystal:
+        return_removed_cluster: bool = False,
+    ) -> Union[MolecularCrystal, Tuple[MolecularCrystal, MolecularCrystal]]:
         """
         Generate a vacancy by removing a cluster of molecules.
 
@@ -197,11 +198,16 @@ class VacancyGenerator:
             Index of the molecule to start removing from. If None, picks randomly from rarest species.
         method : str, default='spatial_cluster'
             Method to use for selecting molecules to remove. Currently only supports 'spatial_cluster'.
+        return_removed_cluster : bool, default=False
+            If True, also returns the cluster of removed molecules as a separate crystal.
 
         Returns
         -------
-        MolecularCrystal
-            A new crystal with the specified molecules removed.
+        MolecularCrystal or Tuple[MolecularCrystal, MolecularCrystal]
+            If return_removed_cluster is False, returns a new crystal with the specified molecules removed.
+            If return_removed_cluster is True, returns a tuple containing:
+            - The new crystal with the specified molecules removed
+            - A crystal containing only the removed molecules
         """
         if method != "spatial_cluster":
             raise ValueError(f"Method {method} not supported. Use 'spatial_cluster'.")
@@ -222,4 +228,61 @@ class VacancyGenerator:
             pbc=self.crystal.pbc,
         )
 
+        if return_removed_cluster:
+            # Create list of removed molecules
+            removed_molecules = [
+                mol.copy()
+                for idx, mol in enumerate(self.crystal.molecules)
+                if idx in removal_indices
+            ]
+            
+            # Create new crystal with removed molecules
+            removed_cluster = MolecularCrystal(
+                lattice=self.crystal.lattice.copy(),
+                molecules=removed_molecules,
+                pbc=self.crystal.pbc,
+            )
+            
+            return new_crystal, removed_cluster
+
         return new_crystal
+
+
+def generate_vacancy(
+    crystal: MolecularCrystal,
+    target_spec: Optional[Dict[str, int]] = None,
+    seed_index: Optional[int] = None,
+    method: str = "spatial_cluster",
+    return_removed_cluster: bool = False,
+) -> Union[MolecularCrystal, Tuple[MolecularCrystal, MolecularCrystal]]:
+    """
+    Public API wrapper to generate a vacancy by removing a cluster of molecules.
+
+    Parameters
+    ----------
+    crystal : MolecularCrystal
+        The molecular crystal to generate vacancies in.
+    target_spec : Dict[str, int], optional
+        Dictionary mapping species IDs to counts to remove. If None, uses simplest unit.
+    seed_index : int, optional
+        Index of the molecule to start removing from. If None, picks randomly from rarest species.
+    method : str, default='spatial_cluster'
+        Method to use for selecting molecules to remove. Currently only supports 'spatial_cluster'.
+    return_removed_cluster : bool, default=False
+        If True, also returns the cluster of removed molecules as a separate crystal.
+
+    Returns
+    -------
+    MolecularCrystal or Tuple[MolecularCrystal, MolecularCrystal]
+        If return_removed_cluster is False, returns a new crystal with the specified molecules removed.
+        If return_removed_cluster is True, returns a tuple containing:
+        - The new crystal with the specified molecules removed
+        - A crystal containing only the removed molecules
+    """
+    generator = VacancyGenerator(crystal)
+    return generator.generate_vacancy(
+        target_spec=target_spec,
+        seed_index=seed_index,
+        method=method,
+        return_removed_cluster=return_removed_cluster,
+    )

@@ -130,3 +130,60 @@ def test_invalid_seed_index(simple_crystal):
         vacancy_gen.generate_vacancy(
             target_spec=target_spec, seed_index=invalid_seed_index
         )
+
+
+def test_return_removed_cluster(simple_crystal):
+    """Test the return_removed_cluster functionality."""
+    vacancy_gen = VacancyGenerator(simple_crystal)
+
+    # Target to remove 1 CO and 2 N2 molecules
+    target_spec = {"CO_1": 1, "N2_1": 2}
+
+    new_crystal, removed_cluster = vacancy_gen.generate_vacancy(
+        target_spec=target_spec, return_removed_cluster=True
+    )
+
+    # Check that both returned objects are MolecularCrystal instances
+    assert isinstance(new_crystal, MolecularCrystal)
+    assert isinstance(removed_cluster, MolecularCrystal)
+
+    # Check that the number of molecules matches expectations
+    assert len(new_crystal.molecules) == 3  # 6 original - 3 removed
+    assert len(removed_cluster.molecules) == 3  # 1 CO + 2 N2 = 3 removed
+
+    # Complementarity check: total should equal original
+    assert len(new_crystal.molecules) + len(removed_cluster.molecules) == len(simple_crystal.molecules)
+
+    # Check that removed cluster has the correct species
+    removed_species = [mol.get_chemical_formula() for mol in removed_cluster.molecules]
+    assert removed_species.count("CO") == 1  # 1 CO molecule removed
+    assert removed_species.count("N2") == 2  # 2 N2 molecules removed
+
+    # Check that the lattices and PBC settings are preserved in the removed cluster
+    np.testing.assert_array_equal(removed_cluster.lattice, simple_crystal.lattice)
+    assert removed_cluster.pbc == simple_crystal.pbc
+
+
+def test_return_removed_cluster_compatibility_check(simple_crystal):
+    """Test that the total number of atoms in original crystal equals the sum of new and removed crystals."""
+    vacancy_gen = VacancyGenerator(simple_crystal)
+
+    # Target to remove 1 CO and 1 N2 molecule
+    target_spec = {"CO_1": 1, "N2_1": 1}
+
+    new_crystal, removed_cluster = vacancy_gen.generate_vacancy(
+        target_spec=target_spec, return_removed_cluster=True
+    )
+
+    original_atoms = sum(len(mol) for mol in simple_crystal.molecules)
+    new_crystal_atoms = sum(len(mol) for mol in new_crystal.molecules)
+    removed_cluster_atoms = sum(len(mol) for mol in removed_cluster.molecules)
+
+    # Total atoms should be preserved between original and the split
+    assert original_atoms == new_crystal_atoms + removed_cluster_atoms
+
+    # Removed cluster should have 1 CO (2 atoms) + 1 N2 (2 atoms) = 4 atoms
+    assert removed_cluster_atoms == 4
+
+    # New crystal should have original - 4 atoms
+    assert new_crystal_atoms == original_atoms - 4
