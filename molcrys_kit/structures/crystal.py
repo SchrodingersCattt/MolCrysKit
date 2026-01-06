@@ -216,6 +216,30 @@ class MolecularCrystal:
 
         return (a, b, c, alpha_deg, beta_deg, gamma_deg)
 
+    def get_total_nodes(self) -> int:
+        """
+        Get the total number of atoms (nodes) across all molecules in the crystal.
+
+        Returns
+        -------
+        int
+            Total atom count.
+        """
+        return sum(len(mol) for mol in self.molecules)
+
+    def get_total_edges(self) -> int:
+        """
+        Get the total number of bonds (edges) across all molecules in the crystal.
+        Triggers graph construction for each molecule if not already built.
+
+        Returns
+        -------
+        int
+            Total edge count.
+        """
+        # Accessing .graph triggers _build_graph() if self._graph is None
+        return sum(mol.graph.number_of_edges() for mol in self.molecules)
+
     def summary(self) -> str:
         """
         Generate a summary of the crystal.

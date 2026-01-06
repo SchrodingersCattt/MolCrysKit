@@ -9,6 +9,7 @@ from typing import Tuple
 import networkx as nx
 
 from ase import Atoms
+from ase.neighborlist import neighbor_list
 
 from ..constants import (
     get_atomic_radius,
@@ -105,6 +106,24 @@ class CrystalMolecule(Atoms):
         # Set the adjusted positions
         self.set_positions(positions)
 
+    def get_graph(self, neighbor_cutoff: float = 3.0) -> nx.Graph:
+        """
+        Get the graph representation of the molecule's internal connectivity.
+
+        Parameters
+        ----------
+        neighbor_cutoff : float, default 3.0
+            The radial cutoff for initial neighbor searching in Angstroms.
+
+        Returns
+        -------
+        networkx.Graph
+            Graph with atoms as nodes and bonds as edges.
+        """
+        if self._graph is None:
+            self._build_graph(neighbor_cutoff=neighbor_cutoff)
+        return self._graph
+
     @property
     def graph(self) -> nx.Graph:
         """
@@ -119,51 +138,71 @@ class CrystalMolecule(Atoms):
             self._build_graph()
         return self._graph
 
-    def _build_graph(self):
+    def build_graph(self, neighbor_cutoff: float = 3.0) -> nx.Graph:
+        """
+        Build and return the graph representation of the molecule with custom cutoff.
+        
+        Parameters
+        ----------
+        neighbor_cutoff : float, default 3.0
+            The radial cutoff for initial neighbor searching in Angstroms.
+            
+        Returns
+        -------
+        networkx.Graph
+            Graph with atoms as nodes and bonds as edges.
+        """
+        self._build_graph(neighbor_cutoff)
+        return self._graph
+
+    def _build_graph(self, neighbor_cutoff: float = 3.0):
         """
         Build the graph representation of the molecule's internal connectivity.
-        """
+        Optimized using ASE neighbor lists for O(N) scaling.
 
+        Parameters
+        ----------
+        neighbor_cutoff : float, default 3.0
+            The radial cutoff for initial neighbor searching in Angstroms.
+        """
         self._graph = nx.Graph()
 
         # Add nodes (atoms)
-        for i in range(len(self)):
-            self._graph.add_node(i, symbol=self.get_chemical_symbols()[i])
+        symbols = self.get_chemical_symbols()
+        for i, symbol in enumerate(symbols):
+            self._graph.add_node(i, symbol=symbol)
 
-        # Add edges (bonds) based on distance criteria
         if len(self) > 1:
-            # Get all atom positions
-            positions = self.get_positions()
-            symbols = self.get_chemical_symbols()
+            # Create a temporary ASE Atoms object for neighbor searching
+            # pbc=False as this is internal molecular connectivity
+            temp_atoms = Atoms(
+                symbols=symbols,
+                positions=self.get_positions(),
+                pbc=False
+            )
+            
+            # Efficient neighbor search using Cell Lists
+            i_list, j_list, d_list = neighbor_list("ijd", temp_atoms, cutoff=neighbor_cutoff)
 
-            for i in range(len(self)):
-                radius_i = (
-                    get_atomic_radius(symbols[i])
-                    if has_atomic_radius(symbols[i])
-                    else 0.5
+            # Pre-fetch bonding properties to avoid repeated lookups
+            from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
+            from ..analysis.interactions import get_bonding_threshold
+
+            radii = [get_atomic_radius(s) if has_atomic_radius(s) else 0.5 for s in symbols]
+            is_metal_flags = [is_metal_element(s) for s in symbols]
+
+            # Process neighbor pairs
+            for i, j, distance in zip(i_list, j_list, d_list):
+                if i >= j:
+                    continue
+                
+                # Apply strict chemical bonding thresholds (DRY Principle)
+                threshold = get_bonding_threshold(
+                    radii[i], radii[j], is_metal_flags[i], is_metal_flags[j]
                 )
-                is_metal_i = is_metal_element(symbols[i])
-                for j in range(i + 1, len(self)):
-                    radius_j = (
-                        get_atomic_radius(symbols[j])
-                        if has_atomic_radius(symbols[j])
-                        else 0.5
-                    )
-                    is_metal_j = is_metal_element(symbols[j])
 
-                    # Calculate distance
-                    distance = np.linalg.norm(positions[i] - positions[j])
-
-                    # Use the shared utility function for bonding threshold
-                    # Import locally to avoid circular import issues
-                    from ..analysis.interactions import get_bonding_threshold
-
-                    threshold = get_bonding_threshold(
-                        radius_i, radius_j, is_metal_i, is_metal_j
-                    )
-
-                    if distance < threshold:
-                        self._graph.add_edge(i, j, distance=distance)
+                if distance < threshold:
+                    self._graph.add_edge(i, j, distance=distance)
 
     def get_centroid(self) -> np.ndarray:
         """
