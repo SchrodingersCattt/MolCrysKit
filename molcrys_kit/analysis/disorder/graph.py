@@ -280,10 +280,9 @@ class DisorderGraphBuilder:
                                 i, j, conflict_type="geometric", distance=dist
                             )
                         else:
-                            if (
-                                self.graph[i][j]["conflict_type"]
-                                != "conformer_competition"
-                            ):
+                            # Fixed: Check against high-priority conflict types
+                            high_priority_conflicts = ["logical_alternative", "symmetry_clash", "explicit", "valence", "valence_geometry"]
+                            if self.graph[i][j]["conflict_type"] not in high_priority_conflicts:
                                 self.graph[i][j]["conflict_type"] = "geometric"
                                 self.graph[i][j]["distance"] = dist
 
@@ -390,7 +389,12 @@ class DisorderGraphBuilder:
                         g_j = self.info.disorder_groups[j_idx]
                         if g_i != 0 and g_j != 0 and g_i == g_j:
                             continue
-                        if not self.graph.has_edge(i_idx, j_idx):
+                        # Check if there's already a geometric edge and upgrade it to valence
+                        if self.graph.has_edge(i_idx, j_idx):
+                            # If the existing conflict is geometric, upgrade it to valence
+                            if self.graph[i_idx][j_idx]["conflict_type"] == "geometric":
+                                self.graph[i_idx][j_idx]["conflict_type"] = "valence"
+                        else:
                             self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
 
     def _find_tetrahedral_groups(self, atom_indices, cart_positions):
@@ -446,7 +450,11 @@ class DisorderGraphBuilder:
                     # Mutually exclude Part A and Part B
                     for u in part_a:
                         for v in part_b:
-                            if not self.graph.has_edge(u, v):
+                            # Check if there's already a geometric edge and upgrade it to valence_geometry
+                            if self.graph.has_edge(u, v):
+                                if self.graph[u][v]["conflict_type"] == "geometric":
+                                    self.graph[u][v]["conflict_type"] = "valence_geometry"
+                            else:
                                 self.graph.add_edge(
                                     u, v, conflict_type="valence_geometry"
                                 )
@@ -455,7 +463,11 @@ class DisorderGraphBuilder:
                     rogues = all_atoms_set - set(part_a) - set(part_b)
                     for r in rogues:
                         for target in list(part_a) + list(part_b):
-                            if not self.graph.has_edge(r, target):
+                            # Check if there's already a geometric edge and upgrade it to valence_geometry
+                            if self.graph.has_edge(r, target):
+                                if self.graph[r][target]["conflict_type"] == "geometric":
+                                    self.graph[r][target]["conflict_type"] = "valence_geometry"
+                            else:
                                 self.graph.add_edge(
                                     r, target, conflict_type="valence_geometry"
                                 )
