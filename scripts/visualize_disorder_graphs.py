@@ -24,46 +24,50 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 try:
     from molcrys_kit.io.cif import scan_cif_disorder
     from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
+    from molcrys_kit.constants.config import DISORDER_CONFIG
 except ImportError:
-    pass
+    print("Warning: Could not import from molcrys_kit")
+    # Define fallback values if import fails
+    DISORDER_CONFIG = {
+        "ASSEMBLY_CONFLICT_THRESHOLD": 3.5
+    }
 
 # --- CONSTANTS ---
-# Covalent Radii (Angstroms) - Extended to include common elements in crystal engineering
-COVALENT_RADII = {
-    "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76, 
-    "N": 0.71, "O": 0.66, "F": 0.57, "Ne": 0.58, "Na": 1.66, "Mg": 1.41, 
-    "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02, "Ar": 1.06, 
-    "K": 2.03, "Ca": 1.76, "Sc": 1.70, "Ti": 1.60, "V": 1.53, "Cr": 1.39, 
-    "Mn": 1.39, "Fe": 1.32, "Co": 1.26, "Ni": 1.24, "Cu": 1.32, "Zn": 1.22, 
-    "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20, "Kr": 1.16, 
-    "Rb": 2.20, "Sr": 1.95, "Y": 1.90, "Zr": 1.75, "Nb": 1.64, "Mo": 1.54, 
-    "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45, "Cd": 1.44, "In": 1.42, 
-    "Sn": 1.39, "Sb": 1.39, "Te": 1.38, "I": 1.39, "Xe": 1.40
-    # Can be extended further as needed
-}
-
-COLOR_MAP = {
-    "logical_alternative": "#e74c3c",   # Red
-    "symmetry_clash": "#8e44ad",       # Purple
-    "conformer_competition": "#e74c3c", # Red
-    "explicit": "#2ecc71",             # Green
-    "geometric": "#3498db",            # Blue
-    "valence": "#f39c12",              # Orange
-    "valence_geometry": "#9b59b6",     # Dark Purple
-}
-
+# Bond color and tolerance
 BOND_COLOR = "#34495e"
 BOND_TOLERANCE = 1.3  # Liberal tolerance to catch bonds
 NODE_COLOR_CYCLE = ["#ecf0f1", "#1abc9c", "#e74c3c", "#3498db", "#9b59b6", "#f1c40f", "#e67e22", "#34495e", "#16a085", "#8e44ad"]
 
-# 显式冲突的可视化截断半径 (单位: Angstrom)
-EXPLICIT_CUTOFF = 3.5
+# Explicit conflict cutoff (Angstrom)
+# 如果 explicit 冲突的物理距离超过此值，则在图中隐藏连线以提高可读性
+EXPLICIT_CUTOFF = DISORDER_CONFIG.get("ASSEMBLY_CONFLICT_THRESHOLD", 3.5)
 
 def get_element_radius(label):
     match = re.match(r"([A-Z][a-z]?)", label)
     if match:
         el = match.group(1)
-        return COVALENT_RADII.get(el, 1.1)
+        # Try to import from constants, fallback to local definition if needed
+        try:
+            from molcrys_kit.constants.config import BONDING_CONFIG
+            # Use atomic radii from constants if available
+            import json
+            with open(os.path.join(os.path.dirname(__file__), '..', 'molcrys_kit', 'constants', 'atomic_radii.json')) as f:
+                radii_data = json.load(f)
+            return radii_data.get(el, BONDING_CONFIG.get("DEFAULT_ATOMIC_RADIUS", 1.1))
+        except (ImportError, FileNotFoundError):
+            # Fallback covalent radii (Angstroms) - Extended to include common elements in crystal engineering
+            COVALENT_RADII = {
+                "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76, 
+                "N": 0.71, "O": 0.66, "F": 0.57, "Ne": 0.58, "Na": 1.66, "Mg": 1.41, 
+                "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02, "Ar": 1.06, 
+                "K": 2.03, "Ca": 1.76, "Sc": 1.90, "Ti": 1.75, "V": 1.64, "Cr": 1.54, 
+                "Mn": 1.39, "Fe": 1.32, "Co": 1.26, "Ni": 1.24, "Cu": 1.32, "Zn": 1.22, 
+                "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20, "Kr": 1.16, 
+                "Rb": 2.20, "Sr": 1.95, "Y": 1.90, "Zr": 1.75, "Nb": 1.64, "Mo": 1.54, 
+                "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45, "Cd": 1.44, "In": 1.42, 
+                "Sn": 1.39, "Sb": 1.39, "Te": 1.38, "I": 1.39, "Xe": 1.40
+            }
+            return COVALENT_RADII.get(el, 1.1)
     return 1.1
 
 def cell_parameters_to_matrix(a, b, c, alpha, beta, gamma):
@@ -105,27 +109,43 @@ def parse_lattice_from_cif(cif_path):
     params = {}
     with open(cif_path, 'r') as f:
         for line in f:
-            line = line.strip().split('#')[0]  # Remove comments
+            line = line.strip()
+            # Remove comments
+            line = line.split('#')[0]
+            if not line:
+                continue
             
-            # Handle simple parameter lines
+            # Handle simple parameter lines - CIF format has values in the second column
             if '_cell_length_a' in line:
                 values = line.split()
-                params['a'] = float(values[1].split('(')[0])
+                if len(values) >= 2:
+                    param_value = re.sub(r'\([^)]*\)', '', values[1])
+                    params['a'] = float(param_value)
             elif '_cell_length_b' in line:
                 values = line.split()
-                params['b'] = float(values[1].split('(')[0])
+                if len(values) >= 2:
+                    param_value = re.sub(r'\([^)]*\)', '', values[1])
+                    params['b'] = float(param_value)
             elif '_cell_length_c' in line:
                 values = line.split()
-                params['c'] = float(values[1].split('(')[0])
+                if len(values) >= 2:
+                    param_value = re.sub(r'\([^)]*\)', '', values[1])
+                    params['c'] = float(param_value)
             elif '_cell_angle_alpha' in line:
                 values = line.split()
-                params['alpha'] = float(values[1].split('(')[0])
+                if len(values) >= 2:
+                    param_value = re.sub(r'\([^)]*\)', '', values[1])
+                    params['alpha'] = float(param_value)
             elif '_cell_angle_beta' in line:
                 values = line.split()
-                params['beta'] = float(values[1].split('(')[0])
+                if len(values) >= 2:
+                    param_value = re.sub(r'\([^)]*\)', '', values[1])
+                    params['beta'] = float(param_value)
             elif '_cell_angle_gamma' in line:
                 values = line.split()
-                params['gamma'] = float(values[1].split('(')[0])
+                if len(values) >= 2:
+                    param_value = re.sub(r'\([^)]*\)', '', values[1])
+                    params['gamma'] = float(param_value)
     
     if len(params) < 6:
         raise ValueError(f"Could not parse all 6 cell parameters from CIF {cif_path}. Found: {list(params.keys())}")
@@ -158,36 +178,67 @@ def mic_displacement(frac_u, frac_v):
 
 def infer_bonds_pbc(graph, lattice_matrix):
     """
-    Detect chemical bonds considering Periodic Boundary Conditions.
-    Returns: List of (u, v, shift_vector)
+    Detect chemical bonds using vectorized numpy operations for high performance.
+    (Optimized replacement for the previous O(N^2) loop)
     """
-    bonds = []
     nodes = list(graph.nodes(data=True))
+    n_nodes = len(nodes)
+    if n_nodes == 0:
+        return []
+
+    # 1. 预处理数据 (Pre-fetch data to avoiding loop lookups)
+    # 提取节点索引，以便最后映射回 graph node ID
+    node_indices = [n for n, _ in nodes]
     
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            u, data_u = nodes[i]
-            v, data_v = nodes[j]
-            
-            if "frac_coord" not in data_u or "frac_coord" not in data_v:
-                continue
+    # 提取坐标 (N, 3)
+    frac_coords = np.array([d.get("frac_coord", [0., 0., 0.]) for _, d in nodes])
+    
+    # 提取无序组 (N,) - 用于逻辑过滤
+    disorder_groups = np.array([d.get("disorder_group", 0) for _, d in nodes])
+    
+    # 提取半径 (N,) - 避免在循环中重复调用 regex
+    radii = np.array([get_element_radius(d.get("label", "")) for _, d in nodes])
 
-            # Disorder Group Check (Basic Filter)
-            g_u = data_u.get("disorder_group", 0)
-            g_v = data_v.get("disorder_group", 0)
-            # Valid bond if same group, or one connects to backbone (0)
-            if g_u != 0 and g_v != 0 and g_u != g_v:
-                continue
+    # 2. 向量化计算距离矩阵 (Vectorized Distance Calculation)
+    # 利用广播机制计算所有点对的差值 (N, N, 3)
+    # diff[i, j] = coords[i] - coords[j]
+    frac_diffs = frac_coords[:, np.newaxis, :] - frac_coords[np.newaxis, :, :]
+    
+    # 应用最小镜像约定 (MIC)
+    frac_diffs -= np.round(frac_diffs)
+    
+    # 转换到笛卡尔坐标 (N, N, 3)
+    # einsum 等价于对每个 (3,) 向量做 dot
+    cart_diffs = np.dot(frac_diffs, lattice_matrix)
+    
+    # 计算欧氏距离 (N, N)
+    dist_matrix = np.linalg.norm(cart_diffs, axis=2)
 
-            # PBC Distance Calculation
-            frac_diff, _ = mic_displacement(data_u["frac_coord"], data_v["frac_coord"])
-            cart_dist = np.linalg.norm(np.dot(frac_diff, lattice_matrix))
-            
-            r_u = get_element_radius(data_u.get("label", ""))
-            r_v = get_element_radius(data_v.get("label", ""))
-            
-            if cart_dist < (r_u + r_v) * BOND_TOLERANCE:
-                bonds.append((u, v))
+    # 3. 向量化构建判断掩码 (Vectorized Logic Masks)
+    
+    # 距离掩码：dist < (r_i + r_j) * tolerance
+    radii_sum = radii[:, np.newaxis] + radii[np.newaxis, :]
+    dist_mask = dist_matrix < (radii_sum * BOND_TOLERANCE)
+    
+    # 无序组掩码：(g_i == 0) or (g_j == 0) or (g_i == g_j)
+    # 也就是：不同组且都不是主骨架(0)时，才互斥(False)
+    g_matrix_i = disorder_groups[:, np.newaxis]
+    g_matrix_j = disorder_groups[np.newaxis, :]
+    group_mask = (g_matrix_i == 0) | (g_matrix_j == 0) | (g_matrix_i == g_matrix_j)
+    
+    # 排除自环和重复 (只取上三角，不含对角线)
+    triu_mask = np.triu(np.ones((n_nodes, n_nodes), dtype=bool), k=1)
+    
+    # 4. 综合所有条件
+    final_mask = dist_mask & group_mask & triu_mask
+    
+    # 5. 提取结果
+    # np.argwhere 返回满足条件的索引对 (M, 2)
+    bond_indices = np.argwhere(final_mask)
+    
+    # 映射回 NetworkX 的节点 ID
+    bonds = [(node_indices[i], node_indices[j]) for i, j in bond_indices]
+    
     return bonds
 
 def unwrap_molecular_coordinates(graph, lattice_matrix):
@@ -297,14 +348,28 @@ def get_edge_linestyle(conflict_type):
         return (0, (1, 1))  # Dotted pattern
     return "solid"
 
+# Color mapping for different conflict types
+COLOR_MAP = {
+    "logical_alternative": "#e74c3c",   # Red
+    "symmetry_clash": "#8e44ad",       # Purple
+    "explicit": "#2ecc71",             # Green
+    "geometric": "#3498db",            # Blue
+    "valence": "#f39c12",              # Orange
+    "valence_geometry": "#9b59b6",     # Dark Purple
+}
+
 def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     fig = plt.figure(figsize=(14, 12))  # Assign figure to variable
     fig.patch.set_facecolor('white')  # White background for publication
     
     # --- Step 1: Unwrap Coordinates ---
     # This is the critical fix for "connections across box"
+    # unwrapped_3d contains the continuous coordinates, perfect for distance checks
+    from time import time
+    start_time = time()
     pos, valid_bonds, unwrapped_3d = unwrap_molecular_coordinates(graph, lattice_matrix)
-    
+    end_time = time()
+    print(f"Unwrapping took {end_time - start_time:.2f} seconds")
     # --- Step 2: Draw Chemical Bonds (Skeleton) in the background ---
     if valid_bonds:
         nx.draw_networkx_edges(
@@ -324,21 +389,22 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     for u, v, d in edges:
         conflict_type = d.get("conflict_type", "unknown")
         
-        # --- 核心修改逻辑：显式冲突距离检查 ---
+        # --- Visualization Truncation Logic ---
+        # For explicit conflicts (often Assembly conflicts), if the distance is too large,
+        # we hide the edge to prevent messy "green lines across the screen".
         if conflict_type == "explicit":
-            # 如果节点不在 unwrap 结果里（可能是孤立点），跳过
-            if u not in unwrapped_3d or v not in unwrapped_3d:
-                continue
+            # Check if we have unwrapped coordinates for both nodes
+            if u in unwrapped_3d and v in unwrapped_3d:
+                frac_u = unwrapped_3d[u]
+                frac_v = unwrapped_3d[v]
                 
-            # 计算真实的 3D 笛卡尔距离
-            frac_u = unwrapped_3d[u]
-            frac_v = unwrapped_3d[v]
-            # 注意：这里不需要 MIC，因为坐标已经 Unwrap 过了，直接算欧氏距离即可
-            cart_dist = np.linalg.norm(np.dot(frac_u - frac_v, lattice_matrix))
-            
-            # 只有距离小于截断值才绘制
-            if cart_dist > EXPLICIT_CUTOFF:
-                continue
+                # Calculate Cartesian distance (no need for MIC as coords are already unwrapped/continuous)
+                # This represents the "visual length" of the line on the plot (roughly)
+                cart_dist = np.linalg.norm(np.dot(frac_u - frac_v, lattice_matrix))
+                
+                # If the conflict line is too long, skip drawing it (but it remains in the graph logic)
+                if cart_dist > EXPLICIT_CUTOFF:
+                    continue
 
         if conflict_type not in edges_by_type:
             edges_by_type[conflict_type] = []
@@ -421,7 +487,7 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     edge_legend_elements = [
         Line2D([0], [0], color=BOND_COLOR, lw=4, alpha=0.3, label='Chemical Bond')
     ]
-    # 注意：这里需要重新扫描 valid edges，因为上面的 loop 可能过滤掉了所有的 explicit
+    # Note: We need to re-scan valid edges, as the loop above might have filtered some
     present_conflicts = set(edges_by_type.keys())
     for conflict_type, col in COLOR_MAP.items():
         # Only add to legend if present in graph
@@ -450,14 +516,15 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
 
 def main():
     input_files = []
-    input_files.extend(glob.glob("examples/TIL*.cif"))
     input_files.extend([
         "examples/1-HTP.cif",
         "examples/PAP-M5.cif",
         "examples/PAP-H4.cif",
         "examples/DAP-4.cif",
         "examples/EAP-8.cif",
+        "examples/DAN-2.cif",
     ])
+    input_files.extend(glob.glob("examples/TIL*.cif"))
     
     
     output_dir = Path("output/graph_viz_unwrapped")
@@ -473,10 +540,26 @@ def main():
             info = scan_cif_disorder(cif_file)
             
             builder = DisorderGraphBuilder(info, lattice)
-            # ... (Run your builder pipeline steps here: identify_conformers, conflicts, etc.)
-            builder._identify_conformers()
-            builder._add_explicit_conflicts()
-            builder._resolve_valence_conflicts()
+            
+            # --- BUILDER STRATEGY ---
+            # Using builder.build() runs the full pipeline:
+            # 1. Conformers (Logical)
+            # 2. Conformer Conflicts (Logical)
+            # 3. Explicit Conflicts (Assembly/Manual)
+            # 4. Geometric Conflicts (Physical/Slow - O(N^2))
+            # 5. Valence Conflicts (Chemical)
+            
+            # Note: This is slower than manually running just steps 1 & 3, but it guarantees
+            # the graph captures ALL physical clashes.
+            builder.build()
+
+            # [OPTIONAL SPEEDUP]
+            # If you ONLY care about logical/explicit conflicts and want to skip the 
+            # slow geometric collision check, replace `builder.build()` with:
+            # builder._identify_conformers()
+            # builder._add_conformer_conflicts()
+            # builder._add_explicit_conflicts()
+            # builder._resolve_valence_conflicts()
 
             plot_unwrapped_graph(
                 builder.graph, lattice, 
