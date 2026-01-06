@@ -250,7 +250,7 @@ class VacancyGenerator:
 
 def generate_vacancy(
     crystal: MolecularCrystal,
-    target_spec: Optional[Dict[str, int]] = None,
+    species_list: Optional[List[Dict[str, Union[str, int]]]] = None,
     seed_index: Optional[int] = None,
     method: str = "spatial_cluster",
     return_removed_cluster: bool = False,
@@ -262,8 +262,9 @@ def generate_vacancy(
     ----------
     crystal : MolecularCrystal
         The molecular crystal to generate vacancies in.
-    target_spec : Dict[str, int], optional
-        Dictionary mapping species IDs to counts to remove. If None, uses simplest unit.
+    species_list : List[Dict[str, Union[str, int]]], optional
+        List of dictionaries mapping species IDs to counts to remove. Each dict has format:
+        {"species_id": "identifier", "count": int}. If None, uses simplest unit.
     seed_index : int, optional
         Index of the molecule to start removing from. If None, picks randomly from rarest species.
     method : str, default='spatial_cluster'
@@ -279,6 +280,15 @@ def generate_vacancy(
         - The new crystal with the specified molecules removed
         - A crystal containing only the removed molecules
     """
+    # Convert species_list to the internal target_spec format if provided
+    target_spec = None
+    if species_list is not None:
+        target_spec = {}
+        for item in species_list:
+            species_id = item["species_id"]
+            count = item["count"]
+            target_spec[species_id] = count
+    
     generator = VacancyGenerator(crystal)
     return generator.generate_vacancy(
         target_spec=target_spec,
