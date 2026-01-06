@@ -28,15 +28,17 @@ def generate_ordered_replicas_from_disordered_sites_files():
     input_files = []
     # Define the input files to process
     input_files += [
-        "examples/EAP-8.cif",
-        "examples/1-HTP.cif",
-        "examples/PAP-M5.cif",
-        "examples/PAP-H4.cif",
-        "examples/DAP-4.cif",
+        # "examples/EAP-8.cif",
+        # "examples/1-HTP.cif",
+        # "examples/PAP-M5.cif",
+        # "examples/PAP-H4.cif",
+        # "examples/DAP-4.cif",
         # "examples/DAN-2.cif",
+        # "examples/DAP-O4.cif",
     ]
-    input_files += glob.glob("examples/TIL*.cif")
-    input_files += glob.glob("examples/1_*.cif")
+    # input_files += glob.glob("examples/TIL*.cif")
+    input_files += glob.glob("examples/YL*.cif")
+    # input_files += glob.glob("examples/1_*.cif")
 
     # Create output directory if it doesn't exist
     output_dir = Path("output/disorder_resolution")
