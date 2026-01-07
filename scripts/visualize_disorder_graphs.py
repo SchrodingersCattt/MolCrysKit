@@ -17,6 +17,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
+from time import time
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -24,23 +25,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 try:
     from molcrys_kit.io.cif import scan_cif_disorder
     from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
-    from molcrys_kit.constants.config import DISORDER_CONFIG
 except ImportError:
     print("Warning: Could not import from molcrys_kit")
-    # Define fallback values if import fails
-    DISORDER_CONFIG = {
-        "ASSEMBLY_CONFLICT_THRESHOLD": 3.5
-    }
 
 # --- CONSTANTS ---
 # Bond color and tolerance
 BOND_COLOR = "#34495e"
 BOND_TOLERANCE = 1.3  # Liberal tolerance to catch bonds
-NODE_COLOR_CYCLE = ["#ecf0f1", "#1abc9c", "#e74c3c", "#3498db", "#9b59b6", "#f1c40f", "#e67e22", "#34495e", "#16a085", "#8e44ad"]
+NODE_COLOR_CYCLE = ["#ecf0f1", "#f1c40f", "#e67e22", "#3498db", "#9b59b6", "#f1c40f", "#e67e22", "#34495e", "#e67e22", "#f1c40f"]
+# Color mapping for different conflict types
+COLOR_MAP = {
+    "logical_alternative": "#fd2c15",   # Red
+    "symmetry_clash": "#a769e0",       # Purple
+    "explicit": "#1ea556",             # Green
+    "geometric": "#3498db",            # Blue
+    "valence": "#f39c12",              # Orange
+    "valence_geometry": "#B6347C",     # Dark Purple
+}
 
-# Explicit conflict cutoff (Angstrom)
-# 如果 explicit 冲突的物理距离超过此值，则在图中隐藏连线以提高可读性
-EXPLICIT_CUTOFF = DISORDER_CONFIG.get("ASSEMBLY_CONFLICT_THRESHOLD", 3.5)
+VISUAL_CUTOFF = 5
 
 def get_element_radius(label):
     match = re.match(r"([A-Z][a-z]?)", label)
@@ -155,19 +158,60 @@ def parse_lattice_from_cif(cif_path):
         params['alpha'], params['beta'], params['gamma']
     )
 
-def get_projection_matrix(lattice_matrix):
-    """Rotation matrix to align Lattice Vector A to X-axis and B to XY plane."""
+def get_projection_matrix(lattice_matrix, view_axis='a'):
+    """
+    Generate a rotation matrix to project the crystal onto a specific plane.
+    
+    Parameters:
+    -----------
+    lattice_matrix : np.ndarray
+        3x3 matrix of lattice vectors [a, b, c]
+    view_axis : str
+        The axis to look along ('a', 'b', or 'c').
+        - 'c': View along c (Show ab plane) -> Default behavior
+        - 'b': View along b (Show ac plane) -> Your request
+        - 'a': View along a (Show bc plane)
+    """
     a_vec = lattice_matrix[0]
     b_vec = lattice_matrix[1]
-    a_norm = a_vec / np.linalg.norm(a_vec)
-    b_proj = b_vec - np.dot(b_vec, a_norm) * a_norm
-    if np.linalg.norm(b_proj) < 1e-6:
-        b_perp = np.array([0, 1, 0])
+    c_vec = lattice_matrix[2]
+
+    # Decide which vectors align to Screen X and Screen Y
+    if view_axis == 'c':
+        # View along c: a -> X, b -> Y (approx)
+        u_vec = a_vec
+        v_vec = b_vec
+    elif view_axis == 'b':
+        # View along b: a -> X, c -> Y (approx)
+        u_vec = a_vec
+        v_vec = c_vec
+    elif view_axis == 'a':
+        # View along a: b -> X, c -> Y (approx)
+        u_vec = b_vec
+        v_vec = c_vec
     else:
-        b_perp = b_proj / np.linalg.norm(b_proj)
-    new_z = np.cross(a_norm, b_perp)
-    new_z = new_z / np.linalg.norm(new_z)
-    return np.array([a_norm, b_perp, new_z])
+        raise ValueError("view_axis must be 'a', 'b', or 'c'")
+
+    # Construct orthogonal basis for the screen
+    # 1. Align first vector (u) to Screen X
+    u_norm = u_vec / np.linalg.norm(u_vec)
+    
+    # 2. Project second vector (v) to Screen XY plane (remove component along u)
+    v_proj = v_vec - np.dot(v_vec, u_norm) * u_norm
+    
+    # Handle degenerate case (should not happen for valid unit cells)
+    if np.linalg.norm(v_proj) < 1e-6:
+        v_perp = np.array([0, 1, 0])
+    else:
+        v_perp = v_proj / np.linalg.norm(v_proj)
+        
+    # 3. Third vector is the viewing direction (Screen Z)
+    w_norm = np.cross(u_norm, v_perp)
+    w_norm = w_norm / np.linalg.norm(w_norm)
+    
+    # Return 3x3 rotation matrix
+    # Rows are the new basis vectors (X, Y, Z)
+    return np.array([u_norm, v_perp, w_norm])
 
 def mic_displacement(frac_u, frac_v):
     """Calculate Minimum Image displacement vector in fractional coordinates."""
@@ -187,56 +231,32 @@ def infer_bonds_pbc(graph, lattice_matrix):
         return []
 
     # 1. 预处理数据 (Pre-fetch data to avoiding loop lookups)
-    # 提取节点索引，以便最后映射回 graph node ID
     node_indices = [n for n, _ in nodes]
-    
-    # 提取坐标 (N, 3)
     frac_coords = np.array([d.get("frac_coord", [0., 0., 0.]) for _, d in nodes])
-    
-    # 提取无序组 (N,) - 用于逻辑过滤
     disorder_groups = np.array([d.get("disorder_group", 0) for _, d in nodes])
-    
-    # 提取半径 (N,) - 避免在循环中重复调用 regex
     radii = np.array([get_element_radius(d.get("label", "")) for _, d in nodes])
 
     # 2. 向量化计算距离矩阵 (Vectorized Distance Calculation)
-    # 利用广播机制计算所有点对的差值 (N, N, 3)
-    # diff[i, j] = coords[i] - coords[j]
     frac_diffs = frac_coords[:, np.newaxis, :] - frac_coords[np.newaxis, :, :]
-    
-    # 应用最小镜像约定 (MIC)
     frac_diffs -= np.round(frac_diffs)
-    
-    # 转换到笛卡尔坐标 (N, N, 3)
-    # einsum 等价于对每个 (3,) 向量做 dot
     cart_diffs = np.dot(frac_diffs, lattice_matrix)
-    
-    # 计算欧氏距离 (N, N)
     dist_matrix = np.linalg.norm(cart_diffs, axis=2)
 
     # 3. 向量化构建判断掩码 (Vectorized Logic Masks)
-    
-    # 距离掩码：dist < (r_i + r_j) * tolerance
     radii_sum = radii[:, np.newaxis] + radii[np.newaxis, :]
     dist_mask = dist_matrix < (radii_sum * BOND_TOLERANCE)
     
-    # 无序组掩码：(g_i == 0) or (g_j == 0) or (g_i == g_j)
-    # 也就是：不同组且都不是主骨架(0)时，才互斥(False)
     g_matrix_i = disorder_groups[:, np.newaxis]
     g_matrix_j = disorder_groups[np.newaxis, :]
     group_mask = (g_matrix_i == 0) | (g_matrix_j == 0) | (g_matrix_i == g_matrix_j)
     
-    # 排除自环和重复 (只取上三角，不含对角线)
     triu_mask = np.triu(np.ones((n_nodes, n_nodes), dtype=bool), k=1)
     
     # 4. 综合所有条件
     final_mask = dist_mask & group_mask & triu_mask
     
     # 5. 提取结果
-    # np.argwhere 返回满足条件的索引对 (M, 2)
     bond_indices = np.argwhere(final_mask)
-    
-    # 映射回 NetworkX 的节点 ID
     bonds = [(node_indices[i], node_indices[j]) for i, j in bond_indices]
     
     return bonds
@@ -271,11 +291,9 @@ def unwrap_molecular_coordinates(graph, lattice_matrix):
         root = comp_list[0]
         
         # --- Internal Unwrapping (BFS) ---
-        # Initialize the root of this component
         if "frac_coord" not in graph.nodes[root]:
             continue
             
-        # Temporarily store coords for this component locally
         comp_coords = {} 
         comp_coords[root] = graph.nodes[root]["frac_coord"].copy()
         
@@ -293,7 +311,6 @@ def unwrap_molecular_coordinates(graph, lattice_matrix):
                         
                     neigh_raw_frac = graph.nodes[neighbor]["frac_coord"]
                     
-                    # Unwrap relative to parent (Internal Continuity)
                     shift = np.round(neigh_raw_frac - parent_frac)
                     unwrapped_frac = neigh_raw_frac - shift
                     
@@ -348,28 +365,17 @@ def get_edge_linestyle(conflict_type):
         return (0, (1, 1))  # Dotted pattern
     return "solid"
 
-# Color mapping for different conflict types
-COLOR_MAP = {
-    "logical_alternative": "#e74c3c",   # Red
-    "symmetry_clash": "#8e44ad",       # Purple
-    "explicit": "#2ecc71",             # Green
-    "geometric": "#3498db",            # Blue
-    "valence": "#f39c12",              # Orange
-    "valence_geometry": "#9b59b6",     # Dark Purple
-}
 
 def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
-    fig = plt.figure(figsize=(14, 12))  # Assign figure to variable
+    fig = plt.figure(figsize=(8, 6))  # Assign figure to variable
     fig.patch.set_facecolor('white')  # White background for publication
     
     # --- Step 1: Unwrap Coordinates ---
-    # This is the critical fix for "connections across box"
-    # unwrapped_3d contains the continuous coordinates, perfect for distance checks
-    from time import time
     start_time = time()
     pos, valid_bonds, unwrapped_3d = unwrap_molecular_coordinates(graph, lattice_matrix)
     end_time = time()
     print(f"Unwrapping took {end_time - start_time:.2f} seconds")
+    
     # --- Step 2: Draw Chemical Bonds (Skeleton) in the background ---
     if valid_bonds:
         nx.draw_networkx_edges(
@@ -389,22 +395,14 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     for u, v, d in edges:
         conflict_type = d.get("conflict_type", "unknown")
         
-        # --- Visualization Truncation Logic ---
-        # For explicit conflicts (often Assembly conflicts), if the distance is too large,
-        # we hide the edge to prevent messy "green lines across the screen".
-        if conflict_type == "explicit":
-            # Check if we have unwrapped coordinates for both nodes
-            if u in unwrapped_3d and v in unwrapped_3d:
-                frac_u = unwrapped_3d[u]
-                frac_v = unwrapped_3d[v]
-                
-                # Calculate Cartesian distance (no need for MIC as coords are already unwrapped/continuous)
-                # This represents the "visual length" of the line on the plot (roughly)
-                cart_dist = np.linalg.norm(np.dot(frac_u - frac_v, lattice_matrix))
-                
-                # If the conflict line is too long, skip drawing it (but it remains in the graph logic)
-                if cart_dist > EXPLICIT_CUTOFF:
-                    continue
+        # --- GLOBAL VISUALIZATION TRUNCATION ---
+        if u in unwrapped_3d and v in unwrapped_3d:
+            frac_u = unwrapped_3d[u]
+            frac_v = unwrapped_3d[v]
+            cart_dist = np.linalg.norm(np.dot(frac_u - frac_v, lattice_matrix))
+            
+            if cart_dist > VISUAL_CUTOFF:
+                continue
 
         if conflict_type not in edges_by_type:
             edges_by_type[conflict_type] = []
@@ -434,7 +432,7 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     node_sizes = []
     
     # Dynamic sizing
-    base_size = 300 if len(graph.nodes) < 50 else 150
+    base_size = 50 # 300 if len(graph.nodes) < 50 else 150
     
     # Get unique disorder groups for legend
     disorder_groups = set()
@@ -456,7 +454,7 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
         graph, pos,
         node_color=node_colors,
         edgecolors=BOND_COLOR,
-        linewidths=1.5,
+        linewidths=1,
         node_size=node_sizes
     )
     
@@ -507,7 +505,7 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     plt.axis('off')  # Hide axes for clean look
     
     # Add legend
-    plt.legend(handles=all_legend_elements, loc="upper right", frameon=True, fontsize=10)
+    plt.legend(handles=all_legend_elements, loc="center right", frameon=False, fontsize=12, bbox_to_anchor=(1.05, 0.5))
     
     plt.tight_layout()
     plt.savefig(filename, dpi=300, facecolor='white', bbox_inches='tight')
@@ -525,6 +523,7 @@ def main():
         "examples/DAN-2.cif",
     ])
     input_files.extend(glob.glob("examples/TIL*.cif"))
+    input_files.extend(glob.glob("examples/1_*.cif"))
     
     
     output_dir = Path("output/graph_viz_unwrapped")
@@ -542,24 +541,7 @@ def main():
             builder = DisorderGraphBuilder(info, lattice)
             
             # --- BUILDER STRATEGY ---
-            # Using builder.build() runs the full pipeline:
-            # 1. Conformers (Logical)
-            # 2. Conformer Conflicts (Logical)
-            # 3. Explicit Conflicts (Assembly/Manual)
-            # 4. Geometric Conflicts (Physical/Slow - O(N^2))
-            # 5. Valence Conflicts (Chemical)
-            
-            # Note: This is slower than manually running just steps 1 & 3, but it guarantees
-            # the graph captures ALL physical clashes.
             builder.build()
-
-            # [OPTIONAL SPEEDUP]
-            # If you ONLY care about logical/explicit conflicts and want to skip the 
-            # slow geometric collision check, replace `builder.build()` with:
-            # builder._identify_conformers()
-            # builder._add_conformer_conflicts()
-            # builder._add_explicit_conflicts()
-            # builder._resolve_valence_conflicts()
 
             plot_unwrapped_graph(
                 builder.graph, lattice, 
