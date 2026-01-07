@@ -5,7 +5,7 @@ This module provides coordinate transformations and geometric calculations.
 """
 
 import numpy as np
-from typing import List
+from typing import List, Tuple
 from ..constants import get_atomic_mass, has_atomic_mass
 
 
@@ -685,3 +685,57 @@ def calculate_dihedral_and_adjustment(
 
     # Convert to degrees
     return np.degrees(angle_diff)
+
+
+def reduce_surface_lattice(v1: np.ndarray, v2: np.ndarray, lattice: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Apply Gauss reduction to find the shortest and most orthogonal basis vectors
+    for the surface plane (2D LLL reduction).
+
+    Parameters
+    ----------
+    v1 : np.ndarray
+        First basis vector of the surface plane.
+    v2 : np.ndarray
+        Second basis vector of the surface plane.
+    lattice : np.ndarray
+        3x3 array of the original lattice vectors as rows (used for metric tensor).
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        Reduced basis vectors v1 and v2.
+    """
+    # Calculate metric tensor elements (dot products)
+    def dot_product(a, b):
+        return np.dot(a, b)
+    
+    # Main loop of Gauss reduction
+    while True:
+        # Calculate the lengths of the current vectors
+        v1_sq = dot_product(v1, v1)
+        v2_sq = dot_product(v2, v2)
+        
+        # Calculate the dot product of the two vectors
+        v1_dot_v2 = dot_product(v1, v2)
+        
+        # Check if vectors are orthogonal enough or if we should continue
+        # If |v1|^2 > |v2|^2, try to reduce v1 using v2
+        if v1_sq > v2_sq:
+            # Swap v1 and v2
+            v1, v2 = v2, v1
+            v1_sq, v2_sq = v2_sq, v1_sq
+            v1_dot_v2 = dot_product(v1, v2)
+        
+        # Calculate how much of v1 is in v2 (projection)
+        # We want to subtract an integer multiple of v1 from v2
+        m = round(v1_dot_v2 / v1_sq)
+        
+        if m == 0:
+            # The vectors are now as reduced as possible
+            break
+        
+        # Update v2 by subtracting m*v1
+        v2 = v2 - m * v1
+    
+    return v1, v2

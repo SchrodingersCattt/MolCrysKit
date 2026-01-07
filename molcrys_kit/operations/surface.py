@@ -13,6 +13,7 @@ from functools import reduce
 
 # Import internal modules
 from ..structures.crystal import MolecularCrystal
+from ..utils.geometry import reduce_surface_lattice
 
 
 def _extended_gcd(a, b):
@@ -140,8 +141,27 @@ class TopologicalSlabGenerator:
                 f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})"
             )
 
+        # Get the original lattice to use for surface lattice reduction
+        old_lattice = self.crystal.lattice
+        
+        # Convert the initial v1 and v2 vectors to Cartesian coordinates
+        v1_cart = np.dot(v1, old_lattice)
+        v2_cart = np.dot(v2, old_lattice)
+        
+        # Apply Gauss reduction to get more orthogonal surface vectors
+        v1_reduced, v2_reduced = reduce_surface_lattice(v1_cart, v2_cart, old_lattice)
+        
+        # Convert the reduced vectors back to lattice coordinates
+        inv_lattice = np.linalg.inv(old_lattice)
+        v1_reduced_lat = np.dot(v1_reduced, inv_lattice)
+        v2_reduced_lat = np.dot(v2_reduced, inv_lattice)
+        
+        # Round to integers to get the transformation matrix
+        v1_int = np.round(v1_reduced_lat).astype(int)
+        v2_int = np.round(v2_reduced_lat).astype(int)
+        
         # Construct the transformation matrix (as column vectors)
-        transformation_matrix = np.array([v1, v2, stacking_vector]).T
+        transformation_matrix = np.array([v1_int, v2_int, stacking_vector]).T
 
         return transformation_matrix
 
@@ -230,19 +250,19 @@ class TopologicalSlabGenerator:
             # Store molecule with new positions and adjusted centroid
             shifted_molecules.append((mol, new_positions, adjusted_centroid))
 
-        # Now stack the molecules to create multiple layers
-        all_atoms_list = []
+        # Now stack the molecules to create multiple layers in Cartesian coordinates
+        all_molecules_list = []
 
         for layer_idx in range(layers):
             for mol, positions, _ in shifted_molecules:
-                # Calculate the z-shift for this layer
+                # Calculate the z-shift for this layer (applying the tilted stacking offset)
                 layer_shift = layer_idx * new_lattice[2]  # Only z-direction shift
                 layer_positions = positions + layer_shift
 
                 # Create a copy of the molecule with the new positions
                 layer_mol = mol.copy()
                 layer_mol.positions = layer_positions
-                all_atoms_list.append(layer_mol)
+                all_molecules_list.append(layer_mol)
 
         # Calculate the normal vector to the surface (a × b)
         cross_product = np.cross(new_lattice[0], new_lattice[1])
@@ -252,82 +272,59 @@ class TopologicalSlabGenerator:
         total_stacking_vector = layers * new_lattice[2]
         slab_thickness = abs(np.dot(total_stacking_vector, normal_vector))
 
-        # Construct the final lattice with the orthogonal c vector
-        final_lattice = new_lattice.copy()
-        final_lattice[2] = (
+        # Define the final output lattice where a and b are reduced surface vectors
+        # and c is the orthogonal vacuum vector
+        output_lattice = new_lattice.copy()
+        output_lattice[2] = (
             slab_thickness + vacuum
         ) * normal_vector  # Replace the c vector with the orthogonal one
 
-        # --- NEW: Align lattice vectors with standard crystallographic conventions ---
-        # Align the primary vector (a) with x-axis and secondary (b) in xy-plane
-        # The third vector (c) will be aligned with z-axis after rotation
+        # Calculate the minimum z-coordinate of all atoms in the slab
+        all_positions = []
+        for mol in all_molecules_list:
+            all_positions.extend(mol.get_positions())
+        all_positions = np.array(all_positions)
 
-        # Define the current basis vectors
-        a_vector = final_lattice[0]  # Primary vector (u)
-        b_vector = final_lattice[1]  # Secondary vector (v)
-        c_vector = final_lattice[2]  # Surface normal (w)
+        # Calculate minimum z coordinate
+        min_z = np.min(all_positions[:, 2]) if len(all_positions) > 0 else 0.0
 
-        # Create the rotation matrix to align the lattice as per standard conventions:
-        # 1. Primary vector (a) aligned with x-axis
-        # 2. Secondary vector (b) in xy-plane
-        # 3. Third vector (c) aligned with z-axis (approximately)
+        # Apply "slab-at-bottom" shift to ensure all z-coordinates are positive
+        shift_vector = np.array([0.0, 0.0, -min_z + 0.05])  # small margin to avoid atoms at exactly 0
+        for mol in all_molecules_list:
+            mol.positions += shift_vector
 
-        # Normalize the primary vector and use it as the new x-axis
-        a_norm = np.linalg.norm(a_vector)
-        new_x_axis = a_vector / a_norm
+        # Pre-calculate the inverse of the output lattice for efficiency
+        inv_output_lattice = np.linalg.inv(output_lattice)
 
-        # Calculate the projection of b_vector onto the new x-axis
-        b_proj_x = np.dot(b_vector, new_x_axis)
-        b_in_yz = b_vector - b_proj_x * new_x_axis
-        new_y_axis = b_in_yz / np.linalg.norm(b_in_yz)
-        new_z_axis = np.cross(new_x_axis, new_y_axis)
-
-        # Original basis vectors (rows of identity matrix)
-        original_axes = np.eye(3)
-
-        # New target axes
-        target_axes = np.column_stack([new_x_axis, new_y_axis, new_z_axis])
-
-        # Calculate rotation matrix that transforms original axes to target axes
-        rotation_matrix = target_axes.T
-
-        # Apply rotation to the final lattice vectors
-        rotated_lattice = (rotation_matrix @ final_lattice.T).T
-
-        # Pre-calculate the inverse of the rotated lattice for efficiency
-        inv_rotated_lattice = np.linalg.inv(rotated_lattice)
-
-        # --- OPTIMIZED: Implement molecular-aware wrapping with unified transformation ---
-        # Apply rotation and wrapping in a single loop to avoid multiple copies
-        for mol in all_atoms_list:
-            # Apply rotation to all atomic positions at once
-            original_positions = mol.get_positions()
-            rotated_positions = (rotation_matrix @ original_positions.T).T
-            mol.set_positions(rotated_positions)
-
-            # Calculate molecular centroid in the rotated lattice fractional coordinates
-            centroid_cart = np.mean(rotated_positions, axis=0)
-
-            # Calculate fractional coordinates using pre-calculated inverse
-            centroid_frac = np.dot(centroid_cart, inv_rotated_lattice)
-
-            # Wrap the centroid to be within [0, 1) fractional coordinates
-            wrapped_centroid_frac = centroid_frac - np.floor(centroid_frac)
-
-            # Calculate the shift vector to move the centroid to the wrapped position
-            target_centroid_cart = np.dot(wrapped_centroid_frac, rotated_lattice)
+        # Apply selective wrapping to maintain molecular integrity
+        for mol in all_molecules_list:
+            # Get positions of all atoms in the molecule
+            positions = mol.get_positions()
+            
+            # Calculate molecular centroid
+            centroid_cart = mol.get_centroid()
+            
+            # Convert centroid to fractional coordinates of the output lattice
+            centroid_frac = np.dot(centroid_cart, inv_output_lattice)
+            
+            # Apply wrapping only to X and Y components (indices 0 and 1)
+            wrapped_centroid_frac = centroid_frac.copy()
+            wrapped_centroid_frac[0] = wrapped_centroid_frac[0] - np.floor(wrapped_centroid_frac[0])
+            wrapped_centroid_frac[1] = wrapped_centroid_frac[1] - np.floor(wrapped_centroid_frac[1])
+            # Do NOT wrap Z component (index 2) - leave it as is
+            
+            # Calculate the shift vector to move the centroid to the wrapped position in X and Y
+            target_centroid_cart = np.dot(wrapped_centroid_frac, output_lattice)
             shift_vector = target_centroid_cart - centroid_cart
-
+            
             # Apply the same shift to all atoms in the molecule to maintain molecular integrity
-            new_positions = rotated_positions + shift_vector
+            new_positions = positions + shift_vector
             mol.set_positions(new_positions)
 
-        # Create the final molecular crystal with the rotated lattice and wrapped molecules
+        # Create the final molecular crystal with the output lattice and processed molecules
         slab = MolecularCrystal(
-            lattice=rotated_lattice,
-            molecules=[
-                mol for mol in all_atoms_list
-            ],  # Use the in-place modified molecules
+            lattice=output_lattice,
+            molecules=all_molecules_list,  # Use the processed molecules
             pbc=(True, True, False),  # PBC is False in the surface normal (z) direction
         )
 
