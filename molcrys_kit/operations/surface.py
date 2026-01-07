@@ -58,26 +58,7 @@ class TopologicalSlabGenerator:
     def _get_primitive_surface_vectors(self, h: int, k: int, l: int) -> np.ndarray:
         """
         Derives the integer basis transformation matrix (3x3) for the surface.
-
-        Given Miller indices (h, k, l), this method finds two in-plane lattice
-        vectors (u, v) that lie in the plane and a third vector (w) that is
-        perpendicular to the plane (stacking direction).
-
-        Parameters
-        ----------
-        h, k, l : int
-            Miller indices of the surface plane.
-
-        Returns
-        -------
-        np.ndarray
-            3x3 transformation matrix where rows are the new basis vectors
-            in terms of the original lattice coordinates.
-
-        Raises
-        ------
-        ValueError
-            If all Miller indices are zero.
+        Now includes orthogonalization of the stacking vector.
         """
         if h == 0 and k == 0 and l == 0:
             raise ValueError("Miller indices cannot all be zero")
@@ -93,31 +74,20 @@ class TopologicalSlabGenerator:
         else:
             # General case using Extended Euclidean Algorithm
             g_hk, p, q = _extended_gcd(h, k)
-            # v1 is perpendicular to [h, k, l] and primitive along its direction
             v1 = np.array([k // g_hk, -h // g_hk, 0], dtype=int)
-            # v2 completes the primitive basis for the plane
             v2 = np.array([p * l, q * l, -g_hk], dtype=int)
 
-        # Find the stacking vector (v3) such that h*v3[0] + k*v3[1] + l*v3[2] = 1 (Bezout's identity)
-        # We need to solve h*u + k*v + l*w = 1 for integers u, v, w
-        # Since gcd(h, k, l) = 1, a solution exists
+        # Find the initial stacking vector (v3)
         stacking_vector = None
-        for w in range(
-            max(abs(l), g_hk) + 1
-        ):  # Changed from abs(l) + 1 to max(abs(l), g_hk) + 1 to ensure we check enough values
-            # Now solve h*u + k*v = 1 - l*w
+        for w in range(max(abs(l), g_hk) + 1):
             rhs = 1 - l * w
             if rhs == 0 and h == 0 and k == 0:
-                # This case shouldn't happen since h, k, l are coprime and not all zero
                 continue
             elif h == 0 and k == 0:
-                # Then l*w = 1, so l=1, w=1 or l=-1, w=-1
                 if l * w == 1:
                     stacking_vector = np.array([0, 0, w], dtype=int)
                     break
             else:
-                # Solve h*u + k*v = rhs - l*w for u and v
-                # Using the extended Euclidean algorithm approach
                 if h == 0:
                     if rhs % k == 0:
                         stacking_vector = np.array([0, rhs // k, w], dtype=int)
@@ -127,10 +97,7 @@ class TopologicalSlabGenerator:
                         stacking_vector = np.array([rhs // h, 0, w], dtype=int)
                         break
                 else:
-                    # Use extended Euclidean to find a particular solution
-                    # g_hk was already calculated earlier, no need to recalculate
-                    if (rhs % g_hk) == 0:  # Check if solution exists
-                        # Scale the solution (p and q were calculated earlier)
+                    if (rhs % g_hk) == 0:
                         p_hk = p * (rhs // g_hk)
                         q_hk = q * (rhs // g_hk)
                         stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
@@ -141,26 +108,67 @@ class TopologicalSlabGenerator:
                 f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})"
             )
 
-        # Get the original lattice to use for surface lattice reduction
+        # Get the original lattice
         old_lattice = self.crystal.lattice
         
-        # Convert the initial v1 and v2 vectors to Cartesian coordinates
+        # Convert vectors to Cartesian
         v1_cart = np.dot(v1, old_lattice)
         v2_cart = np.dot(v2, old_lattice)
         
-        # Apply Gauss reduction to get more orthogonal surface vectors
+        # 1. Reduce surface vectors (v1, v2)
         v1_reduced, v2_reduced = reduce_surface_lattice(v1_cart, v2_cart, old_lattice)
         
-        # Convert the reduced vectors back to lattice coordinates
+        # Convert reduced v1, v2 back to integer lattice coordinates
         inv_lattice = np.linalg.inv(old_lattice)
-        v1_reduced_lat = np.dot(v1_reduced, inv_lattice)
-        v2_reduced_lat = np.dot(v2_reduced, inv_lattice)
+        v1_int = np.round(np.dot(v1_reduced, inv_lattice)).astype(int)
+        v2_int = np.round(np.dot(v2_reduced, inv_lattice)).astype(int)
+
+        # 2. Orthogonalize Stacking Vector (v3) relative to v1, v2
+        # This is CRITICAL for Monoclinic/Triclinic systems to avoid highly sheared slabs
+        stacking_cart = np.dot(stacking_vector, old_lattice)
         
-        # Round to integers to get the transformation matrix
-        v1_int = np.round(v1_reduced_lat).astype(int)
-        v2_int = np.round(v2_reduced_lat).astype(int)
-        
-        # Construct the transformation matrix (as column vectors)
+        # Update Cartesian versions of the final integer v1/v2
+        v1_c = np.dot(v1_int, old_lattice)
+        v2_c = np.dot(v2_int, old_lattice)
+
+        # Iteratively subtract v1 or v2 from stacking_vector if it reduces the length
+        # This is a simple greedy approach to 3D lattice reduction focusing on v3
+        improved = True
+        current_stacking = stacking_vector.copy()
+        current_cart = stacking_cart.copy()
+
+        while improved:
+            improved = False
+            best_norm = np.linalg.norm(current_cart)
+            best_op = None # (coefficient for v1, coefficient for v2)
+
+            # Try shifting by combination of v1 and v2
+            # We check a small range of coefficients
+            for n1 in [-1, 0, 1]:
+                for n2 in [-1, 0, 1]:
+                    if n1 == 0 and n2 == 0:
+                        continue
+                    
+                    # Calculate candidate vector
+                    # Since v1_int and v2_int are in the plane, adding them 
+                    # doesn't change the volume constraint (Miller index projection)
+                    candidate_stacking = current_stacking + n1 * v1_int + n2 * v2_int
+                    candidate_cart = np.dot(candidate_stacking, old_lattice)
+                    candidate_norm = np.linalg.norm(candidate_cart)
+
+                    if candidate_norm < best_norm - 1e-5: # Use tolerance for float comparison
+                        best_norm = candidate_norm
+                        best_op = (n1, n2)
+                        
+            if best_op:
+                n1, n2 = best_op
+                current_stacking += n1 * v1_int + n2 * v2_int
+                current_cart = np.dot(current_stacking, old_lattice)
+                improved = True
+
+        stacking_vector = current_stacking
+
+        # Construct the transformation matrix
         transformation_matrix = np.array([v1_int, v2_int, stacking_vector]).T
 
         return transformation_matrix

@@ -273,6 +273,8 @@ class MolecularCrystal:
         List[CrystalMolecule]
             List of new CrystalMolecule objects with continuous coordinates.
         """
+        from ..utils.geometry import minimum_image_vector
+
         unwrapped_molecules = []
 
         # Pre-calculate inverse lattice matrix for efficiency
@@ -307,16 +309,15 @@ class MolecularCrystal:
                         if v not in visited:
                             # Calculate distance vector
                             d = positions[v] - positions[u]
-
-                            # Apply Minimum Image Convention (MIC)
-                            # Convert to fractional coordinates using pre-calculated inv_lattice
+                            
+                            # Convert to fractional coordinates
                             frac_d = np.dot(d, inv_lattice)
 
-                            # Apply MIC in fractional coordinates
-                            frac_d = frac_d - np.round(frac_d)
-
-                            # Convert back to Cartesian coordinates
-                            d = np.dot(frac_d, self.lattice)
+                            # === 致命错误修复 ===
+                            # 原代码：frac_d = frac_d - np.round(frac_d)  <-- 这行代码在单斜晶系是错的！
+                            # 新代码：调用正确的最小镜像向量计算函数
+                            d = minimum_image_vector(frac_d, self.lattice)
+                            # ===================
 
                             # Update position of v relative to u
                             positions[v] = positions[u] + d
@@ -333,7 +334,7 @@ class MolecularCrystal:
             unwrapped_molecules.append(unwrapped_molecule)
 
         return unwrapped_molecules
-
+    
     def to_ase(self) -> Atoms:
         """
         Convert the MolecularCrystal to an ASE Atoms object.

@@ -149,37 +149,52 @@ def dihedral_angle(
     return angle
 
 
+import numpy as np
+import itertools
+
+def minimum_image_vector(frac_delta: np.ndarray, lattice: np.ndarray) -> np.ndarray:
+    """
+    Calculate the Cartesian vector connecting two points in fractional coordinates
+    using the Minimum Image Convention. Correct for all lattice types.
+    
+    Parameters
+    ----------
+    frac_delta : np.ndarray
+        Difference vector in fractional coordinates (frac1 - frac2).
+    lattice : np.ndarray
+        3x3 lattice matrix.
+        
+    Returns
+    -------
+    np.ndarray
+        Cartesian vector corresponding to the shortest distance.
+    """
+    # 1. First approximation: simple rounding (centers around origin)
+    frac_delta = frac_delta - np.round(frac_delta)
+    
+    # 2. Check 27 neighbors to find the true nearest image in Cartesian space
+    # This is necessary for non-orthogonal cells (monoclinic, triclinic)
+    shifts = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
+    shifted_deltas = frac_delta + shifts
+    
+    # Convert all candidates to Cartesian
+    cart_deltas = np.dot(shifted_deltas, lattice)
+    
+    # Find the one with the smallest squared norm
+    sq_dists = np.sum(cart_deltas**2, axis=1)
+    min_idx = np.argmin(sq_dists)
+    
+    return cart_deltas[min_idx]
+
 def minimum_image_distance(
     frac1: np.ndarray, frac2: np.ndarray, lattice: np.ndarray
 ) -> float:
     """
     Calculate the minimum image distance between two fractional coordinates.
-
-    Parameters
-    ----------
-    frac1 : np.ndarray
-        First fractional coordinates.
-    frac2 : np.ndarray
-        Second fractional coordinates.
-    lattice : np.ndarray
-        3x3 array of lattice vectors as rows.
-
-    Returns
-    -------
-    float
-        Minimum image distance.
     """
-    # Calculate distance vector
     delta = frac1 - frac2
-
-    # Apply minimum image convention
-    delta = delta - np.round(delta)
-
-    # Convert to cartesian and calculate distance
-    cart_delta = frac_to_cart(delta, lattice)
-    return np.linalg.norm(cart_delta)
-
-
+    min_vector = minimum_image_vector(delta, lattice)
+    return np.linalg.norm(min_vector)
 def volume_of_cell(lattice: np.ndarray) -> float:
     """
     Calculate the volume of a unit cell.
