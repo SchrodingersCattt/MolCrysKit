@@ -12,6 +12,7 @@ from ase import Atoms
 
 from .molecule import CrystalMolecule
 from ..constants import ATOMIC_RADII
+from ..utils.geometry import minimum_image_vector
 import itertools
 
 
@@ -273,7 +274,6 @@ class MolecularCrystal:
         List[CrystalMolecule]
             List of new CrystalMolecule objects with continuous coordinates.
         """
-        from ..utils.geometry import minimum_image_vector
 
         unwrapped_molecules = []
 
