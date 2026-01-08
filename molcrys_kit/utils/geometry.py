@@ -155,41 +155,42 @@ def minimum_image_vector(frac_delta: np.ndarray, lattice: np.ndarray) -> np.ndar
     Vectorized Minimum Image Convention.
     Check 27 images to find the shortest Cartesian vector.
     """
-    frac_delta = np.atleast_2d(frac_delta) # Shape becomes (N, 3)
-    
+    frac_delta = np.atleast_2d(frac_delta)  # Shape becomes (N, 3)
+
     # 1. First approximation: simple rounding to center at origin
     # This brings vectors roughly to [-0.5, 0.5]
     frac_delta = frac_delta - np.round(frac_delta)
-    
+
     # 2. Check 27 neighbors
     # shifts shape: (27, 3)
     shifts = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
-    
+
     # Broadcasting magic:
     # We want result shape (N, 27, 3)
     # frac_delta[:, None, :] is (N, 1, 3)
     # shifts[None, :, :]     is (1, 27, 3)
     candidates_frac = frac_delta[:, None, :] + shifts[None, :, :]
-    
+
     # Convert to Cartesian: (N, 27, 3) dot (3, 3) -> (N, 27, 3)
     candidates_cart = np.dot(candidates_frac, lattice)
-    
+
     # Calculate squared distances: (N, 27)
     dists_sq = np.sum(candidates_cart**2, axis=2)
-    
+
     # Find index of min distance for each atom pair: (N,)
     min_indices = np.argmin(dists_sq, axis=1)
-    
+
     # Select the best vectors
     # Advanced indexing to pick the right candidate for each row
     n_rows = frac_delta.shape[0]
     best_vectors = candidates_cart[np.arange(n_rows), min_indices]
-    
+
     # If input was single vector, flatten back
     if best_vectors.shape[0] == 1:
         return best_vectors.flatten()
-        
+
     return best_vectors
+
 
 def minimum_image_distance(
     frac1: np.ndarray, frac2: np.ndarray, lattice: np.ndarray
@@ -200,6 +201,7 @@ def minimum_image_distance(
     delta = frac1 - frac2
     min_vector = minimum_image_vector(delta, lattice)
     return np.linalg.norm(min_vector)
+
 
 def volume_of_cell(lattice: np.ndarray) -> float:
     """
@@ -708,7 +710,9 @@ def calculate_dihedral_and_adjustment(
     return np.degrees(angle_diff)
 
 
-def reduce_surface_lattice(v1: np.ndarray, v2: np.ndarray, lattice: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def reduce_surface_lattice(
+    v1: np.ndarray, v2: np.ndarray, lattice: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Apply Gauss reduction to find the shortest and most orthogonal basis vectors
     for the surface plane (2D LLL reduction).
@@ -727,19 +731,20 @@ def reduce_surface_lattice(v1: np.ndarray, v2: np.ndarray, lattice: np.ndarray) 
     Tuple[np.ndarray, np.ndarray]
         Reduced basis vectors v1 and v2.
     """
+
     # Calculate metric tensor elements (dot products)
     def dot_product(a, b):
         return np.dot(a, b)
-    
+
     # Main loop of Gauss reduction
     while True:
         # Calculate the lengths of the current vectors
         v1_sq = dot_product(v1, v1)
         v2_sq = dot_product(v2, v2)
-        
+
         # Calculate the dot product of the two vectors
         v1_dot_v2 = dot_product(v1, v2)
-        
+
         # Check if vectors are orthogonal enough or if we should continue
         # If |v1|^2 > |v2|^2, try to reduce v1 using v2
         if v1_sq > v2_sq:
@@ -747,16 +752,16 @@ def reduce_surface_lattice(v1: np.ndarray, v2: np.ndarray, lattice: np.ndarray) 
             v1, v2 = v2, v1
             v1_sq, v2_sq = v2_sq, v1_sq
             v1_dot_v2 = dot_product(v1, v2)
-        
+
         # Calculate how much of v1 is in v2 (projection)
         # We want to subtract an integer multiple of v1 from v2
         m = round(v1_dot_v2 / v1_sq)
-        
+
         if m == 0:
             # The vectors are now as reduced as possible
             break
-        
+
         # Update v2 by subtracting m*v1
         v2 = v2 - m * v1
-    
+
     return v1, v2

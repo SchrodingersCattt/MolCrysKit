@@ -235,14 +235,14 @@ class VacancyGenerator:
                 for idx, mol in enumerate(self.crystal.molecules)
                 if idx in removal_indices
             ]
-            
+
             # Create new crystal with removed molecules
             removed_cluster = MolecularCrystal(
                 lattice=self.crystal.lattice.copy(),
                 molecules=removed_molecules,
                 pbc=self.crystal.pbc,
             )
-            
+
             return new_crystal, removed_cluster
 
         return new_crystal
@@ -288,7 +288,7 @@ def generate_vacancy(
             species_id = item["species_id"]
             count = item["count"]
             target_spec[species_id] = count
-    
+
     generator = VacancyGenerator(crystal)
     return generator.generate_vacancy(
         target_spec=target_spec,

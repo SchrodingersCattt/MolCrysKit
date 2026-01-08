@@ -281,8 +281,17 @@ class DisorderGraphBuilder:
                             )
                         else:
                             # Fixed: Check against high-priority conflict types
-                            high_priority_conflicts = ["logical_alternative", "symmetry_clash", "explicit", "valence", "valence_geometry"]
-                            if self.graph[i][j]["conflict_type"] not in high_priority_conflicts:
+                            high_priority_conflicts = [
+                                "logical_alternative",
+                                "symmetry_clash",
+                                "explicit",
+                                "valence",
+                                "valence_geometry",
+                            ]
+                            if (
+                                self.graph[i][j]["conflict_type"]
+                                not in high_priority_conflicts
+                            ):
                                 self.graph[i][j]["conflict_type"] = "geometric"
                                 self.graph[i][j]["distance"] = dist
 
@@ -453,7 +462,9 @@ class DisorderGraphBuilder:
                             # Check if there's already a geometric edge and upgrade it to valence_geometry
                             if self.graph.has_edge(u, v):
                                 if self.graph[u][v]["conflict_type"] == "geometric":
-                                    self.graph[u][v]["conflict_type"] = "valence_geometry"
+                                    self.graph[u][v][
+                                        "conflict_type"
+                                    ] = "valence_geometry"
                             else:
                                 self.graph.add_edge(
                                     u, v, conflict_type="valence_geometry"
@@ -465,8 +476,13 @@ class DisorderGraphBuilder:
                         for target in list(part_a) + list(part_b):
                             # Check if there's already a geometric edge and upgrade it to valence_geometry
                             if self.graph.has_edge(r, target):
-                                if self.graph[r][target]["conflict_type"] == "geometric":
-                                    self.graph[r][target]["conflict_type"] = "valence_geometry"
+                                if (
+                                    self.graph[r][target]["conflict_type"]
+                                    == "geometric"
+                                ):
+                                    self.graph[r][target][
+                                        "conflict_type"
+                                    ] = "valence_geometry"
                             else:
                                 self.graph.add_edge(
                                     r, target, conflict_type="valence_geometry"

@@ -6,7 +6,6 @@ while preserving molecular topology during the cutting process.
 """
 
 import numpy as np
-import math
 from typing import Tuple
 from math import gcd
 from functools import reduce
@@ -166,23 +165,23 @@ class TopologicalSlabGenerator:
 
         # Get the original lattice to use for surface lattice reduction
         old_lattice = self.crystal.lattice
-        
+
         # Convert the initial v1 and v2 vectors to Cartesian coordinates
         v1_cart = np.dot(v1, old_lattice)
         v2_cart = np.dot(v2, old_lattice)
-        
+
         # Apply Gauss reduction to get more orthogonal surface vectors
         v1_reduced, v2_reduced = reduce_surface_lattice(v1_cart, v2_cart, old_lattice)
-        
+
         # Convert the reduced vectors back to lattice coordinates
         inv_lattice = np.linalg.inv(old_lattice)
         v1_reduced_lat = np.dot(v1_reduced, inv_lattice)
         v2_reduced_lat = np.dot(v2_reduced, inv_lattice)
-        
+
         # Round to integers to get the transformation matrix
         v1_int = np.round(v1_reduced_lat).astype(int)
         v2_int = np.round(v2_reduced_lat).astype(int)
-        
+
         # Construct the transformation matrix (as column vectors)
         transformation_matrix = np.array([v1_int, v2_int, stacking_vector]).T
 
@@ -220,7 +219,9 @@ class TopologicalSlabGenerator:
         # 1. Get primitive surface transformation matrix
         transformation_matrix = self._get_primitive_surface_vectors(h, k, l)
         old_lattice = self.crystal.lattice
-        raw_surface_lattice = transformation_matrix.T @ old_lattice  # shape (3,3), row vectors
+        raw_surface_lattice = (
+            transformation_matrix.T @ old_lattice
+        )  # shape (3,3), row vectors
 
         # 2. Rotate to standard orientation
         M = self._get_standard_rotation_matrix(raw_surface_lattice)

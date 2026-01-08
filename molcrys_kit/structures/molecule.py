@@ -34,7 +34,9 @@ class CrystalMolecule(Atoms):
         Reference to the parent crystal structure, used for coordinate conversions.
     """
 
-    def __init__(self, atoms: Atoms = None, crystal=None, check_pbc: bool = True, **kwargs):
+    def __init__(
+        self, atoms: Atoms = None, crystal=None, check_pbc: bool = True, **kwargs
+    ):
         """
         Initialize a CrystalMolecule.
 
@@ -60,7 +62,7 @@ class CrystalMolecule(Atoms):
 
         self.crystal = crystal
         self._graph = None
-        
+
         if check_pbc:
             self._adjust_positions_for_pbc()
 
@@ -84,20 +86,30 @@ class CrystalMolecule(Atoms):
         from ..analysis.interactions import get_bonding_threshold
 
         # 1. Build a temporary connectivity graph considering PBC
-        i_list, j_list, d_list, D_vectors = neighbor_list("ijdD", self, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
-        
+        i_list, j_list, d_list, D_vectors = neighbor_list(
+            "ijdD", self, cutoff=DEFAULT_NEIGHBOR_CUTOFF
+        )
+
         g = nx.Graph()
         g.add_nodes_from(range(len(self)))
         symbols = self.get_chemical_symbols()
-        
+
         for i, j, distance, vector in zip(i_list, j_list, d_list, D_vectors):
-            if i < j: 
+            if i < j:
                 # Robust threshold calculation
-                rad_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
-                rad_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+                rad_i = (
+                    get_atomic_radius(symbols[i])
+                    if has_atomic_radius(symbols[i])
+                    else 0.5
+                )
+                rad_j = (
+                    get_atomic_radius(symbols[j])
+                    if has_atomic_radius(symbols[j])
+                    else 0.5
+                )
                 metal_i = is_metal_element(symbols[i])
                 metal_j = is_metal_element(symbols[j])
-                
+
                 thresh = get_bonding_threshold(rad_i, rad_j, metal_i, metal_j)
 
                 if distance < thresh:
@@ -107,27 +119,27 @@ class CrystalMolecule(Atoms):
         visited = {0}
         queue = [0]
         positions = self.get_positions()
-        
+
         while queue:
             u = queue.pop(0)
             for v in g.neighbors(u):
                 if v not in visited:
                     small = min(u, v)
                     large = max(u, v)
-                    
+
                     edge_data = g[small][large]
-                    vec_small_to_large = edge_data['vector']
-                    
+                    vec_small_to_large = edge_data["vector"]
+
                     if u == small:
                         shift_vec = vec_small_to_large
                     else:
                         shift_vec = -vec_small_to_large
-                    
+
                     positions[v] = positions[u] + shift_vec
-                    
+
                     visited.add(v)
                     queue.append(v)
-        
+
         self.set_positions(positions)
 
     def get_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF) -> nx.Graph:
@@ -153,16 +165,22 @@ class CrystalMolecule(Atoms):
 
         if len(self) > 1:
             temp_atoms = Atoms(
-                symbols=symbols,
-                positions=self.get_positions(),
-                pbc=False
+                symbols=symbols, positions=self.get_positions(), pbc=False
             )
-            i_list, j_list, d_list = neighbor_list("ijd", temp_atoms, cutoff=neighbor_cutoff)
+            i_list, j_list, d_list = neighbor_list(
+                "ijd", temp_atoms, cutoff=neighbor_cutoff
+            )
 
-            from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
+            from ..constants import (
+                get_atomic_radius,
+                has_atomic_radius,
+                is_metal_element,
+            )
             from ..analysis.interactions import get_bonding_threshold
 
-            radii = [get_atomic_radius(s) if has_atomic_radius(s) else 0.5 for s in symbols]
+            radii = [
+                get_atomic_radius(s) if has_atomic_radius(s) else 0.5 for s in symbols
+            ]
             is_metal_flags = [is_metal_element(s) for s in symbols]
 
             for i, j, distance in zip(i_list, j_list, d_list):
