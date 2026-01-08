@@ -13,7 +13,21 @@ from functools import reduce
 
 # Import internal modules
 from ..structures.crystal import MolecularCrystal
+from ..structures.molecule import CrystalMolecule
 from ..utils.geometry import reduce_surface_lattice
+
+# HACk
+def _check_intermidiate_structure(molecules, lattice):
+    from ..io.output import write_cif
+    crystal = MolecularCrystal(lattice, molecules)
+    from molcrys_kit.io.cif import identify_molecules
+    cc_ase = crystal.to_ase()
+    slab_molecules = identify_molecules(cc_ase)
+    mol_crys = MolecularCrystal(lattice, slab_molecules)
+    write_cif(crystal, "_slab.cif")
+    write_cif(mol_crys, "_slab2.cif")
+    print(f"Identified {crystal.get_unwrapped_molecules()}")
+    print(f"  Number of molecules: {len(slab_molecules)}, {slab_molecules}")
 
 
 def _extended_gcd(a, b):
@@ -250,9 +264,20 @@ class TopologicalSlabGenerator:
             # Store molecule with new positions and adjusted centroid
             shifted_molecules.append((mol, new_positions, adjusted_centroid))
 
+        print("Before stacking:")
+        from ..io.output import write_cif
+        _check_intermidiate_structure(
+            [CrystalMolecule(mol, self.crystal) for mol, _, _ in shifted_molecules], 
+            old_lattice
+        )
+        print("After stacking:")
+        _check_intermidiate_structure(
+            [CrystalMolecule(mol, self.crystal) for mol, _, _ in shifted_molecules], 
+            new_lattice
+        )
         # Now stack the molecules to create multiple layers in Cartesian coordinates
         all_molecules_list = []
-
+        print(new_lattice)
         for layer_idx in range(layers):
             for mol, positions, _ in shifted_molecules:
                 # Calculate the z-shift for this layer (applying the tilted stacking offset)
@@ -272,12 +297,16 @@ class TopologicalSlabGenerator:
         total_stacking_vector = layers * new_lattice[2]
         slab_thickness = abs(np.dot(total_stacking_vector, normal_vector))
 
-        # Define the final output lattice where a and b are reduced surface vectors
-        # and c is the orthogonal vacuum vector
+        crystal_c_vector = layers * new_lattice[2]
+        projection = np.dot(crystal_c_vector, normal_vector)
+        vacuum_vector = vacuum * normal_vector
+        if projection < 0:
+            vacuum_vector = -vacuum * normal_vector
+        else:
+            vacuum_vector = vacuum * normal_vector
+        
         output_lattice = new_lattice.copy()
-        output_lattice[2] = (
-            slab_thickness + vacuum
-        ) * normal_vector  # Replace the c vector with the orthogonal one
+        output_lattice[2] = crystal_c_vector + vacuum_vector
 
         # Calculate the minimum z-coordinate of all atoms in the slab
         all_positions = []
@@ -292,40 +321,15 @@ class TopologicalSlabGenerator:
         shift_vector = np.array([0.0, 0.0, -min_z + 0.05])  # small margin to avoid atoms at exactly 0
         for mol in all_molecules_list:
             mol.positions += shift_vector
+            mol.set_cell(np.zeros((3, 3)))
+            mol.set_pbc([False, False, False])
 
-        # Pre-calculate the inverse of the output lattice for efficiency
-        inv_output_lattice = np.linalg.inv(output_lattice)
-
-        # Apply selective wrapping to maintain molecular integrity
-        for mol in all_molecules_list:
-            # Get positions of all atoms in the molecule
-            positions = mol.get_positions()
-            
-            # Calculate molecular centroid
-            centroid_cart = mol.get_centroid()
-            
-            # Convert centroid to fractional coordinates of the output lattice
-            centroid_frac = np.dot(centroid_cart, inv_output_lattice)
-            
-            # Apply wrapping only to X and Y components (indices 0 and 1)
-            wrapped_centroid_frac = centroid_frac.copy()
-            wrapped_centroid_frac[0] = wrapped_centroid_frac[0] - np.floor(wrapped_centroid_frac[0])
-            wrapped_centroid_frac[1] = wrapped_centroid_frac[1] - np.floor(wrapped_centroid_frac[1])
-            # Do NOT wrap Z component (index 2) - leave it as is
-            
-            # Calculate the shift vector to move the centroid to the wrapped position in X and Y
-            target_centroid_cart = np.dot(wrapped_centroid_frac, output_lattice)
-            shift_vector = target_centroid_cart - centroid_cart
-            
-            # Apply the same shift to all atoms in the molecule to maintain molecular integrity
-            new_positions = positions + shift_vector
-            mol.set_positions(new_positions)
 
         # Create the final molecular crystal with the output lattice and processed molecules
         slab = MolecularCrystal(
             lattice=output_lattice,
             molecules=all_molecules_list,  # Use the processed molecules
-            pbc=(True, True, False),  # PBC is False in the surface normal (z) direction
+            pbc=(True, True, True),  # PBC is False in the surface normal (z) direction
         )
 
         return slab
