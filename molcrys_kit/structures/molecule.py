@@ -15,6 +15,7 @@ from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
     is_metal_element,
+    DEFAULT_NEIGHBOR_CUTOFF,
 )
 from ..utils.geometry import minimum_image_vector
 
@@ -77,9 +78,8 @@ class CrystalMolecule(Atoms):
             return
 
         # 1. Build a temporary connectivity graph considering PBC
-        # We use a slightly generous cutoff to ensure we catch bonded atoms across boundaries
-        cutoff = 3.5 
-        i_list, j_list, d_list = neighbor_list("ijd", self, cutoff=cutoff)
+        # We use the same cutoff as DEFAULT_NEIGHBOR_CUTOFF for consistency
+        i_list, j_list, d_list, D_list = neighbor_list("ijdD", self, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
         
         # Build graph
         g = nx.Graph()
@@ -88,9 +88,9 @@ class CrystalMolecule(Atoms):
         # Filter edges roughly to avoid non-bonded interactions
         # (This is a simplified check, relying on the fact that bonded atoms are usually < 2.0-2.5A)
         # Ideally we reuse the robust bonding logic, but here we just need topology.
-        for i, j, d in zip(i_list, j_list, d_list):
-            if i != j and d < 2.5: # Generous upper bound for most covalent bonds
-                g.add_edge(i, j)
+        for i, j, distance, vector in zip(i_list, j_list, d_list, D_list):
+            if i != j and distance < 2.5: # Generous upper bound for most covalent bonds
+                g.add_edge(i, j, distance=distance, vector=vector)
 
         # 2. Unwrap using BFS from node 0
         # This ensures we follow the chain of atoms rather than collapsing to a single center
@@ -108,18 +108,17 @@ class CrystalMolecule(Atoms):
             u = queue.pop(0)
             for v in g.neighbors(u):
                 if v not in visited:
-                    # Calculate vector from u to v
-                    diff_cart = positions[v] - positions[u]
+                    # OPTIMIZATION: Use pre-calculated MIC vector
+                    edge_data = g[u][v]
+                    mic_vector = edge_data['vector']
                     
-                    # Transform to fractional
-                    diff_frac = np.dot(diff_cart, inv_cell)
-                    
-                    # Use robust Minimum Image Vector (handling non-orthogonal cells)
-                    # This replaces the naive round() method
-                    mic_vector_cart = minimum_image_vector(diff_frac, cell)
-                    
-                    # Update position of v relative to u
-                    positions[v] = positions[u] + mic_vector_cart
+                    # Adjust sign based on storage direction (i < j)
+                    if u < v:
+                        # u is i, v is j: vector is correct
+                        positions[v] = positions[u] + mic_vector
+                    else:
+                        # u is j, v is i: vector is reversed
+                        positions[v] = positions[u] - mic_vector
                     
                     visited.add(v)
                     queue.append(v)

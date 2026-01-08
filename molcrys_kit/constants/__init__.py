@@ -122,6 +122,8 @@ METAL_ELEMENTS = {
 METAL_THRESHOLD_FACTOR = 0.35
 NON_METAL_THRESHOLD_FACTOR = 1.5
 
+DEFAULT_NEIGHBOR_CUTOFF = 3.5
+
 
 def get_atomic_mass(symbol: str) -> float:
     """
