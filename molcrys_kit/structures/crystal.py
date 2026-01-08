@@ -6,12 +6,21 @@ for molecular crystals.
 """
 
 import numpy as np
+import networkx as nx
+
 from typing import List, Tuple
 
 from ase import Atoms
+from ase.neighborlist import neighbor_list
 
 from .molecule import CrystalMolecule
-from ..constants import ATOMIC_RADII
+from ..constants import (
+    ATOMIC_RADII, 
+    DEFAULT_NEIGHBOR_CUTOFF,
+    get_atomic_radius, 
+    has_atomic_radius, 
+    is_metal_element
+)
 import itertools
 
 
@@ -30,11 +39,11 @@ class MolecularCrystal:
     """
 
     def __init__(
-        self,
-        lattice: np.ndarray,
-        molecules: List[Atoms],
-        pbc: Tuple[bool, bool, bool] = (True, True, True),
-    ):
+            self,
+            lattice: np.ndarray,
+            molecules: List[Atoms],
+            pbc: Tuple[bool, bool, bool] = (True, True, True),
+        ):
         """
         Initialize a MolecularCrystal.
 
@@ -48,9 +57,22 @@ class MolecularCrystal:
             Periodic boundary conditions along each lattice vector.
         """
         self.lattice = np.array(lattice)
-        # Wrap each ASE Atoms object in a CrystalMolecule
-        self.molecules = [CrystalMolecule(mol, self) for mol in molecules]
         self.pbc = pbc
+
+        # Wrap each ASE Atoms object in a CrystalMolecule
+        self.molecules = []
+        for mol in molecules:
+            if isinstance(mol, CrystalMolecule):
+                # If it's already a CrystalMolecule, just update the reference
+                # We assume it's already unwrapped correctly.
+                new_mol = mol.copy() # Copy ensures we don't mutate the input list objects unexpectedly
+                new_mol.crystal = self
+                # IMPORTANT: copy() logic in CrystalMolecule needs to respect unwrapped state, 
+                # but here we manually append to list.
+                self.molecules.append(new_mol)
+            else:
+                # If it's a raw ASE Atoms, wrap it
+                self.molecules.append(CrystalMolecule(mol, self))
 
     def __repr__(self):
         """String representation of the molecular crystal."""
@@ -264,76 +286,77 @@ class MolecularCrystal:
     def get_unwrapped_molecules(self) -> List[CrystalMolecule]:
         """
         Reconstruct whole molecules across periodic boundaries to form continuous molecules.
-
-        This method performs a graph traversal (BFS) to unwrap molecules that span
-        periodic boundaries, ensuring covalent bonds remain intact.
-
-        Returns
-        -------
-        List[CrystalMolecule]
-            List of new CrystalMolecule objects with continuous coordinates.
+        
+        Uses robust bonding thresholds instead of hardcoded cutoffs to ensure consistency
+        with molecule identification logic.
         """
+        from ..analysis.interactions import get_bonding_threshold
+
         unwrapped_molecules = []
 
-        # Pre-calculate inverse lattice matrix for efficiency
-        inv_lattice = np.linalg.inv(self.lattice)
-
-        # Process each molecule
         for molecule in self.molecules:
-            # Create a copy to work with
-            mol_copy = molecule.copy()
+            # 1. Prepare a temp object with the CRYSTAL's lattice/PBC
+            temp_atoms = molecule.to_ase()
+            temp_atoms.set_cell(self.lattice)
+            temp_atoms.set_pbc(self.pbc)
+            
+            symbols = temp_atoms.get_chemical_symbols()
+            
+            # 2. Use neighbor_list('D') to get exact vectors
+            # Use a slightly larger cutoff to catch all potential bonds
+            i_list, j_list, d_list, D_vectors = neighbor_list("ijdD", temp_atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
+            
+            # 3. Build a temporary graph to traverse
+            g = nx.Graph()
+            g.add_nodes_from(range(len(temp_atoms)))
+            
+            # Add edges based on robust bonding threshold
+            for k, (u, v, d_vec, dist) in enumerate(zip(i_list, j_list, D_vectors, d_list)):
+                if u < v:
+                    # Calculate threshold dynamically
+                    rad_u = get_atomic_radius(symbols[u]) if has_atomic_radius(symbols[u]) else 0.5
+                    rad_v = get_atomic_radius(symbols[v]) if has_atomic_radius(symbols[v]) else 0.5
+                    metal_u = is_metal_element(symbols[u])
+                    metal_v = is_metal_element(symbols[v])
+                    
+                    thresh = get_bonding_threshold(rad_u, rad_v, metal_u, metal_v)
+                    
+                    # Use robust threshold check instead of hardcoded 2.5
+                    if dist < thresh: 
+                         g.add_edge(u, v, vector=d_vec)
 
-            # Get positions and graph
-            positions = mol_copy.get_positions()
-            graph = molecule.graph
-
-            # Track visited atoms to avoid reprocessing
-            visited = set()
-
-            # Process each connected component in the molecule
-            for node in graph.nodes():
-                if node in visited:
-                    continue
-
-                # BFS traversal starting from this node
-                queue = [node]
-                visited.add(node)
-
-                while queue:
-                    u = queue.pop(0)
-
-                    # Check all neighbors of u
-                    for v in graph.neighbors(u):
-                        if v not in visited:
-                            # Calculate distance vector
-                            d = positions[v] - positions[u]
-
-                            # Apply Minimum Image Convention (MIC)
-                            # Convert to fractional coordinates using pre-calculated inv_lattice
-                            frac_d = np.dot(d, inv_lattice)
-
-                            # Apply MIC in fractional coordinates
-                            frac_d = frac_d - np.round(frac_d)
-
-                            # Convert back to Cartesian coordinates
-                            d = np.dot(frac_d, self.lattice)
-
-                            # Update position of v relative to u
-                            positions[v] = positions[u] + d
-
-                            # Mark as visited and add to queue
-                            visited.add(v)
-                            queue.append(v)
-
-            # Update positions in the molecule copy
-            mol_copy.set_positions(positions)
-
-            # Create a new CrystalMolecule with unwrapped coordinates
-            unwrapped_molecule = CrystalMolecule(mol_copy, self)
+            # 4. BFS Traversal to unwrap
+            visited = {0}
+            queue = [0]
+            positions = temp_atoms.get_positions()
+            
+            while queue:
+                u = queue.pop(0)
+                for v in g.neighbors(u):
+                    if v not in visited:
+                        # Retrieve the stored vector
+                        small = min(u, v)
+                        large = max(u, v)
+                        edge_data = g.get_edge_data(small, large)
+                        vec_small_to_large = edge_data['vector']
+                        
+                        if u == small:
+                            shift_vec = vec_small_to_large
+                        else:
+                            shift_vec = -vec_small_to_large
+                        
+                        positions[v] = positions[u] + shift_vec
+                        visited.add(v)
+                        queue.append(v)
+            
+            # 5. Create new CrystalMolecule
+            new_mol_atoms = temp_atoms.copy()
+            new_mol_atoms.set_positions(positions)
+            unwrapped_molecule = CrystalMolecule(new_mol_atoms, self, check_pbc=False)
             unwrapped_molecules.append(unwrapped_molecule)
 
         return unwrapped_molecules
-
+    
     def to_ase(self) -> Atoms:
         """
         Convert the MolecularCrystal to an ASE Atoms object.

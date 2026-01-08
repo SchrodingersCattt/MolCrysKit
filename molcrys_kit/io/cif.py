@@ -10,6 +10,7 @@ import warnings
 import re
 import numpy as np
 import networkx as nx
+from collections import deque
 from dataclasses import dataclass
 
 from pymatgen.io.cif import CifParser
@@ -26,7 +27,116 @@ from ..constants import (
     has_atomic_radius,
     is_metal_element,
 )
-from ..utils.geometry import minimum_image_distance
+from ..utils.geometry import minimum_image_vector, minimum_image_distance
+from ..constants import DEFAULT_NEIGHBOR_CUTOFF
+
+
+def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[CrystalMolecule]:
+    """
+    Identify discrete molecular units using robust vector-based unwrapping.
+    
+    This implementation solves the "Large Beta Angle" problem by strictly using 
+    the bond vectors identified by ASE's neighbor list logic, rather than 
+    guessing nearest neighbors via Minimum Image Convention.
+    """
+    crystal_graph = nx.Graph()
+    symbols = atoms.get_chemical_symbols()
+    
+    for i in range(len(atoms)):
+        crystal_graph.add_node(i, symbol=symbols[i])
+
+    # -------------------------------------------------------------------------
+    # KEY FIX: Request 'D' vector from neighbor_list
+    # 'D' is the vector pointing from i to j (taking into account PBC).
+    # D_ij = r_j - r_i + shift_vector
+    # -------------------------------------------------------------------------
+    i_list, j_list, d_list, D_vectors = neighbor_list("ijdD", atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
+    
+    from ..analysis.interactions import get_bonding_threshold
+
+    for idx, (i, j, distance, D_vec) in enumerate(zip(i_list, j_list, d_list, D_vectors)):
+        if i >= j: continue 
+        
+        pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
+
+        if bond_thresholds and (pair_key1 in bond_thresholds or pair_key2 in bond_thresholds):
+            threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
+        else:
+            radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
+            radius_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+            is_metal_i, is_metal_j = is_metal_element(symbols[i]), is_metal_element(symbols[j])
+            threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
+
+        if distance < threshold:
+            # Store the EXACT vector that connects i to j
+            crystal_graph.add_edge(i, j, vector=D_vec)
+
+    components = list(nx.connected_components(crystal_graph))
+    molecules = []
+
+    for component in components:
+        atom_indices = list(component)
+        mol_atoms = atoms[atom_indices]
+        
+        # Local (molecule) index -> Global (crystal) index map
+        local_to_global = {i: idx for i, idx in enumerate(atom_indices)}
+        
+        # Reconstruct molecule topology
+        if len(atom_indices) > 1:
+            curr_positions = mol_atoms.get_positions()
+            visited = {0}
+            queue = [0]
+            
+            while queue:
+                u_local = queue.pop(0)
+                u_global = local_to_global[u_local]
+                
+                # Check neighbors in global graph
+                for v_global in crystal_graph.neighbors(u_global):
+                    if v_global in atom_indices:
+                        v_local = atom_indices.index(v_global)
+                        
+                        if v_local not in visited:
+                            # Retrieve the stored bond vector
+                            edge_data = crystal_graph.get_edge_data(u_global, v_global)
+                            d_vec = edge_data['vector']
+                            
+                            # Determine direction:
+                            # neighbor_list returns D_ij for the pair it found.
+                            # We stored D_vec. If graph is undirected, we need to know if 
+                            # D_vec corresponds to u->v or v->u.
+                            # 
+                            # However, neighbor_list guarantees i < j usually? No.
+                            # But in our loop `if i >= j: continue`, we only added edges where i < j.
+                            # So the stored `vector` is definitely from smaller_index -> larger_index.
+                            
+                            idx1 = min(u_global, v_global)
+                            idx2 = max(u_global, v_global)
+                            
+                            # The stored vector is from idx1 -> idx2
+                            vector_1_to_2 = d_vec
+                            
+                            if u_global == idx1:
+                                # We are moving u -> v (small -> large)
+                                shift = vector_1_to_2
+                            else:
+                                # We are moving u -> v (large -> small)
+                                shift = -vector_1_to_2
+                            
+                            # Apply exact shift. No guessing, no MIC.
+                            curr_positions[v_local] = curr_positions[u_local] + shift
+                            
+                            visited.add(v_local)
+                            queue.append(v_local)
+            
+            mol_atoms.set_positions(curr_positions)
+
+        # Create molecule, explicitly disabling internal PBC checks
+        # because we have already unwrapped it perfectly.
+        molecule = CrystalMolecule(mol_atoms, check_pbc=False)
+        molecules.append(molecule)
+
+    return molecules
 
 
 @dataclass
@@ -496,94 +606,3 @@ def parse_cif_advanced(
     )
     return read_mol_crystal(filepath, bond_thresholds)
 
-
-def identify_molecules(
-    atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None
-) -> List[CrystalMolecule]:
-    """
-    Identify discrete molecular units in a crystal using graph-based approach.
-
-    This function builds a graph of all atoms in the crystal structure, connecting
-    atoms that are likely bonded based on distance criteria. Connected components
-    in this graph represent individual molecules.
-
-    Parameters
-    ----------
-    atoms : Atoms
-        ASE Atoms object representing the crystal structure.
-    bond_thresholds : dict, optional
-        Custom dictionary with atom pairs as keys and bonding thresholds as values.
-        Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
-        be the distance thresholds for bonding in Angstroms.
-
-    Returns
-    -------
-    List[CrystalMolecule]
-        List of CrystalMolecule objects, each representing a molecular unit.
-    """
-
-    # Build a global graph for the entire crystal structure
-    crystal_graph = nx.Graph()
-
-    # Add all atoms as nodes
-    symbols = atoms.get_chemical_symbols()
-    positions = atoms.get_positions()
-
-    for i in range(len(atoms)):
-        crystal_graph.add_node(i, symbol=symbols[i], position=positions[i])
-
-    # Use ASE neighbor list for efficient bond detection
-    i_list, j_list, d_list = neighbor_list(
-        "ijd", atoms, cutoff=3.0
-    )  # 3Å should cover most bonds
-
-    # Add edges (bonds) based on distance criteria
-    for i, j, distance in zip(i_list, j_list, d_list):
-        # Check if custom threshold is provided
-        pair_key1 = (symbols[i], symbols[j])
-        pair_key2 = (symbols[j], symbols[i])
-
-        if bond_thresholds and (
-            pair_key1 in bond_thresholds or pair_key2 in bond_thresholds
-        ):
-            # Use custom threshold if provided
-            threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
-        else:
-            # Determine threshold based on atomic radii and element types
-            radius_i = (
-                get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
-            )
-            radius_j = (
-                get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
-            )
-            is_metal_i = is_metal_element(symbols[i])
-            is_metal_j = is_metal_element(symbols[j])
-
-            # Calculate bonding threshold using the shared function
-            from ..analysis.interactions import get_bonding_threshold
-
-            threshold = get_bonding_threshold(
-                radius_i, radius_j, is_metal_i, is_metal_j
-            )
-
-        # Add edge if atoms are close enough to be bonded
-        if distance < threshold:
-            crystal_graph.add_edge(i, j, distance=distance)
-
-    # Find connected components (molecular units)
-    components = list(nx.connected_components(crystal_graph))
-
-    # Create separate CrystalMolecule objects for each molecular unit
-    molecules = []
-    for component in components:
-        # Get indices of atoms in this component
-        atom_indices = list(component)
-
-        # Extract atoms for this molecule
-        molecule_atoms = atoms[atom_indices]
-
-        # Create CrystalMolecule object
-        molecule = CrystalMolecule(molecule_atoms)
-        molecules.append(molecule)
-
-    return molecules

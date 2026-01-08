@@ -55,6 +55,33 @@ class TopologicalSlabGenerator:
         """
         self.crystal = crystal
 
+    @staticmethod
+    def _get_standard_rotation_matrix(lattice: np.ndarray) -> np.ndarray:
+        """
+        Returns a rotation matrix M such that:
+        - lattice[0] @ M aligns with X axis
+        - lattice[1] @ M lies in XY plane (Y >= 0)
+        - lattice[2] @ M points generally +Z
+        All input/output are row vectors. Use right-multiplication: rotated = original @ M
+        """
+        a = lattice[0]
+        b = lattice[1]
+        # Normalize a to X
+        x_axis = a / np.linalg.norm(a)
+        # Remove x component from b, then normalize to get Y
+        b_proj = b - np.dot(b, x_axis) * x_axis
+        y_axis = b_proj / np.linalg.norm(b_proj)
+        # Z is right-handed
+        z_axis = np.cross(x_axis, y_axis)
+        z_axis /= np.linalg.norm(z_axis)
+        # Ensure z points generally +Z (not -Z)
+        if z_axis[2] < 0:
+            y_axis = -y_axis
+            z_axis = -z_axis
+        # Compose rotation matrix (columns are new axes)
+        M = np.stack([x_axis, y_axis, z_axis], axis=1)
+        return M
+
     def _get_primitive_surface_vectors(self, h: int, k: int, l: int) -> np.ndarray:
         """
         Derives the integer basis transformation matrix (3x3) for the surface.
@@ -190,140 +217,98 @@ class TopologicalSlabGenerator:
         """
         h, k, l = miller_indices
 
-        # Get the transformation matrix
+        # 1. Get primitive surface transformation matrix
         transformation_matrix = self._get_primitive_surface_vectors(h, k, l)
-
-        # Calculate the new lattice
         old_lattice = self.crystal.lattice
-        new_lattice = (
-            transformation_matrix.T @ old_lattice
-        )  # New basis vectors in Cartesian
+        raw_surface_lattice = transformation_matrix.T @ old_lattice  # shape (3,3), row vectors
 
-        # Pre-calculate the inverse of the new lattice to avoid repeated matrix inversions
-        inv_new_lattice = np.linalg.inv(new_lattice)
+        # 2. Rotate to standard orientation
+        M = self._get_standard_rotation_matrix(raw_surface_lattice)
+        rotated_lattice = raw_surface_lattice @ M  # shape (3,3), row vectors
 
-        # Calculate d_spacing (thickness of a single layer)
-        cross_product = np.cross(new_lattice[0], new_lattice[1])
-        normal_vector = cross_product / np.linalg.norm(cross_product)
-        d_spacing = abs(np.dot(new_lattice[2], normal_vector))
+        # 3. Get stacking vector in rotated frame
+        stacking_vector = rotated_lattice[2]
 
-        # Determine number of layers based on parameters
-        if min_thickness is not None:
-            layers = max(1, math.ceil(min_thickness / d_spacing))
-
-        # Get unwrapped molecules to handle periodic boundary conditions correctly
+        # 4. Get unwrapped molecules and rotate their positions
         unwrapped_molecules = self.crystal.get_unwrapped_molecules()
-
-        # Transform all molecular centroids to the new fractional coordinate system
-        # Using pre-calculated inverse matrix for efficiency
-        transformed_molecules = []
-
+        rotated_mols = []
         for mol in unwrapped_molecules:
-            # Get the centroid of the molecule in Cartesian coordinates
-            centroid_cart = mol.get_centroid()
+            positions = mol.get_positions() @ M  # right-mult
+            mol_rot = mol.copy()
+            mol_rot.positions = positions
+            rotated_mols.append(mol_rot)
 
-            # Convert to new fractional coordinates using the pre-calculated inverse
-            centroid_frac_new = np.dot(centroid_cart, inv_new_lattice)
+        # 5. Compute inverse lattice for fractional coordinates
+        inv_rotated_lattice = np.linalg.inv(rotated_lattice)
 
-            # Store the transformed centroid along with the molecule data
-            transformed_molecules.append((mol, centroid_frac_new))
+        # 6. Shift all molecules to fundamental layer using rotated stacking vector
+        shifted_mols = []
+        for mol in rotated_mols:
+            centroid = mol.get_centroid()
+            frac = centroid @ inv_rotated_lattice
+            z_frac = frac[2]
+            shift_vec = -np.floor(z_frac) * stacking_vector
+            mol_shift = mol.copy()
+            mol_shift.positions = mol_shift.get_positions() + shift_vec
+            shifted_mols.append(mol_shift)
 
-        # Shift molecules to the fundamental layer (0 <= z < 1)
-        shifted_molecules = []
-        for mol, centroid_frac_new in transformed_molecules:
-            # Shift only the z-coordinate (index 2) to be in [0, 1)
-            # Use modulo to map to [0, 1) range
-            z_new = centroid_frac_new[2] % 1.0
-            adjusted_centroid = centroid_frac_new.copy()
-            adjusted_centroid[2] = z_new
+        # 7. Stack layers in rotated frame
+        all_mols = []
+        for i in range(layers):
+            layer_shift = i * stacking_vector
+            for mol in shifted_mols:
+                mol_layer = mol.copy()
+                mol_layer.positions = mol_layer.get_positions() + layer_shift
+                all_mols.append(mol_layer)
 
-            # Shift all atoms in the molecule by the same amount
-            positions = mol.get_positions()
-            # Calculate shift in Cartesian coordinates
-            shift_vector = (z_new - centroid_frac_new[2]) * new_lattice[2]
-            new_positions = positions + shift_vector
+        # 8. Compute slab thickness (project stacking vector onto normal)
+        a, b, c = rotated_lattice
+        normal = np.cross(a, b)
+        normal /= np.linalg.norm(normal)
+        d_spacing = abs(np.dot(stacking_vector, normal))
+        slab_thickness = layers * d_spacing
 
-            # Store molecule with new positions and adjusted centroid
-            shifted_molecules.append((mol, new_positions, adjusted_centroid))
+        # 9. Define final orthogonal lattice: a, b as before, c = [0,0,slab_thickness+vacuum]
+        output_lattice = rotated_lattice.copy()
+        output_lattice[2] = np.array([0, 0, slab_thickness + vacuum])
 
-        # Now stack the molecules to create multiple layers in Cartesian coordinates
-        all_molecules_list = []
+        # 10. Center slab in XY: move geometric center to (0.5, 0.5) fractional
+        all_positions = np.vstack([mol.get_positions() for mol in all_mols])
+        xy_cart_center = np.mean(all_positions[:, :2], axis=0)
+        # Convert to fractional
+        inv_ab = np.linalg.inv(output_lattice[:2, :2])
+        xy_frac_center = xy_cart_center @ inv_ab
+        shift_frac = np.array([0.5, 0.5]) - xy_frac_center
+        shift_cart = shift_frac @ output_lattice[:2, :2]
+        for mol in all_mols:
+            mol.positions[:, :2] += shift_cart
 
-        for layer_idx in range(layers):
-            for mol, positions, _ in shifted_molecules:
-                # Calculate the z-shift for this layer (applying the tilted stacking offset)
-                layer_shift = layer_idx * new_lattice[2]  # Only z-direction shift
-                layer_positions = positions + layer_shift
-
-                # Create a copy of the molecule with the new positions
-                layer_mol = mol.copy()
-                layer_mol.positions = layer_positions
-                all_molecules_list.append(layer_mol)
-
-        # Calculate the normal vector to the surface (a × b)
-        cross_product = np.cross(new_lattice[0], new_lattice[1])
-        normal_vector = cross_product / np.linalg.norm(cross_product)
-
-        # Calculate the projected slab thickness
-        total_stacking_vector = layers * new_lattice[2]
-        slab_thickness = abs(np.dot(total_stacking_vector, normal_vector))
-
-        # Define the final output lattice where a and b are reduced surface vectors
-        # and c is the orthogonal vacuum vector
-        output_lattice = new_lattice.copy()
-        output_lattice[2] = (
-            slab_thickness + vacuum
-        ) * normal_vector  # Replace the c vector with the orthogonal one
-
-        # Calculate the minimum z-coordinate of all atoms in the slab
-        all_positions = []
-        for mol in all_molecules_list:
-            all_positions.extend(mol.get_positions())
-        all_positions = np.array(all_positions)
-
-        # Calculate minimum z coordinate
-        min_z = np.min(all_positions[:, 2]) if len(all_positions) > 0 else 0.0
-
-        # Apply "slab-at-bottom" shift to ensure all z-coordinates are positive
-        shift_vector = np.array([0.0, 0.0, -min_z + 0.05])  # small margin to avoid atoms at exactly 0
-        for mol in all_molecules_list:
-            mol.positions += shift_vector
-
-        # Pre-calculate the inverse of the output lattice for efficiency
+        # 11. Rigid body wrapping in X/Y only
         inv_output_lattice = np.linalg.inv(output_lattice)
+        for mol in all_mols:
+            centroid = mol.get_centroid()
+            frac = centroid @ inv_output_lattice
+            wrapped_frac = frac.copy()
+            wrapped_frac[0] = wrapped_frac[0] % 1.0
+            wrapped_frac[1] = wrapped_frac[1] % 1.0
+            # Z unchanged
+            target_centroid = wrapped_frac @ output_lattice
+            shift = target_centroid - centroid
+            mol.set_positions(mol.get_positions() + shift)
 
-        # Apply selective wrapping to maintain molecular integrity
-        for mol in all_molecules_list:
-            # Get positions of all atoms in the molecule
-            positions = mol.get_positions()
-            
-            # Calculate molecular centroid
-            centroid_cart = mol.get_centroid()
-            
-            # Convert centroid to fractional coordinates of the output lattice
-            centroid_frac = np.dot(centroid_cart, inv_output_lattice)
-            
-            # Apply wrapping only to X and Y components (indices 0 and 1)
-            wrapped_centroid_frac = centroid_frac.copy()
-            wrapped_centroid_frac[0] = wrapped_centroid_frac[0] - np.floor(wrapped_centroid_frac[0])
-            wrapped_centroid_frac[1] = wrapped_centroid_frac[1] - np.floor(wrapped_centroid_frac[1])
-            # Do NOT wrap Z component (index 2) - leave it as is
-            
-            # Calculate the shift vector to move the centroid to the wrapped position in X and Y
-            target_centroid_cart = np.dot(wrapped_centroid_frac, output_lattice)
-            shift_vector = target_centroid_cart - centroid_cart
-            
-            # Apply the same shift to all atoms in the molecule to maintain molecular integrity
-            new_positions = positions + shift_vector
-            mol.set_positions(new_positions)
+        # 12. Shift slab so minimum z is at 0.05 Å
+        all_positions = np.vstack([mol.get_positions() for mol in all_mols])
+        min_z = np.min(all_positions[:, 2]) if all_positions.size > 0 else 0.0
+        z_shift = 0.05 - min_z
+        for mol in all_mols:
+            mol.positions[:, 2] += z_shift
 
-        # Create the final molecular crystal with the output lattice and processed molecules
+        # 13. Assemble final MolecularCrystal
         slab = MolecularCrystal(
             lattice=output_lattice,
-            molecules=all_molecules_list,  # Use the processed molecules
-            pbc=(True, True, False),  # PBC is False in the surface normal (z) direction
+            molecules=all_mols,
+            pbc=(True, True, False),
         )
-
         return slab
 
 

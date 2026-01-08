@@ -15,6 +15,7 @@ from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
     is_metal_element,
+    DEFAULT_NEIGHBOR_CUTOFF,
 )
 
 
@@ -33,7 +34,7 @@ class CrystalMolecule(Atoms):
         Reference to the parent crystal structure, used for coordinate conversions.
     """
 
-    def __init__(self, atoms: Atoms = None, crystal=None, **kwargs):
+    def __init__(self, atoms: Atoms = None, crystal=None, check_pbc: bool = True, **kwargs):
         """
         Initialize a CrystalMolecule.
 
@@ -43,6 +44,9 @@ class CrystalMolecule(Atoms):
             ASE Atoms object to initialize the molecule with.
         crystal : object, optional
             Parent crystal structure containing this molecule.
+        check_pbc : bool, default True
+            Whether to check and fix PBC wrapping. Set to False if atoms are
+            already known to be contiguous (unwrapped).
         **kwargs : dict
             Additional arguments passed to ASE Atoms constructor.
         """
@@ -56,7 +60,9 @@ class CrystalMolecule(Atoms):
 
         self.crystal = crystal
         self._graph = None
-        self._adjust_positions_for_pbc()
+        
+        if check_pbc:
+            self._adjust_positions_for_pbc()
 
     def __repr__(self):
         """String representation of the crystal molecule."""
@@ -64,143 +70,107 @@ class CrystalMolecule(Atoms):
 
     def _adjust_positions_for_pbc(self):
         """
-        Adjust atomic positions to be contiguous for molecules that span periodic boundaries.
+        Adjust atomic positions to be contiguous using graph traversal logic.
+        Uses robust bonding thresholds to determine connectivity.
         """
-        # Skip adjustment if no cell is defined or only one atom
         if len(self) <= 1 or not self.get_pbc().any():
             return
 
-        # Get positions
-        positions = self.get_positions()
-
-        # Use the first atom as reference
-        reference_pos = positions[0]
-
-        # Adjust all other atoms to be close to the reference atom considering PBC
         cell = self.get_cell()
-        # Check if cell is defined (not all zeros)
-        if np.allclose(cell, 0):
+        if np.allclose(cell, 0) or np.abs(np.linalg.det(cell)) < 1e-6:
             return
 
-        for i in range(1, len(positions)):
-            # Calculate the difference vector
-            diff = positions[i] - reference_pos
+        # Import locally to avoid circular imports
+        from ..analysis.interactions import get_bonding_threshold
 
-            # Apply minimum image convention
-            # Transform to fractional coordinates
-            try:
-                frac_diff = np.linalg.solve(cell.T, diff)
-            except np.linalg.LinAlgError:
-                # If cell is singular, skip PBC adjustment
-                return
+        # 1. Build a temporary connectivity graph considering PBC
+        i_list, j_list, d_list, D_vectors = neighbor_list("ijdD", self, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
+        
+        g = nx.Graph()
+        g.add_nodes_from(range(len(self)))
+        symbols = self.get_chemical_symbols()
+        
+        for i, j, distance, vector in zip(i_list, j_list, d_list, D_vectors):
+            if i < j: 
+                # Robust threshold calculation
+                rad_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
+                rad_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+                metal_i = is_metal_element(symbols[i])
+                metal_j = is_metal_element(symbols[j])
+                
+                thresh = get_bonding_threshold(rad_i, rad_j, metal_i, metal_j)
 
-            # Wrap fractional coordinates to [-0.5, 0.5]
-            frac_diff = frac_diff - np.round(frac_diff)
+                if distance < thresh:
+                    g.add_edge(i, j, distance=distance, vector=vector)
 
-            # Transform back to Cartesian coordinates
-            diff_wrapped = np.dot(frac_diff, cell)
-
-            # Update position
-            positions[i] = reference_pos + diff_wrapped
-
-        # Set the adjusted positions
+        # 2. Unwrap using BFS from node 0
+        visited = {0}
+        queue = [0]
+        positions = self.get_positions()
+        
+        while queue:
+            u = queue.pop(0)
+            for v in g.neighbors(u):
+                if v not in visited:
+                    small = min(u, v)
+                    large = max(u, v)
+                    
+                    edge_data = g[small][large]
+                    vec_small_to_large = edge_data['vector']
+                    
+                    if u == small:
+                        shift_vec = vec_small_to_large
+                    else:
+                        shift_vec = -vec_small_to_large
+                    
+                    positions[v] = positions[u] + shift_vec
+                    
+                    visited.add(v)
+                    queue.append(v)
+        
         self.set_positions(positions)
 
-    def get_graph(self, neighbor_cutoff: float = 3.0) -> nx.Graph:
-        """
-        Get the graph representation of the molecule's internal connectivity.
-
-        Parameters
-        ----------
-        neighbor_cutoff : float, default 3.0
-            The radial cutoff for initial neighbor searching in Angstroms.
-
-        Returns
-        -------
-        networkx.Graph
-            Graph with atoms as nodes and bonds as edges.
-        """
+    def get_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF) -> nx.Graph:
         if self._graph is None:
             self._build_graph(neighbor_cutoff=neighbor_cutoff)
         return self._graph
 
     @property
     def graph(self) -> nx.Graph:
-        """
-        Get the graph representation of the molecule's internal connectivity.
-
-        Returns
-        -------
-        networkx.Graph
-            Graph with atoms as nodes and bonds as edges.
-        """
         if self._graph is None:
             self._build_graph()
         return self._graph
 
-    def build_graph(self, neighbor_cutoff: float = 3.0) -> nx.Graph:
-        """
-        Build and return the graph representation of the molecule with custom cutoff.
-        
-        Parameters
-        ----------
-        neighbor_cutoff : float, default 3.0
-            The radial cutoff for initial neighbor searching in Angstroms.
-            
-        Returns
-        -------
-        networkx.Graph
-            Graph with atoms as nodes and bonds as edges.
-        """
+    def build_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF) -> nx.Graph:
         self._build_graph(neighbor_cutoff)
         return self._graph
 
-    def _build_graph(self, neighbor_cutoff: float = 3.0):
-        """
-        Build the graph representation of the molecule's internal connectivity.
-        Optimized using ASE neighbor lists for O(N) scaling.
-
-        Parameters
-        ----------
-        neighbor_cutoff : float, default 3.0
-            The radial cutoff for initial neighbor searching in Angstroms.
-        """
+    def _build_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF):
         self._graph = nx.Graph()
-
-        # Add nodes (atoms)
         symbols = self.get_chemical_symbols()
         for i, symbol in enumerate(symbols):
             self._graph.add_node(i, symbol=symbol)
 
         if len(self) > 1:
-            # Create a temporary ASE Atoms object for neighbor searching
-            # pbc=False as this is internal molecular connectivity
             temp_atoms = Atoms(
                 symbols=symbols,
                 positions=self.get_positions(),
                 pbc=False
             )
-            
-            # Efficient neighbor search using Cell Lists
             i_list, j_list, d_list = neighbor_list("ijd", temp_atoms, cutoff=neighbor_cutoff)
 
-            # Pre-fetch bonding properties to avoid repeated lookups
             from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
             from ..analysis.interactions import get_bonding_threshold
 
             radii = [get_atomic_radius(s) if has_atomic_radius(s) else 0.5 for s in symbols]
             is_metal_flags = [is_metal_element(s) for s in symbols]
 
-            # Process neighbor pairs
             for i, j, distance in zip(i_list, j_list, d_list):
                 if i >= j:
                     continue
-                
-                # Apply strict chemical bonding thresholds (DRY Principle)
                 threshold = get_bonding_threshold(
                     radii[i], radii[j], is_metal_flags[i], is_metal_flags[j]
                 )
-
                 if distance < threshold:
                     self._graph.add_edge(i, j, distance=distance)
 
