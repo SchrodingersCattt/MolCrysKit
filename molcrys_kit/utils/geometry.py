@@ -4,6 +4,7 @@ Geometry utilities for molecular crystals.
 This module provides coordinate transformations and geometric calculations.
 """
 
+import itertools
 import numpy as np
 from typing import List, Tuple
 from ..constants import get_atomic_mass, has_atomic_mass
@@ -149,42 +150,46 @@ def dihedral_angle(
     return angle
 
 
-import numpy as np
-import itertools
-
 def minimum_image_vector(frac_delta: np.ndarray, lattice: np.ndarray) -> np.ndarray:
     """
-    Calculate the Cartesian vector connecting two points in fractional coordinates
-    using the Minimum Image Convention. Correct for all lattice types.
-    
-    Parameters
-    ----------
-    frac_delta : np.ndarray
-        Difference vector in fractional coordinates (frac1 - frac2).
-    lattice : np.ndarray
-        3x3 lattice matrix.
-        
-    Returns
-    -------
-    np.ndarray
-        Cartesian vector corresponding to the shortest distance.
+    Vectorized Minimum Image Convention.
+    Check 27 images to find the shortest Cartesian vector.
     """
-    # 1. First approximation: simple rounding (centers around origin)
+    frac_delta = np.atleast_2d(frac_delta) # Shape becomes (N, 3)
+    
+    # 1. First approximation: simple rounding to center at origin
+    # This brings vectors roughly to [-0.5, 0.5]
     frac_delta = frac_delta - np.round(frac_delta)
     
-    # 2. Check 27 neighbors to find the true nearest image in Cartesian space
-    # This is necessary for non-orthogonal cells (monoclinic, triclinic)
+    # 2. Check 27 neighbors
+    # shifts shape: (27, 3)
     shifts = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
-    shifted_deltas = frac_delta + shifts
     
-    # Convert all candidates to Cartesian
-    cart_deltas = np.dot(shifted_deltas, lattice)
+    # Broadcasting magic:
+    # We want result shape (N, 27, 3)
+    # frac_delta[:, None, :] is (N, 1, 3)
+    # shifts[None, :, :]     is (1, 27, 3)
+    candidates_frac = frac_delta[:, None, :] + shifts[None, :, :]
     
-    # Find the one with the smallest squared norm
-    sq_dists = np.sum(cart_deltas**2, axis=1)
-    min_idx = np.argmin(sq_dists)
+    # Convert to Cartesian: (N, 27, 3) dot (3, 3) -> (N, 27, 3)
+    candidates_cart = np.dot(candidates_frac, lattice)
     
-    return cart_deltas[min_idx]
+    # Calculate squared distances: (N, 27)
+    dists_sq = np.sum(candidates_cart**2, axis=2)
+    
+    # Find index of min distance for each atom pair: (N,)
+    min_indices = np.argmin(dists_sq, axis=1)
+    
+    # Select the best vectors
+    # Advanced indexing to pick the right candidate for each row
+    n_rows = frac_delta.shape[0]
+    best_vectors = candidates_cart[np.arange(n_rows), min_indices]
+    
+    # If input was single vector, flatten back
+    if best_vectors.shape[0] == 1:
+        return best_vectors.flatten()
+        
+    return best_vectors
 
 def minimum_image_distance(
     frac1: np.ndarray, frac2: np.ndarray, lattice: np.ndarray
@@ -195,6 +200,7 @@ def minimum_image_distance(
     delta = frac1 - frac2
     min_vector = minimum_image_vector(delta, lattice)
     return np.linalg.norm(min_vector)
+
 def volume_of_cell(lattice: np.ndarray) -> float:
     """
     Calculate the volume of a unit cell.
