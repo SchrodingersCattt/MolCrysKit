@@ -313,14 +313,10 @@ class MolecularCrystal:
                             # Convert to fractional coordinates
                             frac_d = np.dot(d, inv_lattice)
 
-                            # === 致命错误修复 ===
-                            # 原代码：frac_d = frac_d - np.round(frac_d)  <-- 这行代码在单斜晶系是错的！
-                            # 新代码：调用正确的最小镜像向量计算函数
-                            d = minimum_image_vector(frac_d, self.lattice)
-                            # ===================
+                            mic_disp_cart = minimum_image_vector(frac_d, self.lattice)
 
                             # Update position of v relative to u
-                            positions[v] = positions[u] + d
+                            positions[v] = positions[u] + mic_disp_cart
 
                             # Mark as visited and add to queue
                             visited.add(v)
