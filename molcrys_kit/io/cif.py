@@ -10,6 +10,7 @@ import warnings
 import re
 import numpy as np
 import networkx as nx
+from collections import deque
 from dataclasses import dataclass
 
 from pymatgen.io.cif import CifParser
@@ -26,7 +27,7 @@ from ..constants import (
     has_atomic_radius,
     is_metal_element,
 )
-from ..utils.geometry import minimum_image_distance
+from ..utils.geometry import minimum_image_vector, minimum_image_distance
 
 
 @dataclass
@@ -497,93 +498,107 @@ def parse_cif_advanced(
     return read_mol_crystal(filepath, bond_thresholds)
 
 
-def identify_molecules(
-    atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None
-) -> List[CrystalMolecule]:
+def identify_molecules(atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None) -> List[CrystalMolecule]:
     """
-    Identify discrete molecular units in a crystal using graph-based approach.
-
-    This function builds a graph of all atoms in the crystal structure, connecting
-    atoms that are likely bonded based on distance criteria. Connected components
-    in this graph represent individual molecules.
-
-    Parameters
-    ----------
-    atoms : Atoms
-        ASE Atoms object representing the crystal structure.
-    bond_thresholds : dict, optional
-        Custom dictionary with atom pairs as keys and bonding thresholds as values.
-        Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
-        be the distance thresholds for bonding in Angstroms.
-
-    Returns
-    -------
-    List[CrystalMolecule]
-        List of CrystalMolecule objects, each representing a molecular unit.
+    Identify discrete molecular units using global graph and robust unwrapping.
     """
-
-    # Build a global graph for the entire crystal structure
     crystal_graph = nx.Graph()
-
-    # Add all atoms as nodes
     symbols = atoms.get_chemical_symbols()
     positions = atoms.get_positions()
-
+    
+    # 1. Build Global Graph
     for i in range(len(atoms)):
-        crystal_graph.add_node(i, symbol=symbols[i], position=positions[i])
+        crystal_graph.add_node(i, symbol=symbols[i])
 
-    # Use ASE neighbor list for efficient bond detection
-    i_list, j_list, d_list = neighbor_list(
-        "ijd", atoms, cutoff=3.0
-    )  # 3Å should cover most bonds
+    i_list, j_list, d_list = neighbor_list("ijd", atoms, cutoff=3.0)
+    
+    # Import inside to avoid circular imports
+    from ..analysis.interactions import get_bonding_threshold
 
-    # Add edges (bonds) based on distance criteria
     for i, j, distance in zip(i_list, j_list, d_list):
-        # Check if custom threshold is provided
-        pair_key1 = (symbols[i], symbols[j])
-        pair_key2 = (symbols[j], symbols[i])
+        if i >= j: continue 
+        pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
 
-        if bond_thresholds and (
-            pair_key1 in bond_thresholds or pair_key2 in bond_thresholds
-        ):
-            # Use custom threshold if provided
+        if bond_thresholds and (pair_key1 in bond_thresholds or pair_key2 in bond_thresholds):
             threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
         else:
-            # Determine threshold based on atomic radii and element types
-            radius_i = (
-                get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
-            )
-            radius_j = (
-                get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
-            )
-            is_metal_i = is_metal_element(symbols[i])
-            is_metal_j = is_metal_element(symbols[j])
+            radius_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
+            radius_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+            is_metal_i, is_metal_j = is_metal_element(symbols[i]), is_metal_element(symbols[j])
+            threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
 
-            # Calculate bonding threshold using the shared function
-            from ..analysis.interactions import get_bonding_threshold
-
-            threshold = get_bonding_threshold(
-                radius_i, radius_j, is_metal_i, is_metal_j
-            )
-
-        # Add edge if atoms are close enough to be bonded
         if distance < threshold:
             crystal_graph.add_edge(i, j, distance=distance)
 
-    # Find connected components (molecular units)
+    # 2. Extract Connected Components
     components = list(nx.connected_components(crystal_graph))
-
-    # Create separate CrystalMolecule objects for each molecular unit
     molecules = []
+
+    # Pre-calculate cell inverse for unwrapping
+    cell = atoms.get_cell()
+    try:
+        inv_cell = np.linalg.inv(cell)
+    except np.linalg.LinAlgError:
+        # Fallback for singular cells
+        inv_cell = np.eye(3)
+
     for component in components:
-        # Get indices of atoms in this component
         atom_indices = list(component)
+        # Create a subset Atoms object
+        # Note: ASE slicing preserves cell and PBC info
+        mol_atoms = atoms[atom_indices]
+        
+        # 3. Robust Unwrapping (Topological Reconstruction)
+        # Instead of relying on Molecule's internal logic, we fix the positions here
+        # using the known connectivity from crystal_graph.
+        
+        # Map local indices (0..N) to global indices (atom_indices)
+        local_to_global = {i: idx for i, idx in enumerate(atom_indices)}
+        
+        # We perform BFS on the local atoms, but use global graph connectivity
+        if len(atom_indices) > 1:
+            # Current positions (may be scattered)
+            curr_positions = mol_atoms.get_positions()
+            
+            # Start from first atom
+            visited = {0}
+            queue = [0]
+            
+            while queue:
+                u_local = queue.pop(0)
+                u_global = local_to_global[u_local]
+                
+                # Check neighbors in the GLOBAL graph
+                for v_global in crystal_graph.neighbors(u_global):
+                    # We only care about neighbors that are part of this molecule (component)
+                    if v_global in atom_indices:
+                        # Find v's local index
+                        # (Optimized lookup could be done but N is small per molecule)
+                        v_local = atom_indices.index(v_global)
+                        
+                        if v_local not in visited:
+                            # Unwrap v relative to u
+                            
+                            # Vector u -> v (fractional)
+                            # We compute d_cart then d_frac to handle PBC correctly via mic
+                            d_cart = curr_positions[v_local] - curr_positions[u_local]
+                            d_frac = np.dot(d_cart, inv_cell)
+                            
+                            # Apply Minimum Image Convention (Robust 27-image check)
+                            mic_vector_cart = minimum_image_vector(d_frac, cell)
+                            
+                            # Fix v's position
+                            curr_positions[v_local] = curr_positions[u_local] + mic_vector_cart
+                            
+                            visited.add(v_local)
+                            queue.append(v_local)
+            
+            # Update the atoms object with continuous positions
+            mol_atoms.set_positions(curr_positions)
 
-        # Extract atoms for this molecule
-        molecule_atoms = atoms[atom_indices]
-
-        # Create CrystalMolecule object
-        molecule = CrystalMolecule(molecule_atoms)
+        # Create Molecule, telling it to SKIP its own internal PBC fix 
+        # because we just did it robustly based on graph topology.
+        molecule = CrystalMolecule(mol_atoms, check_pbc=False)
         molecules.append(molecule)
 
     return molecules
