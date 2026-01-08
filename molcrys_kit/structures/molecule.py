@@ -17,7 +17,6 @@ from ..constants import (
     is_metal_element,
     DEFAULT_NEIGHBOR_CUTOFF,
 )
-from ..utils.geometry import minimum_image_vector
 
 
 class CrystalMolecule(Atoms):
@@ -35,7 +34,7 @@ class CrystalMolecule(Atoms):
         Reference to the parent crystal structure, used for coordinate conversions.
     """
 
-    def __init__(self, atoms: Atoms = None, crystal=None, **kwargs):
+    def __init__(self, atoms: Atoms = None, crystal=None, check_pbc: bool = True, **kwargs):
         """
         Initialize a CrystalMolecule.
 
@@ -45,6 +44,9 @@ class CrystalMolecule(Atoms):
             ASE Atoms object to initialize the molecule with.
         crystal : object, optional
             Parent crystal structure containing this molecule.
+        check_pbc : bool, default True
+            Whether to check and fix PBC wrapping. Set to False if atoms are
+            already known to be contiguous (unwrapped).
         **kwargs : dict
             Additional arguments passed to ASE Atoms constructor.
         """
@@ -58,7 +60,9 @@ class CrystalMolecule(Atoms):
 
         self.crystal = crystal
         self._graph = None
-        self._adjust_positions_for_pbc()
+        
+        if check_pbc:
+            self._adjust_positions_for_pbc()
 
     def __repr__(self):
         """String representation of the crystal molecule."""
@@ -67,66 +71,66 @@ class CrystalMolecule(Atoms):
     def _adjust_positions_for_pbc(self):
         """
         Adjust atomic positions to be contiguous using graph traversal logic.
-        This handles complex shapes and non-orthogonal cells correctly.
+        Uses robust bonding thresholds to determine connectivity.
         """
         if len(self) <= 1 or not self.get_pbc().any():
             return
 
         cell = self.get_cell()
-        # Check if cell is valid
         if np.allclose(cell, 0) or np.abs(np.linalg.det(cell)) < 1e-6:
             return
 
+        # Import locally to avoid circular imports
+        from ..analysis.interactions import get_bonding_threshold
+
         # 1. Build a temporary connectivity graph considering PBC
-        # We use the same cutoff as DEFAULT_NEIGHBOR_CUTOFF for consistency
-        i_list, j_list, d_list, D_list = neighbor_list("ijdD", self, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
+        i_list, j_list, d_list, D_vectors = neighbor_list("ijdD", self, cutoff=DEFAULT_NEIGHBOR_CUTOFF)
         
-        # Build graph
         g = nx.Graph()
         g.add_nodes_from(range(len(self)))
+        symbols = self.get_chemical_symbols()
         
-        # Filter edges roughly to avoid non-bonded interactions
-        # (This is a simplified check, relying on the fact that bonded atoms are usually < 2.0-2.5A)
-        # Ideally we reuse the robust bonding logic, but here we just need topology.
-        for i, j, distance, vector in zip(i_list, j_list, d_list, D_list):
-            if i != j and distance < 2.5: # Generous upper bound for most covalent bonds
-                g.add_edge(i, j, distance=distance, vector=vector)
+        for i, j, distance, vector in zip(i_list, j_list, d_list, D_vectors):
+            if i < j: 
+                # Robust threshold calculation
+                rad_i = get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
+                rad_j = get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
+                metal_i = is_metal_element(symbols[i])
+                metal_j = is_metal_element(symbols[j])
+                
+                thresh = get_bonding_threshold(rad_i, rad_j, metal_i, metal_j)
+
+                if distance < thresh:
+                    g.add_edge(i, j, distance=distance, vector=vector)
 
         # 2. Unwrap using BFS from node 0
-        # This ensures we follow the chain of atoms rather than collapsing to a single center
         visited = {0}
         queue = [0]
         positions = self.get_positions()
         
-        # Pre-calculate inverse for efficiency
-        try:
-             inv_cell = np.linalg.inv(cell)
-        except np.linalg.LinAlgError:
-             return 
-
         while queue:
             u = queue.pop(0)
             for v in g.neighbors(u):
                 if v not in visited:
-                    # OPTIMIZATION: Use pre-calculated MIC vector
-                    edge_data = g[u][v]
-                    mic_vector = edge_data['vector']
+                    small = min(u, v)
+                    large = max(u, v)
                     
-                    # Adjust sign based on storage direction (i < j)
-                    if u < v:
-                        # u is i, v is j: vector is correct
-                        positions[v] = positions[u] + mic_vector
+                    edge_data = g[small][large]
+                    vec_small_to_large = edge_data['vector']
+                    
+                    if u == small:
+                        shift_vec = vec_small_to_large
                     else:
-                        # u is j, v is i: vector is reversed
-                        positions[v] = positions[u] - mic_vector
+                        shift_vec = -vec_small_to_large
+                    
+                    positions[v] = positions[u] + shift_vec
                     
                     visited.add(v)
                     queue.append(v)
         
-        # Update positions
         self.set_positions(positions)
 
-    def get_graph(self, neighbor_cutoff: float = 3.0) -> nx.Graph:
+    def get_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF) -> nx.Graph:
         if self._graph is None:
             self._build_graph(neighbor_cutoff=neighbor_cutoff)
         return self._graph
@@ -137,11 +141,11 @@ class CrystalMolecule(Atoms):
             self._build_graph()
         return self._graph
 
-    def build_graph(self, neighbor_cutoff: float = 3.0) -> nx.Graph:
+    def build_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF) -> nx.Graph:
         self._build_graph(neighbor_cutoff)
         return self._graph
 
-    def _build_graph(self, neighbor_cutoff: float = 3.0):
+    def _build_graph(self, neighbor_cutoff: float = DEFAULT_NEIGHBOR_CUTOFF):
         self._graph = nx.Graph()
         symbols = self.get_chemical_symbols()
         for i, symbol in enumerate(symbols):
