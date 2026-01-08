@@ -102,8 +102,13 @@ class TopologicalSlabGenerator:
 
         # Handle special case where plane is parallel to z-axis (001)
         if h == 0 and k == 0:
+            # (001) surface
             v1 = np.array([1, 0, 0], dtype=int)
             v2 = np.array([0, 1, 0], dtype=int)
+            stacking_vector = np.array([0, 0, 1 if l > 0 else -1], dtype=int)
+
+            transformation_matrix = np.array([v1, v2, stacking_vector]).T
+            return transformation_matrix
         else:
             # General case using Extended Euclidean Algorithm
             g_hk, p, q = _extended_gcd(h, k)
@@ -121,34 +126,25 @@ class TopologicalSlabGenerator:
         ):  # Changed from abs(l) + 1 to max(abs(l), g_hk) + 1 to ensure we check enough values
             # Now solve h*u + k*v = 1 - l*w
             rhs = 1 - l * w
-            if rhs == 0 and h == 0 and k == 0:
-                # This case shouldn't happen since h, k, l are coprime and not all zero
-                continue
-            elif h == 0 and k == 0:
-                # Then l*w = 1, so l=1, w=1 or l=-1, w=-1
-                if l * w == 1:
-                    stacking_vector = np.array([0, 0, w], dtype=int)
+            # Solve h*u + k*v = rhs - l*w for u and v
+            # Using the extended Euclidean algorithm approach
+            if h == 0:
+                if rhs % k == 0:
+                    stacking_vector = np.array([0, rhs // k, w], dtype=int)
+                    break
+            elif k == 0:
+                if rhs % h == 0:
+                    stacking_vector = np.array([rhs // h, 0, w], dtype=int)
                     break
             else:
-                # Solve h*u + k*v = rhs - l*w for u and v
-                # Using the extended Euclidean algorithm approach
-                if h == 0:
-                    if rhs % k == 0:
-                        stacking_vector = np.array([0, rhs // k, w], dtype=int)
-                        break
-                elif k == 0:
-                    if rhs % h == 0:
-                        stacking_vector = np.array([rhs // h, 0, w], dtype=int)
-                        break
-                else:
-                    # Use extended Euclidean to find a particular solution
-                    # g_hk was already calculated earlier, no need to recalculate
-                    if (rhs % g_hk) == 0:  # Check if solution exists
-                        # Scale the solution (p and q were calculated earlier)
-                        p_hk = p * (rhs // g_hk)
-                        q_hk = q * (rhs // g_hk)
-                        stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
-                        break
+                # Use extended Euclidean to find a particular solution
+                # g_hk was already calculated earlier, no need to recalculate
+                if (rhs % g_hk) == 0:  # Check if solution exists
+                    # Scale the solution (p and q were calculated earlier)
+                    p_hk = p * (rhs // g_hk)
+                    q_hk = q * (rhs // g_hk)
+                    stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
+                    break
 
         if stacking_vector is None:
             raise ValueError(
