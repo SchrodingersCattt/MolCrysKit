@@ -34,53 +34,6 @@ def _gcd_multiple(numbers):
     return reduce(gcd, numbers)
 
 
-def align_lattice_to_xy(lattice, positions):
-    """
-    Rotate the lattice and positions so that:
-    - Vector a is along the X-axis
-    - Vector b lies in the XY-plane
-    - Vector c points towards +Z
-    """
-    # Get the original lattice vectors
-    a, b, c = lattice[0], lattice[1], lattice[2]
-    
-    # Create rotation matrix to align lattice vectors
-    # First normalize the a vector to be along X-axis
-    a_len = np.linalg.norm(a)
-    new_a = np.array([a_len, 0, 0])
-    
-    # Normalize b vector to lie in XY-plane
-    # Project b onto plane perpendicular to a
-    a_unit = a / np.linalg.norm(a)
-    b_parallel_a = np.dot(b, a_unit) * a_unit
-    b_perp = b - b_parallel_a
-    b_perp_len = np.linalg.norm(b_perp)
-    
-    # Create orthonormal basis
-    new_x = a / np.linalg.norm(a)
-    new_y = b_perp / np.linalg.norm(b_perp)
-    new_z = np.cross(new_x, new_y)
-    
-    # Normalize z to original c length projected on new z
-    c_proj = np.dot(c, new_z) * new_z / np.linalg.norm(new_z)**2
-    new_c = np.array([0, 0, np.linalg.norm(c)])
-    
-    # Create rotation matrix
-    rotation_matrix = np.column_stack([new_x, new_y, new_z]).T
-    
-    # Apply rotation to positions
-    rotated_positions = np.dot(positions, rotation_matrix.T)
-    
-    # Create new lattice with aligned vectors
-    new_lattice = np.array([
-        [a_len, 0, 0],
-        [np.dot(b, new_x), b_perp_len, 0],
-        [np.dot(c, new_x), np.dot(c, new_y), np.linalg.norm(c)]
-    ])
-    
-    return new_lattice, rotated_positions
-
-
 class TopologicalSlabGenerator:
     """
     Generates surface slabs from molecular crystals while preserving molecular topology.
@@ -91,7 +44,7 @@ class TopologicalSlabGenerator:
     centroid position.
     """
 
-    def __init__(self, crystal: 'MolecularCrystal'):
+    def __init__(self, crystal: MolecularCrystal):
         """
         Initialize the TopologicalSlabGenerator with a crystal structure.
 
@@ -214,7 +167,7 @@ class TopologicalSlabGenerator:
         layers: int = 3,
         min_thickness: float = None,
         vacuum: float = 10.0,
-    ) -> 'MolecularCrystal':
+    ) -> MolecularCrystal:
         """
         Build a surface slab with the specified Miller indices, number of layers, and vacuum.
 
@@ -246,53 +199,31 @@ class TopologicalSlabGenerator:
             transformation_matrix.T @ old_lattice
         )  # New basis vectors in Cartesian
 
-        # Get unwrapped molecules to handle periodic boundary conditions correctly
-        unwrapped_molecules = self.crystal.get_unwrapped_molecules()
+        # Pre-calculate the inverse of the new lattice to avoid repeated matrix inversions
+        inv_new_lattice = np.linalg.inv(new_lattice)
 
-        # Collect all positions to perform rotation
-        all_positions = []
-        molecule_data = []
-        
-        for mol in unwrapped_molecules:
-            positions = mol.get_positions()
-            all_positions.extend(positions)
-            molecule_data.append((mol, len(positions)))
-
-        # Stack all positions for efficient transformation
-        all_positions = np.array(all_positions)
-
-        # Apply the lattice alignment rotation
-        aligned_lattice, aligned_positions = align_lattice_to_xy(new_lattice, all_positions)
-
-        # Reconstruct molecules with aligned positions
-        idx = 0
-        aligned_molecules = []
-        for mol, n_atoms in molecule_data:
-            mol_positions = aligned_positions[idx:idx+n_atoms]
-            new_mol = mol.copy()
-            new_mol.set_positions(mol_positions)
-            aligned_molecules.append(new_mol)
-            idx += n_atoms
-
-        # Transform molecular centroids to the new fractional coordinate system
-        # Using the aligned lattice (which is now more orthogonal)
-        inv_aligned_lattice = np.linalg.inv(aligned_lattice)
-        
-        # Calculate d_spacing (thickness of a single layer along the z-axis)
-        d_spacing = aligned_lattice[2, 2]  # The z-component of the c-vector
+        # Calculate d_spacing (thickness of a single layer)
+        cross_product = np.cross(new_lattice[0], new_lattice[1])
+        normal_vector = cross_product / np.linalg.norm(cross_product)
+        d_spacing = abs(np.dot(new_lattice[2], normal_vector))
 
         # Determine number of layers based on parameters
         if min_thickness is not None:
             layers = max(1, math.ceil(min_thickness / d_spacing))
 
+        # Get unwrapped molecules to handle periodic boundary conditions correctly
+        unwrapped_molecules = self.crystal.get_unwrapped_molecules()
+
         # Transform all molecular centroids to the new fractional coordinate system
+        # Using pre-calculated inverse matrix for efficiency
         transformed_molecules = []
-        for mol in aligned_molecules:
+
+        for mol in unwrapped_molecules:
             # Get the centroid of the molecule in Cartesian coordinates
             centroid_cart = mol.get_centroid()
 
             # Convert to new fractional coordinates using the pre-calculated inverse
-            centroid_frac_new = np.dot(centroid_cart, inv_aligned_lattice)
+            centroid_frac_new = np.dot(centroid_cart, inv_new_lattice)
 
             # Store the transformed centroid along with the molecule data
             transformed_molecules.append((mol, centroid_frac_new))
@@ -308,58 +239,41 @@ class TopologicalSlabGenerator:
 
             # Shift all atoms in the molecule by the same amount
             positions = mol.get_positions()
-            # Calculate shift in Cartesian coordinates using the aligned lattice's c-vector
-            shift_vector = (z_new - centroid_frac_new[2]) * aligned_lattice[2]
+            # Calculate shift in Cartesian coordinates
+            shift_vector = (z_new - centroid_frac_new[2]) * new_lattice[2]
             new_positions = positions + shift_vector
 
             # Store molecule with new positions and adjusted centroid
-            new_mol = mol.copy()
-            new_mol.set_positions(new_positions)
-            shifted_molecules.append((new_mol, adjusted_centroid))
+            shifted_molecules.append((mol, new_positions, adjusted_centroid))
 
-        # Topological shifting (in the rotated frame)
-        topologically_shifted_molecules = []
-        for mol, centroid_frac in shifted_molecules:
-            # Calculate centroid height
-            z_height = centroid_frac[2]
-            
-            # Calculate layer spacing
-            layer_spacing = d_spacing  # Already calculated as aligned_lattice[2, 2]
-            
-            # Determine shift steps (round to nearest integer)
-            shift_steps = round(z_height / layer_spacing)
-            
-            # Calculate shift vector using the tilted stacking vector (c-vector in aligned lattice)
-            shift_vector = shift_steps * aligned_lattice[2]
-            
-            # Apply shift to all atoms in the molecule
-            positions = mol.get_positions()
-            shifted_positions = positions - shift_vector  # Subtract because we're moving molecules down to their layer
-            
-            # Update molecule with new positions
-            new_mol = mol.copy()
-            new_mol.set_positions(shifted_positions)
-            topologically_shifted_molecules.append(new_mol)
-
-        # Now stack the molecules to create multiple layers
+        # Now stack the molecules to create multiple layers in Cartesian coordinates
         all_molecules_list = []
 
         for layer_idx in range(layers):
-            for mol in topologically_shifted_molecules:
+            for mol, positions, _ in shifted_molecules:
                 # Calculate the z-shift for this layer (applying the tilted stacking offset)
-                layer_shift = layer_idx * aligned_lattice[2]  # Only z-direction shift in aligned frame
-                positions = mol.get_positions()
+                layer_shift = layer_idx * new_lattice[2]  # Only z-direction shift
                 layer_positions = positions + layer_shift
 
                 # Create a copy of the molecule with the new positions
                 layer_mol = mol.copy()
-                layer_mol.set_positions(layer_positions)
+                layer_mol.positions = layer_positions
                 all_molecules_list.append(layer_mol)
 
-        # Calculate the final lattice with orthogonal c-vector
-        final_lattice = aligned_lattice.copy()
-        slab_thickness = layers * d_spacing  # Total thickness of all layers
-        final_lattice[2] = np.array([0.0, 0.0, slab_thickness + vacuum])  # Orthogonal vacuum
+        # Calculate the normal vector to the surface (a × b)
+        cross_product = np.cross(new_lattice[0], new_lattice[1])
+        normal_vector = cross_product / np.linalg.norm(cross_product)
+
+        # Calculate the projected slab thickness
+        total_stacking_vector = layers * new_lattice[2]
+        slab_thickness = abs(np.dot(total_stacking_vector, normal_vector))
+
+        # Define the final output lattice where a and b are reduced surface vectors
+        # and c is the orthogonal vacuum vector
+        output_lattice = new_lattice.copy()
+        output_lattice[2] = (
+            slab_thickness + vacuum
+        ) * normal_vector  # Replace the c vector with the orthogonal one
 
         # Calculate the minimum z-coordinate of all atoms in the slab
         all_positions = []
@@ -371,13 +285,41 @@ class TopologicalSlabGenerator:
         min_z = np.min(all_positions[:, 2]) if len(all_positions) > 0 else 0.0
 
         # Apply "slab-at-bottom" shift to ensure all z-coordinates are positive
-        shift_vector = np.array([0.0, 0.0, -min_z + 1.0])  # Shift to ~1.0 Å from bottom
+        shift_vector = np.array([0.0, 0.0, -min_z + 0.05])  # small margin to avoid atoms at exactly 0
         for mol in all_molecules_list:
             mol.positions += shift_vector
 
+        # Pre-calculate the inverse of the output lattice for efficiency
+        inv_output_lattice = np.linalg.inv(output_lattice)
+
+        # Apply selective wrapping to maintain molecular integrity
+        for mol in all_molecules_list:
+            # Get positions of all atoms in the molecule
+            positions = mol.get_positions()
+            
+            # Calculate molecular centroid
+            centroid_cart = mol.get_centroid()
+            
+            # Convert centroid to fractional coordinates of the output lattice
+            centroid_frac = np.dot(centroid_cart, inv_output_lattice)
+            
+            # Apply wrapping only to X and Y components (indices 0 and 1)
+            wrapped_centroid_frac = centroid_frac.copy()
+            wrapped_centroid_frac[0] = wrapped_centroid_frac[0] - np.floor(wrapped_centroid_frac[0])
+            wrapped_centroid_frac[1] = wrapped_centroid_frac[1] - np.floor(wrapped_centroid_frac[1])
+            # Do NOT wrap Z component (index 2) - leave it as is
+            
+            # Calculate the shift vector to move the centroid to the wrapped position in X and Y
+            target_centroid_cart = np.dot(wrapped_centroid_frac, output_lattice)
+            shift_vector = target_centroid_cart - centroid_cart
+            
+            # Apply the same shift to all atoms in the molecule to maintain molecular integrity
+            new_positions = positions + shift_vector
+            mol.set_positions(new_positions)
+
         # Create the final molecular crystal with the output lattice and processed molecules
         slab = MolecularCrystal(
-            lattice=final_lattice,
+            lattice=output_lattice,
             molecules=all_molecules_list,  # Use the processed molecules
             pbc=(True, True, False),  # PBC is False in the surface normal (z) direction
         )
@@ -386,12 +328,12 @@ class TopologicalSlabGenerator:
 
 
 def generate_topological_slab(
-    crystal: 'MolecularCrystal',
+    crystal: MolecularCrystal,
     miller_indices: Tuple[int, int, int],
     layers: int = None,
     min_thickness: float = None,
     vacuum: float = 10.0,
-) -> 'MolecularCrystal':
+) -> MolecularCrystal:
     """
     Public API wrapper to generate a topological surface slab.
 
