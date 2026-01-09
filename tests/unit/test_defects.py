@@ -152,7 +152,9 @@ def test_return_removed_cluster(simple_crystal):
     assert len(removed_cluster.molecules) == 3  # 1 CO + 2 N2 = 3 removed
 
     # Complementarity check: total should equal original
-    assert len(new_crystal.molecules) + len(removed_cluster.molecules) == len(simple_crystal.molecules)
+    assert len(new_crystal.molecules) + len(removed_cluster.molecules) == len(
+        simple_crystal.molecules
+    )
 
     # Check that removed cluster has the correct species
     removed_species = [mol.get_chemical_formula() for mol in removed_cluster.molecules]

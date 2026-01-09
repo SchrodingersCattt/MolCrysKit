@@ -9,6 +9,7 @@ sys.path.insert(0, project_root)
 from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.operations import generate_topological_slab
 from molcrys_kit.io.cif import identify_molecules
+from molcrys_kit.io.output import write_cif
 from ase.visualize.plot import plot_atoms
 
 
@@ -17,7 +18,10 @@ def main():
     # This check is no longer needed since modules are directly imported
     # If required packages are not available, import errors will be raised at the top of the file
 
-    cif_path = os.path.join(project_root, "examples", "DAP-4_order.cif")
+    cif_path = os.path.join(project_root, "examples/OCHTET12.cif")
+    # cif_path = os.path.join(project_root, "output/disorder_resolution/PAP-H4_optimal_0.cif")
+    # cif_path = os.path.join(project_root, "output/disorder_resolution/1-HTP_optimal_0.cif")
+    # cif_path = os.path.join(project_root, "output/disorder_resolution/TILPEN01_optimal_0.cif")
 
     # Check if the file exists
     if not os.path.exists(cif_path):
@@ -26,7 +30,7 @@ def main():
 
     print(f"Loading crystal from {cif_path}...")
     crystal = read_mol_crystal(cif_path)
-
+    print(crystal.molecules)
     print("Original crystal:")
     print(f"  Number of molecules: {len(crystal.molecules)}")
     print(f"  Total atoms: {sum(len(mol) for mol in crystal.molecules)}")
@@ -43,12 +47,14 @@ def main():
     try:
         slab = generate_topological_slab(
             crystal=crystal,
-            miller_indices=(1, 1, 1),
+            miller_indices=(1, 0, 0),
             layers=3,
             # min_thickness=10,
             vacuum=10.0,
         )
-
+        print(slab.summary())
+        # sleep(80)
+        write_cif(slab, filename="test.cif")
         print("\nGenerated slab:")
         print(f"  Number of molecules: {len(slab.molecules)}")
         print(f"  Total atoms: {sum(len(mol) for mol in slab.molecules)}")
@@ -71,7 +77,7 @@ def main():
             )
         else:
             print(f"✗ Atom count check failed: {slab_atoms} ≠ {expected_atoms}")
-
+        write_cif(slab, filename="test2.cif")
         # Check 2: Verify no fragmented molecules using graph analysis
         # Convert slab to ASE Atoms using the new to_ase method
         slab_atoms_obj = slab.to_ase()
