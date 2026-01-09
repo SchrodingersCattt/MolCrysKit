@@ -54,7 +54,6 @@ def main():
         )
         print(slab.summary())
         # sleep(80)
-        write_cif(slab, filename="test.cif")
         print("\nGenerated slab:")
         print(f"  Number of molecules: {len(slab.molecules)}")
         print(f"  Total atoms: {sum(len(mol) for mol in slab.molecules)}")
@@ -77,7 +76,6 @@ def main():
             )
         else:
             print(f"✗ Atom count check failed: {slab_atoms} ≠ {expected_atoms}")
-        write_cif(slab, filename="test2.cif")
         # Check 2: Verify no fragmented molecules using graph analysis
         # Convert slab to ASE Atoms using the new to_ase method
         slab_atoms_obj = slab.to_ase()
