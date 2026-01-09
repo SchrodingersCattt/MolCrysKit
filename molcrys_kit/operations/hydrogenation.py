@@ -20,7 +20,7 @@ from ..utils.geometry import (
 )
 
 
-def add_hydrogens(crystal, rules=None, bond_lengths=None):
+def add_hydrogens(crystal, target_elements: Optional[List[str]] = None, optimize_torsion: bool = False, rules=None, bond_lengths=None):
     """
     Add hydrogen atoms to a molecular crystal based on geometric rules.
 
@@ -28,6 +28,12 @@ def add_hydrogens(crystal, rules=None, bond_lengths=None):
     ----------
     crystal : MolecularCrystal
         The molecular crystal to hydrogenate.
+    target_elements : Optional[List[str]]
+        List of atomic symbols to specifically hydrogenate. Only these elements
+        will have hydrogens added. If None or empty, no elements will be targeted.
+    optimize_torsion : bool
+        Whether to perform conformational optimization to adjust torsion angles.
+        Default is False to preserve ring structures and crystal packing.
     rules : Optional[List[Dict]]
         Override rules for coordination geometry. Format:
         [
@@ -53,7 +59,7 @@ def add_hydrogens(crystal, rules=None, bond_lengths=None):
         New crystal with hydrogen atoms added.
     """
     hydrogenator = Hydrogenator(crystal)
-    return hydrogenator.add_hydrogens(rules=rules, bond_lengths=bond_lengths)
+    return hydrogenator.add_hydrogens(target_elements=target_elements, optimize_torsion=optimize_torsion, rules=rules, bond_lengths=bond_lengths)
 
 
 class Hydrogenator:
@@ -82,13 +88,20 @@ class Hydrogenator:
         self.default_bond_lengths = BOND_LENGTHS
 
     def add_hydrogens(
-        self, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None
+        self, target_elements: Optional[List[str]] = None, optimize_torsion: bool = False, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None
     ) -> MolecularCrystal:
         """
         Add hydrogen atoms to the crystal based on geometric rules.
 
         Parameters
         ----------
+        target_elements : Optional[List[str]]
+            List of atomic symbols to specifically hydrogenate. Only these elements
+            will have hydrogens added. If None or empty, no elements will be targeted.
+            This implements a whitelist-only approach for explicit targeting.
+        optimize_torsion : bool
+            Whether to perform conformational optimization to adjust torsion angles.
+            Default is False to preserve ring structures and crystal packing.
         rules : Optional[List[Dict]]
             Override rules for coordination geometry. Format:
             [
@@ -156,6 +169,10 @@ class Hydrogenator:
             for atom_idx in range(len(symbols)):
                 symbol = symbols[atom_idx]
 
+                # Skip if target_elements is None or empty, or if symbol is not in target_elements
+                if not target_elements or symbol not in target_elements:
+                    continue
+
                 # Skip if this atom type doesn't have hydrogenation rules
                 if symbol not in self.default_rules:
                     continue
@@ -213,8 +230,9 @@ class Hydrogenator:
             lattice=self.crystal.lattice, molecules=new_molecules, pbc=self.crystal.pbc
         )
 
-        # Now perform optimization step for staggered conformations
-        new_crystal = self._optimize_conformations(new_crystal, effective_bond_lengths)
+        # Perform optimization step for staggered conformations only if enabled
+        if optimize_torsion:
+            new_crystal = self._optimize_conformations(new_crystal, effective_bond_lengths)
 
         # Wrap the molecules back into the unit cell to handle PBC correctly
         wrapped_molecules = self._wrap_molecules_to_cell(new_crystal.molecules)
