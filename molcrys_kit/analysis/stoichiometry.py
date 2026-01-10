@@ -115,7 +115,7 @@ class StoichiometryAnalyzer:
         Print a summary table of identified species.
         """
         print("Species Summary:")
-        print(f"{'ID':<15} {'Count':<8} {'Formula':<15} {'Example Index':<15}")
+        print(f"{'ID':<15} {'Count':<8} {'Formula':<15} {'Reference Molecule Index':<15}")
         print("-" * 60)
 
         for species_id, indices in self.species_map.items():
