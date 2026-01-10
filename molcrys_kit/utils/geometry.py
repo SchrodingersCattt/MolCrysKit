@@ -411,28 +411,26 @@ def get_missing_vectors(
         # Planar bisector geometry (for adding H in ring structures like pyrrole)
         # Input: Center with 2 neighbors in a plane
         # Logic: Find the vector that bisects the angle between neighbors, 
-        # but lies in the same plane as the neighbors, pointing away
+        # but lies in the same plane as the neighbors, pointing away from the ring
         if len(neighbor_vectors) == 2:
             n1 = neighbor_vectors[0]
             n2 = neighbor_vectors[1]
             
-            # Calculate the vector that bisects the angle between n1 and n2
-            bisector = normalize_vector(n1 + n2)
+            # LOGIC FIX: n1 + n2 is the internal bisector (pointing between the neighbors).
+            # We want the external bisector (pointing away from the ring).
+            # So we simply take the negative sum.
+            bisector = -(n1 + n2) 
+            result_vector = normalize_vector(bisector)
             
-            # Find the normal to the plane defined by the center and the two neighbors
-            normal = normalize_vector(np.cross(n1, n2))
-            
-            # The desired vector is perpendicular to the normal (lies in the plane)
-            # and bisects the external angle (opposite direction to the internal bisector)
-            # This gives us a vector pointing away from the plane formed by the two neighbors
-            result_vector = normalize_vector(np.cross(normal, np.cross(bisector, normal)))
-            
-            # Make sure the vector is pointing in the right direction (away from the ring)
-            # The direction should be opposite to the internal angle bisector
-            angle_n1_n2 = angle_between_vectors(n1, n2)
-            if angle_n1_n2 < np.pi / 2:  # Acute angle, need to flip
-                result_vector = -result_vector
-            
+            # Optional: Ensure rigorous planarity if the ring is slightly buckled
+            # Project result_vector onto the plane defined by n1 and n2
+            normal = np.cross(n1, n2)  # Normal to the neighbors
+            if np.linalg.norm(normal) > 1e-3:  # Check to avoid division by zero if collinear
+                normal = normalize_vector(normal)
+                # Remove component along normal to ensure it's in plane
+                result_vector = result_vector - np.dot(result_vector, normal) * normal
+                result_vector = normalize_vector(result_vector)
+
             return [result_vector * bond_length]
         else:
             # Wrong number of neighbors for this geometry

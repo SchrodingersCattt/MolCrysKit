@@ -30,78 +30,139 @@ def determine_hydrogenation_needs(atom_symbol: str, env_stats: Dict, ring_info: 
         - 'geometry': geometry type for hydrogen placement
         - 'bond_length': bond length for the new H
     """
-    coordination = env_stats['coordination_number']
-    is_planar = env_stats['is_planar']
-    in_ring = ring_info['in_ring']
-    ring_sizes = ring_info['ring_sizes']
-    is_ring_planar = ring_info['is_ring_planar']
+    coord = env_stats['coordination_number']
+    avg_len = env_stats['average_bond_length']
     
-    # Default values
+    # Defaults
     num_h = 0
     geometry = 'tetrahedral'
-    bond_length = 1.0
-    
-    # Get the appropriate bond length
-    if f"{atom_symbol}-H" in BOND_LENGTHS:
-        bond_length = BOND_LENGTHS[f"{atom_symbol}-H"]
+    bond_length = BOND_LENGTHS.get(f"{atom_symbol}-H", 1.0)
     
     # Carbon rules
     if atom_symbol == 'C':
-        if coordination == 3:
-            if is_planar or (in_ring and is_ring_planar):
-                # Target sp2 (Total coordination 3) - already satisfied by double bonds
-                # For standard hydrogenation, if input is skeleton missing H:
-                num_h = 0  # Assuming valence satisfied by double bonds
-                geometry = 'trigonal_planar'
-        elif coordination == 2:
-            if is_planar:  # angle ~120 -> Target sp2 -> Add 1 H (in-plane)
+        if coord == 3:
+            # Case: sp2 (Planar, ~360 sum) vs sp3 (Pyramidal, ~328.5 sum)
+            # Previous logic was flawed: it prioritized ring planarity over local geometry
+            # New logic: Local geometry takes precedence over global ring properties
+            
+            angle_sum = env_stats['bond_angle_sum']
+            print(atom_symbol, angle_sum)
+            # --- NEW LOGIC: Local Geometry First ---
+            
+            # 1. Definitely sp3 region (Pyramidal)
+            # Ideal tetrahedral is 328.5 degrees. With tolerance to 345 degrees.
+            # If less than this value, regardless of ring environment, it must be pyramidal.
+            if angle_sum < 345.0:
                 num_h = 1
-                geometry = 'trigonal_planar'  # This will be handled specially for 2 neighbors
-            else:  # angle ~109 -> Target sp3 -> Add 2 H (tetrahedral)
+                geometry = 'tetrahedral'
+                
+            # 2. Definitely sp2 region (Planar)
+            # Close to 360 degrees, definitely planar.
+            elif angle_sum > 355.0:
+                num_h = 0
+                geometry = 'trigonal_planar'
+                
+            # 3. Ambiguous region (Distorted/Intermediate)
+            # E.g. 348 degrees. Could be a strained sp3 or a distorted sp2.
+            # Only in this case do we consider the ring environment for arbitration.
+            else:
+                if ring_info['in_ring'] and ring_info['is_ring_planar']:
+                    # Ring is planar -> likely aromatic/conjugated system -> sp2
+                    num_h = 0
+                    geometry = 'trigonal_planar'
+                else:
+                    # Ring not planar, or not in ring -> default to sp3
+                    num_h = 1
+                    geometry = 'tetrahedral'
+
+        elif coord == 2:
+            # Case: -CH2- (sp3) vs =CH- (sp2 aromatic) vs =C= (sp linear)
+            angle = env_stats['bond_angle_single']
+            
+            # --- SCORING SYSTEM ---
+            # Ideal models
+            # sp:   Angle 180,   Len ~1.2-1.3 (cumulene)
+            # sp2:  Angle 120,   Len ~1.34-1.42 (aromatic)
+            # sp3:  Angle 109.5, Len ~1.50-1.54 (aliphatic)
+            
+            # 1. Angle Penalty (Weighted heavily)
+            score_sp   = abs(angle - 180.0)
+            score_sp2  = abs(angle - 120.0)
+            score_sp3  = abs(angle - 109.5)
+            
+            # 2. Bond Length Bias (Adjust scores based on length)
+            # If length > 1.46 (typical single bond), heavily penalize sp/sp2
+            if avg_len > 1.46: 
+                score_sp3 -= 15.0  # Strong bonus for sp3
+                score_sp  += 20.0  # Penalty for sp
+            # If length < 1.38 (typical double/aromatic), penalize sp3
+            elif avg_len < 1.38:
+                score_sp2 -= 10.0  # Bonus for sp2
+                score_sp3 += 20.0  # Penalty for sp3
+            
+            # 3. Decision
+            best_match = min(score_sp, score_sp2, score_sp3)
+            
+            if best_match == score_sp and score_sp < 15.0: # Must be reasonably close
+                num_h = 0
+                geometry = 'linear'
+            elif best_match == score_sp2:
+                num_h = 1
+                geometry = 'trigonal_planar'
+            else:
+                # Default to sp3 if ambiguous or matches sp3 best
                 num_h = 2
                 geometry = 'tetrahedral'
-        elif coordination == 1:
-            # triple bond or cumulene, likely sp hybridized
-            num_h = 1
-            geometry = 'linear'
+                
+        elif coord == 1:
+            # Case: Methyl (-CH3, sp3) vs Alkyne (-C#C-H, sp)
+            # Threshold adjusted from 1.35 to 1.28 to be safe.
+            # C-N single is ~1.47, C-C single ~1.54.
+            # C#C triple is ~1.20. C#N triple is ~1.16.
+            # Only strictly short bonds should be linear.
+            if avg_len < 1.28 and avg_len > 0.1: 
+                num_h = 1
+                geometry = 'linear'
+            else:
+                num_h = 3
+                geometry = 'tetrahedral'
     
     # Nitrogen rules
     elif atom_symbol == 'N':
-        if coordination == 2:
-            # Pyridine-like: N in 6-membered ring with planar structure -> Don't add H
-            if in_ring and 6 in ring_sizes and is_ring_planar:
-                num_h = 0
-                geometry = 'planar_aromatic'  # Special case for pyridine N
-            # Pyrrole-like: N in 5-membered ring with planar structure -> Add 1 H in plane
-            elif in_ring and 5 in ring_sizes and is_ring_planar:
-                num_h = 1
-                geometry = 'planar_bisector'  # Special case for pyrrole H placement
-            # Amine-like: N with 2 neighbors but not in planar ring -> Add 1 H
+        if coord == 2:
+            # Pyridine (sp2, 0H) vs Pyrrole (sp2, 1H) vs Amine (sp3, 1H)
+            in_ring = ring_info['in_ring']
+            is_planar_ring = ring_info['is_ring_planar']
+            ring_sizes = ring_info['ring_sizes']
+            
+            if in_ring and is_planar_ring:
+                if 6 in ring_sizes: # Pyridine-like
+                    num_h = 0
+                    geometry = 'planar_aromatic'
+                elif 5 in ring_sizes: # Pyrrole-like
+                    num_h = 1
+                    geometry = 'planar_bisector' # Use the corrected geometry
+                else:
+                    # Generic planar ring N? Likely sp2 conjugated.
+                    num_h = 0 
             else:
+                # Amine-like (Secondary amine)
                 num_h = 1
-                geometry = 'tetrahedral'  # Like in amine, pyramidal
-        elif coordination == 1:
-            # Likely amide or similar, could add 2 H for primary amine
+                geometry = 'tetrahedral' # Pyramidal
+                
+        elif coord == 1:
+            # Primary amine (-NH2) or Amide
             num_h = 2
             geometry = 'trigonal_pyramidal'
     
     # Oxygen rules
     elif atom_symbol == 'O':
-        if coordination == 1:
-            # Usually alcohols, phenols, ethers, carbonyls, etc.
-            # For alcohol/ether: add 1 H to make water/alcohol
-            # For carbonyl: would need to reduce first
+        if coord == 1:
             num_h = 1
-            geometry = 'bent'  # Or 'tetrahedral' if considering 2 lone pairs
-        elif coordination == 0:
-            # Free oxygen, could potentially add 2 H to make water
-            num_h = 2
             geometry = 'bent'
-    
-    # Other elements (simplified rules)
+            
     elif atom_symbol == 'S':
-        if coordination == 1:
-            # Thiol group, add 1 H
+        if coord == 1:
             num_h = 1
             geometry = 'bent'
     

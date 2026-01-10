@@ -39,10 +39,26 @@ class ChemicalEnvironment:
         else:
             # It's a (graph, positions) tuple
             self.graph, self.positions = crystal_molecule
+        
+        # Precompute cycle basis ONCE per molecule to avoid repeated heavy calculations
+        self._precompute_ring_info()
     
+    def _precompute_ring_info(self):
+        """Precompute ring membership for all atoms to avoid repeated heavy calculations."""
+        try:
+            cycles = nx.minimum_cycle_basis(self.graph)
+            self._atom_rings = {}
+            for idx in self.graph.nodes():
+                # Find all cycles this atom belongs to
+                atom_cycles = [cycle for cycle in cycles if idx in cycle]
+                self._atom_rings[idx] = atom_cycles
+        except Exception:
+            self._atom_rings = {}
+
     def get_local_geometry_stats(self, atom_index: int) -> Dict:
         """
-        Calculate statistics for the local geometry around an atom.
+        Calculate raw geometry statistics. Does NOT make decisions (e.g. is_planar).
+        Returns raw angles and lengths for heuristics to decide.
         
         Parameters
         ----------
@@ -55,24 +71,14 @@ class ChemicalEnvironment:
             Dictionary containing:
             - coordination_number: Number of neighbors
             - bond_angle_sum: Sum of angles between all neighbor pairs
+            - bond_angle_single: Specifically for coordination=2, the angle between the two neighbors
             - average_bond_length: Average distance to neighbors
-            - is_planar: Boolean, true if bond_angle_sum is close to 360 degrees (within tolerance)
         """
         neighbors = list(self.graph.neighbors(atom_index))
         n_neighbors = len(neighbors)
         
-        if n_neighbors < 2:
-            # Not enough neighbors to calculate angles
-            return {
-                'coordination_number': n_neighbors,
-                'bond_angle_sum': 0.0,
-                'average_bond_length': 0.0,
-                'is_planar': False
-            }
-        
         center_pos = self.positions[atom_index]
         
-        # Calculate distances to neighbors
         distances = []
         neighbor_positions = []
         for neighbor_idx in neighbors:
@@ -80,48 +86,35 @@ class ChemicalEnvironment:
             dist = np.linalg.norm(neighbor_pos - center_pos)
             distances.append(dist)
             neighbor_positions.append(neighbor_pos)
-        
         avg_bond_length = sum(distances) / len(distances) if distances else 0.0
         
-        # Calculate angles between all neighbor pairs
-        angle_sum = 0.0
-        for i in range(len(neighbor_positions)):
-            for j in range(i + 1, len(neighbor_positions)):
-                vec1 = neighbor_positions[i] - center_pos
-                vec2 = neighbor_positions[j] - center_pos
-                
-                angle = angle_between_vectors(vec1, vec2)
-                angle_sum += angle
+        # Calculate angle statistics
+        bond_angle_sum = 0.0
+        bond_angle_avg = 0.0  # Only meaningful for coord=2
         
-        # Convert to degrees for comparison
-        angle_sum_deg = np.degrees(angle_sum)
-        
-        # Check if planar (sum of angles close to 360 for planar systems)
-        # Using 10 degree tolerance as suggested
-        is_planar = abs(angle_sum_deg - 360.0) <= 10.0
-        
-        # Special case for 2 neighbors: check if angle is ~120 (sp2) or ~109 (sp3)
-        if n_neighbors == 2:
-            if len(neighbor_positions) >= 2:
-                vec1 = neighbor_positions[0] - center_pos
-                vec2 = neighbor_positions[1] - center_pos
-                angle = np.degrees(angle_between_vectors(vec1, vec2))
-                
-                # For 2 neighbors, consider planar if angle is ~120 (sp2 hybridization)
-                is_planar = abs(angle - 120.0) <= 15.0
-            else:
-                is_planar = False
+        if n_neighbors >= 2:
+            angles = []
+            for i in range(len(neighbor_positions)):
+                for j in range(i + 1, len(neighbor_positions)):
+                    vec1 = neighbor_positions[i] - center_pos
+                    vec2 = neighbor_positions[j] - center_pos
+                    angle = np.degrees(angle_between_vectors(vec1, vec2))
+                    angles.append(angle)
+            
+            bond_angle_sum = sum(angles)
+            if n_neighbors == 2 and angles:
+                bond_angle_avg = angles[0]  # For coord=2, there is only 1 angle
         
         return {
             'coordination_number': n_neighbors,
-            'bond_angle_sum': angle_sum_deg,
-            'average_bond_length': avg_bond_length,
-            'is_planar': is_planar
+            'bond_angle_sum': bond_angle_sum,
+            'bond_angle_single': bond_angle_avg,  # Specifically for coord=2
+            'average_bond_length': avg_bond_length
         }
     
     def detect_ring_info(self, atom_index: int) -> Dict:
         """
-        Detect ring information for an atom using networkx.minimum_cycle_basis.
+        Detect ring information for an atom using precomputed ring info.
         
         Parameters
         ----------
@@ -137,11 +130,8 @@ class ChemicalEnvironment:
             - is_ring_planar: Boolean for the smallest ring, whether it's planar
         """
         try:
-            # Get the minimum cycle basis for the entire graph
-            cycles = nx.minimum_cycle_basis(self.graph)
-            
-            # Find cycles that contain the given atom
-            atom_cycles = [cycle for cycle in cycles if atom_index in cycle]
+            # Use cached ring info
+            atom_cycles = self._atom_rings.get(atom_index, [])
             
             if not atom_cycles:
                 return {
