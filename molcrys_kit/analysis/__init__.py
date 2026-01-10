@@ -1,10 +1,10 @@
-"""
-Analysis module for MolCrysKit.
+from .interactions import *
+from .species import *
+from .stoichiometry import *
+from .chemical_env import ChemicalEnvironment
+from .heuristics import determine_hydrogenation_needs
 
-This module provides analysis capabilities for molecular crystals.
-"""
-
-from .species import identify_molecules, assign_atoms_to_molecules
-from .interactions import HydrogenBond
-
-__all__ = ["identify_molecules", "assign_atoms_to_molecules", "HydrogenBond"]
+__all__ = [
+    "ChemicalEnvironment",
+    "determine_hydrogenation_needs"
+]

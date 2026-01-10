@@ -9,6 +9,8 @@ import numpy as np
 from typing import Dict, List, Optional
 from ase import Atoms
 from ..structures.crystal import MolecularCrystal
+from ..analysis.chemical_env import ChemicalEnvironment
+from ..analysis.heuristics import determine_hydrogenation_needs
 from ..utils.geometry import (
     get_missing_vectors,
     calculate_dihedral_and_adjustment,
@@ -162,8 +164,8 @@ class Hydrogenator:
             # Start with the same atoms and positions
             new_atoms = original_mol.copy()
 
-            # Get the connectivity graph
-            graph = unwrapped_mol.graph
+            # Create chemical environment analyzer for this molecule
+            chem_env = ChemicalEnvironment(unwrapped_mol)
 
             # For each atom in the molecule, check if it needs hydrogens
             for atom_idx in range(len(symbols)):
@@ -173,42 +175,26 @@ class Hydrogenator:
                 if not target_elements or symbol not in target_elements:
                     continue
 
-                # Skip if this atom type doesn't have hydrogenation rules
-                if symbol not in self.default_rules:
-                    continue
+                # Get local geometry stats and ring info
+                env_stats = chem_env.get_local_geometry_stats(atom_idx)
+                ring_info = chem_env.detect_ring_info(atom_idx)
 
-                # Determine which rule to apply based on priority system
-                rule = self._get_applicable_rule(
-                    symbol, atom_idx, symbols, graph, specific_rules, general_rules
-                )
+                # Determine hydrogenation strategy using heuristics
+                h_strategy = determine_hydrogenation_needs(symbol, env_stats, ring_info)
 
-                target_coord = rule["target_coordination"]
+                num_h = h_strategy['num_h']
+                geometry_type = h_strategy['geometry']
+                bond_len = h_strategy['bond_length']
 
-                # Find current coordination number (number of bonded atoms)
-                neighbors = list(graph.neighbors(atom_idx))
-                current_coord = len(neighbors)
-
-                # Calculate how many hydrogens to add
-                h_to_add = target_coord - current_coord
-                if h_to_add <= 0:
-                    continue  # Already has enough neighbors
+                if num_h <= 0:
+                    continue  # No hydrogens to add
 
                 # Get the position of the center atom
                 center_pos = positions[atom_idx]
 
                 # Get positions of existing neighbors
+                neighbors = list(unwrapped_mol.graph.neighbors(atom_idx))
                 neighbor_positions = [positions[n] for n in neighbors]
-
-                # Determine the geometry type for missing vectors
-                geometry_type = rule["geometry"]
-
-                # Adjust geometry type to match function naming
-                if geometry_type == "trigonal_pyramidal":
-                    geometry_type = "tetrahedral"  # N with lone pair is like tetrahedral with 3 connections
-
-                # Get the bond length for this atom type
-                bond_key = f"{symbol}-H"
-                bond_len = effective_bond_lengths.get(bond_key, 1.0)
 
                 # Calculate positions for new hydrogen atoms
                 missing_vectors = get_missing_vectors(
@@ -216,7 +202,7 @@ class Hydrogenator:
                 )
 
                 # Add only as many hydrogens as needed
-                for i in range(min(h_to_add, len(missing_vectors))):
+                for i in range(min(num_h, len(missing_vectors))):
                     h_pos = center_pos + missing_vectors[i]
 
                     # Append the new hydrogen atom
