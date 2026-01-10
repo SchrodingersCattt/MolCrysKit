@@ -46,7 +46,6 @@ def determine_hydrogenation_needs(atom_symbol: str, env_stats: Dict, ring_info: 
             # New logic: Local geometry takes precedence over global ring properties
             
             angle_sum = env_stats['bond_angle_sum']
-            print(atom_symbol, angle_sum)
             # --- NEW LOGIC: Local Geometry First ---
             
             # 1. Definitely sp3 region (Pyramidal)
@@ -153,13 +152,16 @@ def determine_hydrogenation_needs(atom_symbol: str, env_stats: Dict, ring_info: 
         elif coord == 1:
             # Primary amine (-NH2) or Amide
             num_h = 2
-            geometry = 'trigonal_pyramidal'
+            geometry = 'tetrahedral'
     
     # Oxygen rules
     elif atom_symbol == 'O':
         if coord == 1:
-            num_h = 1
-            geometry = 'bent'
+            if avg_len < 1.4:
+                num_h = 0
+            else:
+                num_h = 1
+                geometry = 'bent'
             
     elif atom_symbol == 'S':
         if coord == 1:

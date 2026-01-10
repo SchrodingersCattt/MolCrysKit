@@ -153,16 +153,13 @@ class Hydrogenator:
         new_molecules = []
 
         for mol_idx, unwrapped_mol in enumerate(self.unwrapped_molecules):
-            # Get the original molecule to modify
-            original_mol = self.crystal.molecules[mol_idx]
-
             # Get atomic symbols and positions
-            symbols = original_mol.get_chemical_symbols()
-            positions = original_mol.get_positions()
+            symbols = unwrapped_mol.get_chemical_symbols()
+            positions = unwrapped_mol.get_positions()
 
             # Create a new ASE Atoms object to add hydrogens to
             # Start with the same atoms and positions
-            new_atoms = original_mol.copy()
+            new_atoms = unwrapped_mol.copy()
 
             # Create chemical environment analyzer for this molecule
             chem_env = ChemicalEnvironment(unwrapped_mol)
@@ -170,18 +167,32 @@ class Hydrogenator:
             # For each atom in the molecule, check if it needs hydrogens
             for atom_idx in range(len(symbols)):
                 symbol = symbols[atom_idx]
-
-                # Skip if target_elements is None or empty, or if symbol is not in target_elements
-                if not target_elements or symbol not in target_elements:
+                if target_elements and symbol not in target_elements:
                     continue
 
                 # Get local geometry stats and ring info
                 env_stats = chem_env.get_local_geometry_stats(atom_idx)
                 ring_info = chem_env.detect_ring_info(atom_idx)
-
+                # --- DEBUG START ---
+                if symbol == "C":
+                    neighbors = list(unwrapped_mol.graph.neighbors(atom_idx))
+                    dists = [np.linalg.norm(positions[n] - positions[atom_idx]) for n in neighbors]
+                    print(f"\n--- Checking Carbon {atom_idx} ---")
+                    print(f"Position: {positions[atom_idx]}")
+                    print(f"Coordination Number: {len(neighbors)}")
+                    print(f"Neighbor Distances: {dists}")
+                    print(f"Angle Sum: {env_stats['bond_angle_sum']:.2f}")
+                    
+                    # 模拟运行 heuristics
+                    if len(neighbors) == 3 and env_stats['bond_angle_sum'] < 345.0:
+                        print("Prediction: Should add 1 H (sp3)")
+                    elif len(neighbors) == 4:
+                        print("Prediction: Saturated (4 neighbors), adds 0 H")
+                    else:
+                        print(f"Prediction: Unsure state (Coord={len(neighbors)})")
+                # --- DEBUG END ---
                 # Determine hydrogenation strategy using heuristics
                 h_strategy = determine_hydrogenation_needs(symbol, env_stats, ring_info)
-
                 num_h = h_strategy['num_h']
                 geometry_type = h_strategy['geometry']
                 bond_len = h_strategy['bond_length']
