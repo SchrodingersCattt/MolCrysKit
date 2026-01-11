@@ -399,15 +399,31 @@ class CarbonSite(HybridizedSite):
                 geometry = 'tetrahedral'
                 
         elif coord == 1:
-            # Case: Methyl (-CH3, sp3) vs Alkyne (-C#C-H, sp)
-            # Threshold adjusted from 1.35 to 1.28 to be safe.
-            # C-N single is ~1.47, C-C single ~1.54.
-            # C#C triple is ~1.20. C#N triple is ~1.16.
-            # Only strictly short bonds should be linear.
+            # Case: Terminal Carbon
+            # Possibilities:
+            # 1. Alkyne (-C#C-H) or Isonitrile (-NC): sp, Triple bond (~1.20 A)
+            # 2. Terminal Alkene (=CH2) or Imine (=CH2): sp2, Double bond (~1.34 A)
+            # 3. Methyl (-CH3): sp3, Single bond (~1.54 A, C-N ~1.47 A)
+            
+            # Thresholds:
+            # Triple < 1.28 (Safe cutoff for 1.20)
+            # 1.28 <= Double < 1.42 (Safe cutoff between 1.34 and 1.47)
+            # Single >= 1.42
+            
             if avg_len < 1.28 and avg_len > 0.1: 
+                # Case 1: Triple Bond (sp) -> Add 1 H
                 num_h = 1
                 geometry = 'linear'
+                
+            elif avg_len <= 1.42:
+                # Case 2: Double Bond (sp2) -> Add 2 H (Terminal Alkene)
+                # Note: "trigonal_planar" for a terminal atom means adding 2 H 
+                # in the plane defined by the double bond vector (if possible)
+                num_h = 2
+                geometry = 'trigonal_planar'
+                
             else:
+                # Case 3: Single Bond (sp3) -> Add 3 H (Methyl)
                 num_h = 3
                 geometry = 'tetrahedral'
         
