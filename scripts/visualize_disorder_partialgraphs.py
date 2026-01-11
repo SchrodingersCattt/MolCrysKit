@@ -31,18 +31,18 @@ except ImportError:
 # --- CONSTANTS ---
 BOND_COLOR = "#34495e"
 BOND_TOLERANCE = 1.3
-NODE_COLOR_CYCLE = ["#ecf0f1", "#f1c40f", "#e67e22", "#3498db", "#9b59b6", "#f1c40f", "#e67e22", "#34495e", "#e67e22", "#f1c40f"]
+NODE_COLOR_CYCLE = ["#ecf0f1", "#b2c55f", "#d49b68", "#6fb1dd", "#c981e6", "#f1c40f", "#e67e22", "#78afe7", "#d49b68", "#b2c55f"]
 
 COLOR_MAP = {
-    "logical_alternative": "#fd2c15",   # Red
-    "symmetry_clash": "#a769e0",       # Purple
-    "explicit": "#1ea556",             # Green
-    "geometric": "#3498db",            # Blue
-    "valence": "#f39c12",              # Orange
-    "valence_geometry": "#B6347C",     # Dark Purple
+    "logical_alternative": "#a17570",   # Red
+    "symmetry_clash": "#75658f",       # Purple
+    "explicit": "#63aa81",             # Green
+    "geometric": "#5c849e",            # Blue
+    "valence": "#cfaf7a",              # Orange
+    "valence_geometry": "#BD729B",     # Dark Purple
 }
 
-VISUAL_CUTOFF = 5
+VISUAL_CUTOFF = 3
 
 def get_element_radius(label):
     match = re.match(r"([A-Z][a-z]?)", label)
@@ -324,7 +324,7 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
         if c_type in COLOR_MAP:
             nx.draw_networkx_edges(
                 subgraph, pos, edgelist=e_list,
-                edge_color=COLOR_MAP[c_type], width=2.0, alpha=0.8,
+                edge_color=COLOR_MAP[c_type], width=1.0, alpha=0.8,
                 style=get_edge_linestyle(c_type), connectionstyle="arc3,rad=0.2",
                 label=c_type.replace('_', ' ').title()
             )
@@ -342,7 +342,7 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
 
     nx.draw_networkx_nodes(
         subgraph, pos, node_color=node_colors,
-        edgecolors=BOND_COLOR, linewidths=1, node_size=node_sizes
+        edgecolors=BOND_COLOR, linewidths=0.5, node_size=node_sizes
     )
 
     # Step 5: Legend
@@ -378,9 +378,10 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
 def main():
     # Only scan specifically requested tricky files to test the focus logic
     input_files = [
-        "examples/DAP-4.cif",
+        # "examples/DAP-4.cif",
         "examples/PAP-H4.cif",
         "examples/DAN-2.cif",
+        # "examples/anhydrousCaffeine2_CGD_2007_7_1406.cif"
     ]
     
     output_dir = Path("output/graph_viz_focused")
@@ -400,6 +401,11 @@ def main():
                 builder.graph, lattice, 
                 f"{Path(cif_file).stem} - Focused Conflict View", 
                 output_dir / f"{Path(cif_file).stem}_focused.png"
+            )
+            plot_unwrapped_graph(
+                builder.graph, lattice, 
+                f"{Path(cif_file).stem} - Focused Conflict View", 
+                output_dir / f"{Path(cif_file).stem}_focused.pdf"
             )
         except Exception as e:
             print(f"Error processing {cif_file}: {e}")

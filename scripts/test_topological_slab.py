@@ -21,7 +21,7 @@ def main():
     cif_path = os.path.join(project_root, "examples/OCHTET12.cif")
     # cif_path = os.path.join(project_root, "output/disorder_resolution/PAP-H4_optimal_0.cif")
     # cif_path = os.path.join(project_root, "output/disorder_resolution/1-HTP_optimal_0.cif")
-    # cif_path = os.path.join(project_root, "output/disorder_resolution/TILPEN01_optimal_0.cif")
+    # cif_path = os.path.join(project_root, "examples/Acetaminophen_HXACAN.cif")
 
     # Check if the file exists
     if not os.path.exists(cif_path):
@@ -47,10 +47,10 @@ def main():
     try:
         slab = generate_topological_slab(
             crystal=crystal,
-            miller_indices=(1, 0, 0),
+            miller_indices=(2, 1, 0),
             layers=3,
             # min_thickness=10,
-            vacuum=10.0,
+            vacuum=40.0,
         )
         print(slab.summary())
         # sleep(80)

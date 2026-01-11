@@ -33,7 +33,7 @@ def generate_ordered_replicas_from_disordered_sites_files():
         "examples/PAP-M5.cif",
         # "examples/PAP-H4.cif",
         # "examples/DAP-4.cif",
-        # "examples/DAN-2.cif",
+        "examples/DAN-2.cif",
         # "examples/DAP-O4.cif",
     ]
     input_files += glob.glob("examples/TIL*.cif")

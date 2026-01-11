@@ -32,26 +32,15 @@ except ImportError:
 # Bond color and tolerance
 BOND_COLOR = "#34495e"
 BOND_TOLERANCE = 1.3  # Liberal tolerance to catch bonds
-NODE_COLOR_CYCLE = [
-    "#ecf0f1",
-    "#f1c40f",
-    "#e67e22",
-    "#3498db",
-    "#9b59b6",
-    "#f1c40f",
-    "#e67e22",
-    "#34495e",
-    "#e67e22",
-    "#f1c40f",
-]
+NODE_COLOR_CYCLE = ["#ecf0f1", "#b2c55f", "#d49b68", "#6fb1dd", "#c981e6", "#f1c40f", "#e67e22", "#78afe7", "#d49b68", "#b2c55f"]
 # Color mapping for different conflict types
 COLOR_MAP = {
-    "logical_alternative": "#fd2c15",  # Red
-    "symmetry_clash": "#a769e0",  # Purple
-    "explicit": "#1ea556",  # Green
-    "geometric": "#3498db",  # Blue
-    "valence": "#f39c12",  # Orange
-    "valence_geometry": "#B6347C",  # Dark Purple
+    "logical_alternative": "#a17570",   # Red
+    "symmetry_clash": "#75658f",       # Purple
+    "explicit": "#63aa81",             # Green
+    "geometric": "#5c849e",            # Blue
+    "valence": "#cfaf7a",              # Orange
+    "valence_geometry": "#BD729B",     # Dark Purple
 }
 
 VISUAL_CUTOFF = 5
