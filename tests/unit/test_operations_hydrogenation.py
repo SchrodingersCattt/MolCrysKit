@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from molcrys_kit.operations.hydrogenation import Hydrogenator, add_hydrogens
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.analysis.chemical_env import ChemicalEnvironment
 from ase import Atoms
 
 
@@ -90,48 +91,48 @@ def test_hydrogenator_with_custom_rules():
     assert len(symbols) >= 3  # At least N and 2 H's
 
 
-def test_get_applicable_rule():
-    """Test the rule selection logic."""
+def test_find_matching_rule():
+    """Test the new rule selection logic with ChemicalEnvironment."""
     # Create a simple crystal with a carbon atom
     ch2 = Atoms(
         symbols=["C", "H", "H"],
         positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]],
     )
-    crystal = MolecularCrystal(np.eye(3) * 10.0, [CrystalMolecule(ch2)])
+    crystal_mol = CrystalMolecule(ch2)  # Create CrystalMolecule as needed
+    crystal = MolecularCrystal(np.eye(3) * 10.0, [crystal_mol])
 
     hydrogenator = Hydrogenator(crystal)
 
-    # Create a mock graph (for testing purposes)
-    # In practice, this would come from the molecule's graph property
-    class MockGraph:
-        def neighbors(self, atom_idx):
-            if atom_idx == 0:  # Carbon
-                return [1, 2]  # Connected to both H's
-            return []
+    # Create a chemical environment from the CrystalMolecule
+    chem_env = ChemicalEnvironment(crystal_mol)
 
-    mock_graph = MockGraph()
-
-    # Test default rule application
-    default_rule = hydrogenator._get_applicable_rule(
-        "C", 0, ["C", "H", "H"], mock_graph, [], {}
-    )
-    assert default_rule["target_coordination"] == 4
-    assert default_rule["geometry"] == "tetrahedral"
-
-    # Test custom rule application
-    custom_rules = [
-        {"symbol": "C", "target_coordination": 3, "geometry": "trigonal_planar"}
+    # Test specific rule application (no match case)
+    specific_rules = [
+        {"symbol": "C", "neighbors": ["O"], "target_coordination": 4}
     ]
-    custom_rule = hydrogenator._get_applicable_rule(
-        "C",
-        0,
-        ["C", "H", "H"],
-        mock_graph,
-        [],
-        {"C": {"target_coordination": 3, "geometry": "trigonal_planar"}},
-    )
-    assert custom_rule["target_coordination"] == 3
-    assert custom_rule["geometry"] == "trigonal_planar"
+    general_rules = {"C": {"target_coordination": 3, "geometry": "trigonal_planar"}}
+
+    # Since C doesn't have O as neighbor, this should return None
+    rule = hydrogenator._find_matching_rule(chem_env, 0, "C", specific_rules, {})
+    assert rule is None
+
+    # Test specific rule application (match case)
+    specific_rules = [
+        {"symbol": "C", "neighbors": ["H"], "target_coordination": 4, "geometry": "tetrahedral"}
+    ]
+    rule = hydrogenator._find_matching_rule(chem_env, 0, "C", specific_rules, general_rules)
+    assert rule is not None
+    assert rule["target_coordination"] == 4
+    assert rule["geometry"] == "tetrahedral"
+
+    # Test general rule application (fallback case)
+    specific_rules = [
+        {"symbol": "N", "neighbors": ["H"], "target_coordination": 3}
+    ]
+    rule = hydrogenator._find_matching_rule(chem_env, 0, "C", specific_rules, general_rules)
+    assert rule is not None
+    assert rule["target_coordination"] == 3
+    assert rule["geometry"] == "trigonal_planar"
 
 
 def test_hydrogenation_of_methane():
@@ -162,14 +163,37 @@ def test_hydrogenation_of_methane():
     assert h_count >= 3  # Should have at least the original 3 hydrogens
 
 
+def test_custom_bond_lengths():
+    """Test hydrogenation with custom bond lengths."""
+    # Create a simple crystal with an O atom (water with 1 H, missing one)
+    oh = Atoms(
+        symbols=["O", "H"],
+        positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+    )
+    crystal = MolecularCrystal(np.eye(3) * 10.0, [CrystalMolecule(oh)])
+
+    # Initialize hydrogenator
+    hydrogenator = Hydrogenator(crystal)
+
+    # Define custom bond lengths
+    custom_bond_lengths = {"O-H": 1.1}  # Different from default
+
+    # Add hydrogens with custom bond lengths
+    new_crystal = hydrogenator.add_hydrogens(bond_lengths=custom_bond_lengths)
+
+    # Check that the crystal was created without error
+    assert len(new_crystal.molecules) == 1
+
+
 def run_tests():
     """Run all tests."""
     tests = [
         test_hydrogenator_initialization,
         test_add_hydrogens_to_molecule,
         test_hydrogenator_with_custom_rules,
-        test_get_applicable_rule,
+        test_find_matching_rule,
         test_hydrogenation_of_methane,
+        test_custom_bond_lengths,
     ]
 
     passed = 0

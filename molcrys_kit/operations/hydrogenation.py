@@ -88,6 +88,46 @@ class Hydrogenator:
         self.default_rules = COORDINATION_RULES
         self.default_bond_lengths = BOND_LENGTHS
 
+    def _find_matching_rule(self, chem_env, atom_idx, symbol, specific_rules, general_rules):
+        """
+        Find a matching rule for the given atom based on its chemical environment.
+        
+        Parameters
+        ----------
+        chem_env : ChemicalEnvironment
+            The chemical environment of the molecule
+        atom_idx : int
+            Index of the atom to find rules for
+        symbol : str
+            Chemical symbol of the atom
+        specific_rules : list
+            List of rules with neighbor conditions
+        general_rules : dict
+            Dictionary of general rules indexed by symbol
+            
+        Returns
+        -------
+        dict or None
+            Matching rule or None if no rule matches
+        """
+        # Retrieve neighbors and their symbols
+        neighbors = list(chem_env.graph.neighbors(atom_idx))
+        neighbor_symbols = [chem_env.graph.nodes[n]['symbol'] for n in neighbors]
+        
+        # Check specific rules first
+        for rule in specific_rules:
+            if rule['symbol'] == symbol:
+                # Check if any neighbor symbols match the rule's neighbor conditions
+                if any(neighbor_symbol in rule['neighbors'] for neighbor_symbol in neighbor_symbols):
+                    return rule
+        
+        # Check general rules
+        if symbol in general_rules:
+            return general_rules[symbol]
+        
+        # No rule matched
+        return None
+
     def add_hydrogens(
         self, target_elements: Optional[List[str]] = None, optimize_torsion: bool = False, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None
     ) -> MolecularCrystal:
@@ -193,6 +233,22 @@ class Hydrogenator:
                 # Determine hydrogenation strategy using the new API
                 site = chem_env.get_site(atom_idx)
                 h_strategy = site.get_hydrogenation_strategy()
+                
+                # Check for user rule override
+                user_rule = self._find_matching_rule(chem_env, atom_idx, symbol, specific_rules, general_rules)
+                if user_rule:
+                    if "geometry" in user_rule:
+                        h_strategy['geometry'] = user_rule["geometry"]
+                    if "target_coordination" in user_rule:
+                        current_coord = env_stats['coordination_number']
+                        h_strategy['num_h'] = max(0, user_rule["target_coordination"] - current_coord)
+
+                # Check for bond length override
+                bond_key = f"{symbol}-H"
+                if bond_key in effective_bond_lengths:
+                    h_strategy['bond_length'] = effective_bond_lengths[bond_key]
+
+                # Extract final values for vector calculation
                 num_h = h_strategy['num_h']
                 geometry_type = h_strategy['geometry']
                 bond_len = h_strategy['bond_length']
@@ -242,40 +298,6 @@ class Hydrogenator:
         )
 
         return final_crystal
-
-    def _get_applicable_rule(
-        self, symbol, atom_idx, symbols, graph, specific_rules, general_rules
-    ):
-        """
-        Determine which rule to apply based on the priority system:
-        1. Specific rules (with neighbors) take priority
-        2. General rules (without neighbors) take second priority
-        3. Default rules are used if no user rules match
-        """
-        # Step 1: Check specific rules (with neighbors)
-        neighbors = list(graph.neighbors(atom_idx))
-        neighbor_symbols = [symbols[n] for n in neighbors]
-
-        for rule in specific_rules:
-            if rule["symbol"] == symbol:
-                # Check if any of the neighbors match the rule's neighbor conditions
-                if any(
-                    neighbor_symbol in rule["neighbors"]
-                    for neighbor_symbol in neighbor_symbols
-                ):
-                    # Apply this specific rule and stop matching
-                    result_rule = self.default_rules[symbol].copy()
-                    result_rule.update({k: v for k, v in rule.items() if k != "symbol"})
-                    return result_rule
-
-        # Step 2: Check general rules (without neighbors)
-        if symbol in general_rules:
-            result_rule = self.default_rules[symbol].copy()
-            result_rule.update(general_rules[symbol])
-            return result_rule
-
-        # Step 3: Fall back to default rules
-        return self.default_rules[symbol]
 
     def _wrap_molecules_to_cell(self, molecules: List[Atoms]) -> List[Atoms]:
         """
