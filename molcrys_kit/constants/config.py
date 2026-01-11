@@ -40,9 +40,9 @@ TRANSITION_METALS = {
 
 # Global threshold factors for bond detection
 BONDING_CONFIG = {
-    "METAL_THRESHOLD_FACTOR": 0.35,
+    "METAL_THRESHOLD_FACTOR": 0.5,
     "NON_METAL_THRESHOLD_FACTOR": 1.25,
-    "METAL_NON_METAL_THRESHOLD_FACTOR": 0.8,  # Average of metal and non-metal factors
+    "METAL_NON_METAL_THRESHOLD_FACTOR": 0.8,
     "DEFAULT_ATOMIC_RADIUS": 0.5,  # Used when atomic radius is not available
     "MAX_HYDROGEN_BOND_DISTANCE": 3.5,  # Maximum distance for hydrogen bonds in Angstroms
     "MIN_HYDROGEN_BOND_ANGLE": 120,  # Minimum angle for hydrogen bonds in degrees
