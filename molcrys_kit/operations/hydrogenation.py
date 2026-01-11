@@ -10,7 +10,6 @@ from typing import Dict, List, Optional
 from ase import Atoms
 from ..structures.crystal import MolecularCrystal
 from ..analysis.chemical_env import ChemicalEnvironment
-from ..analysis.heuristics import determine_hydrogenation_needs
 from ..utils.geometry import (
     get_missing_vectors,
     calculate_dihedral_and_adjustment,
@@ -191,8 +190,9 @@ class Hydrogenator:
                     else:
                         print(f"Prediction: Unsure state (Coord={len(neighbors)})")
                 # --- DEBUG END ---
-                # Determine hydrogenation strategy using heuristics
-                h_strategy = determine_hydrogenation_needs(symbol, env_stats, ring_info)
+                # Determine hydrogenation strategy using the new API
+                site = chem_env.get_site(atom_idx)
+                h_strategy = site.get_hydrogenation_strategy()
                 num_h = h_strategy['num_h']
                 geometry_type = h_strategy['geometry']
                 bond_len = h_strategy['bond_length']
