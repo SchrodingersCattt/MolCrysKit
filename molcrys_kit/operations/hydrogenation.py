@@ -59,18 +59,18 @@ def add_hydrogens(crystal, target_elements: Optional[List[str]] = None, optimize
     MolecularCrystal
         New crystal with hydrogen atoms added.
     """
-    hydrogenator = Hydrogenator(crystal)
-    return hydrogenator.add_hydrogens(target_elements=target_elements, optimize_torsion=optimize_torsion, rules=rules, bond_lengths=bond_lengths)
+    h_completer = HydrogenCompleter(crystal)
+    return h_completer.add_hydrogens(target_elements=target_elements, optimize_torsion=optimize_torsion, rules=rules, bond_lengths=bond_lengths)
 
 
-class Hydrogenator:
+class HydrogenCompleter:
     """
     Class for adding hydrogen atoms to molecular crystals based on geometric rules.
     """
 
     def __init__(self, crystal: MolecularCrystal):
         """
-        Initialize the hydrogenator with a molecular crystal.
+        Initialize the h_completer with a molecular crystal.
 
         Parameters
         ----------

@@ -21,7 +21,7 @@ from .builders import (
 
 from .surface import generate_topological_slab, TopologicalSlabGenerator
 
-from .hydrogenation import Hydrogenator, add_hydrogens
+from .hydrogenation import HydrogenCompleter, add_hydrogens
 
 __all__ = [
     "apply_gaussian_displacement_molecule",
@@ -34,6 +34,6 @@ __all__ = [
     "create_defect_structure",
     "generate_topological_slab",
     "TopologicalSlabGenerator",
-    "Hydrogenator",
+    "HydrogenCompleter",
     "add_hydrogens",
 ]

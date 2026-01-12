@@ -10,15 +10,15 @@ import numpy as np
 # Add the project root to the path so we can import molcrys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from molcrys_kit.operations.hydrogenation import Hydrogenator, add_hydrogens
+from molcrys_kit.operations.hydrogenation import HydrogenCompleter, add_hydrogens
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.analysis.chemical_env import ChemicalEnvironment
 from ase import Atoms
 
 
-def test_hydrogenator_initialization():
-    """Test initializing a Hydrogenator."""
+def test_h_completer_initialization():
+    """Test initializing a HydrogenCompleter."""
     # Create a simple crystal with a water molecule
     h2o = Atoms(
         symbols=["O", "H", "H"],
@@ -26,15 +26,15 @@ def test_hydrogenator_initialization():
     )
     crystal = MolecularCrystal(np.eye(3) * 10.0, [CrystalMolecule(h2o)])
 
-    # Initialize the hydrogenator
-    hydrogenator = Hydrogenator(crystal)
+    # Initialize the h_completer
+    h_completer = HydrogenCompleter(crystal)
 
-    # Check that the hydrogenator was initialized correctly
-    assert hydrogenator.crystal == crystal
-    assert hydrogenator.default_rules["C"]["target_coordination"] == 4
-    assert hydrogenator.default_rules["N"]["target_coordination"] == 3
-    assert hydrogenator.default_rules["O"]["target_coordination"] == 2
-    assert hydrogenator.default_bond_lengths["O-H"] == 0.96
+    # Check that the h_completer was initialized correctly
+    assert h_completer.crystal == crystal
+    assert h_completer.default_rules["C"]["target_coordination"] == 4
+    assert h_completer.default_rules["N"]["target_coordination"] == 3
+    assert h_completer.default_rules["O"]["target_coordination"] == 2
+    assert h_completer.default_bond_lengths["O-H"] == 0.96
 
 
 def test_add_hydrogens_to_molecule():
@@ -61,8 +61,8 @@ def test_add_hydrogens_to_molecule():
     assert len(symbols) >= 4  # At least C and 3 H's
 
 
-def test_hydrogenator_with_custom_rules():
-    """Test hydrogenator with custom rules."""
+def test_h_completer_with_custom_rules():
+    """Test h_completer with custom rules."""
     # Create a simple crystal with an N atom (ammonia-like with 2 H's, missing one)
     nh2 = Atoms(
         symbols=["N", "H", "H"],
@@ -70,8 +70,8 @@ def test_hydrogenator_with_custom_rules():
     )
     crystal = MolecularCrystal(np.eye(3) * 10.0, [CrystalMolecule(nh2)])
 
-    # Initialize hydrogenator
-    hydrogenator = Hydrogenator(crystal)
+    # Initialize h_completer
+    h_completer = HydrogenCompleter(crystal)
 
     # Define custom rules
     custom_rules = [
@@ -79,7 +79,7 @@ def test_hydrogenator_with_custom_rules():
     ]
 
     # Add hydrogens with custom rules
-    new_crystal = hydrogenator.add_hydrogens(rules=custom_rules)
+    new_crystal = h_completer.add_hydrogens(rules=custom_rules)
 
     # The ammonia should now have 3 hydrogens (one added)
     new_mol = new_crystal.molecules[0]
@@ -101,7 +101,7 @@ def test_find_matching_rule():
     crystal_mol = CrystalMolecule(ch2)  # Create CrystalMolecule as needed
     crystal = MolecularCrystal(np.eye(3) * 10.0, [crystal_mol])
 
-    hydrogenator = Hydrogenator(crystal)
+    h_completer = HydrogenCompleter(crystal)
 
     # Create a chemical environment from the CrystalMolecule
     chem_env = ChemicalEnvironment(crystal_mol)
@@ -113,14 +113,14 @@ def test_find_matching_rule():
     general_rules = {"C": {"target_coordination": 3, "geometry": "trigonal_planar"}}
 
     # Since C doesn't have O as neighbor, this should return None
-    rule = hydrogenator._find_matching_rule(chem_env, 0, "C", specific_rules, {})
+    rule = h_completer._find_matching_rule(chem_env, 0, "C", specific_rules, {})
     assert rule is None
 
     # Test specific rule application (match case)
     specific_rules = [
         {"symbol": "C", "neighbors": ["H"], "target_coordination": 4, "geometry": "tetrahedral"}
     ]
-    rule = hydrogenator._find_matching_rule(chem_env, 0, "C", specific_rules, general_rules)
+    rule = h_completer._find_matching_rule(chem_env, 0, "C", specific_rules, general_rules)
     assert rule is not None
     assert rule["target_coordination"] == 4
     assert rule["geometry"] == "tetrahedral"
@@ -129,7 +129,7 @@ def test_find_matching_rule():
     specific_rules = [
         {"symbol": "N", "neighbors": ["H"], "target_coordination": 3}
     ]
-    rule = hydrogenator._find_matching_rule(chem_env, 0, "C", specific_rules, general_rules)
+    rule = h_completer._find_matching_rule(chem_env, 0, "C", specific_rules, general_rules)
     assert rule is not None
     assert rule["target_coordination"] == 3
     assert rule["geometry"] == "trigonal_planar"
@@ -150,8 +150,8 @@ def test_hydrogenation_of_methane():
     crystal = MolecularCrystal(np.eye(3) * 20.0, [CrystalMolecule(ch3_radical)])
 
     # Add hydrogens
-    hydrogenator = Hydrogenator(crystal)
-    new_crystal = hydrogenator.add_hydrogens()
+    h_completer = HydrogenCompleter(crystal)
+    new_crystal = h_completer.add_hydrogens()
 
     # The methane should now have 4 hydrogens
     new_mol = new_crystal.molecules[0]
@@ -172,14 +172,14 @@ def test_custom_bond_lengths():
     )
     crystal = MolecularCrystal(np.eye(3) * 10.0, [CrystalMolecule(oh)])
 
-    # Initialize hydrogenator
-    hydrogenator = Hydrogenator(crystal)
+    # Initialize h_completer
+    h_completer = HydrogenCompleter(crystal)
 
     # Define custom bond lengths
     custom_bond_lengths = {"O-H": 1.1}  # Different from default
 
     # Add hydrogens with custom bond lengths
-    new_crystal = hydrogenator.add_hydrogens(bond_lengths=custom_bond_lengths)
+    new_crystal = h_completer.add_hydrogens(bond_lengths=custom_bond_lengths)
 
     # Check that the crystal was created without error
     assert len(new_crystal.molecules) == 1
@@ -188,9 +188,9 @@ def test_custom_bond_lengths():
 def run_tests():
     """Run all tests."""
     tests = [
-        test_hydrogenator_initialization,
+        test_h_completer_initialization,
         test_add_hydrogens_to_molecule,
-        test_hydrogenator_with_custom_rules,
+        test_h_completer_with_custom_rules,
         test_find_matching_rule,
         test_hydrogenation_of_methane,
         test_custom_bond_lengths,
