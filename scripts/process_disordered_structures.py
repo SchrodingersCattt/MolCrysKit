@@ -39,7 +39,8 @@ def generate_ordered_replicas_from_disordered_sites_files():
     # input_files += glob.glob("examples/TIL*.cif")
     # input_files += glob.glob("examples/YL*.cif")
     # input_files += glob.glob("examples/1_*.cif")
-    input_files += glob.glob("examples/anhy*.cif")
+    # input_files += glob.glob("examples/anhy*.cif")
+    input_files += glob.glob("examples/NatComm-1.cif")
 
     # Create output directory if it doesn't exist
     output_dir = Path("output/disorder_resolution")

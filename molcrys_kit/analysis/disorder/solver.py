@@ -43,22 +43,32 @@ class DisorderSolver:
 
     def _identify_atom_groups(self):
         """
-        Group atoms by key: (disorder_group, assembly).
-        Then use spatial clustering to identify rigid bodies based on distance.
-        Finally, check for internal conflicts in each component and explode if needed.
-        Store as self.atom_groups (List of Lists of indices).
+        Group atoms by key:
+        - For PART >= 0: (disorder_group, assembly)
+        - For PART < 0:  (disorder_group, assembly, sym_op_index)
+        
+        This separation ensures that symmetry-generated copies (which share the same PART ID 
+        but have different symmetry origins) are treated as separate Rigid Bodies.
         """
         # Dictionary to map group key to list of atom indices
         groups_map = {}
+        
+        # Check availability of symmetry info
+        has_sym_info = hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
 
         for i in range(len(self.info.labels)):
             # Get disorder group and assembly for this atom
             disorder_group = self.info.disorder_groups[i]
             assembly = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
-
-            # [CORRECTION] Treat ALL groups (including 0) uniformly to allow spatial clustering
-            # This ensures ordered molecules (Group 0) are treated as rigid bodies, not shattered atoms.
-            group_key = (disorder_group, assembly)
+            
+            # Logic to handle PART -1 separation
+            if disorder_group < 0 and has_sym_info:
+                sym_op = self.info.sym_op_indices[i] if i < len(self.info.sym_op_indices) else 0
+                # Include sym_op in the key to separate ghosts
+                group_key = (disorder_group, assembly, sym_op)
+            else:
+                # Normal behavior for PART 1, 2 or PART -1 without sym info
+                group_key = (disorder_group, assembly)
 
             if group_key not in groups_map:
                 groups_map[group_key] = []
