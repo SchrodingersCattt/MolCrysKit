@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test the hydrogenation module.
+Test the hydrogen_completion module.
 """
 
 import os
@@ -10,7 +10,7 @@ import numpy as np
 # Add the project root to the path so we can import molcrys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from molcrys_kit.operations.hydrogenation import HydrogenCompleter, add_hydrogens
+from molcrys_kit.operations.hydrogen_completion import HydrogenCompleter, add_hydrogens
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.analysis.chemical_env import ChemicalEnvironment
@@ -135,8 +135,8 @@ def test_find_matching_rule():
     assert rule["geometry"] == "trigonal_planar"
 
 
-def test_hydrogenation_of_methane():
-    """Test hydrogenation of a methane molecule with one missing hydrogen."""
+def test_hydrogen_completion_of_methane():
+    """Test hydrogen_completion of a methane molecule with one missing hydrogen."""
     # Create a methane with only 3 hydrogens
     ch3_radical = Atoms(
         symbols=["C", "H", "H", "H"],
@@ -164,7 +164,7 @@ def test_hydrogenation_of_methane():
 
 
 def test_custom_bond_lengths():
-    """Test hydrogenation with custom bond lengths."""
+    """Test hydrogen_completion with custom bond lengths."""
     # Create a simple crystal with an O atom (water with 1 H, missing one)
     oh = Atoms(
         symbols=["O", "H"],
@@ -192,7 +192,7 @@ def run_tests():
         test_add_hydrogens_to_molecule,
         test_h_completer_with_custom_rules,
         test_find_matching_rule,
-        test_hydrogenation_of_methane,
+        test_hydrogen_completion_of_methane,
         test_custom_bond_lengths,
     ]
 

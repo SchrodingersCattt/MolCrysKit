@@ -100,7 +100,7 @@ ase_atoms = crystal.to_ase()
 print(f"Converted to ASE Atoms: {len(ase_atoms)} atoms")
 ```
 
-## Hydrogenation
+## hydrogen_completion
 
 MolCrysKit provides functionality to add hydrogen atoms to molecular crystals based on geometric rules and chemical constraints. This is particularly useful for generating complete structures from X-ray diffraction data, which often does not resolve hydrogen positions.
 
@@ -109,12 +109,12 @@ MolCrysKit provides functionality to add hydrogen atoms to molecular crystals ba
 - Support for common coordination geometries (tetrahedral, trigonal pyramidal, bent, etc.)
 - Customizable rules for specific atom types
 - Configurable bond lengths for different atom pairs
-- Preservation of molecular topology during hydrogenation
+- Preservation of molecular topology during hydrogen_completion
 
 ### Best Practices:
 - Verify that the crystal structure is of sufficient quality for hydrogen addition
 - Consider using custom rules for specific chemical environments
-- Validate the hydrogen-bonding network after hydrogenation
+- Validate the hydrogen-bonding network after hydrogen_completion
 - Use appropriate bond lengths for your specific system
 
 ### Basic Usage:

@@ -289,9 +289,9 @@ class HybridizedSite(ABC):
         return self.env.detect_ring_info(self.atom_index)
     
     @abstractmethod
-    def get_hydrogenation_strategy(self) -> Dict:
+    def get_hydrogen_completion_strategy(self) -> Dict:
         """
-        Abstract method to determine hydrogenation strategy for this site.
+        Abstract method to determine hydrogen_completion strategy for this site.
         
         Returns
         -------
@@ -306,9 +306,9 @@ class CarbonSite(HybridizedSite):
     Carbon-specific hybridized site implementation.
     """
     
-    def get_hydrogenation_strategy(self) -> Dict:
+    def get_hydrogen_completion_strategy(self) -> Dict:
         """
-        Determine hydrogenation strategy for carbon based on its environment.
+        Determine hydrogen_completion strategy for carbon based on its environment.
         
         Returns
         -------
@@ -439,9 +439,9 @@ class NitrogenSite(HybridizedSite):
     Nitrogen-specific hybridized site implementation.
     """
     
-    def get_hydrogenation_strategy(self) -> Dict:
+    def get_hydrogen_completion_strategy(self) -> Dict:
         """
-        Determine hydrogenation strategy for nitrogen based on its environment.
+        Determine hydrogen_completion strategy for nitrogen based on its environment.
         
         Returns
         -------
@@ -496,9 +496,9 @@ class GenericSite(HybridizedSite):
     Generic hybridized site implementation for elements other than C and N.
     """
     
-    def get_hydrogenation_strategy(self) -> Dict:
+    def get_hydrogen_completion_strategy(self) -> Dict:
         """
-        Determine hydrogenation strategy for generic elements based on their environment.
+        Determine hydrogen_completion strategy for generic elements based on their environment.
         
         Returns
         -------

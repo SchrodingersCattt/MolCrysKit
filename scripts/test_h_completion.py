@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Detailed test script for MAP (Methylammonium Perchlorate) hydrogenation.
+Detailed test script for MAP (Methylammonium Perchlorate) hydrogen_completion.
 
 This script validates that:
 1. Stoichiometry: The output crystal contains 3 H attached to C (Methyl) and 3 H attached to N (Ammonium)
@@ -48,7 +48,7 @@ def main():
     print("Original crystal summary:")
     print(crystal.summary())
 
-    # Apply hydrogenation
+    # Apply hydrogen_completion
     print("\nAdding hydrogens...")
     hydrogenated_crystal = add_hydrogens(crystal, target_elements=target_elements, rules=rules)
 

@@ -1,5 +1,5 @@
 """
-Hydrogenation operations for molecular crystals.
+hydrogen_completion operations for molecular crystals.
 
 This module provides functionality to add hydrogen atoms to molecular crystals
 based on geometric rules and chemical constraints.
@@ -230,9 +230,9 @@ class HydrogenCompleter:
                     else:
                         print(f"Prediction: Unsure state (Coord={len(neighbors)})")
                 # --- DEBUG END ---
-                # Determine hydrogenation strategy using the new API
+                # Determine hydrogen_completion strategy using the new API
                 site = chem_env.get_site(atom_idx)
-                h_strategy = site.get_hydrogenation_strategy()
+                h_strategy = site.get_hydrogen_completion_strategy()
                 
                 # Check for user rule override
                 user_rule = self._find_matching_rule(chem_env, atom_idx, symbol, specific_rules, general_rules)
