@@ -190,7 +190,7 @@ class TopologicalSlabGenerator:
     def build(
         self,
         miller_indices: Tuple[int, int, int],
-        layers: int = 3,
+        layers: int = None,  # 修改默认值为 None，以便区分是否由用户指定
         min_thickness: float = None,
         vacuum: float = 10.0,
     ) -> MolecularCrystal:
@@ -202,10 +202,9 @@ class TopologicalSlabGenerator:
         miller_indices : Tuple[int, int, int]
             Miller indices (h, k, l) of the surface.
         layers : int, optional
-            Number of unit planes in the slab. If not provided, min_thickness will be used to calculate layers.
-            Defaults to 3.
+            Number of unit planes in the slab. If provided, it takes precedence.
         min_thickness : float, optional
-            Minimum thickness of the slab in Angstroms. If provided along with layers, layers will be used.
+            Minimum thickness of the slab in Angstroms. Used to calculate layers if layers is None.
         vacuum : float
             Thickness of vacuum region to add above the slab (in Angstroms).
 
@@ -228,7 +227,31 @@ class TopologicalSlabGenerator:
         rotated_lattice = raw_surface_lattice @ M  # shape (3,3), row vectors
 
         # 3. Get stacking vector in rotated frame
-        stacking_vector = rotated_lattice[2]
+        stacking_vector = rotated_lattice[2]        
+        
+        # Calculate d_spacing (slab thickness of 1 layer)
+        # Since we rotated the lattice such that a and b are in the XY plane, 
+        # the normal is simply the Z-axis (or very close to it).
+        # We calculate it strictly using cross product for robustness.
+        a_vec, b_vec = rotated_lattice[0], rotated_lattice[1]
+        normal = np.cross(a_vec, b_vec)
+        normal_norm = np.linalg.norm(normal)
+        if normal_norm < 1e-8:
+             raise ValueError("Surface lattice vectors are collinear.")
+        normal /= normal_norm
+        
+        d_spacing = abs(np.dot(stacking_vector, normal))
+        
+        # Determine number of layers
+        if layers is None:
+            if min_thickness is not None:
+                if d_spacing < 1e-5:
+                    raise ValueError(f"d_spacing ({d_spacing}) is too small to build a slab.")
+                layers = int(np.ceil(min_thickness / d_spacing))
+                # Ensure at least 1 layer
+                layers = max(1, layers)
+            else:
+                raise ValueError("Either layers or min_thickness must be specified.")
 
         # 4. Get unwrapped molecules and rotate their positions
         unwrapped_molecules = self.crystal.get_unwrapped_molecules()
@@ -262,11 +285,8 @@ class TopologicalSlabGenerator:
                 mol_layer.positions = mol_layer.get_positions() + layer_shift
                 all_mols.append(mol_layer)
 
-        # 8. Compute slab thickness (project stacking vector onto normal)
-        a, b, c = rotated_lattice
-        normal = np.cross(a, b)
-        normal /= np.linalg.norm(normal)
-        d_spacing = abs(np.dot(stacking_vector, normal))
+        # 8. Compute slab thickness
+        # (d_spacing was calculated earlier, so we just use it)
         slab_thickness = layers * d_spacing
 
         # 9. Define final orthogonal lattice: a, b as before, c = [0,0,slab_thickness+vacuum]
@@ -275,14 +295,15 @@ class TopologicalSlabGenerator:
 
         # 10. Center slab in XY: move geometric center to (0.5, 0.5) fractional
         all_positions = np.vstack([mol.get_positions() for mol in all_mols])
-        xy_cart_center = np.mean(all_positions[:, :2], axis=0)
-        # Convert to fractional
-        inv_ab = np.linalg.inv(output_lattice[:2, :2])
-        xy_frac_center = xy_cart_center @ inv_ab
-        shift_frac = np.array([0.5, 0.5]) - xy_frac_center
-        shift_cart = shift_frac @ output_lattice[:2, :2]
-        for mol in all_mols:
-            mol.positions[:, :2] += shift_cart
+        if len(all_positions) > 0:
+            xy_cart_center = np.mean(all_positions[:, :2], axis=0)
+            # Convert to fractional
+            inv_ab = np.linalg.inv(output_lattice[:2, :2])
+            xy_frac_center = xy_cart_center @ inv_ab
+            shift_frac = np.array([0.5, 0.5]) - xy_frac_center
+            shift_cart = shift_frac @ output_lattice[:2, :2]
+            for mol in all_mols:
+                mol.positions[:, :2] += shift_cart
 
         # 11. Rigid body wrapping in X/Y only
         inv_output_lattice = np.linalg.inv(output_lattice)
