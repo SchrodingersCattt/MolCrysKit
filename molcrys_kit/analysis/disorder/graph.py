@@ -385,10 +385,16 @@ class DisorderGraphBuilder:
         cart_positions = [frac_to_cart(rel, self.lattice) for rel in relative_positions]
 
         # [FIX] Handle 8 atoms (Tetrahedral) and 6 atoms (Trigonal/Octahedral) cases
-        if len(atom_indices) == 8 and self.info.symbols[center_idx] in ["N", "P"]:
+        # Tetrahedral: PO4, SO4, etc. (8 neighbors -> 2 sets of 4)
+        if len(atom_indices) == 8 and self.info.symbols[center_idx] in ["N", "P", "S"]:
+             # 这里也可以顺手补上 S (硫酸根 SO4 也是常见的四面体无序)
             self._find_tetrahedral_groups(atom_indices, cart_positions)
-        elif len(atom_indices) == 6 and self.info.symbols[center_idx] in ["N"]:
+            
+        # Trigonal: NH3, CH3 (Methyl) (6 neighbors -> 2 sets of 3)
+        # Added "C" to handle methyl group rotation disorder
+        elif len(atom_indices) == 6 and self.info.symbols[center_idx] in ["N", "C"]:
             self._find_trigonal_groups(atom_indices, cart_positions)
+            
         else:
             # Fallback: mutually exclusive
             for i_idx in atom_indices:
