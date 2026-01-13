@@ -16,6 +16,8 @@ from ase.geometry import get_distances
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
 from ...io.cif import identify_molecules
+from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
+from ...analysis.interactions import get_bonding_threshold
 
 
 class DisorderSolver:
@@ -96,12 +98,28 @@ class DisorderSolver:
                 temp_graph = nx.Graph()
                 temp_graph.add_nodes_from(range(len(group_atoms)))
 
-                # Connect atoms if distance < 1.8 Å (typical bond length)
+                # Connect atoms based on bonding thresholds calculated from atomic radii
                 # This keeps molecules (like ClO4 or Methylammonium) together as rigid bodies
-                cutoff = 1.8
                 for i in range(len(group_atoms)):
                     for j in range(i + 1, len(group_atoms)):
-                        if dist_matrix[i, j] < cutoff:
+                        distance = dist_matrix[i, j]
+                        
+                        # Get symbols for both atoms
+                        symbol_i = self.info.symbols[group_atoms[i]]
+                        symbol_j = self.info.symbols[group_atoms[j]]
+                        
+                        # Get atomic radii
+                        radius_i = get_atomic_radius(symbol_i) if has_atomic_radius(symbol_i) else 0.5
+                        radius_j = get_atomic_radius(symbol_j) if has_atomic_radius(symbol_j) else 0.5
+                        
+                        # Check if atoms are metals
+                        is_metal_i = is_metal_element(symbol_i)
+                        is_metal_j = is_metal_element(symbol_j)
+                        
+                        # Calculate bonding threshold
+                        threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
+                        
+                        if distance < threshold:
                             temp_graph.add_edge(i, j)
 
                 # Find connected components (potential "Rigid Bodies")
