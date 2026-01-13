@@ -387,7 +387,6 @@ class DisorderGraphBuilder:
         # TODO: USE HybridizedSite instead of hardcoded geometries
         # Tetrahedral: PO4, SO4, etc. (8 neighbors -> 2 sets of 4)
         if len(atom_indices) == 8 and self.info.symbols[center_idx] in ["N", "P", "S"]:
-             # 这里也可以顺手补上 S (硫酸根 SO4 也是常见的四面体无序)
             self._find_tetrahedral_groups(atom_indices, cart_positions)
             
         # Trigonal: NH3, CH3 (Methyl) (6 neighbors -> 2 sets of 3)
