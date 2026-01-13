@@ -35,7 +35,7 @@ class StoichiometryAnalyzer:
         self._analyze_species()
 
     @staticmethod
-    def suspect_solvent(formula: str) -> Optional[str]:
+    def inspect_solvent(formula: str) -> Optional[str]:
         """
         Check if a given formula matches any known solvent.
 
@@ -146,7 +146,7 @@ class StoichiometryAnalyzer:
             formula = "_".join(formula_parts[:-1])
             
             # Check if this formula matches any solvent
-            possible_solvent = self.suspect_solvent(formula)
+            possible_solvent = self.inspect_solvent(formula)
             
             count = len(indices)
             example_idx = indices[0] if indices else "N/A"
