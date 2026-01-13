@@ -384,7 +384,7 @@ class DisorderGraphBuilder:
 
         cart_positions = [frac_to_cart(rel, self.lattice) for rel in relative_positions]
 
-        # [FIX] Handle 8 atoms (Tetrahedral) and 6 atoms (Trigonal/Octahedral) cases
+        # TODO: USE HybridizedSite instead of hardcoded geometries
         # Tetrahedral: PO4, SO4, etc. (8 neighbors -> 2 sets of 4)
         if len(atom_indices) == 8 and self.info.symbols[center_idx] in ["N", "P", "S"]:
              # 这里也可以顺手补上 S (硫酸根 SO4 也是常见的四面体无序)
