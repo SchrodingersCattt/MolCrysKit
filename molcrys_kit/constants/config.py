@@ -140,3 +140,57 @@ MAX_COORDINATION_NUMBERS = {
 
 # Default coordination number if element is not in the map
 DEFAULT_MAX_COORDINATION = 6
+
+# Common solvents database for desolvation
+COMMON_SOLVENTS = {
+    "Water": {
+        "formula": "H2O",
+        "heavy_formula": "O",
+        "aliases": ["H2O", "O"]
+    },
+    "Methanol": {
+        "formula": "CH4O",
+        "heavy_formula": "CO",
+        "aliases": ["CH4O", "MeOH", "Methyl alcohol", "Methyl hydrate", "Wood spirit"]
+    },
+    "Ethanol": {
+        "formula": "C2H6O",
+        "heavy_formula": "C2O",
+        "aliases": ["C2H6O", "EtOH", "Ethyl alcohol", "Grain alcohol"]
+    },
+    "Dichloromethane": {
+        "formula": "CH2Cl2",
+        "heavy_formula": "CCl2",
+        "aliases": ["CH2Cl2", "DCM", "Methylene chloride", "Methylene dichloride"]
+    },
+    "DMF": {
+        "formula": "C3H7NO",
+        "heavy_formula": "C3NO",
+        "aliases": ["C3H7NO", "Dimethylformamide", "Formamide, N,N-dimethyl-"]
+    },
+    "Chloroform": {
+        "formula": "CHCl3",
+        "heavy_formula": "CCl3",
+        "aliases": ["CHCl3", "Trichloromethane", "Methenyl trichloride"]
+    },
+    "Acetone": {
+        "formula": "C3H6O",
+        "heavy_formula": "C3O",
+        "aliases": ["C3H6O", "Propanone", "Beta-ketopropane", "Dimethyl ketone"]
+    },
+    "Toluene": {
+        "formula": "C7H8",
+        "heavy_formula": "C7",
+        "aliases": ["C7H8", "Methylbenzene", "Phenylmethane"]
+    },
+    "THF": {
+        "formula": "C4H8O",
+        "heavy_formula": "C4O",
+        "aliases": ["C4H8O", "Tetrahydrofuran", "Oxolane", "Furan, tetrahydro-"]
+    },
+    "Acetonitrile": {
+        "formula": "C2H3N",
+        "heavy_formula": "C2N",
+        "aliases": ["C2H3N", "Ethanonitrile", "Methyl cyanide", "Cyano methane"]
+    }
+}

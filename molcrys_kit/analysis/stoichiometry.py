@@ -6,9 +6,10 @@ and calculating stoichiometry based on molecular topology.
 """
 
 import networkx as nx
-from typing import Dict
+from typing import Dict, Optional
 from collections import defaultdict
 from ..structures.crystal import MolecularCrystal
+from ..constants.config import COMMON_SOLVENTS
 
 
 class StoichiometryAnalyzer:
@@ -32,6 +33,26 @@ class StoichiometryAnalyzer:
         self.species_map = {}  # Maps species ID to list of molecule indices
         self.species_graphs = {}  # Maps species ID to graph for reference
         self._analyze_species()
+
+    @staticmethod
+    def suspect_solvent(formula: str) -> Optional[str]:
+        """
+        Check if a given formula matches any known solvent.
+
+        Parameters
+        ----------
+        formula : str
+            The chemical formula to check.
+
+        Returns
+        -------
+        Optional[str]
+            The name of the matching solvent if found, None otherwise.
+        """
+        for solvent_name, solvent_info in COMMON_SOLVENTS.items():
+            if formula == solvent_info['formula'] or formula == solvent_info['heavy_formula']:
+                return solvent_name
+        return None
 
     def _analyze_species(self):
         """
@@ -112,15 +133,24 @@ class StoichiometryAnalyzer:
 
     def print_species_summary(self):
         """
-        Print a summary table of identified species.
+        Print a summary table of identified species with solvent identification.
         """
         print("Species Summary:")
-        print(f"{'ID':<15} {'Count':<8} {'Formula':<15} {'Reference Molecule Index':<15}")
-        print("-" * 60)
+        print(f"{'ID':<15} {'Count':<8} {'Formula':<15} {'Reference Molecule Index':<25} {'Notes':<20}")
+        print("-" * 85)
 
+        notes = ""
         for species_id, indices in self.species_map.items():
             # Extract formula from species ID (before the underscore and number)
-            formula = "_".join(species_id.split("_")[:-1])
+            formula_parts = species_id.split("_")
+            formula = "_".join(formula_parts[:-1])
+            
+            # Check if this formula matches any solvent
+            possible_solvent = self.suspect_solvent(formula)
+            
             count = len(indices)
             example_idx = indices[0] if indices else "N/A"
-            print(f"{species_id:<15} {count:<8} {formula:<15} {example_idx:<15}")
+            if possible_solvent:
+                notes += f"[Possible Solvent: {possible_solvent}]"
+            
+            print(f"{species_id:<15} {count:<8} {formula:<15} {example_idx:<25} {notes:<20}")

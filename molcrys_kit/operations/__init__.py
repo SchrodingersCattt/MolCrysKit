@@ -23,6 +23,8 @@ from .surface import generate_topological_slab, TopologicalSlabGenerator
 
 from .hydrogen_completion import HydrogenCompleter, add_hydrogens
 
+from .desolvation import Desolvator, remove_solvents
+
 __all__ = [
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
@@ -36,4 +38,6 @@ __all__ = [
     "TopologicalSlabGenerator",
     "HydrogenCompleter",
     "add_hydrogens",
+    "Desolvator",
+    "remove_solvents",
 ]
