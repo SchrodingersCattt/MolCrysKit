@@ -164,7 +164,7 @@ class DisorderGraphBuilder:
 
     def _add_conformer_conflicts(self):
         """
-        Add conflicts using Dual-Track Logic.
+        Add conflicts using Dual-Track Logic with Bonded Immunity for Framework.
         """
         SITE_RADIUS = 3.0
         GHOST_CLASH_THRESHOLD = 2.0
@@ -180,6 +180,23 @@ class DisorderGraphBuilder:
                 part_a = self.info.disorder_groups[atoms_a[0]]
                 part_b = self.info.disorder_groups[atoms_b[0]]
 
+                is_bonded_framework_interaction = False
+
+                if part_a == 0 or part_b == 0:
+                    for aa in atoms_a:
+                        for bb in atoms_b:
+                            dist = self.dist_matrix[aa, bb]
+                            if dist < 2.5:
+                                symbol_a = self.info.symbols[aa]
+                                symbol_b = self.info.symbols[bb]
+                                if self._are_bonded(symbol_a, symbol_b, dist, part_a, part_b):
+                                    is_bonded_framework_interaction = True
+                                    break
+                        if is_bonded_framework_interaction:
+                            break
+                
+                if is_bonded_framework_interaction:
+                    continue 
                 centroid_a = self._get_robust_centroid(atoms_a)
                 centroid_b = self._get_robust_centroid(atoms_b)
 
@@ -303,9 +320,12 @@ class DisorderGraphBuilder:
         is_metal2 = s2 in TRANSITION_METALS
         is_nonmetal1 = not is_metal1
         is_nonmetal2 = not is_metal2
+        
         if (is_metal1 and is_nonmetal2) or (is_metal2 and is_nonmetal1):
-            if dist > BONDING_THRESHOLDS["METAL_NONMETAL_COVALENT_MAX"]:
+            if dist > BONDING_THRESHOLDS["METAL_NONMETAL_COVALENT_MAX"]: # 2.05
                 return False
+            else:
+                return True
 
         if bool({"H", "D"}.intersection({s1, s2})):
             if bool({"C", "N", "O", "S", "P"}.intersection({s1, s2})):
