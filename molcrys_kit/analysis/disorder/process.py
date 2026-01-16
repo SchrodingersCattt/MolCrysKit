@@ -19,13 +19,13 @@ def resolve_disorder(info: DisorderInfo) -> DisorderInfo:
     Clean the atom list by resolving disorder according to the Major Component Selection rule.
 
     Logic:
-    1. Group atoms by their label root or connectivity, but primarily by disorder_assembly and disorder_group.
-    2. Keep atoms with disorder_group 0 or 1 (the static backbone).
-    3. For explicit disorder groups (e.g., PART 2 vs PART 3):
-       - Calculate the sum of occupancies for atoms in each PART.
-       - Keep the PART with the highest total occupancy.
-       - Discard the minor PARTs entirely from the list.
-    4. Handle negative disorder groups consistently.
+    1. Group atoms by their disorder_assembly and disorder_group.
+    2. ALWAYS keep disorder_group 0 (static backbone).
+    3. For all other groups (1, 2, -1, etc.):
+       - Treat them as competitive components.
+       - Calculate total occupancy for each component.
+       - Keep ONLY the component with the highest total occupancy.
+       - This fixes the bug where Part -1 (negative) was incorrectly kept because -1 <= 1.
 
     Parameters:
     -----------
@@ -37,71 +37,66 @@ def resolve_disorder(info: DisorderInfo) -> DisorderInfo:
     DisorderInfo
         Cleaned disorder data with only major components
     """
-    # Group atoms by (assembly, abs(disorder_group)) to handle positive/negative parts separately
-    groups_map: Dict[Tuple[str, int], List[int]] = defaultdict(list)
-    
-    for i in range(len(info.labels)):
-        assembly = info.assemblies[i] if i < len(info.assemblies) else ""
-        disorder_group = info.disorder_groups[i]
-        
-        # Use absolute value for grouping to handle negative parts properly
-        group_key = (assembly, abs(disorder_group))
-        groups_map[group_key].append(i)
+    # Group atoms by assembly to handle independent disorder sites separately
+    # Key: assembly_label (str) -> Value: List of atom indices
+    assembly_map: Dict[str, List[int]] = defaultdict(list)
 
-    # Identify atoms to keep
+    for i in range(len(info.labels)):
+        # Normalize assembly: treat "." or "?" as empty string ""
+        assembly = info.assemblies[i] if i < len(info.assemblies) else ""
+        if assembly in [".", "?"]:
+            assembly = ""
+        assembly_map[assembly].append(i)
+
     atoms_to_keep = []
-    
-    for (assembly, abs_group), atom_indices in groups_map.items():
-        # Separate atoms by their actual disorder group (including sign)
+
+    for assembly, atom_indices in assembly_map.items():
+        # Within each assembly, group atoms by their ACTUAL disorder group
+        # Key: disorder_group (int) -> Value: List of atom indices
         group_parts: Dict[int, List[int]] = defaultdict(list)
         
         for idx in atom_indices:
-            actual_group = info.disorder_groups[idx]
-            group_parts[actual_group].append(idx)
-        
-        # Process this group's parts
-        if len(group_parts) == 1:
-            # Only one part in this group, keep all atoms
-            for atom_list in group_parts.values():
-                atoms_to_keep.extend(atom_list)
-        else:
-            # Multiple parts exist, apply selection rules
+            group = info.disorder_groups[idx]
+            group_parts[group].append(idx)
+
+        # 1. Always keep Part 0 (Static Backbone)
+        if 0 in group_parts:
+            atoms_to_keep.extend(group_parts[0])
+            # Remove 0 from the map so it doesn't participate in the competition below
+            del group_parts[0]
+
+        # 2. Process competitive parts (Part 1, 2, -1, -2, etc.)
+        if group_parts:
+            # Calculate total occupancy for each remaining part
             part_occupancies = {}
-            
-            # Calculate total occupancy for each part
             for part, indices in group_parts.items():
                 total_occ = sum(info.occupancies[i] for i in indices)
                 part_occupancies[part] = total_occ
             
-            # Special handling for group 0 and 1 (static backbone)
-            if 0 in part_occupancies or 1 in part_occupancies:
-                # Always keep parts 0 and 1 (static backbone)
-                for part, indices in group_parts.items():
-                    if part <= 1:  # Part 0 or 1
-                        atoms_to_keep.extend(indices)
-                    else:
-                        # For other parts, select the one with highest occupancy
-                        # among the non-backbone parts
-                        max_part = max(part_occupancies.keys(), key=lambda x: part_occupancies[x] if x > 1 else float('-inf'))
-                        if part == max_part:
-                            atoms_to_keep.extend(indices)
-            else:
-                # No backbone parts, select the part with the highest total occupancy
-                max_part = max(part_occupancies.keys(), key=lambda x: part_occupancies[x])
-                atoms_to_keep.extend(group_parts[max_part])
-    
-    # Sort the indices to maintain order
+            # Select the single best part with the highest total occupancy
+            # In case of ties (e.g., 0.5 vs 0.5), max() picks the first one, which is acceptable
+            best_part = max(part_occupancies, key=part_occupancies.get)
+            
+            atoms_to_keep.extend(group_parts[best_part])
+
+    # Sort indices to preserve original CIF order roughly
     atoms_to_keep.sort()
-    
+
     # Create new DisorderInfo with only the selected atoms
-    new_labels = [info.labels[i] for i in atoms_to_keep]
-    new_symbols = [info.symbols[i] for i in atoms_to_keep]
+    # (Helper function to slice arrays safely)
+    def slice_attr(attr_list, indices):
+        return [attr_list[i] for i in indices]
+
+    new_labels = slice_attr(info.labels, atoms_to_keep)
+    new_symbols = slice_attr(info.symbols, atoms_to_keep)
     new_frac_coords = info.frac_coords[atoms_to_keep]
-    new_occupancies = [info.occupancies[i] for i in atoms_to_keep]
-    new_disorder_groups = [info.disorder_groups[i] for i in atoms_to_keep]
-    new_assemblies = [info.assemblies[i] for i in atoms_to_keep] if info.assemblies else [""] * len(atoms_to_keep)
-    new_sym_op_indices = [info.sym_op_indices[i] for i in atoms_to_keep] if info.sym_op_indices else [0] * len(atoms_to_keep)
+    new_occupancies = slice_attr(info.occupancies, atoms_to_keep)
+    new_disorder_groups = slice_attr(info.disorder_groups, atoms_to_keep)
     
+    # Handle optional fields safely
+    new_assemblies = slice_attr(info.assemblies, atoms_to_keep) if info.assemblies else [""] * len(atoms_to_keep)
+    new_sym_op_indices = slice_attr(info.sym_op_indices, atoms_to_keep) if info.sym_op_indices else [0] * len(atoms_to_keep)
+
     return DisorderInfo(
         labels=new_labels,
         symbols=new_symbols,
