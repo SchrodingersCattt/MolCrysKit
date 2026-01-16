@@ -4,6 +4,12 @@ Configuration module for MolCrysKit.
 This module provides access to configuration parameters and constants used throughout the package.
 """
 
+# Standard keys for disorder metadata
+KEY_OCCUPANCY = "occupancy"          # Default: 1.0
+KEY_DISORDER_GROUP = "disorder_group"  # Default: 0 as integer
+KEY_ASSEMBLY = "assembly"             # Default: "" empty string
+KEY_LABEL = "label"                   # Default: Atom element symbol
+
 # Transition metals set
 TRANSITION_METALS = {
     "Sc",

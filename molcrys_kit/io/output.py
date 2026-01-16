@@ -97,6 +97,8 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
     str
         CIF format string if filename is None, otherwise None.
     """
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+    
     lines = []
     lines.append("data_crystal")
     lines.append("_audit_creation_date              ?")
@@ -122,21 +124,56 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
     lines.append(f"_cell_angle_gamma                 {gamma:.6f}")
     lines.append("")
 
-    # Add atom positions
+    # Add atom positions with disorder metadata
     lines.append("loop_")
     lines.append("  _atom_site_label")
     lines.append("  _atom_site_type_symbol")
     lines.append("  _atom_site_fract_x")
     lines.append("  _atom_site_fract_y")
     lines.append("  _atom_site_fract_z")
+    lines.append("  _atom_site_occupancy")
+    lines.append("  _atom_site_disorder_group")
+    lines.append("  _atom_site_disorder_assembly")
     lines.append("  _atom_site_U_iso_or_equiv")
     lines.append("  _atom_site_adp_type")
 
-    # Collect all atoms from all molecules
+    # Collect all atoms from all molecules including their metadata
     all_symbols = []
     all_frac_positions = []
+    all_occupancies = []
+    all_disorder_groups = []
+    all_assemblies = []
+    all_labels = []
 
     for mol in crystal.molecules:
+        # Get metadata arrays if they exist
+        if hasattr(mol, 'arrays'):
+            if KEY_OCCUPANCY in mol.arrays:
+                occupancies = mol.arrays[KEY_OCCUPANCY]
+            else:
+                occupancies = np.full(len(mol), 1.0)
+                
+            if KEY_DISORDER_GROUP in mol.arrays:
+                disorder_groups = mol.arrays[KEY_DISORDER_GROUP]
+            else:
+                disorder_groups = np.full(len(mol), 0, dtype=int)
+                
+            if KEY_ASSEMBLY in mol.arrays:
+                assemblies = mol.arrays[KEY_ASSEMBLY]
+            else:
+                assemblies = np.array([''] * len(mol))
+                
+            if KEY_LABEL in mol.arrays:
+                labels = mol.arrays[KEY_LABEL]
+            else:
+                labels = np.array(mol.get_chemical_symbols())
+        else:
+            # If mol doesn't have arrays attribute, use defaults
+            occupancies = np.full(len(mol), 1.0)
+            disorder_groups = np.full(len(mol), 0, dtype=int)
+            assemblies = np.array([''] * len(mol))
+            labels = np.array(mol.get_chemical_symbols())
+
         symbols = mol.get_chemical_symbols()
         positions = mol.get_positions()
 
@@ -147,12 +184,18 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
 
             all_symbols.append(symbols[i])
             all_frac_positions.append(frac_pos)
+            all_occupancies.append(occupancies[i])
+            all_disorder_groups.append(int(disorder_groups[i]))  # Ensure integer
+            all_assemblies.append(assemblies[i] if assemblies[i] else '.')
+            all_labels.append(labels[i] if labels[i] else f"{symbols[i]}{i+1}")
 
-    # Write atom positions
-    for i, (symbol, frac_pos) in enumerate(zip(all_symbols, all_frac_positions)):
-        atom_label = f"{symbol}{i+1}"
+    # Write atom positions with metadata
+    for i, (symbol, frac_pos, occ, group, assembly, label) in enumerate(
+        zip(all_symbols, all_frac_positions, all_occupancies, all_disorder_groups, all_assemblies, all_labels)
+    ):
         lines.append(
-            f"  {atom_label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f}  .  Uiso"
+            f"  {label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
+            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} .  Uiso"
         )
 
     cif_string = "\n".join(lines) + "\n"

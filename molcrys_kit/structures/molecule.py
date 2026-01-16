@@ -34,6 +34,53 @@ class CrystalMolecule(Atoms):
         Reference to the parent crystal structure, used for coordinate conversions.
     """
 
+    def copy(self) -> "CrystalMolecule":
+        """
+        Create a copy of the CrystalMolecule preserving all metadata arrays.
+
+        Returns
+        -------
+        CrystalMolecule
+            A copy of the molecule with the same properties and metadata.
+        """
+        # Create a copy of the base Atoms object
+        atoms_copy = super().copy()
+        
+        # Create a new CrystalMolecule from the copied atoms
+        new_mol = CrystalMolecule(atoms_copy, crystal=self.crystal, check_pbc=False)
+        
+        # Copy over any additional attributes that might exist in the original
+        if hasattr(self, '_graph') and self._graph is not None:
+            # Copy the graph if it exists
+            new_mol._graph = self._graph.copy()
+        
+        return new_mol
+
+    def to_ase(self) -> Atoms:
+        """
+        Convert the CrystalMolecule to an ASE Atoms object.
+
+        This method returns the CrystalMolecule as an ASE Atoms object,
+        preserving its positions and any associated cell information.
+
+        Returns
+        -------
+        Atoms
+            An ASE Atoms object representing this molecule.
+        """
+        # Since CrystalMolecule already inherits from Atoms, we can simply return self
+        # But we'll make sure all relevant properties are preserved
+        return Atoms(
+            symbols=self.get_chemical_symbols(),
+            positions=self.get_positions(),
+            cell=self.get_cell()
+            if hasattr(self, "get_cell") and self.get_cell() is not None
+            else np.zeros((3, 3)),
+            pbc=self.get_pbc()
+            if hasattr(self, "get_pbc") and self.get_pbc() is not None
+            else [False, False, False],
+        )
+
     def __init__(
         self, atoms: Atoms = None, crystal=None, check_pbc: bool = True, **kwargs
     ):
@@ -52,10 +99,41 @@ class CrystalMolecule(Atoms):
         **kwargs : dict
             Additional arguments passed to ASE Atoms constructor.
         """
+        from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
 
         if atoms is not None:
+            # Extract custom arrays before initializing
+            custom_arrays = {}
+            n_atoms = len(atoms)
+            
+            # Save the custom disorder arrays if they exist
+            if KEY_OCCUPANCY in atoms.arrays:
+                custom_arrays[KEY_OCCUPANCY] = atoms.arrays[KEY_OCCUPANCY].copy()
+            if KEY_DISORDER_GROUP in atoms.arrays:
+                custom_arrays[KEY_DISORDER_GROUP] = atoms.arrays[KEY_DISORDER_GROUP].copy()
+            if KEY_ASSEMBLY in atoms.arrays:
+                custom_arrays[KEY_ASSEMBLY] = atoms.arrays[KEY_ASSEMBLY].copy()
+            if KEY_LABEL in atoms.arrays:
+                custom_arrays[KEY_LABEL] = atoms.arrays[KEY_LABEL].copy()
+            
             # Initialize from existing ASE Atoms object
             super().__init__(atoms)
+            
+            # Restore the custom disorder arrays after initialization
+            for key, value in custom_arrays.items():
+                # Make sure the array has the right length
+                if len(value) == n_atoms:
+                    self.set_array(key, value)
+                else:
+                    # If lengths don't match, use default values
+                    if key == KEY_OCCUPANCY:
+                        self.set_array(key, np.full(n_atoms, 1.0))
+                    elif key == KEY_DISORDER_GROUP:
+                        self.set_array(key, np.full(n_atoms, 0, dtype=int))
+                    elif key == KEY_ASSEMBLY:
+                        self.set_array(key, np.array([''] * n_atoms))
+                    elif key == KEY_LABEL:
+                        self.set_array(key, np.array(self.get_chemical_symbols()))
         else:
             # Initialize with provided kwargs
             super().__init__(**kwargs)
@@ -326,27 +404,3 @@ class CrystalMolecule(Atoms):
             for i in range(3)
         )
 
-    def to_ase(self) -> Atoms:
-        """
-        Convert the CrystalMolecule to an ASE Atoms object.
-
-        This method returns the CrystalMolecule as an ASE Atoms object,
-        preserving its positions and any associated cell information.
-
-        Returns
-        -------
-        Atoms
-            An ASE Atoms object representing this molecule.
-        """
-        # Since CrystalMolecule already inherits from Atoms, we can simply return self
-        # But we'll make sure all relevant properties are preserved
-        return Atoms(
-            symbols=self.get_chemical_symbols(),
-            positions=self.get_positions(),
-            cell=self.get_cell()
-            if hasattr(self, "get_cell") and self.get_cell() is not None
-            else np.zeros((3, 3)),
-            pbc=self.get_pbc()
-            if hasattr(self, "get_pbc") and self.get_pbc() is not None
-            else [False, False, False],
-        )

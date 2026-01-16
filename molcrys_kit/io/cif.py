@@ -40,6 +40,8 @@ def identify_molecules(
     the bond vectors identified by ASE's neighbor list logic, rather than
     guessing nearest neighbors via Minimum Image Convention.
     """
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+    
     crystal_graph = nx.Graph()
     symbols = atoms.get_chemical_symbols()
 
@@ -148,6 +150,14 @@ def identify_molecules(
 
             mol_atoms.set_positions(curr_positions)
 
+        # Preserve disorder-related arrays when creating molecules
+        # Copy over disorder metadata for the sliced atoms
+        for key in [KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL]:
+            if key in atoms.arrays:
+                original_array = atoms.arrays[key]
+                sliced_array = original_array[atom_indices]
+                mol_atoms.set_array(key, sliced_array)
+        
         # Create molecule, explicitly disabling internal PBC checks
         # because we have already unwrapped it perfectly.
         molecule = CrystalMolecule(mol_atoms, check_pbc=False)
@@ -544,7 +554,11 @@ def read_mol_crystal(
     MolecularCrystal
         Parsed crystal structure with identified molecular units.
     """
-
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+    
+    # First, extract disorder info from CIF file
+    disorder_info = scan_cif_disorder(filepath)
+    
     # Parse the CIF file using pymatgen with special options for handling disordered structures
     # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
     # Also using more tolerant parameters to handle CIF files with full coordinates
@@ -576,8 +590,18 @@ def read_mol_crystal(
     # Create ASE Atoms object with cleaned symbols
     symbols = [_clean_species_string(site.species_string) for site in structure.sites]
     positions = structure.cart_coords
+    
+    # Use the disorder_info occupancies which contain the original values from CIF
+    # since pymatgen might have expanded them due to symmetry operations
     atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
-
+    
+    # Set disorder metadata arrays to the atoms object using the raw disorder information
+    # Make sure the number of atoms matches the disorder info
+    atoms.set_array(KEY_OCCUPANCY, np.array(disorder_info.occupancies[:len(symbols)]))
+    atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups[:len(symbols)], dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies[:len(symbols)]))
+    atoms.set_array(KEY_LABEL, np.array(disorder_info.labels[:len(symbols)]))
+    
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
 

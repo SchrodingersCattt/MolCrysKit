@@ -56,6 +56,8 @@ class MolecularCrystal:
         pbc : Tuple[bool, bool, bool], default=(True, True, True)
             Periodic boundary conditions along each lattice vector.
         """
+        from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+        
         self.lattice = np.array(lattice)
         self.pbc = pbc
 
@@ -65,6 +67,10 @@ class MolecularCrystal:
             if isinstance(mol, CrystalMolecule):
                 # If it's already a CrystalMolecule, just update the reference
                 # We assume it's already unwrapped correctly.
+                
+                # Ensure the atoms object contains the required disorder metadata arrays
+                self._ensure_disorder_metadata(mol)
+                
                 new_mol = (
                     mol.copy()
                 )  # Copy ensures we don't mutate the input list objects unexpectedly
@@ -74,7 +80,32 @@ class MolecularCrystal:
                 self.molecules.append(new_mol)
             else:
                 # If it's a raw ASE Atoms, wrap it
+                # Ensure the atoms object contains the required disorder metadata arrays
+                self._ensure_disorder_metadata(mol)
                 self.molecules.append(CrystalMolecule(mol, self))
+
+    def _ensure_disorder_metadata(self, atoms_obj):
+        """
+        Ensures that the atoms object has all required disorder metadata arrays.
+        If any are missing, inject default values for the entire structure.
+        """
+        from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+        
+        n_atoms = len(atoms_obj)
+        
+        # Check if required arrays exist, if not, inject default values
+        if KEY_OCCUPANCY not in atoms_obj.arrays:
+            atoms_obj.set_array(KEY_OCCUPANCY, np.full(n_atoms, 1.0))
+            
+        if KEY_DISORDER_GROUP not in atoms_obj.arrays:
+            atoms_obj.set_array(KEY_DISORDER_GROUP, np.full(n_atoms, 0, dtype=int))
+            
+        if KEY_ASSEMBLY not in atoms_obj.arrays:
+            atoms_obj.set_array(KEY_ASSEMBLY, np.array([''] * n_atoms))
+            
+        if KEY_LABEL not in atoms_obj.arrays:
+            # Use element symbols as default labels
+            atoms_obj.set_array(KEY_LABEL, np.array(atoms_obj.get_chemical_symbols()))
 
     def __repr__(self):
         """String representation of the molecular crystal."""
