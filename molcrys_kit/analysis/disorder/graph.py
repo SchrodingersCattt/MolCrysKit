@@ -79,7 +79,8 @@ class DisorderGraphBuilder:
     def _identify_conformers(self):
         """
         Identify discrete conformers (clusters) using connectivity, PART rules, AND Symmetry.
-        Prevents 'Frankenstein' merging of symmetry images.
+        Prevents 'Frankenstein' merging of mutually exclusive symmetry images (negative PART groups),
+        but allows bonding across symmetry elements for positive PART groups sitting on symmetry elements.
         """
         n_atoms = len(self.info.labels)
         has_sym_info = hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
@@ -97,7 +98,8 @@ class DisorderGraphBuilder:
                     group_i == 0 or group_j == 0
                 ):
                     # Anti-Frankenstein: Do not bond two disordered atoms if they come from different SymOps
-                    if group_i != 0 and group_j != 0 and has_sym_info:
+                    # ONLY applies when the disorder groups are negative (group_i < 0)
+                    if group_i != 0 and group_j != 0 and has_sym_info and group_i < 0 and group_j < 0:
                         idx_i = (
                             self.info.sym_op_indices[i]
                             if i < len(self.info.sym_op_indices)
@@ -131,7 +133,13 @@ class DisorderGraphBuilder:
                     if has_sym_info and atom_idx < len(self.info.sym_op_indices):
                         sym_op = self.info.sym_op_indices[atom_idx]
 
-                    key = (part_id, sym_op)
+                    # For positive disorder groups (PART > 0), use unified key to keep symmetric parts together
+                    # Only distinguish by sym_op for negative disorder groups (PART < 0)
+                    if part_id > 0:
+                        key = (part_id, 0)  # Unified key for positive groups
+                    else:
+                        key = (part_id, sym_op)  # Keep distinction for negative groups
+                        
                     if key not in atoms_by_key:
                         atoms_by_key[key] = set()
                     atoms_by_key[key].add(atom_idx)

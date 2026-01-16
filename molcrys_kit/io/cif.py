@@ -524,12 +524,17 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
 def read_mol_crystal(
     filepath: str, 
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
-    resolve_disorder: bool = True
+    resolve_disorder: bool = True,
+    solver_method: str = "optimal"
 ) -> MolecularCrystal:
     """
     Parse a CIF file with advanced molecular grouping and optional disorder resolution.
 
-    This function attempts to identify discrete molecular units within the crystal.
+    This function acts as an intelligent dispatcher that:
+    1. Extracts raw disorder data using scan_cif_disorder
+    2. Detects presence of explicit or statistical disorder
+    3. Either uses fast legacy generation or invokes DisorderSolver based on detection
+    4. Returns the first resulting MolecularCrystal
 
     Parameters
     ----------
@@ -541,6 +546,8 @@ def read_mol_crystal(
         be the distance thresholds for bonding in Angstroms.
     resolve_disorder : bool, default=True
         Whether to automatically resolve disorder by keeping only major occupancy components
+    solver_method : str, default="optimal"
+        Method to use when solving disorder with DisorderSolver ("optimal", "greedy", etc.)
 
     Returns
     -------
@@ -548,43 +555,83 @@ def read_mol_crystal(
         Parsed crystal structure with identified molecular units.
     """
 
-    # Use scan_cif_disorder to get all the disorder information
+    # Phase 1: Extraction
     disorder_info = scan_cif_disorder(filepath)
     
-    # Extract lattice from CIF file
-    from pymatgen.io.cif import CifParser
-    parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
-    try:
-        structures = parser.parse_structures()
-    except AttributeError:
-        # Fallback for older pymatgen versions
-        structures = parser.get_structures()
+    # Phase 2: Detection (The "Smart" Check)
+    # Check for explicit disorder or statistical disorder
+    has_explicit_disorder = any(group != 0 for group in disorder_info.disorder_groups)
+    has_statistical_disorder = any(occ < 0.98 for occ in disorder_info.occupancies)
     
-    # For simplicity, we take the first structure
-    structure = structures[0]
-    lattice = structure.lattice.matrix
-    
-    # Apply disorder resolution if requested
-    if resolve_disorder:
-        from ..analysis.disorder.process import resolve_disorder
-        disorder_info = resolve_disorder(disorder_info)
-    
-    # Create ASE Atoms object with resolved disorder information
-    symbols = disorder_info.symbols
-    frac_coords = disorder_info.frac_coords
-    
-    # Convert fractional coordinates to Cartesian
-    cart_coords = np.dot(frac_coords, lattice)
-    
-    atoms = Atoms(symbols=symbols, positions=cart_coords, cell=lattice, pbc=True)
+    # Phase 3: Branching & Solving
+    if not has_explicit_disorder and not has_statistical_disorder:
+        # Path A (Fast & Clean): No disorder detected, proceed with legacy fast generation
+        from pymatgen.io.cif import CifParser
+        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
+        try:
+            structures = parser.parse_structures()
+        except AttributeError:
+            # Fallback for older pymatgen versions
+            structures = parser.get_structures()
+        
+        # For simplicity, we take the first structure
+        structure = structures[0]
+        lattice = structure.lattice.matrix
+        
+        # Apply disorder resolution if requested
+        if resolve_disorder:
+            from ..analysis.disorder.process import resolve_disorder
+            disorder_info = resolve_disorder(disorder_info)
+        
+        # Create ASE Atoms object with resolved disorder information
+        symbols = disorder_info.symbols
+        frac_coords = disorder_info.frac_coords
+        
+        # Convert fractional coordinates to Cartesian
+        cart_coords = np.dot(frac_coords, lattice)
+        
+        atoms = Atoms(symbols=symbols, positions=cart_coords, cell=lattice, pbc=True)
 
-    # Identify molecular units using graph-based approach
-    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
+        # Identify molecular units using graph-based approach
+        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
 
-    # Assuming periodic boundary conditions in all directions
-    pbc = (True, True, True)
+        # Assuming periodic boundary conditions in all directions
+        pbc = (True, True, True)
 
-    return MolecularCrystal(lattice, molecules, pbc)
+        return MolecularCrystal(lattice, molecules, pbc)
+    else:
+        # Path B (Solver): Disorder detected
+        print(f"Detected disorder (Explicit or Statistical). Invoking DisorderSolver...")
+        
+        # Dynamic Import
+        from ..analysis.disorder.graph import DisorderGraphBuilder
+        from ..analysis.disorder.solver import DisorderSolver
+        
+        # Extract lattice from CIF file
+        from pymatgen.io.cif import CifParser
+        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
+        try:
+            structures = parser.parse_structures()
+        except AttributeError:
+            # Fallback for older pymatgen versions
+            structures = parser.get_structures()
+        
+        # For simplicity, we take the first structure
+        structure = structures[0]
+        lattice_matrix = structure.lattice.matrix
+        
+        # Graph Build: Initialize DisorderGraphBuilder (with FIXED logic from Task 1)
+        graph_builder = DisorderGraphBuilder(disorder_info, lattice_matrix)
+        exclusion_graph = graph_builder.build()
+        
+        # Solve: Initialize DisorderSolver
+        solver = DisorderSolver(disorder_info, exclusion_graph, lattice_matrix)
+        
+        # Call solve with specified method
+        results = solver.solve(num_structures=1, method=solver_method)
+        
+        # Return the first resulting MolecularCrystal
+        return results[0]
 
 
 def parse_cif_advanced(
