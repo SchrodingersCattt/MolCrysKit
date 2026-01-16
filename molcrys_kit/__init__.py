@@ -11,15 +11,18 @@ __version__ = "0.1.0"
 from .structures.atom import MolAtom
 from .structures.molecule import CrystalMolecule
 from .structures.crystal import MolecularCrystal
-from .io.cif import read_mol_crystal
 
 # For backward compatibility
 Molecule = CrystalMolecule
+Crystal = MolecularCrystal
+
+from .io.cif import read_mol_crystal
 
 __all__ = [
     "MolAtom",
     "CrystalMolecule",
     "MolecularCrystal",
+    "Crystal",  # Adding Crystal as alias to MolecularCrystal
     "read_mol_crystal",
     # Backward compatibility
     "Molecule",

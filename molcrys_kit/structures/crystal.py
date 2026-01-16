@@ -392,3 +392,27 @@ class MolecularCrystal:
         return Atoms(
             symbols=symbols, positions=positions, cell=self.lattice, pbc=self.pbc
         )
+
+    @classmethod
+    def from_cif(cls, filepath: str, bond_thresholds=None, resolve_disorder=True) -> "MolecularCrystal":
+        """
+        Create a MolecularCrystal from a CIF file with optional disorder resolution.
+
+        Parameters
+        ----------
+        filepath : str
+            Path to the CIF file.
+        bond_thresholds : dict, optional
+            Custom dictionary with atom pairs as keys and bonding thresholds as values.
+            Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
+            be the distance thresholds for bonding in Angstroms.
+        resolve_disorder : bool, default=True
+            Whether to resolve disorder by keeping only major occupancy components
+
+        Returns
+        -------
+        MolecularCrystal
+            A MolecularCrystal object parsed from the CIF file.
+        """
+        from ..io.cif import read_mol_crystal
+        return read_mol_crystal(filepath, bond_thresholds, resolve_disorder)

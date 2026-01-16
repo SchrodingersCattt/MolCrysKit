@@ -22,6 +22,8 @@ from ...utils.geometry import (
     angle_between_vectors,
     frac_to_cart,
 )
+from ...analysis.interactions import get_bonding_threshold
+from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 
 
 class DisorderGraphBuilder:

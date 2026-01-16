@@ -22,11 +22,17 @@ class MolAtom:
         Fractional coordinates of the atom within the crystal lattice.
     occupancy : float, default=1.0
         Site occupancy of the atom (0.0 to 1.0).
+    disorder_group : int, default=0
+        Disorder group identifier (e.g., PART 1, PART 2, etc.). 0 means no disorder or major component.
+    disorder_assembly : str, default=""
+        Disorder assembly identifier to group related disordered components.
     """
 
     symbol: str
     frac_coords: np.ndarray
     occupancy: float = 1.0
+    disorder_group: int = 0
+    disorder_assembly: str = ""
 
     def __post_init__(self):
         """Ensure frac_coords is a numpy array."""
@@ -34,7 +40,7 @@ class MolAtom:
 
     def __repr__(self):
         """String representation of the atom."""
-        return f"MolAtom(symbol='{self.symbol}', frac_coords={self.frac_coords.tolist()}, occupancy={self.occupancy})"
+        return f"MolAtom(symbol='{self.symbol}', frac_coords={self.frac_coords.tolist()}, occupancy={self.occupancy}, disorder_group={self.disorder_group}, disorder_assembly='{self.disorder_assembly}')"
 
     def to_cartesian(self, lattice: np.ndarray) -> np.ndarray:
         """
@@ -65,4 +71,6 @@ class MolAtom:
             symbol=self.symbol,
             frac_coords=self.frac_coords.copy(),
             occupancy=self.occupancy,
+            disorder_group=self.disorder_group,
+            disorder_assembly=self.disorder_assembly,
         )

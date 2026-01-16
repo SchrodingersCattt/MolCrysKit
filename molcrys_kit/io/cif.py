@@ -395,7 +395,6 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
                 _extract_numeric_value(frac_z[i]) if i < len(frac_z) else 0.0
             )
         except (ValueError, TypeError, IndexError):
-            # If conversion fails, keep as 0.0 but log a warning
             warnings.warn(
                 f"Failed to parse coordinates for atom {i}, defaulting to (0,0,0)"
             )
@@ -523,10 +522,12 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
 
 
 def read_mol_crystal(
-    filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None
+    filepath: str, 
+    bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
+    resolve_disorder: bool = True
 ) -> MolecularCrystal:
     """
-    Parse a CIF file with advanced molecular grouping.
+    Parse a CIF file with advanced molecular grouping and optional disorder resolution.
 
     This function attempts to identify discrete molecular units within the crystal.
 
@@ -538,6 +539,8 @@ def read_mol_crystal(
         Custom dictionary with atom pairs as keys and bonding thresholds as values.
         Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
         be the distance thresholds for bonding in Angstroms.
+    resolve_disorder : bool, default=True
+        Whether to automatically resolve disorder by keeping only major occupancy components
 
     Returns
     -------
@@ -545,38 +548,35 @@ def read_mol_crystal(
         Parsed crystal structure with identified molecular units.
     """
 
-    # Parse the CIF file using pymatgen with special options for handling disordered structures
-    # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
-    # Also using more tolerant parameters to handle CIF files with full coordinates
+    # Use scan_cif_disorder to get all the disorder information
+    disorder_info = scan_cif_disorder(filepath)
+    
+    # Extract lattice from CIF file
+    from pymatgen.io.cif import CifParser
+    parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
     try:
-        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
-        # Use parse_structures instead of get_structures to avoid deprecation warning
-        try:
-            structures = parser.parse_structures()
-        except AttributeError:
-            # Fallback for older pymatgen versions
-            structures = parser.get_structures()
-    except Exception:
-        print("Warning: CIF parsing failed. Trying with more relaxed parameters...")
-        parser = CifParser(
-            filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1
-        )
-        try:
-            structures = parser.parse_structures()
-        except AttributeError:
-            # Fallback for older pymatgen versions
-            structures = parser.get_structures()
-
+        structures = parser.parse_structures()
+    except AttributeError:
+        # Fallback for older pymatgen versions
+        structures = parser.get_structures()
+    
     # For simplicity, we take the first structure
     structure = structures[0]
-
-    # Extract lattice vectors
     lattice = structure.lattice.matrix
-
-    # Create ASE Atoms object with cleaned symbols
-    symbols = [_clean_species_string(site.species_string) for site in structure.sites]
-    positions = structure.cart_coords
-    atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
+    
+    # Apply disorder resolution if requested
+    if resolve_disorder:
+        from ..analysis.disorder.process import resolve_disorder
+        disorder_info = resolve_disorder(disorder_info)
+    
+    # Create ASE Atoms object with resolved disorder information
+    symbols = disorder_info.symbols
+    frac_coords = disorder_info.frac_coords
+    
+    # Convert fractional coordinates to Cartesian
+    cart_coords = np.dot(frac_coords, lattice)
+    
+    atoms = Atoms(symbols=symbols, positions=cart_coords, cell=lattice, pbc=True)
 
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
