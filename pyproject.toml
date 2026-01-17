@@ -45,8 +45,11 @@ Repository = "https://github.com/SchrodingersCattt/MolCrysKit"
 where = ["."]
 include = ["molcrys*"]
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.package-data]
-"molcrys.constants" = ["*.json"]
+molcrys_kit = ["constants/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "--cov=molcrys_kit --cov-report=term-missing --cov-report=html"
