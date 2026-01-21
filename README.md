@@ -34,42 +34,33 @@ pip install -e .
 Here's a simple example of how to use MolCrysKit:
 
 ```python
-# Import the necessary classes and functions
 from ase import Atoms
-from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.structures.crystal import MolecularCrystal
 
-# Create a CrystalMolecule from ASE Atoms
+# 1. Create a toy system (e.g., 2 Water molecules in a unit cell)
+# In practice, you would typically load this from a file: atoms = read('cif_file.cif')
 atoms = Atoms(
-    symbols=['O', 'H', 'H'],
+    symbols=['O', 'H', 'H', 'O', 'H', 'H'],
     positions=[
-        [0.000000, 0.000000, 0.000000],
-        [0.756950, 0.585809, 0.000000],
-        [-0.756950, 0.585809, 0.000000]
-    ]
+        [1.0, 1.0, 1.0], [1.8, 1.0, 1.0], [0.7, 1.6, 1.0],  # Molecule 1
+        [5.0, 5.0, 5.0], [5.8, 5.0, 5.0], [4.7, 5.6, 5.0]   # Molecule 2
+    ],
+    cell=[10.0, 10.0, 10.0],
+    pbc=True
 )
 
-# Create a CrystalMolecule (inherits from ASE Atoms)
-molecule = CrystalMolecule(atoms)
+# 2. Initialize MolecularCrystal (Automatically identifies molecules via graph logic)
+crystal = MolecularCrystal.from_ase(atoms)
 
-# Access molecular properties
-print(f"Chemical formula: {molecule.get_chemical_formula()}")
-print(f"Number of atoms: {len(molecule)}")
-print(f"Center of mass: {molecule.get_center_of_mass()}")
+# 3. Access Crystal & Molecular Properties
+print(f"Lattice Parameters: {crystal.get_lattice_parameters()}")
+print(f"Identified Molecules: {len(crystal.molecules)}") 
 
-# Work with molecular graphs
-graph = molecule.graph
-print(f"Graph nodes: {graph.number_of_nodes()}")
-print(f"Graph edges: {graph.number_of_edges()}")
-
-# Display graph structure
-print("Molecular connectivity:")
-for node, data in graph.nodes(data=True):
-    position = molecule.get_positions()[node]
-    print(f"  Atom {node} ({data['symbol']}): [{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}]")
-
-for u, v, data in graph.edges(data=True):
-    print(f"  Bond {u}-{v}: {data['distance']:.3f} Å")
+mol = crystal.molecules[0]
+print(f"Molecule 1 Formula: {mol.get_chemical_formula()}")
+print(f"Molecule 1 Center of Mass: {mol.get_center_of_mass()}")
 ```
+
 
 ## Documentation
 
