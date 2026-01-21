@@ -27,21 +27,22 @@ def generate_ordered_replicas_from_disordered_sites_files():
 
     input_files = []
     # Define the input files to process
-    # input_files += [
-    #     "examples/EAP-8.cif",
-    #     "examples/1-HTP.cif",
-    #     "examples/PAP-M5.cif",
-    #     "examples/PAP-H4.cif",
-    #     "examples/DAP-4.cif",
-    #     "examples/DAN-2.cif",
-    #     # "examples/DAP-O4.cif",
-    # ]
     # input_files += glob.glob("examples/TIL*.cif")
     # input_files += glob.glob("examples/YL*.cif")
     # input_files += glob.glob("examples/1_*.cif")
-    # input_files += glob.glob("examples/anhy*.cif")
-    # input_files += glob.glob("examples/NatComm-1.cif")
+    # input_files += glob.glob("examples/MAF-4-*.cif")
+    input_files += glob.glob("examples/anhy*.cif")[::-1]
+    input_files += glob.glob("examples/NatComm-1.cif")
     input_files += glob.glob("examples/ZIF-*.cif")
+    input_files += [
+        "examples/EAP-8.cif",
+        "examples/1-HTP.cif",
+        "examples/PAP-M5.cif",
+        "examples/PAP-H4.cif",
+        "examples/DAP-4.cif",
+        "examples/DAN-2.cif",
+    #     # "examples/DAP-O4.cif",
+    ]
     # Create output directory if it doesn't exist
     output_dir = Path("output/disorder_resolution")
     output_dir.mkdir(parents=True, exist_ok=True)

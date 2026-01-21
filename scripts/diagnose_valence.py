@@ -1,122 +1,59 @@
-import numpy as np
-import networkx as nx
-import sys
+"""
+verify_merge_bug.py
+验证 MolCrysKit 是否错误合并了空间重叠但逻辑独立的原子。
+"""
 import os
-
-# Ensure we can import molcrys_kit from current directory
-sys.path.insert(0, os.getcwd())
-
+import numpy as np
 from molcrys_kit.io.cif import scan_cif_disorder
-from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
-from molcrys_kit.constants.config import MAX_COORDINATION_NUMBERS, DEFAULT_MAX_COORDINATION, TRANSITION_METALS
 
-def calculate_effective_coordination(builder, neighbors):
-    """
-    Simulate the proposed fix: Calculate MIS size of the neighbor subgraph.
-    MIS(G) = MaxClique(Complement(G))
-    """
-    if not neighbors:
-        return 0
-    
-    nb_graph = nx.Graph()
-    nb_graph.add_nodes_from(neighbors)
-    
-    neighbor_list = list(neighbors)
-    for i in range(len(neighbor_list)):
-        u = neighbor_list[i]
-        for j in range(i + 1, len(neighbor_list)):
-            v = neighbor_list[j]
-            
-            # Conflict Check 1: Different Disorder Groups (Logic)
-            g_u = builder.info.disorder_groups[u]
-            g_v = builder.info.disorder_groups[v]
-            if g_u != 0 and g_v != 0 and g_u != g_v:
-                nb_graph.add_edge(u, v)
-                continue
-            
-            # Conflict Check 2: Geometry (Too close)
-            # Threshold 1.5 A is typical for "too close for non-bonded neighbors"
-            if builder.dist_matrix[u, v] < 1.5: 
-                nb_graph.add_edge(u, v)
+def create_test_cif(filename):
+    """创建一个包含两个位置重合但标签不同的原子的 CIF 文件"""
+    content = """
+data_test
+_cell_length_a    10.0
+_cell_length_b    10.0
+_cell_length_c    10.0
+_cell_angle_alpha 90.0
+_cell_angle_beta  90.0
+_cell_angle_gamma 90.0
+_symmetry_space_group_name_H-M 'P 1'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_disorder_group
+N1A N 0.5 0.5 0.5 1
+N1B N 0.5 0.5 0.5 2
+"""
+    with open(filename, 'w') as f:
+        f.write(content)
 
-    # --- FIX: Use Complement Graph + Max Clique ---
-    # The Maximum Independent Set of G is the Maximum Clique of the Complement of G.
-    complement_graph = nx.complement(nb_graph)
+def verify():
+    cif_file = "debug_merge.cif"
+    create_test_cif(cif_file)
     
-    # nx.max_weight_clique returns (nodes, total_weight)
-    # With weight=None, it counts nodes (Maximum Clique)
-    clique_nodes, _ = nx.algorithms.clique.max_weight_clique(complement_graph, weight=None)
-    
-    return len(clique_nodes)
-
-def diagnose_file(cif_path, target_element):
-    print(f"\n{'='*60}")
-    print(f"DIAGNOSING: {cif_path}")
-    print(f"{'='*60}")
-
+    print(">>> 开始诊断原子合并逻辑...")
     try:
-        info = scan_cif_disorder(cif_path)
-    except Exception as e:
-        print(f"Error parsing CIF: {e}")
-        return
-
-    # Mock Lattice (Orthogonal for simplicity)
-    a, b, c = 15.0, 15.0, 15.0 
-    lattice = np.array([[a, 0, 0], [0, b, 0], [0, 0, c]])
-
-    builder = DisorderGraphBuilder(info, lattice)
-    n_atoms = len(info.labels)
-    
-    # Build simple connectivity
-    connectivity_graph = nx.Graph()
-    for i in range(n_atoms):
-        for j in range(i + 1, n_atoms):
-            dist = builder.dist_matrix[i, j]
-            if dist < 2.5: 
-                connectivity_graph.add_edge(i, j)
-
-    # Check for the Bug
-    for i in range(n_atoms):
-        sym = info.symbols[i]
-        if sym != target_element:
-            continue
+        info = scan_cif_disorder(cif_file)
+        n_atoms = len(info.labels)
+        
+        print(f"输入: 2 个原子 (N1A, N1B)，坐标完全重合，Disorder Group 不同。")
+        print(f"输出: 提取到 {n_atoms} 个原子。")
+        
+        if n_atoms == 1:
+            print("\n[BUG CONFIRMED] 严重错误：两个不同的原子被错误合并了！")
+            print("原因: 去重逻辑只检查了坐标和元素，忽略了原子标签/Disorder Group。")
+            print("后果: 在无序体系中，重合的原子会被误删，导致分子'断裂'。")
+        elif n_atoms == 2:
+            print("\n[PASS] 逻辑正常：重合原子未被合并。")
+        else:
+            print(f"\n[UNKNOWN] 异常数量: {n_atoms}")
             
-        neighbors = list(connectivity_graph.neighbors(i))
-        max_c = MAX_COORDINATION_NUMBERS.get(sym, DEFAULT_MAX_COORDINATION)
-        
-        # --- THE BUGGY LOGIC ---
-        current_count = len(neighbors)
-        is_bug_triggered = current_count > max_c
-        
-        # --- THE CORRECT LOGIC ---
-        effective_count = calculate_effective_coordination(builder, neighbors)
-        is_physically_valid = effective_count <= max_c
-
-        print(f"Atom: {info.labels[i]} ({sym})")
-        print(f"  > Neighbors Found (Total): {current_count}")
-        # Print neighbor details for debugging
-        nb_details = [f"{info.labels[n]}(Part{info.disorder_groups[n]})" for n in neighbors]
-        print(f"    {nb_details}")
-        print(f"  > Max Allowed Coordination: {max_c}")
-        
-        print(f"  [CURRENT CODE JUDGMENT]")
-        if is_bug_triggered:
-            print(f"  🔴 VIOLATION! {current_count} > {max_c} -> DELETE ATOMS")
-        else:
-            print(f"  🟢 OK.")
-
-        print(f"  [REALITY CHECK (MIS)]")
-        print(f"  > Effective Coexisting Neighbors: {effective_count}")
-        if is_physically_valid:
-            print(f"  🟢 PHYSICALLY VALID ({effective_count} <= {max_c}) -> SHOULD KEEP")
-        else:
-            print(f"  🔴 REAL OVERCROWDING")
-        
-        print("-" * 40)
+    finally:
+        if os.path.exists(cif_file):
+            os.remove(cif_file)
 
 if __name__ == "__main__":
-    # Test ZIF-4 (Target N)
-    diagnose_file("examples/ZIF-4.cif", "N")
-
-    # Test ZIF-8 (Target Zn)
-    diagnose_file("examples/ZIF-8.cif", "Zn")
+    verify()

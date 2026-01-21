@@ -448,174 +448,171 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
     fig = plt.figure(figsize=(8, 6))  # Assign figure to variable
     fig.patch.set_facecolor("white")  # White background for publication
 
-    # --- Step 1: Unwrap Coordinates ---
+    # --- Step 1: Unwrap Coordinates (Base Component) ---
     start_time = time()
-    pos, valid_bonds, unwrapped_3d = unwrap_molecular_coordinates(graph, lattice_matrix)
+    # 获取基础的一份unwrap坐标
+    base_pos, valid_bonds, unwrapped_3d = unwrap_molecular_coordinates(graph, lattice_matrix)
     end_time = time()
     print(f"Unwrapping took {end_time - start_time:.2f} seconds")
 
-    # --- Step 2: Draw Chemical Bonds (Skeleton) in the background ---
+    # --- Step 2: Prepare for Periodic Replication ---
+    # 获取投影矩阵
+    rot_matrix = get_projection_matrix(lattice_matrix)
+    
+    # 计算晶格矢量在2D屏幕上的投影向量
+    # lattice_matrix rows are a, b, c vectors
+    vec_a_proj = np.dot(rot_matrix, lattice_matrix[0])[:2]
+    vec_b_proj = np.dot(rot_matrix, lattice_matrix[1])[:2]
+    vec_c_proj = np.dot(rot_matrix, lattice_matrix[2])[:2]
+
+    # 定义要绘制的副本范围 (Replicas)
+    # 对于3D框架，通常绘制 2x2 或 3x3 的区域能体现出连通性
+    # 这里使用 [-1, 0, 1] 可以绘制 3x3 的区域，或者仅用 [0, 1] 绘制 2x2
+    # ZIF-8 等立方晶系通常在 xy 平面平铺即可
+    x_range = range(-1, 1) # 修改这里控制横向副本数，例如 range(0, 2)
+    y_range = range(-1, 1) # 修改这里控制纵向副本数
+    z_range = range(-1, 1)         # 投影方向通常不需要堆叠
+
+    # 预处理：计算那些边是视觉上有效的（在基础坐标系中计算一次即可）
+    # 避免在循环中重复计算距离
+    visible_bond_edges = []
     if valid_bonds:
-        nx.draw_networkx_edges(
-            graph,
-            pos,
-            edgelist=valid_bonds,
-            edge_color=BOND_COLOR,
-            width=4.0,  # Thick lines
-            alpha=0.3,  # Semi-transparent
-            label="Chemical Bond",
-        )
+        for u, v in valid_bonds:
+            if u in unwrapped_3d and v in unwrapped_3d:
+                frac_diff = unwrapped_3d[u] - unwrapped_3d[v]
+                cart_dist = np.linalg.norm(np.dot(frac_diff, lattice_matrix))
+                if cart_dist < VISUAL_CUTOFF:
+                    visible_bond_edges.append((u, v))
 
-    # --- Step 3: Draw Conflict Edges (The graph edges) in the foreground ---
+    # 预处理：Conflict Edges 分组
     edges = graph.edges(data=True)
-
-    # Group edges by conflict type to draw them separately
     edges_by_type = {}
     for u, v, d in edges:
         conflict_type = d.get("conflict_type", "unknown")
-
-        # --- GLOBAL VISUALIZATION TRUNCATION ---
+        # 同样做一次截断检查
         if u in unwrapped_3d and v in unwrapped_3d:
             frac_u = unwrapped_3d[u]
             frac_v = unwrapped_3d[v]
             cart_dist = np.linalg.norm(np.dot(frac_u - frac_v, lattice_matrix))
-
             if cart_dist > VISUAL_CUTOFF:
                 continue
-
         if conflict_type not in edges_by_type:
             edges_by_type[conflict_type] = []
         edges_by_type[conflict_type].append((u, v))
 
-    # Draw each type of conflict with appropriate styling
-    for conflict_type, specific_edges in edges_by_type.items():
-        if conflict_type in COLOR_MAP:
-            color = COLOR_MAP[conflict_type]
-            linestyle = get_edge_linestyle(conflict_type)
-
-            # Use curved lines to distinguish from chemical bonds
-            nx.draw_networkx_edges(
-                graph,
-                pos,
-                edgelist=specific_edges,
-                edge_color=color,
-                width=2.0,
-                alpha=0.8,
-                style=linestyle,
-                connectionstyle="arc3,rad=0.2",  # Curved lines
-                label=conflict_type.replace("_", " ").title(),  # Add label for legend
-            )
-
-    # --- Step 4: Draw Nodes ---
+    # 预处理：节点颜色和大小
     node_colors = []
     labels = {}
     node_sizes = []
-
-    # Dynamic sizing
-    base_size = 50  # 300 if len(graph.nodes) < 50 else 150
-
-    # Get unique disorder groups for legend
+    base_size = 50 
     disorder_groups = set()
     for n in graph.nodes():
         group = graph.nodes[n].get("disorder_group", 0)
         disorder_groups.add(group)
-
-    for n in graph.nodes():
-        group = graph.nodes[n].get("disorder_group", 0)
-        # Clean labels (e.g. C1_part1 -> C1)
         lbl = str(graph.nodes[n].get("label", str(n)))
         labels[n] = lbl.split("_")[0]
         node_sizes.append(base_size)
-
-        # Color nodes by their disorder_group
         node_colors.append(get_node_color(group))
 
-    nx.draw_networkx_nodes(
-        graph,
-        pos,
-        node_color=node_colors,
-        edgecolors=BOND_COLOR,
-        linewidths=1,
-        node_size=node_sizes,
-    )
+    # --- Step 3: Drawing Loop (The "Copies" Logic) ---
+    # 遍历每一个平移向量，重复绘制整个图
+    for ix in x_range:
+        for iy in y_range:
+            for iz in z_range:
+                # 计算当前副本的屏幕偏移量
+                screen_shift = (ix * vec_a_proj) + (iy * vec_b_proj) + (iz * vec_c_proj)
+                
+                # 生成当前副本的坐标 pos
+                current_pos = {n: p + screen_shift for n, p in base_pos.items()}
 
-    # Optional: Draw text if not too crowded
-    if len(graph.nodes) < 50:
-        nx.draw_networkx_labels(graph, pos, labels, font_size=8, font_weight="bold")
+                # A. 绘制化学键 (Background)
+                if visible_bond_edges:
+                    nx.draw_networkx_edges(
+                        graph, current_pos,
+                        edgelist=visible_bond_edges,
+                        edge_color=BOND_COLOR,
+                        width=4.0, alpha=0.3
+                    )
 
-    # --- Step 5: Legend ---
-    # Create custom legend elements for all types
+                # B. 绘制冲突边 (Conflict Edges)
+                for conflict_type, specific_edges in edges_by_type.items():
+                    if conflict_type in COLOR_MAP:
+                        color = COLOR_MAP[conflict_type]
+                        linestyle = get_edge_linestyle(conflict_type)
+                        nx.draw_networkx_edges(
+                            graph,
+                            current_pos,
+                            edgelist=specific_edges,
+                            edge_color=color,
+                            width=2.0,
+                            alpha=0.8,
+                            style=linestyle,
+                            connectionstyle="arc3,rad=0.2",
+                        )
+
+                # C. 绘制节点
+                nx.draw_networkx_nodes(
+                    graph,
+                    current_pos,
+                    node_color=node_colors,
+                    edgecolors=BOND_COLOR,
+                    linewidths=1,
+                    node_size=node_sizes,
+                )
+                
+                # Optional: Labels (建议只在中心副本绘制，防止太乱，或者全部绘制)
+                if ix == 0 and iy == 0 and len(graph.nodes) < 50:
+                     nx.draw_networkx_labels(graph, current_pos, labels, font_size=8, font_weight="bold")
+
+    # --- Step 4: Legend (Draw Once) ---
+    # (保持原有的 Legend 代码不变)
     from matplotlib.lines import Line2D
 
-    # Create legend entries for node types (disorder groups)
     node_legend_elements = []
     for group in sorted(list(disorder_groups)):
         color = get_node_color(group)
         label = get_node_label(group)
-
         node_legend_elements.append(
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="w",
-                markerfacecolor=color,
-                markersize=10,
-                label=label,
-                markeredgecolor=BOND_COLOR,
-                markeredgewidth=1.5,
-            )
+            Line2D([0], [0], marker="o", color="w", markerfacecolor=color,
+                   markersize=10, label=label, markeredgecolor=BOND_COLOR, markeredgewidth=1.5)
         )
 
-    # Create legend entries for edge types
     edge_legend_elements = [
         Line2D([0], [0], color=BOND_COLOR, lw=4, alpha=0.3, label="Chemical Bond")
     ]
-    # Note: We need to re-scan valid edges, as the loop above might have filtered some
     present_conflicts = set(edges_by_type.keys())
     for conflict_type, col in COLOR_MAP.items():
-        # Only add to legend if present in graph
         if conflict_type in present_conflicts:
             linestyle = get_edge_linestyle(conflict_type)
-
             edge_legend_elements.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=col,
-                    lw=2,
-                    alpha=0.8,
-                    label=conflict_type.replace("_", " ").title(),
-                    linestyle=linestyle,
-                )
+                Line2D([0], [0], color=col, lw=2, alpha=0.8, 
+                       label=conflict_type.replace("_", " ").title(), linestyle=linestyle)
             )
 
-    # Combine all legend elements
     all_legend_elements = node_legend_elements + edge_legend_elements
 
     plt.title(title, fontsize=16)
     plt.axis("equal")
-    plt.axis("off")  # Hide axes for clean look
+    plt.axis("off")
 
-    # Add legend
     plt.legend(
         handles=all_legend_elements,
         loc="lower center",
         frameon=False,
         fontsize=12,
-        bbox_to_anchor=(0.5, -0.2),
-        ncol=2,
+        bbox_to_anchor=(0.5, -0.1), #稍微下移一点
+        ncol=3, # 稍微增加列数
     )
 
     plt.tight_layout()
     plt.savefig(filename, dpi=300, facecolor="white", bbox_inches="tight")
     plt.close()
 
-
 def main():
     input_files = []
     input_files.extend(
         [
+            "examples/ZIF-8.cif",
             "examples/1-HTP.cif",
             "examples/PAP-M5.cif",
             "examples/PAP-H4.cif",

@@ -7,6 +7,7 @@ Features:
 2. Unwrap/Recenter molecules: Shifts atom coordinates so molecules appear contiguous.
 3. Focus Visualization: Only draws molecules/clusters that contain conflict nodes.
    Filters out irrelevant background molecules to highlight the disorder mechanism.
+4. Periodic Replicas: Renders periodic copies to show packing context.
 """
 
 import sys
@@ -30,7 +31,7 @@ except ImportError:
 
 # --- CONSTANTS ---
 BOND_COLOR = "#34495e"
-BOND_TOLERANCE = 1.3
+BOND_TOLERANCE = 1.2
 NODE_COLOR_CYCLE = ["#ecf0f1", "#b2c55f", "#d49b68", "#6fb1dd", "#c981e6", "#f1c40f", "#e67e22", "#78afe7", "#d49b68", "#b2c55f"]
 
 COLOR_MAP = {
@@ -42,31 +43,17 @@ COLOR_MAP = {
     "valence_geometry": "#BD729B",     # Dark Purple
 }
 
-VISUAL_CUTOFF = 3
+VISUAL_CUTOFF = 3.0
 
 def get_element_radius(label):
     match = re.match(r"([A-Z][a-z]?)", label)
     if match:
         el = match.group(1)
-        try:
-            from molcrys_kit.constants.config import BONDING_CONFIG
-            import json
-            with open(os.path.join(os.path.dirname(__file__), '..', 'molcrys_kit', 'constants', 'atomic_radii.json')) as f:
-                radii_data = json.load(f)
-            return radii_data.get(el, BONDING_CONFIG.get("DEFAULT_ATOMIC_RADIUS", 1.1))
-        except (ImportError, FileNotFoundError):
-            COVALENT_RADII = {
-                "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76, 
-                "N": 0.71, "O": 0.66, "F": 0.57, "Ne": 0.58, "Na": 1.66, "Mg": 1.41, 
-                "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02, "Ar": 1.06, 
-                "K": 2.03, "Ca": 1.76, "Sc": 1.90, "Ti": 1.75, "V": 1.64, "Cr": 1.54, 
-                "Mn": 1.39, "Fe": 1.32, "Co": 1.26, "Ni": 1.24, "Cu": 1.32, "Zn": 1.22, 
-                "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20, "Kr": 1.16, 
-                "Rb": 2.20, "Sr": 1.95, "Y": 1.90, "Zr": 1.75, "Nb": 1.64, "Mo": 1.54, 
-                "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45, "Cd": 1.44, "In": 1.42, 
-                "Sn": 1.39, "Sb": 1.39, "Te": 1.38, "I": 1.39, "Xe": 1.40
-            }
-            return COVALENT_RADII.get(el, 1.1)
+        from molcrys_kit.constants.config import BONDING_CONFIG
+        import json
+        with open(os.path.join(os.path.dirname(__file__), '..', 'molcrys_kit', 'constants', 'atomic_radii.json')) as f:
+            radii_data = json.load(f)
+        return radii_data.get(el, BONDING_CONFIG.get("DEFAULT_ATOMIC_RADIUS", 1.1))
     return 1.1
 
 def cell_parameters_to_matrix(a, b, c, alpha, beta, gamma):
@@ -281,95 +268,182 @@ def get_edge_linestyle(conflict_type):
     return "solid"
 
 def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
-    fig = plt.figure(figsize=(18, 16))
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    from matplotlib.lines import Line2D
+
+    # 稍微调大画布以容纳多副本
+    fig, ax = plt.subplots(figsize=(18, 16))
     fig.patch.set_facecolor('white')
     
-    # Step 1: Unwrap and Filter
+    # --- Step 1: Unwrap & Filter ---
     start_time = time()
-    pos, valid_bonds, unwrapped_3d, visible_nodes = unwrap_molecular_coordinates(graph, lattice_matrix)
-    end_time = time()
-    print(f"Unwrapping & Filtering took {end_time - start_time:.2f} seconds")
+    # base_pos: 2D plot coordinates
+    # unwrapped_3d: 3D fractional coordinates (continuous molecules)
+    base_pos, valid_bonds, unwrapped_3d, visible_nodes = unwrap_molecular_coordinates(graph, lattice_matrix)
     
-    # Create a subgraph of only visible nodes to keep drawing functions happy
+    # Create subgraph for conflict lookup
     subgraph = graph.subgraph(visible_nodes)
+    print(f"Unwrapping took {time() - start_time:.2f} s")
+
+    # --- Step 2: Pre-calculate Screen Vectors (MIC) ---
+    rot_matrix = get_projection_matrix(lattice_matrix)
     
-    # Step 2: Draw Chemical Bonds
-    if valid_bonds:
-        nx.draw_networkx_edges(
-            subgraph, pos,
-            edgelist=valid_bonds,
-            edge_color=BOND_COLOR,
-            width=4.0, alpha=0.3, label="Chemical Bond"
-        )
+    # Helper to calculate 2D vector between two nodes using MIC
+    def get_vec(u, v):
+        if u not in unwrapped_3d or v not in unwrapped_3d:
+            return None
+        frac_u = unwrapped_3d[u]
+        frac_v = unwrapped_3d[v]
+        diff = frac_v - frac_u
+        # Minimum Image Convention: force nearest neighbor vector
+        mic_diff = diff - np.round(diff)
+        cart_vec = np.dot(mic_diff, lattice_matrix)
+        proj_vec = np.dot(rot_matrix, cart_vec)
+        return proj_vec[:2] # Return (dx, dy)
 
-    # Step 3: Draw Conflict Edges
-    edges = subgraph.edges(data=True)
-    edges_by_type = {}
+    # A. Vectors for Chemical Bonds (Inferred)
+    # Key: (u, v), Value: (dx, dy)
+    bond_vectors_chem = {}
+    for u, v in valid_bonds:
+        vec = get_vec(u, v)
+        if vec is not None:
+            bond_vectors_chem[(u, v)] = vec
+
+    # B. Vectors for Conflict Edges (From Graph)
+    # Key: (u, v), Value: (dx, dy)
+    bond_vectors_conf = {}
+    # FIX: Removed keys=True to support standard DiGraph/Graph
+    for u, v, d in subgraph.edges(data=True):
+        vec = get_vec(u, v)
+        if vec is not None:
+            bond_vectors_conf[(u, v)] = vec
+
+    # --- Step 3: Drawing Loop (Replicas) ---
+    vec_a_proj = np.dot(rot_matrix, lattice_matrix[0])[:2]
+    vec_b_proj = np.dot(rot_matrix, lattice_matrix[1])[:2]
+    vec_c_proj = np.dot(rot_matrix, lattice_matrix[2])[:2]
+
+    # 3x3 Grid for visualization
+    if "ZIF" in title or "MAF" in title:
+        x_range = range(-1, 2)
+        y_range = range(-1, 2)
+        z_range = range(-1, 2)
+    elif "DAN" in title:
+        x_range = range(-1, 2)
+        y_range = range(-1, 2)
+        z_range = range(-1, 2)
+    else:
+        x_range = [0]
+        y_range = [0]
+        z_range = [0]
+
+    # Collectors for Batch Rendering
+    segments_chem = []
+    segments_conf = {} # key: conflict_type, value: list of segments
+
+    # Node data collectors
+    all_node_x = []
+    all_node_y = []
+    all_node_colors = []
+    all_node_sizes = []
     
-    for u, v, d in edges:
-        conflict_type = d.get("conflict_type")
-        if not conflict_type: continue # Skip chemical bonds stored in graph structure if any
-        
-        if u in unwrapped_3d and v in unwrapped_3d:
-            frac_u = unwrapped_3d[u]
-            frac_v = unwrapped_3d[v]
-            cart_dist = np.linalg.norm(np.dot(frac_u - frac_v, lattice_matrix))
-            if cart_dist > VISUAL_CUTOFF: continue
-
-        if conflict_type not in edges_by_type:
-            edges_by_type[conflict_type] = []
-        edges_by_type[conflict_type].append((u, v))
-
-    for c_type, e_list in edges_by_type.items():
-        if c_type in COLOR_MAP:
-            nx.draw_networkx_edges(
-                subgraph, pos, edgelist=e_list,
-                edge_color=COLOR_MAP[c_type], width=1.0, alpha=0.8,
-                style=get_edge_linestyle(c_type), connectionstyle="arc3,rad=0.2",
-                label=c_type.replace('_', ' ').title()
-            )
-
-    # Step 4: Draw Nodes
-    node_colors = []
-    node_sizes = []
-    
-    disorder_groups = set()
+    # Pre-fetch node colors
+    node_color_map = {}
+    node_disorder_groups = {}
     for n in subgraph.nodes():
         group = subgraph.nodes[n].get("disorder_group", 0)
-        disorder_groups.add(group)
-        node_colors.append(get_node_color(group))
-        node_sizes.append(50)
+        node_disorder_groups[n] = group
+        node_color_map[n] = get_node_color(group)
 
-    nx.draw_networkx_nodes(
-        subgraph, pos, node_color=node_colors,
-        edgecolors=BOND_COLOR, linewidths=0.5, node_size=node_sizes
-    )
+    for ix in x_range:
+        for iy in y_range:
+            for iz in z_range:
+                screen_shift = (ix * vec_a_proj) + (iy * vec_b_proj) + (iz * vec_c_proj)
+                
+                # 1. Collect Nodes
+                for n, base_xy in base_pos.items():
+                    x = base_xy[0] + screen_shift[0]
+                    y = base_xy[1] + screen_shift[1]
+                    all_node_x.append(x)
+                    all_node_y.append(y)
+                    all_node_colors.append(node_color_map[n])
+                    all_node_sizes.append(50) 
+                    
+                    # Label center replica only
+                    if ix == 0 and iy == 0 and iz == 0 and len(subgraph) < 50:
+                        lbl = str(subgraph.nodes[n].get("label", "")).split("_")[0]
+                        ax.text(x, y, lbl, fontsize=8, fontweight='bold', 
+                                ha='center', va='center', zorder=10)
 
-    # Step 5: Legend
-    from matplotlib.lines import Line2D
-    legend_elements = []
+                # 2. Collect Chemical Bonds
+                for (u, v), vec in bond_vectors_chem.items():
+                    u_start = np.array(base_pos[u]) + screen_shift
+                    v_end = u_start + vec
+                    segments_chem.append([u_start, v_end])
+
+                # 3. Collect Conflict Edges
+                for u, v, d in subgraph.edges(data=True):
+                    if (u, v) not in bond_vectors_conf:
+                        continue
+                        
+                    c_type = d.get("conflict_type")
+                    if not c_type: continue # Skip if it's not a conflict edge
+                    
+                    vec = bond_vectors_conf[(u, v)]
+                    u_start = np.array(base_pos[u]) + screen_shift
+                    v_end = u_start + vec
+                    
+                    if c_type not in segments_conf:
+                        segments_conf[c_type] = []
+                    segments_conf[c_type].append([u_start, v_end])
+
+    # --- Step 4: Batch Rendering ---
     
-    # Node legend
-    for group in sorted(list(disorder_groups)):
+    # Draw Chemical Bonds
+    if segments_chem:
+        lc_bonds = LineCollection(segments_chem, colors=BOND_COLOR, 
+                                linewidths=4.0, alpha=0.3, zorder=1)
+        ax.add_collection(lc_bonds)
+        
+    # Draw Conflict Edges
+    for c_type, segments in segments_conf.items():
+        if c_type in COLOR_MAP:
+            style = get_edge_linestyle(c_type)
+            ls = "solid"
+            if style == "dashed": ls = "dashed"
+            elif style == (0, (1, 1)): ls = "dotted"
+            
+            lc_conf = LineCollection(segments, colors=COLOR_MAP[c_type], 
+                                   linewidths=1.5, alpha=0.8, linestyles=ls, zorder=2)
+            ax.add_collection(lc_conf)
+
+    # Draw Nodes
+    ax.scatter(all_node_x, all_node_y, c=all_node_colors, s=all_node_sizes, 
+              edgecolors=BOND_COLOR, linewidths=0.5, zorder=5)
+
+    # --- Step 5: Legend ---
+    legend_elements = []
+    unique_groups = sorted(list(set(node_disorder_groups.values())))
+    for group in unique_groups:
         label = "Main Scaffold" if group == 0 else f"Disorder Group {group}"
         legend_elements.append(Line2D([0], [0], marker='o', color='w', 
-                             markerfacecolor=get_node_color(group), markersize=10, 
-                             label=label, markeredgecolor=BOND_COLOR))
+                                    markerfacecolor=get_node_color(group), 
+                                    markersize=10, label=label, 
+                                    markeredgecolor=BOND_COLOR))
     
-    # Edge legend
     legend_elements.append(Line2D([0], [0], color=BOND_COLOR, lw=4, alpha=0.3, label='Chemical Bond'))
     
-    for c_type in edges_by_type.keys():
+    for c_type in segments_conf.keys():
         if c_type in COLOR_MAP:
             legend_elements.append(Line2D([0], [0], color=COLOR_MAP[c_type], lw=2, alpha=0.8, 
-                                 label=c_type.replace('_', ' ').title(), 
-                                 linestyle=get_edge_linestyle(c_type)))
+                                        label=c_type.replace('_', ' ').title()))
 
-    plt.title(title, fontsize=16)
-    plt.axis('equal')
-    plt.axis('off')
-    plt.legend(handles=legend_elements, loc="lower center", frameon=False, 
-              fontsize=12, bbox_to_anchor=(0.5, -0.2), ncol=2)
+    ax.set_title(title, fontsize=16)
+    ax.axis('equal')
+    ax.axis('off')
+    ax.legend(handles=legend_elements, loc="lower center", frameon=False, 
+             fontsize=12, bbox_to_anchor=(0.5, -0.1), ncol=3)
     
     plt.tight_layout()
     plt.savefig(filename, dpi=300, facecolor='white', bbox_inches='tight')
@@ -377,11 +451,14 @@ def plot_unwrapped_graph(graph, lattice_matrix, title, filename):
 
 def main():
     # Only scan specifically requested tricky files to test the focus logic
-    input_files = [
-        # "examples/DAP-4.cif",
+    input_files = glob.glob("examples/MAF*.cif")
+    input_files += [
+        "examples/ZIF-4.cif",
+        "examples/ZIF-8.cif",
+        "examples/DAP-4.cif",
         "examples/PAP-H4.cif",
         "examples/DAN-2.cif",
-        # "examples/anhydrousCaffeine2_CGD_2007_7_1406.cif"
+        "examples/anhydrousCaffeine2_CGD_2007_7_1406.cif"
     ]
     
     output_dir = Path("output/graph_viz_focused")
@@ -407,6 +484,7 @@ def main():
                 f"{Path(cif_file).stem} - Focused Conflict View", 
                 output_dir / f"{Path(cif_file).stem}_focused.pdf"
             )
+            
         except Exception as e:
             print(f"Error processing {cif_file}: {e}")
 

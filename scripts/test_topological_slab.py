@@ -18,7 +18,8 @@ def main():
     # This check is no longer needed since modules are directly imported
     # If required packages are not available, import errors will be raised at the top of the file
 
-    cif_path = os.path.join(project_root, "examples/OCHTET12.cif")
+    cif_path = os.path.join(project_root, "examples/PAP-H4.cif")
+    # cif_path = os.path.join(project_root, "examples/OCHTET12.cif")
     # cif_path = os.path.join(project_root, "output/disorder_resolution/PAP-H4_optimal_0.cif")
     # cif_path = os.path.join(project_root, "output/disorder_resolution/1-HTP_optimal_0.cif")
     # cif_path = os.path.join(project_root, "examples/Acetaminophen_HXACAN.cif")

@@ -19,3 +19,5 @@ for i, molecule in enumerate(crystal.molecules):
     print(
         f"  Fractional centroid: [{centroid_frac[0]:.4f}, {centroid_frac[1]:.4f}, {centroid_frac[2]:.4f}]"
     )
+
+print(crystal.summary())
