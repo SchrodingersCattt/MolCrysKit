@@ -243,13 +243,14 @@ def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:
     lines.append("  0.000000   0.000000   0.000000")
     lines.append("")
 
-    # Add atom positions
+    # Add atom positions (ASE Atoms/Atom: iterate over mol; Atom has .symbol and .position in Cartesian coords)
     lines.append("STRUC")
     atom_index = 1
     for mol in crystal.molecules:
-        for atom in mol.atoms:
+        for atom in mol:
+            frac = crystal.cartesian_to_fractional(atom.position)
             lines.append(
-                f"  {atom_index:4d} {atom.symbol:4s} {atom_index:4d}  1.0000  {atom.frac_coords[0]:8.5f}  {atom.frac_coords[1]:8.5f}  {atom.frac_coords[2]:8.5f}  1a  1  0  0  0  0"
+                f"  {atom_index:4d} {atom.symbol:4s} {atom_index:4d}  1.0000  {frac[0]:8.5f}  {frac[1]:8.5f}  {frac[2]:8.5f}  1a  1  0  0  0  0"
             )
             atom_index += 1
     lines.append("  0 0 0 0 0 0 0")
