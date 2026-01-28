@@ -2,8 +2,8 @@ import os
 import sys
 import matplotlib.pyplot as plt
 
-# Use absolute path for the project
-project_root = "/aisi-nas/guomingyu/personal/MolCrysKit"
+# Resolve project root from this file (scripts/test_topological_slab.py -> project root)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from molcrys_kit.io.cif import read_mol_crystal

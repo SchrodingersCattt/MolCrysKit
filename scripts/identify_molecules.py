@@ -1,7 +1,7 @@
 from molcrys_kit.io import read_mol_crystal
 
 # Read a CIF file with automatic molecule identification
-test_structure = "/aisi-nas/guomingyu/personal/eap8/heating/confs/DAP-4_order.cif"
+test_structure = "examples/DAP-4_order.cif"
 crystal = read_mol_crystal(test_structure)
 
 # Access molecules and their fractional coordinates
