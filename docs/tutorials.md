@@ -4,6 +4,8 @@
 
 MolCrysKit provides functionality to add hydrogen atoms to molecular crystals based on geometric rules and chemical constraints. This is particularly useful for generating complete structures from X-ray diffraction data, which often does not resolve hydrogen positions.
 
+**Note:** `add_hydrogens` uses a whitelist-only policy: you must pass `target_elements` (e.g. `["O","N","C"]`). If `target_elements` is `None` or empty, no hydrogens are added.
+
 ### Key Features:
 - Automatic determination of hydrogen atom positions based on coordination geometry
 - Support for common coordination geometries (tetrahedral, trigonal pyramidal, bent, etc.)
@@ -19,18 +21,20 @@ MolCrysKit provides functionality to add hydrogen atoms to molecular crystals ba
 
 ### Basic Usage:
 ```python
+from molcrys_kit import read_mol_crystal
 from molcrys_kit.operations import add_hydrogens
+from molcrys_kit.io.output import write_cif
 
 # Load a molecular crystal from a CIF file
 crystal = read_mol_crystal('bulk.cif')
 
-# Add hydrogens with default rules
-hydrogenated_crystal = add_hydrogens(crystal)
+# Add hydrogens with default rules (target_elements is required: only these elements get hydrogens added)
+hydrogenated_crystal = add_hydrogens(crystal, target_elements=["O", "N", "C"])
 
-print(f"Original crystal has {len(crystal)} atoms")
-print(f"Hydrogenated crystal has {len(hydrogenated_crystal)} atoms")
+print(f"Original crystal has {crystal.get_total_nodes()} atoms")
+print(f"Hydrogenated crystal has {hydrogenated_crystal.get_total_nodes()} atoms")
 
-# Add hydrogens with custom rules
+# Add hydrogens with custom rules and target elements
 custom_rules = [
     {
         "symbol": "N",              # Nitrogen atoms
@@ -51,15 +55,15 @@ custom_bond_lengths = {
     "C-H": 1.09,
 }
 
-# Add hydrogens with custom rules and bond lengths
 hydrogenated_crystal = add_hydrogens(
     crystal,
+    target_elements=["O", "N", "C"],
     rules=custom_rules,
     bond_lengths=custom_bond_lengths
 )
 
 # Save the hydrogenated crystal to a CIF file
-write_mol_crystal(hydrogenated_crystal, 'hydrogenated_bulk.cif')
+write_cif(hydrogenated_crystal, 'hydrogenated_bulk.cif')
 ```
 
 ## Surface Generation (Slab Creation)
@@ -80,13 +84,14 @@ MolCrysKit provides functionality for generating surface slabs from molecular cr
 
 ### Basic Usage:
 ```python
-from ase.io import write
+from molcrys_kit import read_mol_crystal
 from molcrys_kit.operations import generate_topological_slab
+from molcrys_kit.io.output import write_cif
 
 # Load a molecular crystal from a CIF file
 crystal = read_mol_crystal('bulk.cif')
 
-# Generate a surface slab with specific Miller indices
+# Generate a surface slab with specific Miller indices (layers or min_thickness required)
 slab = generate_topological_slab(
     crystal=crystal,
     miller_indices=(1, 1, 0),  # Miller indices of the surface
@@ -96,11 +101,11 @@ slab = generate_topological_slab(
 
 print(f"Generated slab with {len(slab.molecules)} molecules")
 
-# Convert the slab to ASE Atoms object using the to_ase method
-slab_atoms_obj = slab.to_ase()
+# Save the slab as a MolecularCrystal to a CIF file
+write_cif(slab, 'slab.cif')
 
-# Save the generated slab to a CIF file
-write_mol_crystal(slab_atoms_obj, 'slab.cif')
+# To obtain an ASE Atoms object (e.g. for other workflows), use slab.to_ase()
+slab_atoms_obj = slab.to_ase()
 ```
 
 ## Defect Engineering

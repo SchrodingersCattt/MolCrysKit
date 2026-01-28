@@ -15,7 +15,7 @@ The architecture enables:
 The disorder handling pipeline in MolCrysKit is structured as a three-phase process that transforms raw disorder information into physically realistic ordered structures:
 
 ### Phase 1: Raw Data Extraction
-The process begins with [scan_cif_disorder](../molcrys_kit/analysis/disorder/process.py) which parses CIF files to extract disorder information. This phase identifies atoms belonging to different disorder groups (PART numbers), their occupancies, and assembly information. The extracted data is stored in a [DisorderInfo](../molcrys_kit/analysis/disorder/info.py) object containing:
+The process begins with [scan_cif_disorder](../molcrys_kit/io/cif.py) which parses CIF files to extract disorder information. This phase identifies atoms belonging to different disorder groups (PART numbers), their occupancies, and assembly information. The extracted data is stored in a [DisorderInfo](../molcrys_kit/analysis/disorder/info.py) object (defined in [io/cif.py](../molcrys_kit/io/cif.py), re-exported from disorder/info.py) containing:
 - Atomic symbols and labels
 - Fractional coordinates
 - Occupancy values

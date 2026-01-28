@@ -68,7 +68,7 @@ For detailed architecture, tutorials, and API reference, please see the [`docs/`
 
 ## Project Structure
 
-See the [`molcrys_kit/`](molcrys_kit/) directory for source code and the [`scripts/`](scripts/) directory for examples.
+See the [`molcrys_kit/`](molcrys_kit/) directory for source code and the [`scripts/`](scripts/) directory for utility scripts (e.g. disorder diagnostics, molecule identification, CIF processing).
 
 ## Contributing
 
