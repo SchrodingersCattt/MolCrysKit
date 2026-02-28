@@ -14,12 +14,18 @@ This document serves as a placeholder for the MolCrysKit API reference. The API 
 - [HydrogenCompleter](../molcrys_kit/operations/hydrogen_completion.py): Class for adding hydrogen atoms to molecular crystals
 - [generate_topological_slab](../molcrys_kit/operations/surface.py): Function to generate surface slabs preserving molecular topology
 - [TopologicalSlabGenerator](../molcrys_kit/operations/surface.py): Class for generating surface slabs while preserving molecular topology
+- [TerminationInfo](../molcrys_kit/operations/surface.py): Dataclass holding metadata for a single surface termination (Miller index, shift, Tasker type, layer charges, dipole, charge source)
+- [enumerate_terminations](../molcrys_kit/operations/surface.py): Enumerate topologically unique surface terminations for a Miller plane, with Tasker classification
+- [generate_slabs_with_terminations](../molcrys_kit/operations/surface.py): Build slabs for selected terminations with configurable Tasker-preferred-first ordering
 - [generate_vacancy](../molcrys_kit/operations/defects.py): Function to generate vacancies by removing molecular clusters
 
 ### molcrys_kit.analysis
 - [DisorderSolver](../molcrys_kit/analysis/disorder/solver.py): Class for solving disorder problems using graph algorithms
 - [DisorderGraphBuilder](../molcrys_kit/analysis/disorder/graph.py): Class for building exclusion graphs from disorder data
 - [ChemicalEnvironment](../molcrys_kit/analysis/chemical_env.py): Class for analyzing chemical environments in molecular crystals
+- [MolChargeResult](../molcrys_kit/analysis/charge.py): Dataclass holding formal charge assignment result for one molecule topology type
+- [assign_mol_formal_charges](../molcrys_kit/analysis/charge.py): Assign formal charges to all distinct molecule topologies in a crystal using hybrid strategy (user map → pymatgen BVAnalyzer → zero fallback)
+- [compute_topo_signature](../molcrys_kit/analysis/charge.py): Compute a unique topology fingerprint for a CrystalMolecule combining formula and bond-graph degree sequence
 
 ### molcrys_kit.io
 - [read_mol_crystal](../molcrys_kit/io/cif.py): Function to read molecular crystals from CIF files

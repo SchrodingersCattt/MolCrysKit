@@ -81,7 +81,7 @@ def write_molecule_summary(molecule: CrystalMolecule) -> str:
     return "\n".join(summary)
 
 
-def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
+def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = None) -> str:
     """
     Write a crystal structure to CIF format.
 
@@ -91,6 +91,18 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
         The crystal to write.
     filename : str, optional
         The filename to write to. If None, returns the CIF string.
+    metadata : dict, optional
+        Optional metadata to embed in the CIF header.  Currently supports the
+        ``"termination_info"`` key whose value should be a
+        :class:`~molcrys_kit.operations.surface.TerminationInfo` instance;
+        when present the following custom CIF fields are written:
+        ``_molcrys_termination_shift``,
+        ``_molcrys_termination_index``,
+        ``_molcrys_tasker_type``,
+        ``_molcrys_tasker_polar``,
+        ``_molcrys_tasker_dipole_per_area``,
+        ``_molcrys_charge_source``,
+        ``_molcrys_tasker2_corrected``.
 
     Returns
     -------
@@ -98,7 +110,7 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
         CIF format string if filename is None, otherwise None.
     """
     from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
-    
+
     lines = []
     lines.append("data_crystal")
     lines.append("_audit_creation_date              ?")
@@ -123,6 +135,21 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
     lines.append(f"_cell_angle_beta                  {beta:.6f}")
     lines.append(f"_cell_angle_gamma                 {gamma:.6f}")
     lines.append("")
+
+    # Write optional termination / Tasker metadata
+    if metadata is not None:
+        ti = metadata.get("termination_info")
+        if ti is not None:
+            lines.append(f"_molcrys_termination_shift        {ti.shift:.6f}")
+            lines.append(f"_molcrys_termination_index        {ti.termination_index}")
+            lines.append(f"_molcrys_tasker_type              '{ti.tasker_type}'")
+            lines.append(f"_molcrys_tasker_polar             {ti.is_polar}")
+            lines.append(
+                f"_molcrys_tasker_dipole_per_area   {ti.dipole_per_area:.6e}"
+            )
+            lines.append(f"_molcrys_charge_source            '{ti.charge_source}'")
+            lines.append(f"_molcrys_tasker2_corrected        {ti.tasker2_corrected}")
+            lines.append("")
 
     # Add atom positions with disorder metadata
     lines.append("loop_")
@@ -200,11 +227,11 @@ def write_cif(crystal: MolecularCrystal, filename: str = None) -> str:
 
     cif_string = "\n".join(lines) + "\n"
 
-    if filename is None:
-        return cif_string
-    else:
+    if filename is not None:
         with open(filename, "w") as f:
             f.write(cif_string)
+
+    return cif_string
 
 
 def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:
