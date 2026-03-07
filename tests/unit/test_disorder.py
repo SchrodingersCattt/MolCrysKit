@@ -1,5 +1,5 @@
 """
-Unit tests for molcrys_kit.analysis.disorder (DisorderGraphBuilder, DisorderInfo).
+Unit tests for molcrys_kit.analysis.disorder (DisorderGraphBuilder, DisorderInfo, DisorderSolver).
 """
 
 import itertools
@@ -10,6 +10,8 @@ import networkx as nx
 
 from molcrys_kit.analysis.disorder.info import DisorderInfo
 from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
+from molcrys_kit.analysis.disorder.solver import DisorderSolver
+from molcrys_kit.structures.crystal import MolecularCrystal
 
 
 def _max_independent_set_size(graph, nodes):
@@ -25,6 +27,11 @@ def _max_independent_set_size(graph, nodes):
                     if sub.subgraph(subset).number_of_edges() == 0:
                         return r
         return 1
+
+
+# =====================================================================
+# DisorderGraphBuilder
+# =====================================================================
 
 
 class TestDisorderGraph:
@@ -107,11 +114,7 @@ class TestDisorderGraph:
             [-0.025, 0.025, 0.025],
             [-0.025, -0.025, -0.025],
         ])
-        frac_coords = np.vstack([
-            np.array([[0.0, 0.0, 0.0]]),
-            tet1,
-            tet2,
-        ])
+        frac_coords = np.vstack([np.array([[0.0, 0.0, 0.0]]), tet1, tet2])
         occupancies = [1.0] + [0.5] * 8
         disorder_groups = [0] * 9
         assemblies = [""] * 9
@@ -128,9 +131,69 @@ class TestDisorderGraph:
         graph = builder.build()
         set_a = [1, 2, 3, 4]
         set_b = [5, 6, 7, 8]
-        inter_edges = sum(
-            1 for a in set_a for b in set_b if graph.has_edge(a, b)
-        )
+        inter_edges = sum(1 for a in set_a for b in set_b if graph.has_edge(a, b))
         assert inter_edges > 0
         mis_size = _max_independent_set_size(graph, set_a + set_b)
         assert mis_size >= 1
+
+
+# =====================================================================
+# DisorderSolver
+# =====================================================================
+
+
+class TestDisorderSolver:
+    """DisorderSolver structure generation."""
+
+    @pytest.fixture
+    def simple_disorder_setup(self):
+        """Two pairs of conflicting atoms at well-separated positions."""
+        info = DisorderInfo(
+            labels=["C1", "C2", "O1", "O2"],
+            symbols=["C", "C", "O", "O"],
+            frac_coords=np.array([
+                [0.1, 0.1, 0.1],
+                [0.1, 0.1, 0.105],
+                [0.5, 0.5, 0.5],
+                [0.5, 0.5, 0.505],
+            ]),
+            occupancies=[0.5, 0.5, 0.5, 0.5],
+            disorder_groups=[1, 2, 1, 2],
+            assemblies=["A", "A", "A", "A"],
+        )
+        lattice = np.eye(3) * 10.0
+        builder = DisorderGraphBuilder(info, lattice)
+        graph = builder.build()
+        return info, graph, lattice
+
+    def test_optimal_solve(self, simple_disorder_setup):
+        info, graph, lattice = simple_disorder_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=1, method="optimal")
+        assert isinstance(results, list)
+        assert len(results) == 1
+        assert isinstance(results[0], MolecularCrystal)
+
+    def test_random_solve(self, simple_disorder_setup):
+        info, graph, lattice = simple_disorder_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=3, method="random")
+        assert isinstance(results, list)
+        assert len(results) >= 1
+        for crystal in results:
+            assert isinstance(crystal, MolecularCrystal)
+
+    def test_unknown_method_raises(self, simple_disorder_setup):
+        info, graph, lattice = simple_disorder_setup
+        solver = DisorderSolver(info, graph, lattice)
+        with pytest.raises(ValueError, match="Unknown method"):
+            solver.solve(method="invalid")
+
+    def test_reconstruct_gives_valid_crystal(self, simple_disorder_setup):
+        info, graph, lattice = simple_disorder_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=1, method="optimal")
+        crystal = results[0]
+        total_atoms = sum(len(m) for m in crystal.molecules)
+        assert total_atoms >= 1
+        np.testing.assert_allclose(crystal.lattice, lattice)
