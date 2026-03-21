@@ -437,16 +437,40 @@ class CarbonSite(HybridizedSite):
 class NitrogenSite(HybridizedSite):
     """
     Nitrogen-specific hybridized site implementation.
+    
+    Hybridization is inferred primarily from the shortest heavy-atom bond length,
+    which is the most reliable single indicator of bond order and hybridization.
+    
+    Reference bond lengths (literature values, Å):
+      N≡C (nitrile):   ~1.16   → sp
+      N=C (imine):     ~1.28   → sp2
+      N-C(amide):      ~1.34   → sp2 (partial double bond character)
+      N-C(aniline):    ~1.40   → sp2 (resonance)
+      N-C(amine sp3):  ~1.47   → sp3
+      N=N (azo):       ~1.25   → sp2
+      N-N (hydrazine): ~1.45   → sp3
     """
+    
+    def _min_heavy_bond_len(self) -> float:
+        """Return the shortest bond length to a non-H neighbor."""
+        import numpy as np
+        graph = self.env.graph
+        positions = self.env.positions
+        center = positions[self.atom_index]
+        dists = [
+            np.linalg.norm(positions[nb] - center)
+            for nb in graph.neighbors(self.atom_index)
+            if graph.nodes[nb].get('symbol', '') != 'H'
+        ]
+        return min(dists) if dists else self.geometry_stats['average_bond_length']
     
     def get_hydrogen_completion_strategy(self) -> Dict:
         """
         Determine hydrogen_completion strategy for nitrogen based on its environment.
         
-        Returns
-        -------
-        dict
-            Contains 'num_h', 'geometry', and 'bond_length' keys
+        Primary decision criterion: shortest heavy-atom bond length (min_heavy).
+        Secondary criterion: ring planarity (for aromatic systems).
+        Tertiary criterion: bond angle (for linear sp detection).
         """
         from ..constants.config import BOND_LENGTHS
         
@@ -458,31 +482,81 @@ class NitrogenSite(HybridizedSite):
         geometry = 'tetrahedral'
         bond_length = BOND_LENGTHS.get(f"{self.element}-H", 1.0)
         
+        # Shortest heavy-atom bond: most reliable hybridization indicator
+        min_heavy = self._min_heavy_bond_len()
+        
+        in_ring = self.ring_info['in_ring']
+        is_planar_ring = self.ring_info['is_ring_planar']
+        ring_sizes = self.ring_info['ring_sizes']
+        
+        # Strained 3-membered rings (aziridine): always sp3 regardless of bond length
+        if in_ring and ring_sizes and min(ring_sizes) <= 3:
+            geometry = 'tetrahedral'
+            if coord == 1:
+                num_h = 2
+            return {'num_h': num_h, 'geometry': geometry, 'bond_length': bond_length}
+        
         if coord == 2:
-            # Pyridine (sp2, 0H) vs Pyrrole (sp2, 1H) vs Amine (sp3, 1H)
-            in_ring = self.ring_info['in_ring']
-            is_planar_ring = self.ring_info['is_ring_planar']
-            ring_sizes = self.ring_info['ring_sizes']
-            
-            if in_ring and is_planar_ring:
-                if 6 in ring_sizes: # Pyridine-like
+            bond_angle = self.geometry_stats['bond_angle_single']
+            # sp: linear geometry (nitrile C≡N, isocyanate N=C=O, carbodiimide)
+            # Threshold: bond_angle > 160° OR min_heavy < 1.22 (triple/cumulated bond)
+            if bond_angle > 160.0 or min_heavy < 1.22:
+                num_h = 0
+                geometry = 'linear'
+            # sp2: aromatic ring N (pyridine, pyrrole, imidazole, etc.)
+            elif in_ring and is_planar_ring:
+                if 6 in ring_sizes:  # Pyridine-like: lone pair in plane, no H
                     num_h = 0
                     geometry = 'planar_aromatic'
-                elif 5 in ring_sizes: # Pyrrole-like
+                else:  # Pyrrole-like (5-membered): lone pair in pi system, 1H
                     num_h = 1
-                    geometry = 'planar_bisector' # Use the corrected geometry
-                else:
-                    # Generic planar ring N? Likely sp2 conjugated.
-                    num_h = 0 
+                    geometry = 'planar_bisector'
+            # sp2: imine/amide N with short bond (C=N ~1.28, amide N-C ~1.34)
+            elif min_heavy < 1.38:
+                num_h = 0
+                geometry = 'trigonal_planar'
             else:
-                # Amine-like (Secondary amine)
+                # sp3: secondary amine (N-C ~1.47, N-N ~1.45)
                 num_h = 1
-                geometry = 'tetrahedral' # Pyramidal
+                geometry = 'tetrahedral'
                 
         elif coord == 1:
-            # Primary amine (-NH2) or Amide
-            num_h = 2
-            geometry = 'tetrahedral'
+            # Terminal N: distinguish by bond length
+            # sp:  C≡N nitrile (~1.16), N≡N (~1.10)
+            # sp2: C=N imine (~1.28), amide N-C(=O) (~1.34)
+            # sp3: C-N amine (~1.47)
+            if min_heavy < 1.22:
+                num_h = 0
+                geometry = 'linear'
+            elif min_heavy < 1.38:
+                # sp2: amide or imine terminus
+                num_h = 1
+                geometry = 'trigonal_planar'
+            else:
+                # sp3: primary amine -NH2
+                num_h = 2
+                geometry = 'tetrahedral'
+        
+        elif coord == 3:
+            # Tertiary N: sp3 amine vs sp2 (aniline, amide, enamine)
+            # Key: sp2 N has at least one short bond due to resonance/conjugation
+            # sp2 N-C(aromatic/carbonyl): min_heavy ~1.34-1.40
+            # sp3 N-C(alkyl):             min_heavy ~1.46-1.47
+            # sp3 N-N(hydrazine):         min_heavy ~1.45
+            # Threshold 1.42 Å: covers aniline (1.40), amide (1.34), enamine (1.37)
+            # while excluding sp3 amine (1.46+) and hydrazine N-N (1.45)
+            if in_ring and is_planar_ring:
+                # Aromatic ring N (e.g. N-substituted pyrrole, indole)
+                num_h = 0
+                geometry = 'trigonal_planar'
+            elif min_heavy < 1.42:
+                # sp2: aniline, amide, enamine — shortest bond shows conjugation
+                num_h = 0
+                geometry = 'trigonal_planar'
+            else:
+                # sp3: tertiary amine, hydrazine N
+                num_h = 0
+                geometry = 'tetrahedral'
         
         return {
             'num_h': num_h,
@@ -505,6 +579,7 @@ class GenericSite(HybridizedSite):
         dict
             Contains 'num_h', 'geometry', and 'bond_length' keys
         """
+        import numpy as np
         from ..constants.config import BOND_LENGTHS
         
         coord = self.geometry_stats['coordination_number']
@@ -517,19 +592,72 @@ class GenericSite(HybridizedSite):
         
         atom_symbol = self.element
         
+        # Shortest heavy-atom bond length: primary hybridization indicator
+        # (avoids distortion from short X-H bonds, e.g. O-H ~0.97 Å)
+        graph = self.env.graph
+        positions = self.env.positions
+        center = positions[self.atom_index]
+        heavy_dists = [
+            np.linalg.norm(positions[nb] - center)
+            for nb in graph.neighbors(self.atom_index)
+            if graph.nodes[nb].get('symbol', '') != 'H'
+        ]
+        min_heavy = min(heavy_dists) if heavy_dists else avg_len
+        
+        in_ring = self.ring_info['in_ring']
+        is_planar_ring = self.ring_info['is_ring_planar']
+        ring_sizes = self.ring_info['ring_sizes']
+        
         # Oxygen rules
+        # Reference bond lengths (Å):
+        #   C=O carbonyl:    ~1.23   sp2
+        #   C-O ester/enol:  ~1.34   sp2 (partial double bond)
+        #   C-O aromatic:    ~1.37   sp2 (furan)
+        #   C-O ether/alc:   ~1.43   sp3
+        #   3-membered ring: strained → sp3 regardless of length
         if atom_symbol == 'O':
             if coord == 1:
-                if avg_len < 1.4:
+                # Terminal O: only one heavy bond, no H confusion
+                # C=O (~1.23), N=O (~1.22) → sp2; C-OH (~1.43) → sp3
+                if min_heavy < 1.35:
                     num_h = 0
+                    geometry = 'trigonal_planar'  # sp2 carbonyl
                 else:
                     num_h = 1
+                    geometry = 'bent'  # sp3 hydroxyl
+            elif coord == 2:
+                if in_ring and ring_sizes and min(ring_sizes) <= 3:
+                    # Oxirane: highly strained 3-membered ring → sp3
+                    num_h = 0
+                    geometry = 'bent'
+                elif in_ring and is_planar_ring:
+                    # Furan-like aromatic O → sp2
+                    num_h = 0
+                    geometry = 'trigonal_planar'
+                elif min_heavy < 1.42:
+                    # sp2 O: vinyl ether (~1.37), ester O-C=O (~1.34-1.40)
+                    # sp3 ether C-O-C: ~1.43 → excluded by threshold
+                    num_h = 0
+                    geometry = 'trigonal_planar'
+                else:
+                    # sp3: ether (~1.43), alcohol (~1.43)
+                    num_h = 0
                     geometry = 'bent'
                 
         elif atom_symbol == 'S':
             if coord == 1:
                 num_h = 1
                 geometry = 'bent'
+            elif coord == 2:
+                in_ring = self.ring_info['in_ring']
+                is_planar_ring = self.ring_info['is_ring_planar']
+                if in_ring and is_planar_ring:
+                    # Thiophene-like aromatic S (sp2)
+                    num_h = 0
+                    geometry = 'trigonal_planar'
+                else:
+                    num_h = 0
+                    geometry = 'bent'
         
         return {
             'num_h': num_h,
