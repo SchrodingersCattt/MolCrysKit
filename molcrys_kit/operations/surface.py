@@ -535,6 +535,7 @@ def _get_termination_topo_signature(
     stacking_vector: np.ndarray,
     d_spacing: float,
     threshold_frac: float,
+    z_fracs: Optional[List[float]] = None,
 ) -> str:
     """
     Compute the topo signature of the topmost molecular layer for a given shift.
@@ -553,6 +554,8 @@ def _get_termination_topo_signature(
         Spacing between layers in Angstrom.
     threshold_frac : float
         Cluster width threshold in fractional units.
+    z_fracs : list of float, optional
+        Pre-computed z-fractional coordinates. If None, will be computed.
 
     Returns
     -------
@@ -561,12 +564,15 @@ def _get_termination_topo_signature(
     """
     from ..analysis.charge import compute_topo_signature
 
-    new_z_fracs = []
-    for mol in shifted_mols:
-        centroid = mol.get_centroid()
-        frac = centroid @ inv_rotated_lattice
-        z_frac = frac[2]
-        new_z_fracs.append((z_frac - candidate_shift) % 1.0)
+    if z_fracs is None:
+        new_z_fracs = []
+        for mol in shifted_mols:
+            centroid = mol.get_centroid()
+            frac = centroid @ inv_rotated_lattice
+            z_frac = frac[2]
+            new_z_fracs.append((z_frac - candidate_shift) % 1.0)
+    else:
+        new_z_fracs = [(z - candidate_shift) % 1.0 for z in z_fracs]
 
     clusters = _cluster_z_fracs(new_z_fracs, threshold_frac=threshold_frac)
     if not clusters:
@@ -592,6 +598,7 @@ def _evaluate_tasker(
     threshold_frac: float,
     tasker_polar_tol: float,
     charge_tol: float,
+    z_fracs: Optional[List[float]] = None,
 ) -> Dict:
     """
     Evaluate Tasker classification for a surface termination.
@@ -612,6 +619,8 @@ def _evaluate_tasker(
         Threshold for dipole_per_area to classify as polar.
     charge_tol : float
         Threshold for layer_charge to classify as neutral.
+    z_fracs : list of float, optional
+        Pre-computed z-fractional coordinates. If None, will be computed.
 
     Returns
     -------
@@ -621,12 +630,15 @@ def _evaluate_tasker(
     """
     from ..analysis.charge import compute_topo_signature
 
-    new_z_fracs = []
-    for mol in shifted_mols:
-        centroid = mol.get_centroid()
-        frac = centroid @ frame.inv_rotated_lattice
-        z_frac = frac[2]
-        new_z_fracs.append((z_frac - candidate_shift) % 1.0)
+    if z_fracs is None:
+        new_z_fracs = []
+        for mol in shifted_mols:
+            centroid = mol.get_centroid()
+            frac = centroid @ frame.inv_rotated_lattice
+            z_frac = frac[2]
+            new_z_fracs.append((z_frac - candidate_shift) % 1.0)
+    else:
+        new_z_fracs = [(z - candidate_shift) % 1.0 for z in z_fracs]
 
     clusters = _cluster_z_fracs(new_z_fracs, threshold_frac=threshold_frac)
     if not clusters:
@@ -639,12 +651,14 @@ def _evaluate_tasker(
             "is_tasker_preferred": False,
         }
 
+    # Pre-compute signatures for all molecules once
+    mol_signatures = [compute_topo_signature(mol) for mol in shifted_mols]
+
     # Determine overall charge source (worst priority among all molecules).
     # Start from the best possible source; any worse source found will override.
     source_priority = {"user_map": 0, "auto_guess": 1, "neutral": 2, "none": 3}
     overall_source = "user_map"
-    for mol in shifted_mols:
-        sig = compute_topo_signature(mol)
+    for sig in mol_signatures:
         if sig in charge_results:
             src = charge_results[sig].source
             if source_priority.get(src, 99) > source_priority.get(overall_source, 99):
@@ -655,8 +669,8 @@ def _evaluate_tasker(
     layer_z_centers = []
     for cluster_indices in clusters:
         q = sum(
-            charge_results[compute_topo_signature(shifted_mols[i])].formal_charge
-            if compute_topo_signature(shifted_mols[i]) in charge_results
+            charge_results[mol_signatures[i]].formal_charge
+            if mol_signatures[i] in charge_results
             else 0.0
             for i in cluster_indices
         )
@@ -715,6 +729,7 @@ def enumerate_terminations(
     mol_charge_map: Optional[Dict[str, int]] = None,
     tasker_polar_tol: float = 1e-3,
     charge_tol: float = 0.05,
+    _precomputed_frame=None,
 ) -> List[TerminationInfo]:
     """
     Enumerate topologically unique surface terminations for a given Miller plane.
@@ -758,8 +773,11 @@ def enumerate_terminations(
     from ..analysis.charge import assign_mol_formal_charges
 
     h, k, l = miller_index
-    gen = TopologicalSlabGenerator(crystal)
-    frame = gen._prepare_frame(h, k, l)
+    if _precomputed_frame is not None:
+        frame = _precomputed_frame
+    else:
+        gen = TopologicalSlabGenerator(crystal)
+        frame = gen._prepare_frame(h, k, l)
 
     # Default resolution: 0.5 Ang in fractional units
     if termination_resolution is None:
@@ -817,6 +835,7 @@ def enumerate_terminations(
             frame.stacking_vector,
             frame.d_spacing,
             threshold_frac,
+            z_fracs=z_fracs,
         )
 
         if unique_terminations == "topo" and topo_sig in seen_topo_sigs:
@@ -888,6 +907,7 @@ def enumerate_terminations(
                 threshold_frac,
                 tasker_polar_tol,
                 charge_tol,
+                z_fracs=z_fracs,
             )
 
         info = TerminationInfo(
@@ -977,12 +997,16 @@ def _apply_tasker2_correction(
     new_z_fracs = [float(mol.get_centroid()[2]) / slab_c for mol in corrected_mols]
     new_clusters = _cluster_z_fracs(new_z_fracs, threshold_frac=threshold_frac)
 
-    def _dipole_from_clusters(mol_list, zf_list, clust_list):
+    # Pre-compute signatures for all molecules once
+    mol_signatures = [compute_topo_signature(mol) for mol in mols]
+    corrected_mol_signatures = [compute_topo_signature(mol) for mol in corrected_mols]
+
+    def _dipole_from_clusters(mol_list, mol_sigs, zf_list, clust_list):
         dipole = 0.0
         for c in clust_list:
             q = sum(
-                charge_results[compute_topo_signature(mol_list[i])].formal_charge
-                if compute_topo_signature(mol_list[i]) in charge_results
+                charge_results[mol_sigs[i]].formal_charge
+                if mol_sigs[i] in charge_results
                 else 0.0
                 for i in c
             )
@@ -996,14 +1020,35 @@ def _apply_tasker2_correction(
     if surface_area < 1e-10:
         return None
 
-    dipole_old = abs(_dipole_from_clusters(mols, z_fracs, clusters)) / surface_area
-    dipole_new = abs(_dipole_from_clusters(corrected_mols, new_z_fracs, new_clusters)) / surface_area
+    dipole_old = abs(_dipole_from_clusters(mols, mol_signatures, z_fracs, clusters)) / surface_area
+    dipole_new = abs(_dipole_from_clusters(corrected_mols, corrected_mol_signatures, new_z_fracs, new_clusters)) / surface_area
 
     if dipole_new >= dipole_old:
         return None
 
+    # Recompute actual slab extent after correction
+    all_z_corrected = np.concatenate([mol.get_positions()[:, 2] for mol in corrected_mols])
+    min_z_corr = np.min(all_z_corrected)
+    max_z_corr = np.max(all_z_corrected)
+
+    # Recover the original vacuum from the original slab
+    original_slab_z = np.concatenate([mol.get_positions()[:, 2] for mol in mols])
+    original_min_z = np.min(original_slab_z)
+    original_max_z = np.max(original_slab_z)
+    original_slab_extent = original_max_z - original_min_z
+    original_vacuum = slab.lattice[2, 2] - original_slab_extent
+
+    # Build new lattice with same vacuum
+    new_lattice = slab.lattice.copy()
+    new_lattice[2, 2] = (max_z_corr - min_z_corr) + original_vacuum
+
+    # Re-anchor: shift all molecules so min_z = same small offset as original
+    z_shift = original_min_z - min_z_corr
+    for mol in corrected_mols:
+        mol.positions[:, 2] += z_shift
+
     corrected_slab = MolecularCrystal(
-        lattice=slab.lattice.copy(),
+        lattice=new_lattice,
         molecules=corrected_mols,
         pbc=slab.pbc,
     )
@@ -1083,6 +1128,11 @@ def generate_slabs_with_terminations(
     if layers is None and min_slab_size is None:
         min_slab_size = 8.0
 
+    # Build frame once and reuse for both enumerate_terminations and slab building
+    h, k, l = miller_index
+    gen = TopologicalSlabGenerator(structure_or_crystal)
+    frame = gen._prepare_frame(h, k, l)
+
     termination_infos = enumerate_terminations(
         crystal=structure_or_crystal,
         miller_index=miller_index,
@@ -1092,6 +1142,7 @@ def generate_slabs_with_terminations(
         mol_charge_map=mol_charge_map,
         tasker_polar_tol=tasker_polar_tol,
         charge_tol=charge_tol,
+        _precomputed_frame=frame,
     )
 
     if not termination_infos:
@@ -1127,9 +1178,6 @@ def generate_slabs_with_terminations(
         if correct_tasker2 else {}
 
     # Build slab for each selected termination (reuse the same frame)
-    h, k, l = miller_index
-    gen = TopologicalSlabGenerator(structure_or_crystal)
-    frame = gen._prepare_frame(h, k, l)
 
     results = []
     for ti in selected:

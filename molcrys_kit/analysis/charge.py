@@ -35,11 +35,17 @@ def compute_topo_signature(mol: CrystalMolecule) -> str:
         A string of the form "<formula>|<8-char hex hash>" that uniquely
         identifies the molecule type within the crystal.
     """
+    # Check cache first
+    if getattr(mol, '_topo_signature', None) is not None:
+        return mol._topo_signature
+    
     formula = mol.get_chemical_formula(mode="hill", empirical=False)
     graph = mol.get_graph()
     degree_seq = sorted(d for _, d in graph.degree())
     degree_hash = hashlib.md5(str(degree_seq).encode()).hexdigest()[:8]
-    return f"{formula}|{degree_hash}"
+    sig = f"{formula}|{degree_hash}"
+    mol._topo_signature = sig
+    return sig
 
 
 @dataclass
