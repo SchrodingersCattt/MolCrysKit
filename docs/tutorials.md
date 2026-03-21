@@ -111,3 +111,104 @@ slab_atoms_obj = slab.to_ase()
 ## Defect Engineering
 
 Placeholder section for defect engineering functionality covering vacancy generation logic found in [molcrys_kit/operations/defects.py](../molcrys_kit/operations/defects.py). This includes the [VacancyGenerator](../molcrys_kit/operations/defects.py) class and the public API function [generate_vacancy](../molcrys_kit/operations/defects.py) which enable the systematic removal of specific molecular clusters based on spatial relationships. The implementation considers stoichiometric constraints and preserves the overall molecular crystal structure while introducing controlled defects.
+
+## Surface Termination Enumeration and Tasker Analysis
+
+MolCrysKit supports enumerating topologically distinct surface terminations for
+any Miller plane, classifying each termination according to Tasker's theory
+(adapted for molecular/organic-inorganic hybrid crystals), and building
+topology-preserving slabs for the selected terminations.
+
+### Key Concepts
+
+- **Termination** – a specific way to cut the crystal perpendicular to a Miller
+  plane, defined by a fractional *shift* along the stacking direction.  Different
+  shifts expose different molecular layers at the surface.
+- **Tasker Classification (molecular adaptation)**
+  - `TypeI_like`: all surface layers are charge-neutral (e.g. pure organic
+    molecular crystals).
+  - `TypeII_like`: layers carry charge but the repeat unit has zero net dipole.
+  - `TypeIII_like`: polar surface with a non-zero dipole moment per unit area.
+- **Tasker-preferred**: `TypeI_like` and `TypeII_like` non-polar terminations are
+  preferred (electrostatically stable).
+
+### Charge Assignment Strategy (Hybrid)
+
+Molecular formal charges are determined by a three-level fallback:
+
+1. **user_map** – explicit `mol_charge_map={"formula": charge}` argument.
+2. **auto_guess** – pymatgen `BVAnalyzer` bond-valence oxidation-state sum.
+3. **none** – zero with a `UserWarning`; Tasker analysis degrades to
+   topology-only ordering.
+
+### Example 1: Neutral Organic Crystal (Fast Path)
+
+```python
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.operations import enumerate_terminations, generate_slabs_with_terminations
+from molcrys_kit.io.output import write_cif
+
+crystal = read_mol_crystal("examples/Acetaminophen_HXACAN.cif")
+
+# Enumerate unique terminations for (1, 0, 0)
+term_infos = enumerate_terminations(crystal, miller_index=(1, 0, 0))
+for ti in term_infos:
+    print(
+        f"[{ti.termination_index}] shift={ti.shift:.4f}  "
+        f"type={ti.tasker_type}  preferred={ti.is_tasker_preferred}"
+    )
+# For a neutral organic crystal all terminations are TypeI_like (fast path).
+
+# Build slabs – default returns Tasker-preferred terminations
+results = generate_slabs_with_terminations(
+    crystal,
+    miller_index=(1, 0, 0),
+    min_slab_size=12.0,
+    min_vacuum_size=15.0,
+)
+for slab, info in results:
+    write_cif(slab, f"slab_term{info.termination_index}.cif",
+              metadata={"termination_info": info})
+```
+
+### Example 2: Salt-Type Crystal with mol_charge_map
+
+```python
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.operations import generate_slabs_with_terminations
+from molcrys_kit.io.output import write_cif
+
+crystal = read_mol_crystal("examples/salt_crystal.cif")
+
+# Provide explicit charges for cation and anion building blocks
+results = generate_slabs_with_terminations(
+    crystal,
+    miller_index=(0, 0, 1),
+    min_slab_size=15.0,
+    min_vacuum_size=15.0,
+    mol_charge_map={"C6H8N": +1, "Cl": -1},   # protonated amine + chloride
+    term_selection="all",                        # inspect all terminations
+)
+for slab, info in results:
+    print(
+        f"Termination {info.termination_index}: {info.tasker_type}, "
+        f"dipole/area={info.dipole_per_area:.4f} e·Å/Å², "
+        f"preferred={info.is_tasker_preferred}"
+    )
+    write_cif(slab, f"slab_term{info.termination_index}.cif",
+              metadata={"termination_info": info})
+```
+
+### CIF Metadata Fields
+
+When `metadata={"termination_info": info}` is passed to `write_cif`, the
+following custom fields are written to the CIF header:
+
+| CIF field | Description |
+|---|---|
+| `_molcrys_termination_shift` | Fractional shift along the stacking direction |
+| `_molcrys_termination_index` | Zero-based termination index |
+| `_molcrys_tasker_type` | Tasker classification string |
+| `_molcrys_tasker_polar` | Boolean polarity flag |
+| `_molcrys_tasker_dipole_per_area` | Dipole per surface area (e·Å/Å²) |
+| `_molcrys_charge_source` | Origin of charge data |

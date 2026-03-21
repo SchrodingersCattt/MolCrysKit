@@ -19,7 +19,13 @@ from .builders import (
     create_defect_structure,
 )
 
-from .surface import generate_topological_slab, TopologicalSlabGenerator
+from .surface import (
+    generate_topological_slab,
+    TopologicalSlabGenerator,
+    TerminationInfo,
+    enumerate_terminations,
+    generate_slabs_with_terminations,
+)
 
 from .hydrogen_completion import HydrogenCompleter, add_hydrogens
 
@@ -36,6 +42,9 @@ __all__ = [
     "create_defect_structure",
     "generate_topological_slab",
     "TopologicalSlabGenerator",
+    "TerminationInfo",
+    "enumerate_terminations",
+    "generate_slabs_with_terminations",
     "HydrogenCompleter",
     "add_hydrogens",
     "Desolvator",

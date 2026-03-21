@@ -54,6 +54,10 @@ class CrystalMolecule(Atoms):
             # Copy the graph if it exists
             new_mol._graph = self._graph.copy()
         
+        # Propagate cached topo signature if available
+        if getattr(self, '_topo_signature', None) is not None:
+            new_mol._topo_signature = self._topo_signature
+        
         return new_mol
 
     def to_ase(self) -> Atoms:
