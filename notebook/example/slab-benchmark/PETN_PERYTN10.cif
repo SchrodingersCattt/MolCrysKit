@@ -1,0 +1,92 @@
+####################################################################### 
+# 
+# This file contains crystal structure data downloaded from the 
+# Cambridge Structural Database (CSD) hosted by the Cambridge 
+# Crystallographic Data Centre (CCDC).
+# 
+# Full information about CCDC data access policies and citation 
+# guidelines are available at http://www.ccdc.cam.ac.uk/access/V1 
+# 
+# Audit and citation data items may have been added by the CCDC. 
+# Please retain this information to preserve the provenance of 
+# this file and to allow appropriate attribution of the data. 
+# 
+#######################################################################
+
+data_PERYTN10
+#This CIF has been generated from an entry in the Cambridge Structural Database
+_database_code_depnum_ccdc_archive 'CCDC 1231270'
+_database_code_CSD               PERYTN10
+loop_
+_citation_id
+_citation_doi
+_citation_year
+1 10.1107/S0365110X6300178X 1963
+_audit_creation_method           'Created from the CSD'
+_audit_update_record             
+;
+2026-01-07 downloaded from the CCDC.
+;
+_database_code_NBS               521590
+_chemical_name_common            'DrugBank: DB06154'
+_chemical_formula_moiety         'C5 H8 N4 O12'
+_chemical_name_systematic        'Pentaerythritol tetranitrate'
+_chemical_absolute_configuration unk
+_diffrn_ambient_temperature      295
+_exptl_crystal_density_diffrn    1.781
+#These two values have been output from a single CSD field.
+_refine_ls_R_factor_gt           0.152
+_refine_ls_wR_factor_gt          0.152
+_diffrn_radiation_probe          x-ray
+_symmetry_cell_setting           tetragonal
+_symmetry_space_group_name_H-M   'P -4 21 c'
+_symmetry_Int_Tables_number      114
+_space_group_name_Hall           'P -4 2n'
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 x,y,z
+2 -y,x,-z
+3 -x,-y,z
+4 y,-x,-z
+5 1/2-x,1/2+y,1/2-z
+6 1/2+y,1/2+x,1/2+z
+7 1/2+x,1/2-y,1/2-z
+8 1/2-y,1/2-x,1/2+z
+_cell_length_a                   9.380
+_cell_length_b                   9.380
+_cell_length_c                   6.700
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_volume                     589.495
+_cell_formula_units_Z            2
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+C1 C 0.12070 0.06360 0.12700
+C2 C 0.00000 0.00000 0.00000
+N1 N 0.28700 -0.01650 0.37160
+O1 O 0.16080 -0.04830 0.26810
+O2 O 0.31580 -0.10500 0.49510
+O3 O 0.35000 0.09270 0.32400
+C1A C -0.06360 0.12070 -0.12700
+C1B C -0.12070 -0.06360 0.12700
+C1C C 0.06360 -0.12070 -0.12700
+O1A O 0.04830 0.16080 -0.26810
+O1B O -0.16080 0.04830 0.26810
+O1C O -0.04830 -0.16080 -0.26810
+N1A N 0.01650 0.28700 -0.37160
+N1B N -0.28700 0.01650 0.37160
+N1C N -0.01650 -0.28700 -0.37160
+O2A O 0.10500 0.31580 -0.49510
+O3A O -0.09270 0.35000 -0.32400
+O2B O -0.31580 0.10500 0.49510
+O3B O -0.35000 -0.09270 0.32400
+O2C O -0.10500 -0.31580 -0.49510
+O3C O 0.09270 -0.35000 -0.32400
+
+#END
