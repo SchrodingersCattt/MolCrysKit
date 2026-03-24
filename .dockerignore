@@ -1,0 +1,42 @@
+# .dockerignore — keep the build context lean
+# Only the files explicitly COPY'd in the Dockerfile are needed.
+
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.installed.cfg
+MANIFEST
+
+# Coverage / test outputs
+.coverage
+htmlcov/
+.pytest_cache/
+output/
+
+# Jupyter artefacts
+.ipynb_checkpoints/
+# NOTE: do NOT exclude *.ipynb here — notebook/molcryskit.ipynb must be
+# included in the build context so it can be COPY'd into the image.
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs / CI (not needed in the image)
+docs/
+benchmarks/
