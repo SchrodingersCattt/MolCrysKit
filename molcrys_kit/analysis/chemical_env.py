@@ -489,11 +489,21 @@ class NitrogenSite(HybridizedSite):
         is_planar_ring = self.ring_info['is_ring_planar']
         ring_sizes = self.ring_info['ring_sizes']
         
-        # Strained 3-membered rings (aziridine): always sp3 regardless of bond length
+        # Strained 3-membered rings (aziridine): usually sp3, BUT if there is an
+        # exocyclic bond with double-bond character (min_heavy < 1.38, e.g. C=N
+        # amidine, C=O amide attached to ring N), the N is sp2 (planar).
+        # The lone pair participates in conjugation with the exocyclic π system.
         if in_ring and ring_sizes and min(ring_sizes) <= 3:
-            geometry = 'tetrahedral'
-            if coord == 1:
-                num_h = 2
+            # Check for exocyclic double-bond character
+            min_heavy = self._min_heavy_bond_len()
+            if min_heavy < 1.38:
+                # Exocyclic conjugation (amidine, amide, imine) → sp2
+                geometry = 'trigonal_planar'
+                num_h = 0
+            else:
+                geometry = 'tetrahedral'
+                if coord == 1:
+                    num_h = 2
             return {'num_h': num_h, 'geometry': geometry, 'bond_length': bond_length}
         
         if coord == 2:
@@ -618,29 +628,57 @@ class GenericSite(HybridizedSite):
         if atom_symbol == 'O':
             if coord == 1:
                 # Terminal O: only one heavy bond, no H confusion
-                # C=O (~1.23), N=O (~1.22) → sp2; C-OH (~1.43) → sp3
-                if min_heavy < 1.35:
+                # Decision hierarchy based on bond length:
+                #   C=O carbonyl:   ~1.20-1.25  → sp2 (no H)
+                #   N=O oxime/nitroso: ~1.21-1.40 → sp2 (no H)
+                #   C-OH alcohol:   ~1.41-1.43  → sp3 (add 1 H)
+                # Threshold 1.42: covers all sp2 terminal O (carbonyl + oxime),
+                # while the alcohol O-C bond is typically ≥1.41 in 3D optimised geom.
+                # In practice the gap is small but bond length is the best available
+                # single descriptor without explicit bond-order information.
+                if min_heavy < 1.42:
                     num_h = 0
-                    geometry = 'trigonal_planar'  # sp2 carbonyl
+                    geometry = 'trigonal_planar'  # sp2: carbonyl or oxime O
                 else:
                     num_h = 1
                     geometry = 'bent'  # sp3 hydroxyl
             elif coord == 2:
                 if in_ring and ring_sizes and min(ring_sizes) <= 3:
-                    # Oxirane: highly strained 3-membered ring → sp3
+                    # Oxirane: highly strained 3-membered ring → always sp3
                     num_h = 0
                     geometry = 'bent'
-                elif in_ring and is_planar_ring:
-                    # Furan-like aromatic O → sp2
-                    num_h = 0
-                    geometry = 'trigonal_planar'
-                elif min_heavy < 1.42:
-                    # sp2 O: vinyl ether (~1.37), ester O-C=O (~1.34-1.40)
-                    # sp3 ether C-O-C: ~1.43 → excluded by threshold
+                elif in_ring and ring_sizes and min(ring_sizes) == 4:
+                    # Oxetane: 4-membered ring.
+                    # Usually sp3 (C-O-C ~1.44-1.46), but if one bond shows
+                    # genuine double-bond character (min_heavy < 1.37, e.g.
+                    # iminolactone O-C=N ~1.34, beta-lactone O-C=O ~1.35)
+                    # the O is sp2 despite being in a small ring.
+                    if min_heavy < 1.37:
+                        num_h = 0
+                        geometry = 'trigonal_planar'  # sp2: iminolactone / beta-lactone
+                    else:
+                        num_h = 0
+                        geometry = 'bent'  # sp3 oxetane ether
+                elif in_ring and is_planar_ring and ring_sizes and min(ring_sizes) >= 5:
+                    # Aromatic O in 5/6/7-membered planar ring (furan-like) → sp2.
+                    # Key discriminator vs. non-aromatic ring ethers (THF, THP):
+                    # furan C-O ~1.37 Å; non-aromatic ether C-O ~1.43-1.45 Å.
+                    # Use bond length threshold to reject non-aromatic ring ethers
+                    # that happen to be geometrically planar (e.g. bridged bicyclic).
+                    if min_heavy < 1.41:
+                        num_h = 0
+                        geometry = 'trigonal_planar'  # furan-like sp2
+                    else:
+                        num_h = 0
+                        geometry = 'bent'  # non-aromatic planar ring ether → sp3
+                elif min_heavy < 1.38:
+                    # sp2 O with genuine conjugation (not in a small ring):
+                    #   vinyl ether O-C(sp2): ~1.36-1.37
+                    #   ester bridging O-C=O: ~1.34-1.37
                     num_h = 0
                     geometry = 'trigonal_planar'
                 else:
-                    # sp3: ether (~1.43), alcohol (~1.43)
+                    # sp3: aliphatic ether (~1.43), alcohol O (~1.43)
                     num_h = 0
                     geometry = 'bent'
                 
