@@ -62,6 +62,56 @@ print(f"Molecule 1 Center of Mass: {mol.get_center_of_mass()}")
 ```
 
 
+## Running with Docker (no local installation required)
+
+A `Dockerfile` is included so that MolCrysKit and its bundled CIF examples can
+be run entirely inside a container — no local Python environment needed.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS / Windows)
+  or the Docker Engine (Linux).
+
+### Quick start
+
+```bash
+# 1. Clone the repository and enter the package directory
+git clone https://github.com/SchrodingersCattt/MolCrysKit.git
+cd MolCrysKit
+
+# 2. Build the image (≈ 5–10 min on first run; subsequent builds use the cache)
+docker build -t molcryskit:latest .
+
+# 3. Run the smoke test to confirm everything works
+docker run --rm molcryskit:latest python /opt/molcryskit/docker_smoke_test.py
+
+# 4. Start the Jupyter notebook server
+docker run -it --rm -p 8888:8888 molcryskit:latest
+# Then open http://localhost:8888 in your browser.
+# Example CIF files are available at /workspace/examples/ inside the container.
+```
+
+### One-step build + test helper
+
+```bash
+# From the MolCrysKit/ directory:
+bash docker-test.sh
+```
+
+This script builds the image and runs the smoke test automatically, reporting
+`ALL CHECKS PASSED` on success.
+
+### Mounting your own data
+
+```bash
+docker run -it --rm \
+    -p 8888:8888 \
+    -v /path/to/your/cif/files:/workspace/my_data \
+    molcryskit:latest
+```
+
+Your files will be accessible at `/workspace/my_data/` inside the container.
+
 ## Documentation
 
 For detailed architecture, tutorials, and API reference, please see the [`docs/`](docs/) directory.
