@@ -17,6 +17,8 @@
 #
 # Run - built-in smoke test:
 #   docker run --rm molcryskit:latest python /opt/molcryskit/scripts/docker_smoke_test.py
+#
+# For Bohrium cloud use, see Dockerfile.bohrium instead.
 
 FROM python:3.10-slim
 
@@ -29,45 +31,43 @@ LABEL org.opencontainers.image.licenses="MIT"
 # -- System dependencies ----------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        git \
+        curl \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# -- Python dependencies ----------------------------------------------------
+# -- Python build tools -----------------------------------------------------
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
+# -- MolCrysKit + all runtime dependencies from GitHub archive --------------
+# pip resolves all dependencies declared in pyproject.toml automatically.
+# The [vis] extra adds nglview and py3Dmol for 3-D visualisation in the notebook.
+ARG MOLCRYSKIT_REF=main
 RUN pip install --no-cache-dir \
-    "numpy>=1.18.0" \
-    "scipy>=1.4.0" \
-    "networkx>=2.5.0"
+    "molcrys-kit[vis] @ https://github.com/SchrodingersCattt/MolCrysKit/archive/refs/heads/${MOLCRYSKIT_REF}.zip"
 
-RUN pip install --no-cache-dir "ase>=3.26.0"
-RUN pip install --no-cache-dir pymatgen
-
+# -- Jupyter ----------------------------------------------------------------
 # jupyter-server >=2 (shipped with notebook >=7) uses ServerApp, not NotebookApp.
 # Pin notebook<7 to keep the classic interface and the NotebookApp config below.
 RUN pip install --no-cache-dir \
     "notebook>=6.4,<7" \
     jupyter \
     ipykernel \
-    matplotlib \
-    nglview \
-    py3Dmol
+    matplotlib
 
-# -- Clone & Install MolCrysKit from GitHub ---------------------------------
-# ARG lets callers pin to a release tag or commit SHA:
-#   docker build --build-arg MOLCRYSKIT_REF=v0.1.0 ...
-ARG MOLCRYSKIT_REF=main
-RUN git clone --depth=1 --branch ${MOLCRYSKIT_REF} \
-        https://github.com/SchrodingersCattt/MolCrysKit.git \
-        /opt/molcryskit \
-    && cd /opt/molcryskit \
-    && pip install --no-cache-dir . \
-    && rm -rf /opt/molcryskit/.git
+# -- Notebook + scripts from same GitHub ref --------------------------------
+# The pip install above installs the Python package only (molcrys_kit/).
+# Download the full archive to extract notebook/ and scripts/ as well.
+RUN mkdir -p /opt/molcryskit && \
+    curl -sL \
+      "https://github.com/SchrodingersCattt/MolCrysKit/archive/refs/heads/${MOLCRYSKIT_REF}.tar.gz" \
+    | tar xz \
+        --wildcards \
+        --strip-components=2 \
+        -C /opt/molcryskit \
+        "*/notebook" \
+        "*/scripts"
 
-# -- Notebook + example CIF files -------------------------------------------
-# notebook/ (molcryskit.ipynb + example/) is part of the GitHub repo;
-# copy it from the clone into /workspace so Jupyter opens it directly.
+# -- Workspace setup --------------------------------------------------------
 WORKDIR /workspace
 RUN cp -r /opt/molcryskit/notebook ./notebook
 

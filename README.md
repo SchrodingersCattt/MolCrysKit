@@ -64,15 +64,21 @@ print(f"Molecule 1 Center of Mass: {mol.get_center_of_mass()}")
 
 ## Running with Docker (no local installation required)
 
-A `Dockerfile` is included so that MolCrysKit and its bundled CIF examples can
-be run entirely inside a container — no local Python environment needed.
+Two Dockerfiles are provided for different environments:
+
+| File | Base image | Use case |
+|------|-----------|----------|
+| `Dockerfile` | `python:3.10-slim` | Local use, reviewers, CI |
+| `Dockerfile.bohrium` | `registry.dp.tech/dptech/ubuntu:ubuntu24.04-py3.12` | Bohrium cloud platform |
+
+Both install MolCrysKit directly from the GitHub archive — no local build context required.
 
 ### Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS / Windows)
   or the Docker Engine (Linux).
 
-### Quick start
+### Quick start (general use)
 
 ```bash
 # 1. Clone the repository and enter the package directory
@@ -83,23 +89,34 @@ cd MolCrysKit
 docker build -t molcryskit:latest .
 
 # 3. Run the smoke test to confirm everything works
-docker run --rm molcryskit:latest python /opt/molcryskit/docker_smoke_test.py
+docker run --rm molcryskit:latest python /opt/molcryskit/scripts/docker_smoke_test.py
 
 # 4. Start the Jupyter notebook server
 docker run -it --rm -p 8888:8888 molcryskit:latest
 # Then open http://localhost:8888 in your browser.
-# Example CIF files are available at /workspace/examples/ inside the container.
+# Example CIF files are available at /workspace/notebook/example/ inside the container.
 ```
 
 ### One-step build + test helper
 
 ```bash
 # From the MolCrysKit/ directory:
-bash docker-test.sh
+bash scripts/docker-test.sh
 ```
 
 This script builds the image and runs the smoke test automatically, reporting
 `ALL CHECKS PASSED` on success.
+
+### Bohrium cloud platform
+
+```bash
+# Build with the Bohrium-specific Dockerfile
+docker build -f Dockerfile.bohrium -t molcryskit-bohrium:latest .
+```
+
+The Bohrium image uses `pip install` from the GitHub archive zip (no `git clone`
+required) and does not include Jupyter — Bohrium provides its own notebook
+environment.
 
 ### Mounting your own data
 
