@@ -62,7 +62,7 @@ RUN mkdir -p /opt/molcryskit && \
       "https://github.com/SchrodingersCattt/MolCrysKit/archive/refs/heads/${MOLCRYSKIT_REF}.tar.gz" \
     | tar xz \
         --wildcards \
-        --strip-components=2 \
+        --strip-components=1 \
         -C /opt/molcryskit \
         "*/notebook" \
         "*/scripts"

@@ -71,7 +71,7 @@ Two Dockerfiles are provided for different environments:
 | `Dockerfile` | `python:3.10-slim` | Local use, reviewers, CI |
 | `Dockerfile.bohrium` | `registry.dp.tech/dptech/ubuntu:ubuntu24.04-py3.12` | Bohrium cloud platform |
 
-Both install MolCrysKit directly from the GitHub archive — no local build context required.
+Both install MolCrysKit directly from the GitHub archive. A local Docker build context is still used to start the build, but the package, notebook assets, and helper scripts are fetched from the selected GitHub revision inside the image build.
 
 ### Prerequisites
 

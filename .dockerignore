@@ -1,5 +1,6 @@
 # .dockerignore — keep the build context lean
-# Only the files explicitly COPY'd in the Dockerfile are needed.
+# The local build still sends a context to Docker, even though the main Dockerfile
+# installs the package and extracts notebooks/scripts from the GitHub archive.
 
 # Python build artefacts
 __pycache__/
@@ -22,8 +23,10 @@ output/
 
 # Jupyter artefacts
 .ipynb_checkpoints/
-# NOTE: do NOT exclude *.ipynb here — notebook/molcryskit.ipynb must be
-# included in the build context so it can be COPY'd into the image.
+# NOTE: do NOT exclude *.ipynb here. The current Dockerfile downloads the
+# notebook/ tree from the GitHub archive rather than COPY'ing it from the local
+# context, but keeping notebooks in the context avoids future surprises if the
+# build strategy changes again.
 
 # Editor / OS
 .vscode/

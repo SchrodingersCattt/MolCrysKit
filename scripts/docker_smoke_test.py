@@ -5,7 +5,7 @@ Minimal end-to-end smoke test for the MolCrysKit Docker image.
 Exercises the public API without requiring any internet access.
 
 Run inside the container:
-    python /opt/molcryskit/docker_smoke_test.py
+    python /opt/molcryskit/scripts/docker_smoke_test.py
 
 Exit code 0 = all checks passed.
 Exit code 1 = at least one check failed.
@@ -144,7 +144,7 @@ def test_cif_read_map():
     cif_path = "/workspace/notebook/example/H_lacking_structures/MAP.cif"
     if not os.path.exists(cif_path):
         raise FileNotFoundError(
-            f"{cif_path} not found – verify that notebook/ was COPY'd into the image"
+            f"{cif_path} not found – verify that notebook/ was extracted from the GitHub archive and copied into the image"
         )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
