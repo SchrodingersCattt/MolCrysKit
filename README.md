@@ -71,7 +71,7 @@ Two Dockerfiles are provided for different environments:
 | `Dockerfile` | `python:3.10-slim` | Local use, reviewers, CI |
 | `Dockerfile.bohrium` | `registry.dp.tech/dptech/ubuntu:ubuntu24.04-py3.12` | Bohrium cloud platform |
 
-Both install MolCrysKit directly from the GitHub archive. A local Docker build context is still used to start the build, but the package, notebook assets, and helper scripts are fetched from the selected GitHub revision inside the image build.
+Both install MolCrysKit directly from the GitHub archive. A local Docker build context is still used to start the build, but the package, notebook assets, and helper scripts are fetched from the selected GitHub ref inside the image build.
 
 ### Prerequisites
 
@@ -112,11 +112,46 @@ This script builds the image and runs the smoke test automatically, reporting
 ```bash
 # Build with the Bohrium-specific Dockerfile
 docker build -f Dockerfile.bohrium -t molcryskit-bohrium:latest .
+
+# Pin to an immutable Git tag instead of the moving main branch
+# (recommended for archival/reviewer reproducibility)
+docker build -f Dockerfile.bohrium \
+    --build-arg MOLCRYSKIT_REF=refs/tags/v0.1.0 \
+    -t molcryskit-bohrium:v0.1.0 .
 ```
 
 The Bohrium image uses `pip install` from the GitHub archive zip (no `git clone`
 required) and does not include Jupyter — Bohrium provides its own notebook
 environment.
+
+### Permanent image publication with GHCR
+
+The Bohrium registry is convenient for cloud execution, but it should not be the
+only archival location because image retention is controlled by the platform and
+project namespace. For a stable public anchor, publish immutable release images
+to GitHub Container Registry (GHCR).
+
+The workflow [`publish-ghcr.yml`](.github/workflows/publish-ghcr.yml) pushes
+[`Dockerfile`](Dockerfile) images to `ghcr.io/<owner>/molcryskit`:
+
+- pushing a Git tag such as `v0.1.0` publishes `ghcr.io/<owner>/molcryskit:v0.1.0`
+- stable release tags also receive `latest`
+- manual dispatch can publish a development snapshot from a chosen Git ref
+
+Recommended archival pattern:
+
+```bash
+# 1. Create and push an immutable release tag
+git tag v0.1.0
+git push origin v0.1.0
+
+# 2. GitHub Actions publishes the image automatically to GHCR
+#    ghcr.io/<owner>/molcryskit:v0.1.0
+```
+
+For Bohrium, keep using [`Dockerfile.bohrium`](Dockerfile.bohrium) as the
+platform-specific runtime image, but cite the GitHub repository and GHCR image
+as the permanent public anchor.
 
 ### Mounting your own data
 

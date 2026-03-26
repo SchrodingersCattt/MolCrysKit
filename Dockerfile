@@ -7,7 +7,9 @@
 #   docker build -t molcryskit:latest .
 #
 # Pin to a specific release tag (recommended for reproducibility):
-#   docker build --build-arg MOLCRYSKIT_REF=v0.1.0 -t molcryskit:v0.1.0 .
+#   docker build \
+#     --build-arg MOLCRYSKIT_REF=refs/tags/v0.1.0 \
+#     -t molcryskit:v0.1.0 .
 #
 # Run - interactive shell:
 #   docker run -it --rm molcryskit:latest bash
@@ -39,11 +41,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # -- MolCrysKit + all runtime dependencies from GitHub archive --------------
+# MOLCRYSKIT_REF must be a GitHub archive ref, e.g. refs/heads/main or
+# refs/tags/v0.1.0.
 # pip resolves all dependencies declared in pyproject.toml automatically.
 # The [vis] extra adds nglview and py3Dmol for 3-D visualisation in the notebook.
-ARG MOLCRYSKIT_REF=main
+ARG MOLCRYSKIT_REF=refs/heads/main
 RUN pip install --no-cache-dir \
-    "molcrys-kit[vis] @ https://github.com/SchrodingersCattt/MolCrysKit/archive/refs/heads/${MOLCRYSKIT_REF}.zip"
+    "molcrys-kit[vis] @ https://github.com/SchrodingersCattt/MolCrysKit/archive/${MOLCRYSKIT_REF}.zip"
 
 # -- Jupyter ----------------------------------------------------------------
 # jupyter-server >=2 (shipped with notebook >=7) uses ServerApp, not NotebookApp.
@@ -56,10 +60,10 @@ RUN pip install --no-cache-dir \
 
 # -- Notebook + scripts from same GitHub ref --------------------------------
 # The pip install above installs the Python package only (molcrys_kit/).
-# Download the full archive to extract notebook/ and scripts/ as well.
+# Download the same GitHub archive ref to extract notebook/ and scripts/ as well.
 RUN mkdir -p /opt/molcryskit && \
     curl -sL \
-      "https://github.com/SchrodingersCattt/MolCrysKit/archive/refs/heads/${MOLCRYSKIT_REF}.tar.gz" \
+      "https://github.com/SchrodingersCattt/MolCrysKit/archive/${MOLCRYSKIT_REF}.tar.gz" \
     | tar xz \
         --wildcards \
         --strip-components=1 \
