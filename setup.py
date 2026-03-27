@@ -15,7 +15,10 @@ setup(
     packages=find_packages(exclude=["tests", "tests.*", "examples", "examples.*"]),
     include_package_data=True,
     install_requires=[
+        "ase",
+        "networkx",
         "numpy>=1.18.0",
+        "pymatgen>=2020.0.0",
         "scipy>=1.4.0",
     ],
     extras_require={
