@@ -7,8 +7,8 @@ into valid, ordered MolecularCrystal objects by solving the Maximum Independent 
 
 import numpy as np
 import networkx as nx
-import random
-from typing import List
+import random as _random_module
+from typing import List, Optional
 
 from ase import Atoms
 from ase.geometry import get_distances
@@ -257,7 +257,10 @@ class DisorderSolver:
         return independent_set
 
     def solve(
-        self, num_structures: int = 1, method: str = "optimal"
+        self,
+        num_structures: int = 1,
+        method: str = "optimal",
+        random_seed: Optional[int] = None,
     ) -> List[MolecularCrystal]:
         """
         Solve the disorder problem and generate ordered structures using Group-Based approach.
@@ -268,6 +271,11 @@ class DisorderSolver:
             Number of structures to generate (for 'random' method)
         method : str
             'optimal' for single best structure, 'random' for ensemble
+        random_seed : int, optional
+            Seed for the random number generator used in 'random' mode.
+            Pass an integer for fully reproducible ensembles; omit (or pass
+            None) for non-deterministic exploration.  Has no effect when
+            method='optimal'.
 
         Returns:
         --------
@@ -287,10 +295,7 @@ class DisorderSolver:
                     ]
 
         if method == "optimal":
-            # [FIX] Do NOT apply stoichiometry constraints.
             # Rely strictly on the Exclusion Graph + MWIS (Max Weight Independent Set).
-            # This matches 'main' branch logic but with added benefit of Rigid Body groups.
-
             independent_sets = [
                 self._max_weight_independent_set_by_groups(
                     graph=self.graph, weight_attr="occupancy"
@@ -298,6 +303,10 @@ class DisorderSolver:
             ]
 
         elif method == "random":
+            # Use a local RNG so the global random state is never mutated and
+            # results are reproducible when random_seed is provided.
+            rng = _random_module.Random(random_seed)
+
             independent_sets = []
             seen_structures = set()
 
@@ -307,7 +316,7 @@ class DisorderSolver:
 
                 for node in temp_graph.nodes():
                     base_weight = temp_graph.nodes[node].get("occupancy", 1.0)
-                    random_noise = random.uniform(0, 1e-5)
+                    random_noise = rng.uniform(0, 1e-5)
                     temp_graph.nodes[node]["randomized_weight"] = (
                         base_weight + random_noise
                     )
@@ -317,8 +326,8 @@ class DisorderSolver:
                     solution = self._max_weight_independent_set_by_groups(
                         graph=temp_graph, weight_attr="randomized_weight"
                     )
-                except:
-                    solution = self._random_independent_set()
+                except Exception:
+                    solution = self._random_independent_set(rng=rng)
 
                 solution_tuple = tuple(sorted(solution))
                 if solution_tuple not in seen_structures:
@@ -332,7 +341,7 @@ class DisorderSolver:
                 temp_graph = self.graph.copy()
                 for node in temp_graph.nodes():
                     base_weight = temp_graph.nodes[node].get("occupancy", 1.0)
-                    random_noise = random.uniform(0, 1e-5)
+                    random_noise = rng.uniform(0, 1e-5)
                     temp_graph.nodes[node]["randomized_weight"] = (
                         base_weight + random_noise
                     )
@@ -357,12 +366,21 @@ class DisorderSolver:
 
         return crystals
 
-    def _random_independent_set(self) -> List[int]:
+    def _random_independent_set(
+        self, rng: Optional[_random_module.Random] = None
+    ) -> List[int]:
         """
         Fallback: Generate a random independent set using a randomized greedy algorithm.
+
+        Parameters
+        ----------
+        rng : random.Random, optional
+            Local RNG instance to use. If None, a new unseeded instance is created.
         """
+        if rng is None:
+            rng = _random_module.Random()
         nodes = list(self.graph.nodes())
-        random.shuffle(nodes)
+        rng.shuffle(nodes)
         independent_set = []
         for node in nodes:
             connected_to_set = False

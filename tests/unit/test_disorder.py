@@ -197,3 +197,25 @@ class TestDisorderSolver:
         total_atoms = sum(len(m) for m in crystal.molecules)
         assert total_atoms >= 1
         np.testing.assert_allclose(crystal.lattice, lattice)
+
+    def test_random_seed_reproducible(self, simple_disorder_setup):
+        """Same random_seed must produce identical structure lists."""
+        info, graph, lattice = simple_disorder_setup
+        solver_a = DisorderSolver(info, graph, lattice)
+        solver_b = DisorderSolver(info, graph, lattice)
+        results_a = solver_a.solve(num_structures=3, method="random", random_seed=42)
+        results_b = solver_b.solve(num_structures=3, method="random", random_seed=42)
+        assert len(results_a) == len(results_b)
+        for ca, cb in zip(results_a, results_b):
+            atoms_a = sum(len(m) for m in ca.molecules)
+            atoms_b = sum(len(m) for m in cb.molecules)
+            assert atoms_a == atoms_b
+
+    def test_random_seed_none_still_works(self, simple_disorder_setup):
+        """Omitting random_seed must not raise and must return valid crystals."""
+        info, graph, lattice = simple_disorder_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=2, method="random", random_seed=None)
+        assert len(results) >= 1
+        for crystal in results:
+            assert isinstance(crystal, MolecularCrystal)
