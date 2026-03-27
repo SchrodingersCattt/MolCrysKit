@@ -212,24 +212,6 @@ class HydrogenCompleter:
                 # Get local geometry stats and ring info
                 env_stats = chem_env.get_local_geometry_stats(atom_idx)
                 ring_info = chem_env.detect_ring_info(atom_idx)
-                # --- DEBUG START ---
-                if symbol == "C":
-                    neighbors = list(unwrapped_mol.graph.neighbors(atom_idx))
-                    dists = [np.linalg.norm(positions[n] - positions[atom_idx]) for n in neighbors]
-                    print(f"\n--- Checking Carbon {atom_idx} ---")
-                    print(f"Position: {positions[atom_idx]}")
-                    print(f"Coordination Number: {len(neighbors)}")
-                    print(f"Neighbor Distances: {dists}")
-                    print(f"Angle Sum: {env_stats['bond_angle_sum']:.2f}")
-                    
-                    # 模拟运行 heuristics
-                    if len(neighbors) == 3 and env_stats['bond_angle_sum'] < 345.0:
-                        print("Prediction: Should add 1 H (sp3)")
-                    elif len(neighbors) == 4:
-                        print("Prediction: Saturated (4 neighbors), adds 0 H")
-                    else:
-                        print(f"Prediction: Unsure state (Coord={len(neighbors)})")
-                # --- DEBUG END ---
                 # Determine hydrogen_completion strategy using the new API
                 site = chem_env.get_site(atom_idx)
                 h_strategy = site.get_hydrogen_completion_strategy()
