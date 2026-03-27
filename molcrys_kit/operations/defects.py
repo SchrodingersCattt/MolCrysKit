@@ -5,6 +5,7 @@ This module provides functionality for generating vacancies (defects) by removin
 specific molecular clusters based on spatial relationships.
 """
 
+import random as _random
 from typing import Dict, List, Optional, Tuple, Union
 from ..structures.crystal import MolecularCrystal
 from ..analysis.stoichiometry import StoichiometryAnalyzer
@@ -32,6 +33,7 @@ class VacancyGenerator:
         self,
         target_spec: Optional[Dict[str, int]] = None,
         seed_index: Optional[int] = None,
+        random_seed: Optional[int] = None,
     ) -> List[int]:
         """
         Find the indices of molecules that would be removed to form a vacancy cluster.
@@ -41,7 +43,12 @@ class VacancyGenerator:
         target_spec : Dict[str, int], optional
             Dictionary mapping species IDs to counts to remove. If None, uses simplest unit.
         seed_index : int, optional
-            Index of the molecule to start removing from. If None, picks randomly from rarest species.
+            Index of the molecule to start removing from. If None, a molecule is chosen
+            stochastically from the rarest requested species.
+        random_seed : int, optional
+            Seed for the random number generator used when ``seed_index`` is None.
+            Pass an integer for reproducible selection; omit (or pass None) for
+            non-deterministic behaviour.
 
         Returns
         -------
@@ -60,6 +67,9 @@ class VacancyGenerator:
                     f"Requested: {count}, Available: {available_count}"
                 )
 
+        # Local RNG so we never touch the global random state.
+        rng = _random.Random(random_seed)
+
         # Create a copy of the target spec to track what's still needed
         needed_spec = target_spec.copy()
 
@@ -70,7 +80,6 @@ class VacancyGenerator:
         if seed_index is not None:
             # Add the seed molecule to removal list
             seed_mol = self.crystal.molecules[seed_index]
-            seed_formula = seed_mol.get_chemical_formula()
 
             # Find which species this seed belongs to
             seed_species_id = None
@@ -89,7 +98,7 @@ class VacancyGenerator:
             if needed_spec[seed_species_id] <= 0:
                 del needed_spec[seed_species_id]
         else:
-            # Pick a random molecule from the rarest requested species
+            # Stochastically pick a molecule from the rarest requested species.
             rarest_species = min(
                 (
                     s_id
@@ -105,7 +114,7 @@ class VacancyGenerator:
                 ),
             )
 
-            # Find an available molecule of the rarest species
+            # Find available molecules of the rarest species
             available_indices = [
                 idx
                 for idx in self.analyzer.species_map[rarest_species]
@@ -116,7 +125,7 @@ class VacancyGenerator:
                     f"No available molecules of rarest species {rarest_species}"
                 )
 
-            seed_index = available_indices[0]
+            seed_index = rng.choice(available_indices)
             removal_list.append(seed_index)
             needed_spec[rarest_species] -= 1
             if needed_spec[rarest_species] <= 0:
@@ -186,6 +195,7 @@ class VacancyGenerator:
         seed_index: Optional[int] = None,
         method: str = "spatial_cluster",
         return_removed_cluster: bool = False,
+        random_seed: Optional[int] = None,
     ) -> Union[MolecularCrystal, Tuple[MolecularCrystal, MolecularCrystal]]:
         """
         Generate a vacancy by removing a cluster of molecules.
@@ -195,11 +205,15 @@ class VacancyGenerator:
         target_spec : Dict[str, int], optional
             Dictionary mapping species IDs to counts to remove. If None, uses simplest unit.
         seed_index : int, optional
-            Index of the molecule to start removing from. If None, picks randomly from rarest species.
+            Index of the molecule to start removing from. If None, a molecule is chosen
+            stochastically from the rarest requested species.
         method : str, default='spatial_cluster'
             Method to use for selecting molecules to remove. Currently only supports 'spatial_cluster'.
         return_removed_cluster : bool, default=False
             If True, also returns the cluster of removed molecules as a separate crystal.
+        random_seed : int, optional
+            Seed for the random number generator used when ``seed_index`` is None.
+            Pass an integer for reproducible results; omit for non-deterministic behaviour.
 
         Returns
         -------
@@ -212,7 +226,9 @@ class VacancyGenerator:
         if method != "spatial_cluster":
             raise ValueError(f"Method {method} not supported. Use 'spatial_cluster'.")
 
-        removal_indices = self.find_removable_cluster_indices(target_spec, seed_index)
+        removal_indices = self.find_removable_cluster_indices(
+            target_spec, seed_index, random_seed=random_seed
+        )
 
         # Create new list of molecules excluding those to be removed
         remaining_molecules = [
@@ -254,6 +270,7 @@ def generate_vacancy(
     seed_index: Optional[int] = None,
     method: str = "spatial_cluster",
     return_removed_cluster: bool = False,
+    random_seed: Optional[int] = None,
 ) -> Union[MolecularCrystal, Tuple[MolecularCrystal, MolecularCrystal]]:
     """
     Public API wrapper to generate a vacancy by removing a cluster of molecules.
@@ -266,11 +283,15 @@ def generate_vacancy(
         List of dictionaries mapping species IDs to counts to remove. Each dict has format:
         {"species_id": "identifier", "count": int}. If None, uses simplest unit.
     seed_index : int, optional
-        Index of the molecule to start removing from. If None, picks randomly from rarest species.
+        Index of the molecule to start removing from. If None, a molecule is chosen
+        stochastically from the rarest requested species.
     method : str, default='spatial_cluster'
         Method to use for selecting molecules to remove. Currently only supports 'spatial_cluster'.
     return_removed_cluster : bool, default=False
         If True, also returns the cluster of removed molecules as a separate crystal.
+    random_seed : int, optional
+        Seed for the random number generator used when ``seed_index`` is None.
+        Pass an integer for reproducible results; omit for non-deterministic behaviour.
 
     Returns
     -------
@@ -295,4 +316,5 @@ def generate_vacancy(
         seed_index=seed_index,
         method=method,
         return_removed_cluster=return_removed_cluster,
+        random_seed=random_seed,
     )
