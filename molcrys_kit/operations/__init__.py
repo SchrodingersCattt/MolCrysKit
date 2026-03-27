@@ -31,6 +31,8 @@ from .hydrogen_completion import HydrogenCompleter, add_hydrogens
 
 from .desolvation import Desolvator, remove_solvents
 
+from .defects import VacancyGenerator, generate_vacancy
+
 __all__ = [
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
@@ -49,4 +51,6 @@ __all__ = [
     "add_hydrogens",
     "Desolvator",
     "remove_solvents",
+    "VacancyGenerator",
+    "generate_vacancy",
 ]
