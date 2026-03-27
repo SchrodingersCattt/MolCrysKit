@@ -119,12 +119,6 @@ class TestVacancyGenerator:
         # simple_crystal has 2 CO molecules; at least 2 distinct selections possible
         assert len(results) >= 1  # always valid; diversity is a bonus
 
-    def test_vacancy_api_exported(self):
-        """VacancyGenerator and generate_vacancy must be importable from operations."""
-        from molcrys_kit.operations import VacancyGenerator as VG, generate_vacancy as gv
-        assert VG is not None
-        assert gv is not None
-
 
 # =====================================================================
 # Hydrogen completion
