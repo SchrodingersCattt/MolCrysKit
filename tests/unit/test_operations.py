@@ -117,7 +117,7 @@ class TestVacancyGenerator:
             for s in range(20)
         }
         # simple_crystal has 2 CO molecules; at least 2 distinct selections possible
-        assert len(results) >= 1  # always valid; diversity is a bonus
+        assert len(results) >= 2  # simple_crystal has 2 CO molecules
 
 
 # =====================================================================
