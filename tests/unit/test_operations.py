@@ -101,6 +101,24 @@ class TestVacancyGenerator:
         assert orig == new_sum + rem_sum
         assert rem_sum == 4
 
+    def test_random_seed_reproducible(self, simple_crystal):
+        """Same random_seed must always select the same seed molecule."""
+        gen = VacancyGenerator(simple_crystal)
+        idx_a = gen.find_removable_cluster_indices({"CO_1": 1}, random_seed=0)
+        idx_b = gen.find_removable_cluster_indices({"CO_1": 1}, random_seed=0)
+        assert idx_a == idx_b
+
+    def test_random_seed_different_seeds_may_differ(self, simple_crystal):
+        """Different seeds should be able to produce different selections
+        when more than one candidate exists."""
+        gen = VacancyGenerator(simple_crystal)
+        results = {
+            tuple(gen.find_removable_cluster_indices({"CO_1": 1}, random_seed=s))
+            for s in range(20)
+        }
+        # simple_crystal has 2 CO molecules; at least 2 distinct selections possible
+        assert len(results) >= 2  # simple_crystal has 2 CO molecules
+
 
 # =====================================================================
 # Hydrogen completion
