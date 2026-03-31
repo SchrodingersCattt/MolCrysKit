@@ -33,6 +33,14 @@ from .desolvation import Desolvator, remove_solvents
 
 from .defects import VacancyGenerator, generate_vacancy
 
+from .molecule_manipulation import (
+    MoleculeManipulator,
+    MoleculeClashError,
+    translate_molecule,
+    rotate_molecule,
+    replace_molecule,
+)
+
 __all__ = [
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
@@ -53,4 +61,9 @@ __all__ = [
     "remove_solvents",
     "VacancyGenerator",
     "generate_vacancy",
+    "MoleculeManipulator",
+    "MoleculeClashError",
+    "translate_molecule",
+    "rotate_molecule",
+    "replace_molecule",
 ]

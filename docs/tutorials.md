@@ -212,3 +212,118 @@ following custom fields are written to the CIF header:
 | `_molcrys_tasker_polar` | Boolean polarity flag |
 | `_molcrys_tasker_dipole_per_area` | Dipole per surface area (e·Å/Å²) |
 | `_molcrys_charge_source` | Origin of charge data |
+
+---
+
+## Molecule Manipulation
+
+MolCrysKit provides targeted operations on specific molecules within a molecular crystal, including **translation**, **rotation**, and **replacement** (with automatic clash detection and resolution).
+
+All manipulation operations return a **new** `MolecularCrystal` — the original crystal is never mutated.
+
+### Key Features:
+- Select molecules by index or by species ID (via stoichiometry analysis)
+- Translate molecules by Cartesian or fractional vectors
+- Rotate molecules around their centre of mass or geometric centroid
+- Replace molecules with new ones loaded from XYZ files
+- Automatic clash detection: checks minimum atom–atom distance to host framework
+- Automatic clash resolution: random rotations to find a clash-free orientation
+- Raises `MoleculeClashError` when clashes cannot be resolved
+
+### Basic Usage — Functional API:
+
+```python
+from molcrys_kit import read_mol_crystal
+from molcrys_kit.operations.molecule_manipulation import (
+    translate_molecule,
+    rotate_molecule,
+    replace_molecule,
+    MoleculeClashError,
+)
+
+# Load a molecular crystal
+crystal = read_mol_crystal("structure.cif")
+
+# Translate molecule #0 by [1.0, 0.0, 0.0] Angstrom
+new_crystal = translate_molecule(crystal, molecule_index=0, vector=[1.0, 0.0, 0.0])
+
+# Translate using fractional coordinates
+new_crystal = translate_molecule(crystal, molecule_index=0, vector=[0.1, 0.0, 0.0], fractional=True)
+
+# Rotate molecule #0 by 45° around z-axis (pivoting at centre of mass)
+new_crystal = rotate_molecule(crystal, molecule_index=0, axis=[0, 0, 1], angle=45.0)
+
+# Rotate around centroid instead of COM
+new_crystal = rotate_molecule(crystal, molecule_index=0, axis=[0, 0, 1], angle=45.0, center="centroid")
+
+# Replace molecule #0 with a molecule from an XYZ file
+try:
+    new_crystal = replace_molecule(
+        crystal,
+        molecule_index=0,
+        new_molecule="guest.xyz",     # path to XYZ file
+        clash_threshold=1.0,           # minimum acceptable distance (Å)
+        max_rotation_attempts=100,     # max random rotations to resolve clashes
+    )
+except MoleculeClashError as e:
+    print(f"Could not place molecule: {e}")
+```
+
+### Class-based API with Species Selection:
+
+```python
+from molcrys_kit.operations.molecule_manipulation import MoleculeManipulator
+
+crystal = read_mol_crystal("structure.cif")
+manip = MoleculeManipulator(crystal)
+
+# Select molecules by species ID (from stoichiometry analysis)
+water_indices = manip.select_molecules(species_id="H2O_1")
+print(f"Found {len(water_indices)} water molecules: {water_indices}")
+
+# Operate on a specific molecule
+new_crystal = manip.translate_molecule(water_indices[0], vector=[0.5, 0.0, 0.0])
+
+# Chain operations (create a new manipulator for each step)
+manip2 = MoleculeManipulator(new_crystal)
+final_crystal = manip2.rotate_molecule(water_indices[0], axis=[0, 0, 1], angle=30.0)
+```
+
+### Reading XYZ Files:
+
+```python
+from molcrys_kit.io.xyz import read_xyz
+
+# Load a molecule from an XYZ file
+molecule = read_xyz("guest_molecule.xyz")
+print(molecule.get_chemical_formula())
+
+# Use it for replacement
+new_crystal = replace_molecule(crystal, molecule_index=0, new_molecule=molecule)
+```
+
+### Replacement Clash Detection:
+
+When replacing a molecule, the system automatically checks whether the replacement molecule's atoms are too close to the host framework (all other molecules in the crystal):
+
+1. The replacement molecule's COM is aligned to the original molecule's COM
+2. Minimum pairwise distance to all host atoms is computed
+3. If any distance < `clash_threshold` (default 1.0 Å):
+   - Random rotations around COM are attempted (up to `max_rotation_attempts`)
+   - Each rotation preserves the COM position
+   - If a clash-free orientation is found, it is used
+4. If all attempts fail, `MoleculeClashError` is raised with diagnostic info
+
+### Parameters Reference:
+
+| Function | Parameter | Default | Description |
+|---|---|---|---|
+| `translate_molecule` | `vector` | required | Displacement vector (3D) |
+| | `fractional` | `False` | Interpret vector as fractional coords |
+| `rotate_molecule` | `axis` | required | Rotation axis (3D vector) |
+| | `angle` | required | Rotation angle in degrees |
+| | `center` | `"com"` | Pivot: `"com"` or `"centroid"` |
+| `replace_molecule` | `new_molecule` | required | XYZ file path or `CrystalMolecule` |
+| | `clash_threshold` | `1.0` | Min distance (Å) to host atoms |
+| | `max_rotation_attempts` | `100` | Max rotation tries for clash resolution |
+| | `align_method` | `"com"` | Alignment: `"com"` or `"centroid"` |
