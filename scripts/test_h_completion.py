@@ -21,17 +21,15 @@ def main():
     os.makedirs("output", exist_ok=True)
 
     # Define rules for the Ammonium Cation (CH3NH3+) using the new flat list format
-    # input_path = "examples/DACMOR.cif"
-    input_path = "examples/MAP.cif"
+    input_path = "examples/DACMOR.cif"
+    # input_path = "examples/MAP.cif"
     target_elements = [
         "C", 
         "N", 
-        # 'O'
+        'O'
     ]
     rules = [
         # N should be Ammonium (coord=4) - general rule
-        {"symbol": "N", "target_coordination": 4, "geometry": "tetrahedral"},
-        {"symbol": "C", "target_coordination": 4, "geometry": "tetrahedral"},
         # O atoms bonded to Cl should have coordination 1 (not adding H) - specific rule
         # {"symbol": "O", "neighbors": ["Cl"], "target_coordination": 1},
     ]
@@ -66,3 +64,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

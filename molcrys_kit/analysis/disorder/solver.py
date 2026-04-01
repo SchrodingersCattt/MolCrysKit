@@ -48,13 +48,13 @@ class DisorderSolver:
         Group atoms by key:
         - For PART >= 0: (disorder_group, assembly)
         - For PART < 0:  (disorder_group, assembly, sym_op_index)
-        
-        This separation ensures that symmetry-generated copies (which share the same PART ID 
+
+        This separation ensures that symmetry-generated copies (which share the same PART ID
         but have different symmetry origins) are treated as separate Rigid Bodies.
         """
         # Dictionary to map group key to list of atom indices
         groups_map = {}
-        
+
         # Check availability of symmetry info
         has_sym_info = hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
 
@@ -62,7 +62,7 @@ class DisorderSolver:
             # Get disorder group and assembly for this atom
             disorder_group = self.info.disorder_groups[i]
             assembly = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
-            
+
             # Logic to handle PART -1 separation
             if disorder_group < 0 and has_sym_info:
                 sym_op = self.info.sym_op_indices[i] if i < len(self.info.sym_op_indices) else 0
@@ -211,7 +211,7 @@ class DisorderSolver:
 
         # Iterate Groups in descending order of score
         for group_idx in sorted_group_indices:
-            if group_scores[group_idx] < 0:
+            if group_scores[group_idx] <= 0:
                 continue
 
             group = self.atom_groups[group_idx]

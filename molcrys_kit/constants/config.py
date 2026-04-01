@@ -90,6 +90,10 @@ DISORDER_CONFIG = {
     "HARD_SPHERE_THRESHOLD": 0.85,  # Small threshold. Applied to compatible atoms to allow normal packing
     "DISORDER_CLASH_THRESHOLD": 2.2,  # Large threshold. Applied to COMPETING disorder parts to ensure split sites are exclusive
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
+    "IMPLICIT_SP_CLASH_THRESHOLD": 3.0,  # Threshold for implicit special-position disorder (non-H).
+    # Copies of heavy atoms on special positions can be spread over distances up to
+    # ~2.7 Å; this threshold catches all same-site copies while staying below typical
+    # inter-site distances (~3.4 Å for NatComm-1 S1).
     "SKIP_METAL_VALENCE_CHECK": True,  # Skip metal valence checks
 }
 

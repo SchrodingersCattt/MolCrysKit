@@ -71,6 +71,7 @@ class DisorderGraphBuilder:
         self._add_conformer_conflicts()
         self._add_explicit_conflicts()
         self._add_geometric_conflicts()
+        self._add_implicit_sp_conflicts()
         self._resolve_valence_conflicts()
         return self.graph
 
@@ -78,6 +79,9 @@ class DisorderGraphBuilder:
         """
         Identify discrete conformers (clusters) using connectivity, PART rules, AND Symmetry.
         Prevents 'Frankenstein' merging of symmetry images.
+
+        A conformer is a group of atoms that belong to the same disorder alternative
+        and the same symmetry-operation copy. The key is (part_id, sym_op).
         """
         n_atoms = len(self.info.labels)
         has_sym_info = hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
@@ -130,6 +134,7 @@ class DisorderGraphBuilder:
                         sym_op = self.info.sym_op_indices[atom_idx]
 
                     key = (part_id, sym_op)
+
                     if key not in atoms_by_key:
                         atoms_by_key[key] = set()
                     atoms_by_key[key].add(atom_idx)
@@ -275,23 +280,68 @@ class DisorderGraphBuilder:
 
     def _add_geometric_conflicts(self):
         n_atoms = len(self.info.labels)
+        has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
+
         for i in range(n_atoms):
             for j in range(i + 1, n_atoms):
                 dist = self.dist_matrix[i, j]
                 g_i = self.info.disorder_groups[i]
                 g_j = self.info.disorder_groups[j]
 
-                threshold = (
-                    DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
-                    if (g_i != 0 and g_j != 0 and g_i != g_j)
-                    else DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
-                )
+                # Skip same-parent pairs that are true periodic copies (NOT
+                # competing disorder alternatives).  Full-occupancy same-parent
+                # atoms and explicit-dg same-parent atoms are always periodic
+                # copies.  But partial-occ dg=0 same-parent atoms are genuinely
+                # overlapping copies that need geometric conflict detection.
+                if has_asym_info:
+                    ai_i = self.info.asym_id[i] if i < len(self.info.asym_id) else -1
+                    ai_j = self.info.asym_id[j] if j < len(self.info.asym_id) else -1
+                    if ai_i == ai_j and g_i == g_j:
+                        # Same parent, same disorder group — skip UNLESS both
+                        # are partial-occupancy with dg=0 (special-position
+                        # disorder without explicit labels).
+                        # Require strictly positive occupancy: zero-occ atoms
+                        # are dummy/placeholder positions, not disorder copies.
+                        occ_i = self.info.occupancies[i]
+                        occ_j = self.info.occupancies[j]
+                        if not (g_i == 0
+                                and 0 < occ_i < 1.0
+                                and 0 < occ_j < 1.0):
+                            continue
+
+                # Check if this is an implicit special-position disorder pair:
+                # same parent, same dg=0, both partial occupancy.
+                is_implicit_sp_disorder = False
+                if has_asym_info and g_i == 0 and g_j == 0:
+                    ai_i = self.info.asym_id[i] if i < len(self.info.asym_id) else -1
+                    ai_j = self.info.asym_id[j] if j < len(self.info.asym_id) else -1
+                    if (ai_i == ai_j
+                            and 0 < self.info.occupancies[i] < 1.0
+                            and 0 < self.info.occupancies[j] < 1.0):
+                        is_implicit_sp_disorder = True
 
                 symbol_i = self.info.symbols[i]
                 symbol_j = self.info.symbols[j]
 
+                # Threshold selection:
+                # - Explicit disorder pairs (different dg): use DISORDER_CLASH_THRESHOLD
+                # - Everything else (including implicit SP disorder): HARD_SPHERE_THRESHOLD
+                # NOTE: Non-H implicit SP disorder is handled separately by
+                # _add_implicit_sp_conflicts() using proximity clustering, which is
+                # more robust than a fixed threshold.  H implicit SP disorder is
+                # handled by valence/tetrahedral decomposition from bonded centers.
+                if g_i != 0 and g_j != 0 and g_i != g_j:
+                    threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+                else:
+                    threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
+
                 if dist < threshold:
-                    if not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
+                    # For implicit SP disorder, SKIP the _are_bonded check.
+                    # These are overlapping disorder copies of the same atom,
+                    # not genuinely bonded pairs.  The _are_bonded heuristic
+                    # would incorrectly classify close S-S or Cd-Cd copies
+                    # as "bonded" and prevent conflict edge creation.
+                    if is_implicit_sp_disorder or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
                         if not self.graph.has_edge(i, j):
                             self.graph.add_edge(
                                 i, j, conflict_type="geometric", distance=dist
@@ -311,6 +361,104 @@ class DisorderGraphBuilder:
                             ):
                                 self.graph[i][j]["conflict_type"] = "geometric"
                                 self.graph[i][j]["distance"] = dist
+
+    def _add_implicit_sp_conflicts(self):
+        """
+        Add mutual-exclusion edges for implicit special-position disorder.
+
+        Atoms with dg=0, 0 < occ < 1, and non-H element are copies of the same
+        atom placed at symmetry-equivalent positions on a special position.
+        Instead of using a fixed distance threshold (which fails when intra-site
+        and inter-site distances overlap), we use proximity clustering:
+
+        1. Group atoms by asym_id (all copies of same asymmetric-unit atom).
+        2. Compute expected site multiplicity = round(1/occ).
+        3. Cluster the N copies into N/multiplicity groups using hierarchical
+           clustering on the pairwise distance matrix.
+        4. Add all-pairs conflict edges within each cluster.
+
+        This correctly identifies same-site copies regardless of absolute distances.
+        H atoms are excluded — they are handled by valence/tetrahedral decomposition.
+        """
+        has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
+        if not has_asym_info:
+            return
+
+        from collections import defaultdict
+
+        # Collect non-H implicit SP disorder atoms grouped by asym_id
+        sp_groups = defaultdict(list)
+        for i in range(len(self.info.labels)):
+            if (self.info.disorder_groups[i] == 0
+                    and 0 < self.info.occupancies[i] < 1.0
+                    and self.info.symbols[i] not in ("H", "D")
+                    and i < len(self.info.asym_id)):
+                sp_groups[self.info.asym_id[i]].append(i)
+
+        for asym_id, indices in sp_groups.items():
+            n_copies = len(indices)
+            if n_copies < 2:
+                continue
+
+            occ = self.info.occupancies[indices[0]]
+            multiplicity = max(1, round(1.0 / occ))
+
+            if n_copies % multiplicity != 0:
+                # Fallback: can't cleanly partition; skip clustering,
+                # rely on geometric threshold edges already added.
+                continue
+
+            n_sites = n_copies // multiplicity
+
+            if n_sites < 1 or multiplicity < 2:
+                continue
+
+            # Build sub-distance-matrix for this asym_id group
+            sub_dists = np.zeros((n_copies, n_copies))
+            for ii in range(n_copies):
+                for jj in range(ii + 1, n_copies):
+                    d = self.dist_matrix[indices[ii], indices[jj]]
+                    sub_dists[ii, jj] = d
+                    sub_dists[jj, ii] = d
+
+            # Hierarchical clustering: partition n_copies atoms into n_sites
+            # clusters of `multiplicity` atoms each, based on proximity.
+            # Use a simple greedy approach: repeatedly find the closest pair
+            # and merge, stopping when we have n_sites clusters.
+            # Each cluster must have exactly `multiplicity` atoms.
+
+            # Convert to condensed distance matrix for scipy
+            from scipy.cluster.hierarchy import linkage, fcluster
+            condensed = []
+            for ii in range(n_copies):
+                for jj in range(ii + 1, n_copies):
+                    condensed.append(sub_dists[ii, jj])
+            condensed = np.array(condensed)
+
+            if len(condensed) == 0:
+                continue
+
+            Z = linkage(condensed, method='complete')
+            # Cut the dendrogram to get n_sites clusters
+            labels = fcluster(Z, t=n_sites, criterion='maxclust')
+
+            # Add mutual-exclusion edges within each cluster
+            from collections import Counter
+            cluster_counts = Counter(labels)
+
+            for cluster_id in set(labels):
+                cluster_members = [indices[k] for k in range(n_copies)
+                                   if labels[k] == cluster_id]
+                # Add all-pairs conflict edges
+                for ii in range(len(cluster_members)):
+                    for jj in range(ii + 1, len(cluster_members)):
+                        u, v = cluster_members[ii], cluster_members[jj]
+                        if not self.graph.has_edge(u, v):
+                            self.graph.add_edge(
+                                u, v,
+                                conflict_type="implicit_sp",
+                                distance=self.dist_matrix[u, v]
+                            )
 
     def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
         if group1 != 0 and group2 != 0 and group1 != group2:
@@ -365,6 +513,7 @@ class DisorderGraphBuilder:
 
     def _resolve_valence_conflicts(self):
         n_atoms = len(self.info.labels)
+        has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
         connectivity_graph = nx.Graph()
         for i in range(n_atoms):
             connectivity_graph.add_node(i)
@@ -388,10 +537,94 @@ class DisorderGraphBuilder:
                 continue
             sym = self.info.symbols[center_idx]
             max_c = MAX_COORDINATION_NUMBERS.get(sym, DEFAULT_MAX_COORDINATION)
+
+            # Change C2: When asym_id is available, filter out neighbors that are
+            # symmetry copies of the center atom itself (same asym_id AND same dg).
+            # This prevents metals on special positions from seeing their own
+            # periodic copies as spurious "too many neighbors".
+            if has_asym_info:
+                center_asym = (
+                    self.info.asym_id[center_idx]
+                    if center_idx < len(self.info.asym_id)
+                    else -1
+                )
+                neighbors = [
+                    n for n in neighbors
+                    if not (
+                        n < len(self.info.asym_id)
+                        and self.info.asym_id[n] == center_asym
+                        and self.info.disorder_groups[n] == self.info.disorder_groups[center_idx]
+                    )
+                ]
+
             if len(neighbors) > max_c:
+                # C2b: Skip _decompose_cliques entirely for dg=0 centers
+                # with occupancy < 1.0.  These are special-position framework
+                # atoms whose partial occupancy arises from sso > 1, NOT from
+                # genuine disorder.  Their expanded neighbours are all legitimate
+                # framework bonds; generating mutual-exclusion edges between them
+                # would incorrectly forbid co-existing framework atoms (e.g.
+                # S1/N1/C1/Cd1 in NatComm-1).
+                center_dg = self.info.disorder_groups[center_idx]
+                center_occ = self.info.occupancies[center_idx]
+                if center_dg == 0 and center_occ < 1.0:
+                    continue
+
+                # Skip valence decomposition for centers with explicit disorder
+                # groups (dg != 0).  These are already handled by conformer and
+                # explicit conflict logic; adding valence conflicts would create
+                # spurious exclusion edges (e.g. Cl3-O in ClO4- of PAP-HM4).
+                if center_dg != 0:
+                    continue
+
                 low_occ = [n for n in neighbors if self.info.occupancies[n] < 1.0]
+
+                # When center has dg=0, only consider neighbors that ALSO have
+                # dg=0.  Neighbors with dg!=0 are already handled by conformer/
+                # explicit conflict logic and should not be double-processed.
+                if center_dg == 0:
+                    low_occ = [n for n in low_occ
+                               if self.info.disorder_groups[n] == 0]
+
                 if len(low_occ) > 1:
                     self._decompose_cliques(low_occ, center_idx)
+
+    def _is_same_parent_pair(self, i_idx: int, j_idx: int) -> bool:
+        """
+        Return True if i_idx and j_idx are symmetry copies of the same
+        asymmetric-unit atom (same asym_id AND same disorder_group) AND
+        both have full occupancy.
+
+        Full-occupancy same-parent pairs must never receive conflict edges —
+        they are the same physical atom at different unit-cell positions and
+        must always coexist in the ordered structure.
+
+        Partial-occupancy (occ < 1.0) same-parent pairs with dg=0 are
+        genuinely competing copies on special positions — they MUST be
+        allowed to have conflict edges.
+        """
+        has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
+        if not has_asym_info:
+            return False
+        if i_idx >= len(self.info.asym_id) or j_idx >= len(self.info.asym_id):
+            return False
+        same_parent = (
+            self.info.asym_id[i_idx] == self.info.asym_id[j_idx]
+            and self.info.disorder_groups[i_idx] == self.info.disorder_groups[j_idx]
+        )
+        if not same_parent:
+            return False
+        # Partial-occupancy atoms with dg=0 are genuinely competing copies,
+        # NOT identical atoms at different unit-cell positions.
+        # Require strictly positive occupancy: zero-occ atoms are dummy/
+        # placeholder positions, not disorder copies.
+        occ_i = self.info.occupancies[i_idx]
+        occ_j = self.info.occupancies[j_idx]
+        if (self.info.disorder_groups[i_idx] == 0
+                and 0 < occ_i < 1.0
+                and 0 < occ_j < 1.0):
+            return False
+        return True
 
     def _decompose_cliques(self, atom_indices: List[int], center_idx: int):
         center_frac = self.info.frac_coords[center_idx]
@@ -404,21 +637,30 @@ class DisorderGraphBuilder:
 
         cart_positions = [frac_to_cart(rel, self.lattice) for rel in relative_positions]
 
-        # TODO: USE HybridizedSite instead of hardcoded geometries
-        # Tetrahedral: PO4, SO4, etc. (8 neighbors -> 2 sets of 4)
-        if len(atom_indices) == 8 and self.info.symbols[center_idx] in ["N", "P", "S"]:
+        center_sym = self.info.symbols[center_idx]
+        n_low = len(atom_indices)
+
+        # Tetrahedral decomposition: NH4+, PO4, SO4, etc.
+        # Generalized to handle any neighbor count >= 8 (not just exactly 8),
+        # because special-position atoms can produce variable copy counts.
+        # Safety cap at 30 to avoid combinatorial explosion (C(30,4) = 27405).
+        if n_low >= 8 and n_low <= 30 and center_sym in ["N", "P", "S"]:
             self._find_tetrahedral_groups(atom_indices, cart_positions)
-            
-        # Trigonal: NH3, CH3 (Methyl) (6 neighbors -> 2 sets of 3)
-        # Added "C" to handle methyl group rotation disorder
-        elif len(atom_indices) == 6 and self.info.symbols[center_idx] in ["N", "C"]:
+
+        # Trigonal decomposition: NH3, CH3 (methyl rotation disorder)
+        # Generalized to handle any neighbor count >= 6.
+        elif n_low >= 6 and n_low <= 30 and center_sym in ["N", "C"]:
             self._find_trigonal_groups(atom_indices, cart_positions)
-            
+
         else:
             # Fallback: mutually exclusive
             for i_idx in atom_indices:
                 for j_idx in atom_indices:
                     if i_idx < j_idx:
+                        # Skip symmetry copies of the same asymmetric-unit atom.
+                        # These are never genuine disorder alternatives.
+                        if self._is_same_parent_pair(i_idx, j_idx):
+                            continue
                         g_i = self.info.disorder_groups[i_idx]
                         g_j = self.info.disorder_groups[j_idx]
                         if g_i != 0 and g_j != 0 and g_i == g_j:
@@ -484,6 +726,9 @@ class DisorderGraphBuilder:
                     # Mutually exclude Part A and Part B
                     for u in part_a:
                         for v in part_b:
+                            # Skip symmetry copies of the same asymmetric-unit atom
+                            if self._is_same_parent_pair(u, v):
+                                continue
                             # Check if there's already a geometric edge and upgrade it to valence_geometry
                             if self.graph.has_edge(u, v):
                                 if self.graph[u][v]["conflict_type"] == "geometric":
@@ -499,6 +744,9 @@ class DisorderGraphBuilder:
                     rogues = all_atoms_set - set(part_a) - set(part_b)
                     for r in rogues:
                         for target in list(part_a) + list(part_b):
+                            # Skip symmetry copies of the same asymmetric-unit atom
+                            if self._is_same_parent_pair(r, target):
+                                continue
                             # Check if there's already a geometric edge and upgrade it to valence_geometry
                             if self.graph.has_edge(r, target):
                                 if (

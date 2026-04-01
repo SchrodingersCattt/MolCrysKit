@@ -7,7 +7,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from molcrys_kit.io.cif import read_mol_crystal
-from molcrys_kit.operations import generate_topological_slab
+from molcrys_kit.operations import enumerate_terminations, generate_slabs_with_terminations
 from molcrys_kit.io.cif import identify_molecules
 from molcrys_kit.io.output import write_cif
 from ase.visualize.plot import plot_atoms
@@ -16,10 +16,9 @@ from ase.visualize.plot import plot_atoms
 def main():
     """Main function to test topological slab generation."""
     # This check is no longer needed since modules are directly imported
-    # If required packages are not available, import errors will be raised at the top of the file
 
-    cif_path = os.path.join(project_root, "examples/PAP-H4.cif")
-    # cif_path = os.path.join(project_root, "examples/OCHTET12.cif")
+    # cif_path = os.path.join(project_root, "examples/PAP-H4.cif")
+    cif_path = os.path.join(project_root, "examples/OCHTET12.cif")
     # cif_path = os.path.join(project_root, "output/disorder_resolution/PAP-H4_optimal_0.cif")
     # cif_path = os.path.join(project_root, "output/disorder_resolution/1-HTP_optimal_0.cif")
     # cif_path = os.path.join(project_root, "examples/Acetaminophen_HXACAN.cif")
@@ -41,114 +40,127 @@ def main():
     unique_sizes = sorted(list(set(molecule_sizes)))
     print(f"  Unique molecule sizes: {unique_sizes}")
 
-    print("\nGenerating topological slab...")
-    print("  Layers: 3")
-    print("  Vacuum: 10.0 Angstroms")
-
-    try:
-        slab = generate_topological_slab(
-            crystal=crystal,
-            miller_indices=(1, 0, 0),
-            layers=3,
-            # min_thickness=10,
-            vacuum=40.0,
-        )
-        print(slab.summary())
-        # sleep(80)
-        print("\nGenerated slab:")
-        print(f"  Number of molecules: {len(slab.molecules)}")
-        print(f"  Total atoms: {sum(len(mol) for mol in slab.molecules)}")
-        a, b, c, alpha, beta, gamma = slab.get_lattice_parameters()
+    print("\nEnumerating terminations...")
+    term_infos = enumerate_terminations(crystal, miller_index=(1, 0, 0))
+    for ti in term_infos:
         print(
-            f"  Lattice parameters: a={a:.3f}, b={b:.3f}, c={c:.3f}, α={alpha:.3f}, β={beta:.3f}, γ={gamma:.3f}"
+            f"[{ti.termination_index}] shift={ti.shift:.4f}  "
+            f"type={ti.tasker_type}  preferred={ti.is_tasker_preferred}"
         )
 
-        # Verification
-        print("\nPerforming verification checks...")
+    print("\nGenerating slabs with terminations...")
+    try:
+        results = generate_slabs_with_terminations(
+            crystal,
+            miller_index=(1, 2, 0),
+            layers=3,
+            min_vacuum_size=15.0,
+            center_slab=False,
+        )
 
-        # Check 1: Atom count should be original_atoms * layers
-        original_atoms = sum(len(mol) for mol in crystal.molecules)
-        slab_atoms = sum(len(mol) for mol in slab.molecules)
-        expected_atoms = original_atoms * 3  # 3 layers
-
-        if slab_atoms == expected_atoms:
+        for slab, info in results:
+            print(f"\nProcessing termination {info.termination_index}...")
+            print(slab.summary())
+            print(f"Termination info: shift={info.shift:.4f}, type={info.tasker_type}, preferred={info.is_tasker_preferred}")
+            # sleep(80)
+            print("\nGenerated slab:")
+            print(f"  Number of molecules: {len(slab.molecules)}")
+            print(f"  Total atoms: {sum(len(mol) for mol in slab.molecules)}")
+            a, b, c, alpha, beta, gamma = slab.get_lattice_parameters()
             print(
-                f"✓ Atom count check passed: {slab_atoms} = {original_atoms} × 3 layers"
-            )
-        else:
-            print(f"✗ Atom count check failed: {slab_atoms} ≠ {expected_atoms}")
-        # Check 2: Verify no fragmented molecules using graph analysis
-        # Convert slab to ASE Atoms using the new to_ase method
-        slab_atoms_obj = slab.to_ase()
-
-        # Identify molecules in the slab
-        slab_molecules = identify_molecules(slab_atoms_obj)
-
-        print(f"  Identified molecules in slab: {len(slab_molecules)}")
-
-        # Check that all molecules are complete (same sizes as original)
-        slab_molecule_sizes = sorted([len(mol) for mol in slab_molecules])
-        original_molecule_sizes = sorted([len(mol) for mol in crystal.molecules])
-
-        # For a 3-layer slab, we expect 3 times the original molecules
-        expected_molecule_count = len(crystal.molecules) * 3
-
-        if len(slab_molecules) == expected_molecule_count:
-            print(
-                f"✓ Molecule count check passed: {len(slab_molecules)} = {len(crystal.molecules)} × 3 layers"
-            )
-        else:
-            print(
-                f"✗ Molecule count check failed: {len(slab_molecules)} ≠ {expected_molecule_count}"
+                f"  Lattice parameters: a={a:.3f}, b={b:.3f}, c={c:.3f}, α={alpha:.3f}, β={beta:.3f}, γ={gamma:.3f}"
             )
 
-        # Check if molecule sizes match expected pattern
-        # In a 3-layer slab, we should have 3 copies of each original molecule size
-        expected_sizes = sorted(original_molecule_sizes * 3)
-        if slab_molecule_sizes == expected_sizes:
-            print("✓ Molecule size distribution check passed")
-        else:
-            print("✗ Molecule size distribution check failed")
-            print(f"  Expected: {expected_sizes}")
-            print(f"  Actual: {slab_molecule_sizes}")
+            # Verification
+            print("\nPerforming verification checks...")
 
-        # Save the slab to a CIF file
-        print("\nSaving slab...")
+            # Check 1: Atom count should be original_atoms * layers
+            original_atoms = sum(len(mol) for mol in crystal.molecules)
+            original_molecules = len(crystal.molecules)
+            slab_atoms = sum(len(mol) for mol in slab.molecules)
+            slab_molecules = len(slab.molecules)
+            layers = slab_molecules // original_molecules
+            expected_atoms = original_atoms * layers
 
-        # Make sure output directory exists
-        output_dir = os.path.join(project_root, "output")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+            if slab_atoms == expected_atoms:
+                print(
+                    f"✓ Atom count check passed: {slab_atoms} = {original_atoms} × {layers} layers"
+                )
+            else:
+                print(f"✗ Atom count check failed: {slab_atoms} ≠ {expected_atoms}")
+            # Check 2: Verify no fragmented molecules using graph analysis
+            # Convert slab to ASE Atoms using the new to_ase method
+            slab_atoms_obj = slab.to_ase()
 
-        # Convert to ASE Atoms for writing and plotting using to_ase method
-        output_atoms = slab.to_ase()
+            # Identify molecules in the slab
+            slab_molecules_identified = identify_molecules(slab_atoms_obj)
 
-        output_path = os.path.join(output_dir, "SLAB_topo.cif")
-        output_atoms.write(output_path)
-        print(f"Slab structure saved to {output_path}")
+            print(f"  Identified molecules in slab: {len(slab_molecules_identified)}")
 
-        # Plotting along a and b axes
-        print("Generating visualization plots...")
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            # Check that all molecules are complete (same sizes as original)
+            slab_molecule_sizes = sorted([len(mol) for mol in slab_molecules_identified])
+            original_molecule_sizes = sorted([len(mol) for mol in crystal.molecules])
 
-        # View along a-axis
-        plot_atoms(output_atoms, ax1, rotation="0x,90y,0z")
-        ax1.set_title("View along a-axis")
-        ax1.set_axis_off()
+            # For a layers-layer slab, we expect layers times the original molecules
+            expected_molecule_count = original_molecules * layers
 
-        # View along b-axis
-        plot_atoms(output_atoms, ax2, rotation="90x,0y,0z")
-        ax2.set_title("View along b-axis")
-        ax2.set_axis_off()
+            if len(slab_molecules_identified) == expected_molecule_count:
+                print(
+                    f"✓ Molecule count check passed: {len(slab_molecules_identified)} = {original_molecules} × {layers} layers"
+                )
+            else:
+                print(
+                    f"✗ Molecule count check failed: {len(slab_molecules_identified)} ≠ {expected_molecule_count}"
+                )
 
-        plt.tight_layout()
-        plot_path = os.path.join(output_dir, "debug_views.png")
-        plt.savefig(plot_path, dpi=300)
-        plt.close()
-        print(f"Visualization saved to {plot_path}")
+            # Check if molecule sizes match expected pattern
+            # In a layers-layer slab, we should have layers copies of each original molecule size
+            expected_sizes = sorted(original_molecule_sizes * layers)
+            if slab_molecule_sizes == expected_sizes:
+                print("✓ Molecule size distribution check passed")
+            else:
+                print("✗ Molecule size distribution check failed")
+                print(f"  Expected: {expected_sizes}")
+                print(f"  Actual: {slab_molecule_sizes}")
+
+            # Save the slab to a CIF file
+            print("\nSaving slab...")
+
+            # Make sure output directory exists
+            output_dir = os.path.join(project_root, "output")
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            # Convert to ASE Atoms for writing and plotting using to_ase method
+            output_atoms = slab.to_ase()
+
+            output_path = os.path.join(output_dir, f"SLAB_topo_term{info.termination_index}.cif")
+            output_atoms.write(output_path)
+            print(f"Slab structure saved to {output_path}")
+
+            # Plotting along a and b axes (only for the first termination to avoid too many plots)
+            if info.termination_index == 0:
+                print("Generating visualization plots...")
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+
+                # View along a-axis
+                plot_atoms(output_atoms, ax1, rotation="0x,90y,0z")
+                ax1.set_title("View along a-axis")
+                ax1.set_axis_off()
+
+                # View along b-axis
+                plot_atoms(output_atoms, ax2, rotation="90x,0y,0z")
+                ax2.set_title("View along b-axis")
+                ax2.set_axis_off()
+
+                plt.tight_layout()
+                plot_path = os.path.join(output_dir, "debug_views.png")
+                plt.savefig(plot_path, dpi=300)
+                plt.close()
+                print(f"Visualization saved to {plot_path}")
 
     except Exception as e:
-        print(f"Error generating topological slab: {e}")
+        print(f"Error generating slabs with terminations: {e}")
         import traceback
 
         traceback.print_exc()
