@@ -184,6 +184,18 @@ class DisorderSolver:
                 group_scores.append(-1.0)  # Mark as invalid
                 continue
 
+            # [FIX] Skip groups where ALL atoms have zero base occupancy.
+            # These are dummy/placeholder atoms (e.g., N01 in caffeine2) that
+            # should never appear in a physical structure.  In random mode,
+            # tiny noise would give them positive randomized_weight, letting
+            # them slip past the score>0 check.  Using the canonical occupancy
+            # from DisorderInfo prevents this.
+            base_occs = [self.info.occupancies[node] for node in group
+                         if node < len(self.info.occupancies)]
+            if base_occs and all(occ <= 0.0 for occ in base_occs):
+                group_scores.append(-1.0)  # Mark as invalid — zero-occ group
+                continue
+
             # Total Weight of the group
             weight = sum(
                 working_graph.nodes[node].get(weight_attr, 1.0) for node in group
@@ -349,9 +361,16 @@ class DisorderSolver:
         else:
             raise ValueError(f"Unknown method: {method}. Use 'optimal' or 'random'")
 
+        # Post-process: remove orphan H/D atoms that lack bonded heavy-atom
+        # partners in the survived set.  This fixes cross-asym-id water
+        # disorder (e.g., MAF-4) where O and H are clustered independently.
+        cleaned_sets = []
+        for independent_set in independent_sets:
+            cleaned_sets.append(self._remove_orphan_hydrogens(independent_set))
+
         # Reconstruct crystals
         crystals = []
-        for independent_set in independent_sets:
+        for independent_set in cleaned_sets:
             crystal = self._reconstruct_crystal(independent_set)
             crystals.append(crystal)
 
@@ -373,6 +392,161 @@ class DisorderSolver:
             if not connected_to_set:
                 independent_set.append(node)
         return independent_set
+
+    def _remove_orphan_hydrogens(self, independent_set: List[int]) -> List[int]:
+        """
+        Remove chemically impossible fragments from the independent set.
+
+        Pass 1 — Orphan H: Remove H/D atoms that lack a bonded heavy-atom
+        partner within the survived set.  In structures like MAF-4, water O
+        and H have different asym_ids and are resolved independently by the
+        SP conflict clustering.  An isolated H atom is chemically impossible.
+
+        Pass 2 — Incomplete water: Remove partial-occupancy O atoms (water O)
+        that, after Pass 1, still have fewer than 2 bonded H in the survived
+        set.  A water molecule by definition has 2 H atoms; an O with only 1
+        bonded H (HO fragment) is an artefact of independent O/H resolution.
+        We identify "water O" as: partial occupancy AND no bonded C/N/S/P
+        heavy atom in the full structure (connectivity-based, not just
+        survived set).  When a water O is incomplete we remove the O AND all
+        H within O_H_SWEEP_CUTOFF of it that are in the survived set — those
+        H belong to this water site and have nowhere valid to go.
+
+        The check uses a generous bond-length cutoff (1.4 Å) to catch
+        both standard O-H (~0.96 Å) and the short crystallographic
+        H positions (~0.75 Å from X-ray refinement).  The sweep cutoff
+        (2.0 Å) is wider to also catch H copies that the random solver
+        picked from a nearby but slightly different position.
+        """
+        H_BOND_CUTOFF     = 1.4   # Å — orphan-H check: H must have a heavy within this
+        O_H_CUTOFF        = 1.4   # Å — O-H bond for water completeness check
+        O_H_SWEEP_CUTOFF  = 2.0   # Å — wider sweep: remove all H near an incomplete O
+        HEAVY_BOND_CUTOFF = 2.0   # Å — O-C/N/S/P bond (disqualifies O from being water)
+
+        # Pre-compute O-coordination in the FULL structure (not just survived),
+        # to identify "water O": partial-occ O bonded ONLY to H (and other O).
+        # Any O bonded to C, N, S, P, Cl, or any metal is NOT water O.
+        n_atoms_total = len(self.info.labels)
+
+        # Symbols that, if bonded to O, mean the O is NOT water
+        non_water_O_neighbors = {s for s in set(self.info.symbols)
+                                  if s not in ("H", "D", "O")}
+
+        # Build boolean mask of "potentially disqualifying" atoms
+        disq_mask = np.array([s in non_water_O_neighbors
+                              for s in self.info.symbols], dtype=bool)
+        disq_indices = np.where(disq_mask)[0]
+
+        # Candidate partial-occ O atoms
+        partial_O_indices = [i for i in range(n_atoms_total)
+                             if (self.info.symbols[i] == "O"
+                                 and self.info.occupancies[i] < 1.0)]
+
+        is_water_O = {}
+        if partial_O_indices and len(disq_indices) > 0:
+            # Vectorized PBC distance: partial_O × disqualifying_atoms
+            o_frac = self.info.frac_coords[partial_O_indices]   # (n_o, 3)
+            d_frac = self.info.frac_coords[disq_indices]         # (n_d, 3)
+            diff = o_frac[:, None, :] - d_frac[None, :, :]      # (n_o, n_d, 3)
+            diff = diff - np.round(diff)
+            cart = np.einsum("nij,jk->nik", diff, self.lattice)  # (n_o, n_d, 3)
+            dists_o_d = np.linalg.norm(cart, axis=2)            # (n_o, n_d)
+
+            for oi, i in enumerate(partial_O_indices):
+                bonded_non_water = bool(np.any(dists_o_d[oi] < HEAVY_BOND_CUTOFF))
+                is_water_O[i] = not bonded_non_water
+        else:
+            for i in partial_O_indices:
+                is_water_O[i] = True  # no disqualifying atoms → all are water O
+
+        def _do_pass(ind_set):
+            """One round of orphan-H removal + incomplete-water removal."""
+            survived = list(ind_set)
+            if not survived:
+                return survived
+
+            surv_set = set(survived)
+
+            # --- Pass 1: orphan H ---
+            h_atoms  = [a for a in survived if self.info.symbols[a] in ("H", "D")]
+            hvy_atoms = [a for a in survived if self.info.symbols[a] not in ("H", "D")]
+
+            if h_atoms and hvy_atoms:
+                h_frac   = self.info.frac_coords[h_atoms]
+                hvy_frac = self.info.frac_coords[hvy_atoms]
+                diff = h_frac[:, None, :] - hvy_frac[None, :, :]
+                diff = diff - np.round(diff)
+                cart_diff = np.einsum("nij,jk->nik", diff, self.lattice)
+                dists_h_hvy = np.linalg.norm(cart_diff, axis=2)
+
+                orphan_H = set()
+                for hi, h_idx in enumerate(h_atoms):
+                    if np.min(dists_h_hvy[hi]) > H_BOND_CUTOFF:
+                        orphan_H.add(h_idx)
+                surv_set -= orphan_H
+
+            # --- Pass 2: incomplete water O ---
+            # For each surviving water O, count bonded H in survived set.
+            # Water O needs exactly 2 H.  If < 2, remove it.  We also remove
+            # any H within O_H_SWEEP_CUTOFF that have NO other surviving heavy
+            # atom within H_BOND_CUTOFF — i.e., H that are exclusively bonded
+            # to this incomplete O and would become orphans anyway.
+            o_atoms = [a for a in surv_set if self.info.symbols[a] == "O"
+                       and is_water_O.get(a, False)]
+            h_atoms2 = [a for a in surv_set if self.info.symbols[a] in ("H", "D")]
+
+            if o_atoms and h_atoms2:
+                o_frac = self.info.frac_coords[o_atoms]
+                h_frac2 = self.info.frac_coords[h_atoms2]
+                diff2 = o_frac[:, None, :] - h_frac2[None, :, :]
+                diff2 = diff2 - np.round(diff2)
+                cart_diff2 = np.einsum("nij,jk->nik", diff2, self.lattice)
+                dists_o_h = np.linalg.norm(cart_diff2, axis=2)  # (n_o, n_h)
+
+                # Also compute H-to-all-heavy distances to check if H has
+                # another heavy anchor besides the incomplete O
+                hvy_in_surv = [a for a in surv_set if self.info.symbols[a] not in ("H", "D")]
+                if hvy_in_surv:
+                    h_frac3 = self.info.frac_coords[h_atoms2]
+                    hvy_frac3 = self.info.frac_coords[hvy_in_surv]
+                    diff3 = h_frac3[:, None, :] - hvy_frac3[None, :, :]
+                    diff3 = diff3 - np.round(diff3)
+                    cart_diff3 = np.einsum("nij,jk->nik", diff3, self.lattice)
+                    dists_h_hvy3 = np.linalg.norm(cart_diff3, axis=2)  # (n_h, n_hvy)
+                else:
+                    dists_h_hvy3 = None
+
+                # Map h_atoms2 index → position in hvy_in_surv for "other heavy" check
+                hvy_set = set(hvy_in_surv)
+
+                incomplete_O = set()
+                h_to_remove = set()
+                for oi, o_idx in enumerate(o_atoms):
+                    n_bonded_h = int(np.sum(dists_o_h[oi] < O_H_CUTOFF))
+                    if n_bonded_h < 2:
+                        incomplete_O.add(o_idx)
+                        # Remove H within sweep range that have no other heavy anchor
+                        if dists_h_hvy3 is not None:
+                            for hj, h_idx in enumerate(h_atoms2):
+                                if dists_o_h[oi, hj] < O_H_SWEEP_CUTOFF:
+                                    # Check if H has ANY other surviving heavy atom
+                                    # within H_BOND_CUTOFF (i.e., not just this O)
+                                    near_hvy_count = 0
+                                    for ki, hvy_idx in enumerate(hvy_in_surv):
+                                        if hvy_idx != o_idx and dists_h_hvy3[hj, ki] < H_BOND_CUTOFF:
+                                            near_hvy_count += 1
+                                            break
+                                    if near_hvy_count == 0:
+                                        h_to_remove.add(h_idx)
+                surv_set -= incomplete_O
+                surv_set -= h_to_remove
+
+            return [a for a in survived if a in surv_set]
+
+        # Run two rounds so that removing incomplete-O exposes new orphan-H
+        result = _do_pass(independent_set)
+        result = _do_pass(result)
+        return result
 
     def _reconstruct_crystal(self, independent_set: List[int]) -> MolecularCrystal:
         """

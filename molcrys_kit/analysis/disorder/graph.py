@@ -326,10 +326,9 @@ class DisorderGraphBuilder:
                 # Threshold selection:
                 # - Explicit disorder pairs (different dg): use DISORDER_CLASH_THRESHOLD
                 # - Everything else (including implicit SP disorder): HARD_SPHERE_THRESHOLD
-                # NOTE: Non-H implicit SP disorder is handled separately by
+                # NOTE: Implicit SP disorder is handled separately by
                 # _add_implicit_sp_conflicts() using proximity clustering, which is
-                # more robust than a fixed threshold.  H implicit SP disorder is
-                # handled by valence/tetrahedral decomposition from bonded centers.
+                # more robust than a fixed threshold for both heavy atoms and H.
                 if g_i != 0 and g_j != 0 and g_i != g_j:
                     threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
                 else:
@@ -366,10 +365,10 @@ class DisorderGraphBuilder:
         """
         Add mutual-exclusion edges for implicit special-position disorder.
 
-        Atoms with dg=0, 0 < occ < 1, and non-H element are copies of the same
-        atom placed at symmetry-equivalent positions on a special position.
-        Instead of using a fixed distance threshold (which fails when intra-site
-        and inter-site distances overlap), we use proximity clustering:
+        Atoms with dg=0 and 0 < occ < 1 are copies of the same atom placed at
+        symmetry-equivalent positions on a special position.  Instead of using a
+        fixed distance threshold (which fails when intra-site and inter-site
+        distances overlap), we use proximity clustering:
 
         1. Group atoms by asym_id (all copies of same asymmetric-unit atom).
         2. Compute expected site multiplicity = round(1/occ).
@@ -377,8 +376,16 @@ class DisorderGraphBuilder:
            clustering on the pairwise distance matrix.
         4. Add all-pairs conflict edges within each cluster.
 
-        This correctly identifies same-site copies regardless of absolute distances.
-        H atoms are excluded — they are handled by valence/tetrahedral decomposition.
+        This correctly identifies same-site copies regardless of absolute
+        distances.
+
+        H atoms are included ONLY when they lack a full-occupancy bonded center
+        that would handle them via valence/tetrahedral decomposition.  Specifically,
+        H atoms whose nearest bonded non-H neighbor is partial-occupancy (e.g.,
+        water H bonded to O with occ<1) are included because C2b skips such
+        centers.  H atoms bonded to full-occ centers (e.g., N4 in DAP-4) are
+        excluded — their disorder is orientational and handled by tetrahedral
+        decomposition from that full-occ center.
         """
         has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
         if not has_asym_info:
@@ -386,13 +393,41 @@ class DisorderGraphBuilder:
 
         from collections import defaultdict
 
-        # Collect non-H implicit SP disorder atoms grouped by asym_id
+        # Pre-compute: for each H atom with dg=0, occ<1, find if it has a
+        # full-occupancy bonded non-H center.  If so, valence decomposition
+        # from that center will handle it; exclude from SP clustering.
+        h_needs_sp_clustering = set()
+        n_atoms = len(self.info.labels)
+        for i in range(n_atoms):
+            if (self.info.symbols[i] in ("H", "D")
+                    and self.info.disorder_groups[i] == 0
+                    and 0 < self.info.occupancies[i] < 1.0):
+                # Check if any bonded non-H neighbor has full occupancy
+                has_full_occ_center = False
+                for j in range(n_atoms):
+                    if i == j:
+                        continue
+                    if self.info.symbols[j] in ("H", "D"):
+                        continue
+                    dist = self.dist_matrix[i, j]
+                    if dist < 1.5:  # typical O-H, N-H bond length
+                        if self.info.occupancies[j] >= 1.0:
+                            has_full_occ_center = True
+                            break
+                if not has_full_occ_center:
+                    h_needs_sp_clustering.add(i)
+
+        # Collect implicit SP disorder atoms grouped by asym_id:
+        # - Non-H atoms: always included
+        # - H atoms: only if they lack a full-occ bonded center
         sp_groups = defaultdict(list)
-        for i in range(len(self.info.labels)):
+        for i in range(n_atoms):
             if (self.info.disorder_groups[i] == 0
                     and 0 < self.info.occupancies[i] < 1.0
-                    and self.info.symbols[i] not in ("H", "D")
                     and i < len(self.info.asym_id)):
+                if self.info.symbols[i] in ("H", "D"):
+                    if i not in h_needs_sp_clustering:
+                        continue
                 sp_groups[self.info.asym_id[i]].append(i)
 
         for asym_id, indices in sp_groups.items():
@@ -401,16 +436,27 @@ class DisorderGraphBuilder:
                 continue
 
             occ = self.info.occupancies[indices[0]]
-            multiplicity = max(1, round(1.0 / occ))
 
-            if n_copies % multiplicity != 0:
-                # Fallback: can't cleanly partition; skip clustering,
-                # rely on geometric threshold edges already added.
-                continue
+            # Compute expected number of physical sites.
+            # Primary method: n_sites = round(n_copies * occ)
+            # This is more robust than round(1/occ) for non-standard
+            # occupancies like 0.06 or 0.04.
+            n_sites = max(1, round(n_copies * occ))
+            multiplicity = n_copies // n_sites if n_sites > 0 else n_copies
 
-            n_sites = n_copies // multiplicity
+            # If division isn't clean, try round(1/occ) as fallback
+            if n_copies % n_sites != 0:
+                multiplicity_alt = max(1, round(1.0 / occ))
+                if n_copies % multiplicity_alt == 0:
+                    multiplicity = multiplicity_alt
+                    n_sites = n_copies // multiplicity
+                else:
+                    # Neither method gives clean partition; fall back to
+                    # best-effort clustering with uneven cluster sizes
+                    pass
 
-            if n_sites < 1 or multiplicity < 2:
+            if n_sites < 1 or n_sites >= n_copies:
+                # multiplicity < 2 means no within-cluster conflicts needed
                 continue
 
             # Build sub-distance-matrix for this asym_id group
@@ -423,9 +469,6 @@ class DisorderGraphBuilder:
 
             # Hierarchical clustering: partition n_copies atoms into n_sites
             # clusters of `multiplicity` atoms each, based on proximity.
-            # Use a simple greedy approach: repeatedly find the closest pair
-            # and merge, stopping when we have n_sites clusters.
-            # Each cluster must have exactly `multiplicity` atoms.
 
             # Convert to condensed distance matrix for scipy
             from scipy.cluster.hierarchy import linkage, fcluster
@@ -443,9 +486,6 @@ class DisorderGraphBuilder:
             labels = fcluster(Z, t=n_sites, criterion='maxclust')
 
             # Add mutual-exclusion edges within each cluster
-            from collections import Counter
-            cluster_counts = Counter(labels)
-
             for cluster_id in set(labels):
                 cluster_members = [indices[k] for k in range(n_copies)
                                    if labels[k] == cluster_id]
