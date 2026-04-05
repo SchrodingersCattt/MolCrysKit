@@ -54,6 +54,15 @@ class DisorderGraphBuilder:
 
     def _precompute_metrics(self):
         coords = self.info.frac_coords
+        n = len(coords)
+        # Warn for large structures: N×N distance matrix can be slow/memory-heavy
+        # (e.g. 5000×5000 = 200 MB for float64).
+        if n > 2000:
+            logger.warning(
+                "Large structure: %d atoms after symmetry expansion. "
+                "Distance matrix will be %.0f MB. This may be slow.",
+                n, n * n * 8 / 1e6
+            )
         # Precompute distance matrix with PBC
         coord_diffs = coords[:, None, :] - coords[None, :, :]
         coord_diffs = coord_diffs - np.round(coord_diffs)
@@ -573,6 +582,10 @@ class DisorderGraphBuilder:
     def _resolve_valence_conflicts(self):
         n_atoms = len(self.info.labels)
         has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
+        has_site_sym = (
+            hasattr(self.info, "site_symmetry_order")
+            and self.info.site_symmetry_order
+        )
         connectivity_graph = nx.Graph()
         for i in range(n_atoms):
             connectivity_graph.add_node(i)
@@ -646,7 +659,81 @@ class DisorderGraphBuilder:
                                if self.info.disorder_groups[n] == 0]
 
                 if len(low_occ) > 1:
-                    self._decompose_cliques(low_occ, center_idx)
+                    _max_n = DISORDER_CONFIG["CLIQUE_DECOMP_MAX_NEIGHBORS"]
+                    # SP-center pre-filtering: when n_low exceeds the clique-decomp
+                    # cap AND the center sits on a special position (sso > 1), the
+                    # large neighbor count is caused by symmetry expansion producing
+                    # many copies of each unique H site.  Pre-filter to one
+                    # representative per asym_id group (nearest to center), run
+                    # tetrahedral/trigonal decomposition on the reduced set, then
+                    # expand the picked representatives back to their full site
+                    # clusters and mark the non-picked clusters as conflicting.
+                    center_sso = 1
+                    if has_site_sym and center_idx < len(self.info.site_symmetry_order):
+                        center_sso = self.info.site_symmetry_order[center_idx]
+
+                    if len(low_occ) > _max_n and has_asym_info and center_sso > 1:
+                        low_occ, asym_id_to_cluster = self._prefilter_sp_neighbors(
+                            low_occ, center_idx
+                        )
+                    else:
+                        asym_id_to_cluster = None
+
+                    self._decompose_cliques(low_occ, center_idx,
+                                           asym_id_to_cluster=asym_id_to_cluster)
+
+    def _prefilter_sp_neighbors(self, low_occ: List[int], center_idx: int):
+        """
+        Pre-filter low-occupancy neighbors for a special-position center.
+
+        When a full-occupancy center on a special position (sso > 1) has far
+        more partial-occ neighbors than CLIQUE_DECOMP_MAX_NEIGHBORS, the excess
+        is caused by symmetry expansion: each unique asymmetric-unit H site
+        generates many symmetry copies, all of which appear as neighbors.
+
+        This method:
+        1. Groups low_occ neighbors by asym_id.
+        2. For each asym_id group, picks the single representative nearest to
+           the center atom.
+        3. Returns the reduced list of representatives plus a mapping
+           {asym_id: [all_copies_in_group]} for later expansion.
+
+        Parameters
+        ----------
+        low_occ : List[int]
+            Indices of low-occupancy neighbor atoms.
+        center_idx : int
+            Index of the center atom.
+
+        Returns
+        -------
+        representatives : List[int]
+            One representative index per asym_id group.
+        asym_id_to_cluster : dict
+            Maps asym_id → list of all atom indices in that group.
+        """
+        from collections import defaultdict
+        asym_id_to_cluster = defaultdict(list)
+        for n in low_occ:
+            ai = (
+                self.info.asym_id[n]
+                if n < len(self.info.asym_id)
+                else n  # fallback: treat each atom as its own group
+            )
+            asym_id_to_cluster[ai].append(n)
+
+        representatives = []
+        for ai, cluster in asym_id_to_cluster.items():
+            # Pick the atom nearest to the center
+            nearest = min(cluster, key=lambda n: self.dist_matrix[center_idx, n])
+            representatives.append(nearest)
+
+        logger.debug(
+            "SP pre-filter: center=%d sso>1, reduced %d neighbors → %d "
+            "representatives (%d asym_id groups)",
+            center_idx, len(low_occ), len(representatives), len(asym_id_to_cluster)
+        )
+        return representatives, dict(asym_id_to_cluster)
 
     def _is_same_parent_pair(self, i_idx: int, j_idx: int) -> bool:
         """
@@ -685,7 +772,24 @@ class DisorderGraphBuilder:
             return False
         return True
 
-    def _decompose_cliques(self, atom_indices: List[int], center_idx: int):
+    def _decompose_cliques(self, atom_indices: List[int], center_idx: int,
+                           asym_id_to_cluster=None):
+        """
+        Decompose a set of low-occupancy neighbors into mutually-exclusive groups.
+
+        Parameters
+        ----------
+        atom_indices : List[int]
+            Indices of low-occupancy neighbor atoms (may be pre-filtered
+            representatives when asym_id_to_cluster is provided).
+        center_idx : int
+            Index of the center atom.
+        asym_id_to_cluster : dict or None
+            When provided (SP pre-filter case), maps asym_id → list of all
+            atom indices in that site cluster.  After geometry matching on
+            the representative level, the disjoint-group constraints are
+            expanded back to full clusters.
+        """
         center_frac = self.info.frac_coords[center_idx]
         relative_positions = []
         for idx in atom_indices:
@@ -701,16 +805,60 @@ class DisorderGraphBuilder:
 
         _max_n = DISORDER_CONFIG["CLIQUE_DECOMP_MAX_NEIGHBORS"]
 
+        # SP pre-filter case: asym_id_to_cluster is provided.
+        # atom_indices are one representative per asym_id group (e.g., 4 reps
+        # for NH4+: H1C, H1D, H1E, H1F).
+        #
+        # Strategy:
+        #   1. Within each cluster, add mutual-exclusion edges (only 1 copy
+        #      per H site can survive).
+        #   2. Run geometry matching (tetrahedral/trigonal) on the
+        #      representative positions to find valid coordination groups.
+        #   3. Expand the geometry results back to full clusters so that
+        #      atoms in incompatible clusters are properly excluded.
+        if asym_id_to_cluster is not None:
+            # Step 1: within-cluster mutual exclusion
+            self._apply_sp_cluster_conflicts(asym_id_to_cluster)
+
+            # Step 2+3: geometry matching on representatives, expanded to clusters
+            if n_low == 4 and center_sym in ["N", "P", "S"]:
+                # Exactly 4 groups — check if they form a single valid tetrahedron
+                self._sp_tetrahedral_single(
+                    atom_indices, cart_positions, asym_id_to_cluster,
+                    center_idx
+                )
+            elif n_low >= 8 and center_sym in ["N", "P", "S"]:
+                # Multiple tetrahedral alternatives — enumerate on representatives
+                self._sp_geometry_match(
+                    atom_indices, cart_positions, asym_id_to_cluster,
+                    group_size=4, target_angle=109.5
+                )
+            elif n_low == 3 and center_sym in ["N", "C"]:
+                # Exactly 3 groups — check if they form a single valid trigonal
+                self._sp_trigonal_single(
+                    atom_indices, cart_positions, asym_id_to_cluster,
+                    center_idx
+                )
+            elif n_low >= 6 and center_sym in ["N", "C"]:
+                # Multiple trigonal alternatives
+                self._sp_geometry_match(
+                    atom_indices, cart_positions, asym_id_to_cluster,
+                    group_size=3, target_angle=109.5
+                )
+            else:
+                # Fallback: mutual exclusion on representatives, expanded
+                self._sp_fallback_exclusion(
+                    atom_indices, asym_id_to_cluster
+                )
+            return
+
+        # --- Normal (non-SP) path ---
+
         # Tetrahedral decomposition: NH4+, PO4, SO4, etc.
-        # Generalized to handle any neighbor count >= 8 (not just exactly 8),
-        # because special-position atoms can produce variable copy counts.
-        # Cap at CLIQUE_DECOMP_MAX_NEIGHBORS (default 16) to avoid combinatorial
-        # explosion: C(16,4)=1820 is manageable; C(30,4)=27405 is not.
         if n_low >= 8 and n_low <= _max_n and center_sym in ["N", "P", "S"]:
             self._find_tetrahedral_groups(atom_indices, cart_positions)
 
         # Trigonal decomposition: NH3, CH3 (methyl rotation disorder)
-        # Generalized to handle any neighbor count >= 6.
         elif n_low >= 6 and n_low <= _max_n and center_sym in ["N", "C"]:
             self._find_trigonal_groups(atom_indices, cart_positions)
 
@@ -719,21 +867,385 @@ class DisorderGraphBuilder:
             for i_idx in atom_indices:
                 for j_idx in atom_indices:
                     if i_idx < j_idx:
-                        # Skip symmetry copies of the same asymmetric-unit atom.
-                        # These are never genuine disorder alternatives.
                         if self._is_same_parent_pair(i_idx, j_idx):
                             continue
                         g_i = self.info.disorder_groups[i_idx]
                         g_j = self.info.disorder_groups[j_idx]
                         if g_i != 0 and g_j != 0 and g_i == g_j:
                             continue
-                        # Check if there's already a geometric edge and upgrade it to valence
                         if self.graph.has_edge(i_idx, j_idx):
-                            # If the existing conflict is geometric, upgrade it to valence
                             if self.graph[i_idx][j_idx]["conflict_type"] == "geometric":
                                 self.graph[i_idx][j_idx]["conflict_type"] = "valence"
                         else:
                             self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
+
+    # ------------------------------------------------------------------
+    # SP cluster helpers
+    # ------------------------------------------------------------------
+
+    def _apply_sp_cluster_conflicts(self, asym_id_to_cluster: dict):
+        """
+        Add within-cluster mutual-exclusion edges for SP pre-filtered sites.
+
+        For each asym_id group (e.g., all copies of H1C bonded to a given N1),
+        add conflict edges between every pair of copies so the MWIS solver
+        picks at most one copy per H site.
+
+        NOTE: This method intentionally does NOT touch cross-cluster edges.
+        Cross-cluster relationships (compatible vs incompatible groups) are
+        determined by the geometry-matching methods that run after this.
+        """
+        for ai, cluster in asym_id_to_cluster.items():
+            for ii in range(len(cluster)):
+                for jj in range(ii + 1, len(cluster)):
+                    u, v = cluster[ii], cluster[jj]
+                    if self._is_same_parent_pair(u, v):
+                        continue
+                    if self.graph.has_edge(u, v):
+                        if self.graph[u][v]["conflict_type"] == "geometric":
+                            self.graph[u][v]["conflict_type"] = "valence_geometry"
+                    else:
+                        self.graph.add_edge(u, v, conflict_type="valence_geometry")
+
+    def _sp_tetrahedral_single(self, reps, cart_positions,
+                               asym_id_to_cluster, center_idx):
+        """
+        Handle exactly 4 representative groups around a tetrahedral center.
+
+        Finds all valid tetrahedra (1-per-cluster combos with good geometry)
+        and applies disjoint-group constraints: atoms in the same tetrahedron
+        are compatible (no cross-cluster conflict); atoms in different
+        tetrahedra conflict.  Any atom not in any valid tetrahedron conflicts
+        with all atoms from other clusters.
+        """
+        valid_groups = self._sp_collect_valid_groups(
+            asym_id_to_cluster, center_idx,
+            group_size=4, target_angle=109.5, threshold=60.0,
+            max_collect=200
+        )
+        self._sp_apply_group_constraints(
+            valid_groups, asym_id_to_cluster, group_size=4
+        )
+        logger.debug(
+            "SP tetrahedral single: found %d valid tetrahedra for center %d",
+            len(valid_groups), center_idx
+        )
+
+    def _sp_trigonal_single(self, reps, cart_positions,
+                            asym_id_to_cluster, center_idx):
+        """
+        Handle exactly 3 representative groups around a trigonal center.
+        """
+        valid_groups = self._sp_collect_valid_groups(
+            asym_id_to_cluster, center_idx,
+            group_size=3, target_angle=109.5, threshold=30.0,
+            max_collect=200
+        )
+        self._sp_apply_group_constraints(
+            valid_groups, asym_id_to_cluster, group_size=3
+        )
+        logger.debug(
+            "SP trigonal single: found %d valid trigonal groups for center %d",
+            len(valid_groups), center_idx
+        )
+
+    def _sp_collect_valid_groups(self, asym_id_to_cluster, center_idx,
+                                 group_size, target_angle, threshold,
+                                 max_collect=200):
+        """
+        Enumerate 1-per-cluster combinations and collect those with geometry
+        scores below threshold.
+
+        Returns list of tuples, each tuple = (score, atom_indices) where
+        atom_indices is a tuple of `group_size` atom indices (one per cluster).
+        """
+        import random
+        from itertools import product as iproduct
+
+        MAX_ENUM = 200000  # max combos to enumerate
+        MAX_SAMPLE = 50000  # max random samples if too many combos
+
+        def _score(positions):
+            angles = []
+            for i in range(group_size):
+                for j in range(i + 1, group_size):
+                    v1, v2 = positions[i], positions[j]
+                    if np.linalg.norm(v1) < 1e-6 or np.linalg.norm(v2) < 1e-6:
+                        return float("inf")
+                    angles.append(np.degrees(angle_between_vectors(v1, v2)))
+            return sum(abs(a - target_angle) for a in angles) if angles else float("inf")
+
+        center_frac = self.info.frac_coords[center_idx]
+        cluster_keys = list(asym_id_to_cluster.keys())[:group_size]
+
+        # Build atom lists and relative Cartesian positions per cluster
+        cluster_atoms = []  # cluster_atoms[k] = list of atom indices
+        cluster_rel_cart = []  # cluster_rel_cart[k][j] = rel cart vec
+        for ai in cluster_keys:
+            atoms = asym_id_to_cluster[ai]
+            rel_positions = []
+            for idx in atoms:
+                delta_frac = self.info.frac_coords[idx] - center_frac
+                delta_frac = delta_frac - np.round(delta_frac)  # MIC
+                rel_cart = frac_to_cart(delta_frac, self.lattice)
+                rel_positions.append(rel_cart)
+            cluster_atoms.append(atoms)
+            cluster_rel_cart.append(rel_positions)
+
+        cluster_sizes = [len(c) for c in cluster_atoms]
+        total_combos = 1
+        for s in cluster_sizes:
+            total_combos *= s
+
+        valid_groups = []  # list of (score, (atom_idx_0, ..., atom_idx_{gs-1}))
+
+        def _process_combo(combo):
+            positions = [cluster_rel_cart[k][combo[k]] for k in range(group_size)]
+            s = _score(positions)
+            if s < threshold:
+                atoms = tuple(cluster_atoms[k][combo[k]] for k in range(group_size))
+                valid_groups.append((s, atoms))
+
+        if total_combos <= MAX_ENUM:
+            index_lists = [list(range(s)) for s in cluster_sizes]
+            for combo in iproduct(*index_lists):
+                _process_combo(combo)
+                if len(valid_groups) >= max_collect:
+                    break
+        else:
+            seen = set()
+            for _ in range(MAX_SAMPLE):
+                combo = tuple(random.randint(0, cluster_sizes[k] - 1)
+                              for k in range(group_size))
+                if combo in seen:
+                    continue
+                seen.add(combo)
+                _process_combo(combo)
+                if len(valid_groups) >= max_collect:
+                    break
+
+        valid_groups.sort(key=lambda x: x[0])
+        return valid_groups
+
+    def _sp_apply_group_constraints(self, valid_groups, asym_id_to_cluster,
+                                     group_size):
+        """
+        Apply graph constraints based on valid geometry groups.
+
+        For each valid group (e.g., a tetrahedron), the `group_size` atoms are
+        compatible and should NOT have cross-cluster conflict edges.
+
+        Atoms that do NOT appear in any valid group get cross-cluster conflicts
+        with all atoms from other clusters (rogue atoms).
+
+        Between atoms in DIFFERENT valid groups, add cross-cluster conflict
+        edges (they represent alternative orientations).
+        """
+        cluster_keys = list(asym_id_to_cluster.keys())[:group_size]
+
+        if not valid_groups:
+            # No valid geometry found — fallback: all cross-cluster pairs conflict
+            for ki in range(len(cluster_keys)):
+                for kj in range(ki + 1, len(cluster_keys)):
+                    for u in asym_id_to_cluster[cluster_keys[ki]]:
+                        for v in asym_id_to_cluster[cluster_keys[kj]]:
+                            if self._is_same_parent_pair(u, v):
+                                continue
+                            if not self.graph.has_edge(u, v):
+                                self.graph.add_edge(u, v, conflict_type="valence_geometry")
+            return
+
+        # Build set of atoms in each valid group, and map atom → groups it belongs to
+        atom_to_groups = {}  # atom_idx → set of group indices
+        for gi, (score, atoms) in enumerate(valid_groups):
+            for a in atoms:
+                if a not in atom_to_groups:
+                    atom_to_groups[a] = set()
+                atom_to_groups[a].add(gi)
+
+        # For each pair of clusters, apply constraints
+        for ki in range(group_size):
+            for kj in range(ki + 1, group_size):
+                atoms_ki = asym_id_to_cluster[cluster_keys[ki]]
+                atoms_kj = asym_id_to_cluster[cluster_keys[kj]]
+                for u in atoms_ki:
+                    for v in atoms_kj:
+                        if self._is_same_parent_pair(u, v):
+                            continue
+                        u_groups = atom_to_groups.get(u, set())
+                        v_groups = atom_to_groups.get(v, set())
+                        # Compatible if they share at least one valid group
+                        shared = u_groups & v_groups
+                        if shared:
+                            # They can coexist — remove any geometric conflict edge
+                            if self.graph.has_edge(u, v):
+                                if self.graph[u][v].get("conflict_type") == "geometric":
+                                    self.graph.remove_edge(u, v)
+                        else:
+                            # They conflict — add/upgrade edge
+                            if self.graph.has_edge(u, v):
+                                ct = self.graph[u][v].get("conflict_type", "")
+                                if ct == "geometric":
+                                    self.graph[u][v]["conflict_type"] = "valence_geometry"
+                            else:
+                                self.graph.add_edge(u, v, conflict_type="valence_geometry")
+
+    def _sp_geometry_match(self, reps, cart_positions, asym_id_to_cluster,
+                           group_size, target_angle):
+        """
+        Geometry matching on representatives with >= 2*group_size candidates.
+
+        Enumerate combinations of `group_size` representatives, score each by
+        angular deviation from `target_angle`, then apply disjoint-group
+        constraints expanded to full clusters.
+        """
+        n = len(reps)
+        candidates = []
+        for combo in combinations(range(n), group_size):
+            combo_pos = [cart_positions[i] for i in combo]
+            angles = []
+            for i in range(group_size):
+                for j in range(i + 1, group_size):
+                    v1 = combo_pos[i]
+                    v2 = combo_pos[j]
+                    if np.allclose(v1, 0) or np.allclose(v2, 0):
+                        continue
+                    angles.append(np.degrees(angle_between_vectors(v1, v2)))
+            if angles:
+                score = sum(abs(a - target_angle) for a in angles)
+                candidates.append((score, [reps[i] for i in combo]))
+
+        candidates.sort(key=lambda x: x[0])
+
+        # Apply disjoint groups expanded to clusters
+        self._expand_sp_disjoint_groups(candidates, reps, asym_id_to_cluster)
+
+    def _sp_fallback_exclusion(self, reps, asym_id_to_cluster):
+        """
+        Fallback: make all representative groups mutually exclusive.
+
+        Adds conflict edges between ALL atoms in different clusters.
+        """
+        cluster_keys = list(asym_id_to_cluster.keys())
+        for ki in range(len(cluster_keys)):
+            for kj in range(ki + 1, len(cluster_keys)):
+                for u in asym_id_to_cluster[cluster_keys[ki]]:
+                    for v in asym_id_to_cluster[cluster_keys[kj]]:
+                        if self._is_same_parent_pair(u, v):
+                            continue
+                        if self.graph.has_edge(u, v):
+                            if self.graph[u][v]["conflict_type"] == "geometric":
+                                self.graph[u][v]["conflict_type"] = "valence_geometry"
+                        else:
+                            self.graph.add_edge(
+                                u, v, conflict_type="valence_geometry"
+                            )
+
+    def _remove_cross_cluster_geometric_edges(self, asym_id_to_cluster):
+        """
+        Remove geometric / valence_geometry conflict edges between atoms in
+        different asym_id clusters.  Called only when geometry matching has
+        confirmed that the clusters are compatible (e.g., valid tetrahedron).
+        """
+        cluster_keys = list(asym_id_to_cluster.keys())
+        removed = 0
+        for ki in range(len(cluster_keys)):
+            for kj in range(ki + 1, len(cluster_keys)):
+                for u in asym_id_to_cluster[cluster_keys[ki]]:
+                    for v in asym_id_to_cluster[cluster_keys[kj]]:
+                        if self.graph.has_edge(u, v):
+                            ct = self.graph[u][v]["conflict_type"]
+                            if ct in ("geometric", "valence_geometry"):
+                                self.graph.remove_edge(u, v)
+                                removed += 1
+        if removed > 0:
+            logger.debug(
+                "Removed %d cross-cluster geometric edges between %d groups",
+                removed, len(cluster_keys)
+            )
+
+    def _expand_sp_disjoint_groups(self, candidates, reps, asym_id_to_cluster):
+        """
+        Apply disjoint-group constraints from geometry matching on
+        representatives, expanded to full clusters.
+
+        Works like ``_apply_disjoint_groups()`` but each representative atom
+        is expanded to its full asym_id cluster for edge generation.
+        """
+        # Build rep → asym_id mapping
+        rep_to_ai = {}
+        for ai, cluster in asym_id_to_cluster.items():
+            for idx in cluster:
+                if idx in set(reps):
+                    rep_to_ai[idx] = ai
+                    break
+
+        all_reps_set = set(reps)
+
+        for i in range(len(candidates)):
+            part_a_reps = candidates[i][1]
+            for j in range(i + 1, len(candidates)):
+                part_b_reps = candidates[j][1]
+                if set(part_a_reps).isdisjoint(set(part_b_reps)):
+                    rogue_reps = list(
+                        all_reps_set - set(part_a_reps) - set(part_b_reps)
+                    )
+
+                    # Expand to clusters
+                    part_a_atoms = []
+                    for r in part_a_reps:
+                        ai = rep_to_ai.get(r)
+                        if ai is not None:
+                            part_a_atoms.extend(asym_id_to_cluster[ai])
+                        else:
+                            part_a_atoms.append(r)
+
+                    part_b_atoms = []
+                    for r in part_b_reps:
+                        ai = rep_to_ai.get(r)
+                        if ai is not None:
+                            part_b_atoms.extend(asym_id_to_cluster[ai])
+                        else:
+                            part_b_atoms.append(r)
+
+                    rogue_atoms = []
+                    for r in rogue_reps:
+                        ai = rep_to_ai.get(r)
+                        if ai is not None:
+                            rogue_atoms.extend(asym_id_to_cluster[ai])
+                        else:
+                            rogue_atoms.append(r)
+
+                    # Part A vs Part B: mutual exclusion
+                    for u in part_a_atoms:
+                        for v in part_b_atoms:
+                            if self._is_same_parent_pair(u, v):
+                                continue
+                            if self.graph.has_edge(u, v):
+                                if self.graph[u][v]["conflict_type"] == "geometric":
+                                    self.graph[u][v][
+                                        "conflict_type"
+                                    ] = "valence_geometry"
+                            else:
+                                self.graph.add_edge(
+                                    u, v, conflict_type="valence_geometry"
+                                )
+
+                    # Rogues vs Part A + Part B
+                    for r in rogue_atoms:
+                        for t in part_a_atoms + part_b_atoms:
+                            if self._is_same_parent_pair(r, t):
+                                continue
+                            if self.graph.has_edge(r, t):
+                                if self.graph[r][t]["conflict_type"] == "geometric":
+                                    self.graph[r][t][
+                                        "conflict_type"
+                                    ] = "valence_geometry"
+                            else:
+                                self.graph.add_edge(
+                                    r, t, conflict_type="valence_geometry"
+                                )
+                    return
 
     def _find_tetrahedral_groups(self, atom_indices, cart_positions):
         n = len(atom_indices)
@@ -785,6 +1297,8 @@ class DisorderGraphBuilder:
             for j in range(i + 1, len(candidates)):
                 part_b = candidates[j][1]
                 if set(part_a).isdisjoint(set(part_b)):
+                    rogue_atoms = list(all_atoms_set - set(part_a) - set(part_b))
+
                     # Mutually exclude Part A and Part B
                     for u in part_a:
                         for v in part_b:
@@ -802,9 +1316,8 @@ class DisorderGraphBuilder:
                                     u, v, conflict_type="valence_geometry"
                                 )
 
-                    # Exclude Rogue atoms from both
-                    rogues = all_atoms_set - set(part_a) - set(part_b)
-                    for r in rogues:
+                    # Exclude rogue atoms from both part_a and part_b
+                    for r in rogue_atoms:
                         for target in list(part_a) + list(part_b):
                             # Skip symmetry copies of the same asymmetric-unit atom
                             if self._is_same_parent_pair(r, target):
