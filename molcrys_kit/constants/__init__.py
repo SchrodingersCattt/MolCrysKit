@@ -121,6 +121,7 @@ METAL_ELEMENTS = {
 # Global threshold factors for bond detection
 METAL_THRESHOLD_FACTOR = 0.5
 NON_METAL_THRESHOLD_FACTOR = 1.25
+METAL_NON_METAL_THRESHOLD_FACTOR = 1.15  # Coordination bonds: Cd-S ~2.6-2.9 Å, Cd-N ~1.8-2.5 Å
 
 DEFAULT_NEIGHBOR_CUTOFF = 3.5
 

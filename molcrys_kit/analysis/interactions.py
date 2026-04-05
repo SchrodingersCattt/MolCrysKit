@@ -10,6 +10,7 @@ from typing import List, TYPE_CHECKING
 from ..constants import (
     METAL_THRESHOLD_FACTOR,
     NON_METAL_THRESHOLD_FACTOR,
+    METAL_NON_METAL_THRESHOLD_FACTOR,
 )
 
 if TYPE_CHECKING:
@@ -43,8 +44,8 @@ def get_bonding_threshold(
         factor = METAL_THRESHOLD_FACTOR
     elif not is_metal_i and not is_metal_j:  # Non-metal-Non-metal
         factor = NON_METAL_THRESHOLD_FACTOR
-    else:  # Metal-Non-metal
-        factor = (METAL_THRESHOLD_FACTOR + NON_METAL_THRESHOLD_FACTOR) / 2
+    else:  # Metal-Non-metal (coordination bonds: Cd-S ~2.6 Å, Cd-N ~2.0-2.5 Å)
+        factor = METAL_NON_METAL_THRESHOLD_FACTOR
 
     # Bonding threshold as sum of covalent radii multiplied by factor
     threshold = (radius_i + radius_j) * factor
