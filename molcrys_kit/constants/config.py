@@ -90,10 +90,19 @@ DISORDER_CONFIG = {
     "HARD_SPHERE_THRESHOLD": 0.85,  # Small threshold. Applied to compatible atoms to allow normal packing
     "DISORDER_CLASH_THRESHOLD": 2.2,  # Large threshold. Applied to COMPETING disorder parts to ensure split sites are exclusive
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
-    "IMPLICIT_SP_CLASH_THRESHOLD": 3.0,  # Threshold for implicit special-position disorder (non-H).
-    # Copies of heavy atoms on special positions can be spread over distances up to
-    # ~2.7 Å; this threshold catches all same-site copies while staying below typical
-    # inter-site distances (~3.4 Å for NatComm-1 S1).
+    # H-bond detection cutoff for SP clustering: H atoms within this distance of a
+    # non-H atom are considered bonded.  Used to decide whether an H needs SP
+    # clustering or is handled by valence/tetrahedral decomposition from its center.
+    # Covers standard O-H (~0.96 Å), N-H (~1.01 Å), and short X-ray H (~0.75 Å).
+    "SP_H_BOND_DETECTION_CUTOFF": 1.5,
+    # Orphan-H removal cutoffs (post-processing in _remove_orphan_hydrogens):
+    "ORPHAN_H_BOND_CUTOFF": 1.4,      # Å — H must have a heavy atom within this to not be orphan
+    "WATER_O_H_CUTOFF": 1.4,          # Å — O-H bond for water completeness check
+    "WATER_O_H_SWEEP_CUTOFF": 2.0,    # Å — wider sweep: remove H near an incomplete water O
+    "WATER_O_HEAVY_BOND_CUTOFF": 2.0, # Å — O-C/N/S/P bond cutoff (disqualifies O from being water)
+    # Maximum neighbor count for tetrahedral/trigonal clique decomposition.
+    # C(16,4) = 1820 candidates — manageable.  C(30,4) = 27405 — too slow.
+    "CLIQUE_DECOMP_MAX_NEIGHBORS": 16,
     "SKIP_METAL_VALENCE_CHECK": True,  # Skip metal valence checks
 }
 

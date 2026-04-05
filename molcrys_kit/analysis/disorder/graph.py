@@ -5,6 +5,7 @@ This module implements the "Referee" logic that determines which atoms cannot
 coexist in the same physical structure based on raw disorder data.
 """
 
+import logging
 import numpy as np
 import networkx as nx
 import re
@@ -22,6 +23,8 @@ from ...utils.geometry import (
     angle_between_vectors,
     frac_to_cart,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DisorderGraphBuilder:
@@ -391,6 +394,11 @@ class DisorderGraphBuilder:
         if not has_asym_info:
             return
 
+        has_site_sym = (
+            hasattr(self.info, "site_symmetry_order")
+            and self.info.site_symmetry_order
+        )
+
         from collections import defaultdict
 
         # Pre-compute: for each H atom with dg=0, occ<1, find if it has a
@@ -410,7 +418,7 @@ class DisorderGraphBuilder:
                     if self.info.symbols[j] in ("H", "D"):
                         continue
                     dist = self.dist_matrix[i, j]
-                    if dist < 1.5:  # typical O-H, N-H bond length
+                    if dist < DISORDER_CONFIG["SP_H_BOND_DETECTION_CUTOFF"]:
                         if self.info.occupancies[j] >= 1.0:
                             has_full_occ_center = True
                             break
@@ -420,11 +428,22 @@ class DisorderGraphBuilder:
         # Collect implicit SP disorder atoms grouped by asym_id:
         # - Non-H atoms: always included
         # - H atoms: only if they lack a full-occ bonded center
+        #
+        # When site_symmetry_order data is available, use it as a positive
+        # confirmation that the atom is on a special position (order > 1).
+        # Atoms with order == 1 (general position) are excluded even if they
+        # happen to be partial-occupancy — they are not SP disorder.
+        # When site_symmetry_order is absent (older CIFs), fall back to the
+        # occupancy-only heuristic (backward compatible).
         sp_groups = defaultdict(list)
         for i in range(n_atoms):
             if (self.info.disorder_groups[i] == 0
                     and 0 < self.info.occupancies[i] < 1.0
                     and i < len(self.info.asym_id)):
+                # Gate on site_symmetry_order when available
+                if has_site_sym and i < len(self.info.site_symmetry_order):
+                    if self.info.site_symmetry_order[i] <= 1:
+                        continue  # general position — not SP disorder
                 if self.info.symbols[i] in ("H", "D"):
                     if i not in h_needs_sp_clustering:
                         continue
@@ -680,16 +699,19 @@ class DisorderGraphBuilder:
         center_sym = self.info.symbols[center_idx]
         n_low = len(atom_indices)
 
+        _max_n = DISORDER_CONFIG["CLIQUE_DECOMP_MAX_NEIGHBORS"]
+
         # Tetrahedral decomposition: NH4+, PO4, SO4, etc.
         # Generalized to handle any neighbor count >= 8 (not just exactly 8),
         # because special-position atoms can produce variable copy counts.
-        # Safety cap at 30 to avoid combinatorial explosion (C(30,4) = 27405).
-        if n_low >= 8 and n_low <= 30 and center_sym in ["N", "P", "S"]:
+        # Cap at CLIQUE_DECOMP_MAX_NEIGHBORS (default 16) to avoid combinatorial
+        # explosion: C(16,4)=1820 is manageable; C(30,4)=27405 is not.
+        if n_low >= 8 and n_low <= _max_n and center_sym in ["N", "P", "S"]:
             self._find_tetrahedral_groups(atom_indices, cart_positions)
 
         # Trigonal decomposition: NH3, CH3 (methyl rotation disorder)
         # Generalized to handle any neighbor count >= 6.
-        elif n_low >= 6 and n_low <= 30 and center_sym in ["N", "C"]:
+        elif n_low >= 6 and n_low <= _max_n and center_sym in ["N", "C"]:
             self._find_trigonal_groups(atom_indices, cart_positions)
 
         else:

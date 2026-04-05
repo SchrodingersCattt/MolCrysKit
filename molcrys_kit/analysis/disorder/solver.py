@@ -5,10 +5,13 @@ This module implements the DisorderSolver that collapses the exclusion graph
 into valid, ordered MolecularCrystal objects by solving the Maximum Independent Set problem.
 """
 
+import logging
 import numpy as np
 import networkx as nx
 import random
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 from ase import Atoms
 from ase.geometry import get_distances
@@ -590,10 +593,11 @@ class DisorderSolver:
         (2.0 Å) is wider to also catch H copies that the random solver
         picked from a nearby but slightly different position.
         """
-        H_BOND_CUTOFF     = 1.4   # Å — orphan-H check: H must have a heavy within this
-        O_H_CUTOFF        = 1.4   # Å — O-H bond for water completeness check
-        O_H_SWEEP_CUTOFF  = 2.0   # Å — wider sweep: remove all H near an incomplete O
-        HEAVY_BOND_CUTOFF = 2.0   # Å — O-C/N/S/P bond (disqualifies O from being water)
+        from ...constants.config import DISORDER_CONFIG
+        H_BOND_CUTOFF     = DISORDER_CONFIG["ORPHAN_H_BOND_CUTOFF"]
+        O_H_CUTOFF        = DISORDER_CONFIG["WATER_O_H_CUTOFF"]
+        O_H_SWEEP_CUTOFF  = DISORDER_CONFIG["WATER_O_H_SWEEP_CUTOFF"]
+        HEAVY_BOND_CUTOFF = DISORDER_CONFIG["WATER_O_HEAVY_BOND_CUTOFF"]
 
         # Pre-compute O-coordination in the FULL structure (not just survived),
         # to identify "water O": partial-occ O bonded ONLY to H (and other O).
@@ -655,6 +659,12 @@ class DisorderSolver:
                 for hi, h_idx in enumerate(h_atoms):
                     if np.min(dists_h_hvy[hi]) > H_BOND_CUTOFF:
                         orphan_H.add(h_idx)
+                if orphan_H:
+                    logger.debug(
+                        "Removing %d orphan H/D atom(s) with no heavy-atom "
+                        "partner within %.2f Å: indices %s",
+                        len(orphan_H), H_BOND_CUTOFF, sorted(orphan_H),
+                    )
                 surv_set -= orphan_H
 
             # --- Pass 2: incomplete water O ---
@@ -710,14 +720,31 @@ class DisorderSolver:
                                             break
                                     if near_hvy_count == 0:
                                         h_to_remove.add(h_idx)
+                if incomplete_O:
+                    logger.debug(
+                        "Removing %d incomplete water O atom(s) with < 2 bonded H "
+                        "within %.2f Å: indices %s",
+                        len(incomplete_O), O_H_CUTOFF, sorted(incomplete_O),
+                    )
+                if h_to_remove:
+                    logger.debug(
+                        "Removing %d H/D atom(s) near incomplete water O "
+                        "(sweep cutoff %.2f Å): indices %s",
+                        len(h_to_remove), O_H_SWEEP_CUTOFF, sorted(h_to_remove),
+                    )
                 surv_set -= incomplete_O
                 surv_set -= h_to_remove
 
             return [a for a in survived if a in surv_set]
 
-        # Run two rounds so that removing incomplete-O exposes new orphan-H
-        result = _do_pass(independent_set)
-        result = _do_pass(result)
+        # Run until convergence: removing incomplete-O can expose new orphan-H,
+        # which in turn may expose more incomplete-O, etc.
+        result = list(independent_set)
+        for _iteration in range(10):  # hard cap to prevent infinite loops
+            next_result = _do_pass(result)
+            if next_result == result:
+                break
+            result = next_result
         return result
 
     def _reconstruct_crystal(self, independent_set: List[int]) -> MolecularCrystal:
