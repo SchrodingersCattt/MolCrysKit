@@ -954,75 +954,165 @@ class DisorderGraphBuilder:
                                  max_collect=200):
         """
         Enumerate 1-per-cluster combinations and collect those with geometry
-        scores below threshold.
+        scores below threshold.  Uses vectorized numpy angle matrices to avoid
+        per-combo trig calls.
 
         Returns list of tuples, each tuple = (score, atom_indices) where
         atom_indices is a tuple of `group_size` atom indices (one per cluster).
         """
-        import random
-        from itertools import product as iproduct
-
-        MAX_ENUM = 200000  # max combos to enumerate
-        MAX_SAMPLE = 50000  # max random samples if too many combos
-
-        def _score(positions):
-            angles = []
-            for i in range(group_size):
-                for j in range(i + 1, group_size):
-                    v1, v2 = positions[i], positions[j]
-                    if np.linalg.norm(v1) < 1e-6 or np.linalg.norm(v2) < 1e-6:
-                        return float("inf")
-                    angles.append(np.degrees(angle_between_vectors(v1, v2)))
-            return sum(abs(a - target_angle) for a in angles) if angles else float("inf")
-
         center_frac = self.info.frac_coords[center_idx]
         cluster_keys = list(asym_id_to_cluster.keys())[:group_size]
 
-        # Build atom lists and relative Cartesian positions per cluster
-        cluster_atoms = []  # cluster_atoms[k] = list of atom indices
-        cluster_rel_cart = []  # cluster_rel_cart[k][j] = rel cart vec
+        # Build atom lists and unit-vector arrays per cluster
+        cluster_atoms = []   # cluster_atoms[k] = list of atom indices
+        cluster_units = []   # cluster_units[k] = (n_k, 3) unit vectors
         for ai in cluster_keys:
             atoms = asym_id_to_cluster[ai]
-            rel_positions = []
-            for idx in atoms:
-                delta_frac = self.info.frac_coords[idx] - center_frac
-                delta_frac = delta_frac - np.round(delta_frac)  # MIC
-                rel_cart = frac_to_cart(delta_frac, self.lattice)
-                rel_positions.append(rel_cart)
-            cluster_atoms.append(atoms)
-            cluster_rel_cart.append(rel_positions)
+            # Compute relative Cartesian positions via MIC
+            delta_fracs = self.info.frac_coords[atoms] - center_frac
+            delta_fracs = delta_fracs - np.round(delta_fracs)  # MIC
+            rel_carts = delta_fracs @ self.lattice  # (n_k, 3)
+            norms = np.linalg.norm(rel_carts, axis=1, keepdims=True)
+            norms = np.where(norms < 1e-8, 1.0, norms)  # avoid /0
+            units = rel_carts / norms
+            cluster_atoms.append(list(atoms))
+            cluster_units.append(units)
+
+        # Pre-compute pairwise angle matrices for all cluster pairs
+        # angle_mats[(ki, kj)] is shape (n_ki, n_kj) in degrees
+        pair_indices = [(ki, kj)
+                        for ki in range(group_size)
+                        for kj in range(ki + 1, group_size)]
+        angle_mats = {}
+        for ki, kj in pair_indices:
+            # dot product matrix: (n_ki, n_kj)
+            dots = cluster_units[ki] @ cluster_units[kj].T
+            dots = np.clip(dots, -1.0, 1.0)
+            angle_mats[(ki, kj)] = np.abs(
+                np.degrees(np.arccos(dots)) - target_angle
+            )  # pre-compute |angle - target|
 
         cluster_sizes = [len(c) for c in cluster_atoms]
         total_combos = 1
         for s in cluster_sizes:
             total_combos *= s
 
-        valid_groups = []  # list of (score, (atom_idx_0, ..., atom_idx_{gs-1}))
+        MAX_ENUM = 200000
+        MAX_SAMPLE = 50000
 
-        def _process_combo(combo):
-            positions = [cluster_rel_cart[k][combo[k]] for k in range(group_size)]
-            s = _score(positions)
-            if s < threshold:
-                atoms = tuple(cluster_atoms[k][combo[k]] for k in range(group_size))
-                valid_groups.append((s, atoms))
+        valid_groups = []
 
-        if total_combos <= MAX_ENUM:
-            index_lists = [list(range(s)) for s in cluster_sizes]
-            for combo in iproduct(*index_lists):
-                _process_combo(combo)
-                if len(valid_groups) >= max_collect:
-                    break
+        if group_size == 4 and total_combos <= MAX_ENUM:
+            # Fully vectorized for tetrahedral case (most common)
+            # Build all combos as index arrays and score in batches
+            s0, s1, s2, s3 = cluster_sizes
+            # Create index grids
+            i0 = np.arange(s0)
+            i1 = np.arange(s1)
+            i2 = np.arange(s2)
+            i3 = np.arange(s3)
+
+            # Sum up 6 pairwise deviation matrices
+            # For combo (a,b,c,d): score = AM01[a,b] + AM02[a,c] + AM03[a,d]
+            #                              + AM12[b,c] + AM13[b,d] + AM23[c,d]
+            AM01 = angle_mats[(0, 1)]  # (s0, s1)
+            AM02 = angle_mats[(0, 2)]  # (s0, s2)
+            AM03 = angle_mats[(0, 3)]  # (s0, s3)
+            AM12 = angle_mats[(1, 2)]  # (s1, s2)
+            AM13 = angle_mats[(1, 3)]  # (s1, s3)
+            AM23 = angle_mats[(2, 3)]  # (s2, s3)
+
+            # Build 4D score array via broadcasting:
+            # score[a,b,c,d] = AM01[a,b] + AM02[a,c] + AM03[a,d]
+            #                + AM12[b,c] + AM13[b,d] + AM23[c,d]
+            scores_4d = (
+                AM01[:, :, None, None]   # (s0,s1,1,1)
+                + AM02[:, None, :, None] # (s0,1,s2,1)
+                + AM03[:, None, None, :] # (s0,1,1,s3)
+                + AM12[None, :, :, None] # (1,s1,s2,1)
+                + AM13[None, :, None, :] # (1,s1,1,s3)
+                + AM23[None, None, :, :] # (1,1,s2,s3)
+            )
+
+            # Find all combos below threshold
+            valid_mask = scores_4d < threshold
+            valid_indices = np.argwhere(valid_mask)  # (N_valid, 4)
+
+            if len(valid_indices) > 0:
+                valid_scores = scores_4d[valid_mask]
+                # Sort by score, keep top max_collect
+                order = np.argsort(valid_scores)[:max_collect]
+                for idx in order:
+                    combo = valid_indices[idx]
+                    score = valid_scores[idx]
+                    atoms = tuple(
+                        cluster_atoms[k][combo[k]] for k in range(4)
+                    )
+                    valid_groups.append((float(score), atoms))
+
+        elif group_size == 3 and total_combos <= MAX_ENUM:
+            # Vectorized for trigonal case
+            s0, s1, s2 = cluster_sizes
+            AM01 = angle_mats[(0, 1)]
+            AM02 = angle_mats[(0, 2)]
+            AM12 = angle_mats[(1, 2)]
+
+            scores_3d = (
+                AM01[:, :, None]
+                + AM02[:, None, :]
+                + AM12[None, :, :]
+            )
+
+            valid_mask = scores_3d < threshold
+            valid_indices = np.argwhere(valid_mask)
+
+            if len(valid_indices) > 0:
+                valid_scores = scores_3d[valid_mask]
+                order = np.argsort(valid_scores)[:max_collect]
+                for idx in order:
+                    combo = valid_indices[idx]
+                    score = valid_scores[idx]
+                    atoms = tuple(
+                        cluster_atoms[k][combo[k]] for k in range(3)
+                    )
+                    valid_groups.append((float(score), atoms))
+
         else:
-            seen = set()
-            for _ in range(MAX_SAMPLE):
-                combo = tuple(random.randint(0, cluster_sizes[k] - 1)
-                              for k in range(group_size))
-                if combo in seen:
-                    continue
-                seen.add(combo)
-                _process_combo(combo)
-                if len(valid_groups) >= max_collect:
-                    break
+            # Fallback: sampling for very large combo spaces
+            import random
+            from itertools import product as iproduct
+
+            def _score_combo(combo):
+                total = 0.0
+                for ki, kj in pair_indices:
+                    total += angle_mats[(ki, kj)][combo[ki], combo[kj]]
+                return total
+
+            if total_combos <= MAX_ENUM:
+                index_lists = [list(range(s)) for s in cluster_sizes]
+                for combo in iproduct(*index_lists):
+                    s = _score_combo(combo)
+                    if s < threshold:
+                        atoms = tuple(cluster_atoms[k][combo[k]]
+                                      for k in range(group_size))
+                        valid_groups.append((float(s), atoms))
+                        if len(valid_groups) >= max_collect:
+                            break
+            else:
+                seen = set()
+                for _ in range(MAX_SAMPLE):
+                    combo = tuple(random.randint(0, cluster_sizes[k] - 1)
+                                  for k in range(group_size))
+                    if combo in seen:
+                        continue
+                    seen.add(combo)
+                    s = _score_combo(combo)
+                    if s < threshold:
+                        atoms = tuple(cluster_atoms[k][combo[k]]
+                                      for k in range(group_size))
+                        valid_groups.append((float(s), atoms))
+                        if len(valid_groups) >= max_collect:
+                            break
 
         valid_groups.sort(key=lambda x: x[0])
         return valid_groups
@@ -1032,14 +1122,8 @@ class DisorderGraphBuilder:
         """
         Apply graph constraints based on valid geometry groups.
 
-        For each valid group (e.g., a tetrahedron), the `group_size` atoms are
-        compatible and should NOT have cross-cluster conflict edges.
-
-        Atoms that do NOT appear in any valid group get cross-cluster conflicts
-        with all atoms from other clusters (rogue atoms).
-
-        Between atoms in DIFFERENT valid groups, add cross-cluster conflict
-        edges (they represent alternative orientations).
+        Uses numpy boolean arrays for fast compatibility checks instead of
+        Python set intersections.
         """
         cluster_keys = list(asym_id_to_cluster.keys())[:group_size]
 
@@ -1055,34 +1139,51 @@ class DisorderGraphBuilder:
                                 self.graph.add_edge(u, v, conflict_type="valence_geometry")
             return
 
-        # Build set of atoms in each valid group, and map atom → groups it belongs to
-        atom_to_groups = {}  # atom_idx → set of group indices
-        for gi, (score, atoms) in enumerate(valid_groups):
-            for a in atoms:
-                if a not in atom_to_groups:
-                    atom_to_groups[a] = set()
-                atom_to_groups[a].add(gi)
+        n_groups = len(valid_groups)
 
-        # For each pair of clusters, apply constraints
+        # For each cluster, build atom→local_index map and
+        # a boolean matrix: membership[local_idx, group_idx]
+        cluster_local_maps = []  # list of {atom_idx: local_idx}
+        cluster_memberships = []  # list of (n_atoms_in_cluster, n_groups) bool arrays
+        for ki, ai in enumerate(cluster_keys):
+            atoms = asym_id_to_cluster[ai]
+            local_map = {a: li for li, a in enumerate(atoms)}
+            membership = np.zeros((len(atoms), n_groups), dtype=bool)
+            cluster_local_maps.append(local_map)
+            cluster_memberships.append(membership)
+
+        # Fill membership arrays from valid_groups
+        for gi, (score, group_atoms) in enumerate(valid_groups):
+            for ki in range(group_size):
+                a = group_atoms[ki]
+                local_map = cluster_local_maps[ki]
+                if a in local_map:
+                    cluster_memberships[ki][local_map[a], gi] = True
+
+        # For each pair of clusters, compute compatibility matrix
+        # compatible[u_local, v_local] = any(membership_ki[u] & membership_kj[v])
         for ki in range(group_size):
             for kj in range(ki + 1, group_size):
                 atoms_ki = asym_id_to_cluster[cluster_keys[ki]]
                 atoms_kj = asym_id_to_cluster[cluster_keys[kj]]
-                for u in atoms_ki:
-                    for v in atoms_kj:
+                mem_ki = cluster_memberships[ki]  # (n_ki, n_groups)
+                mem_kj = cluster_memberships[kj]  # (n_kj, n_groups)
+
+                # compatible_mat[u, v] = True if they share any group
+                # = (mem_ki @ mem_kj.T) > 0
+                compatible_mat = (mem_ki.astype(np.int8) @ mem_kj.astype(np.int8).T) > 0
+
+                for ui, u in enumerate(atoms_ki):
+                    for vi, v in enumerate(atoms_kj):
                         if self._is_same_parent_pair(u, v):
                             continue
-                        u_groups = atom_to_groups.get(u, set())
-                        v_groups = atom_to_groups.get(v, set())
-                        # Compatible if they share at least one valid group
-                        shared = u_groups & v_groups
-                        if shared:
-                            # They can coexist — remove any geometric conflict edge
+                        if compatible_mat[ui, vi]:
+                            # Compatible — remove geometric conflict if present
                             if self.graph.has_edge(u, v):
                                 if self.graph[u][v].get("conflict_type") == "geometric":
                                     self.graph.remove_edge(u, v)
                         else:
-                            # They conflict — add/upgrade edge
+                            # Incompatible — add/upgrade conflict edge
                             if self.graph.has_edge(u, v):
                                 ct = self.graph[u][v].get("conflict_type", "")
                                 if ct == "geometric":
