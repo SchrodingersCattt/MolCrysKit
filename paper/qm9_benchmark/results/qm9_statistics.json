@@ -1,0 +1,76 @@
+{
+  "n_molecules_sampled": 1000,
+  "n_molecules_ok": 987,
+  "n_molecules_failed": 13,
+  "n_atoms_evaluated": 8692,
+  "overall_accuracy": 98.8,
+  "ci_95_overall": [
+    98.55,
+    99.01
+  ],
+  "per_element": {
+    "C": {
+      "total": 6285,
+      "correct": 6268,
+      "accuracy_pct": 99.73,
+      "ci_95": [
+        99.57,
+        99.83
+      ]
+    },
+    "F": {
+      "total": 27,
+      "correct": 27,
+      "accuracy_pct": 100.0,
+      "ci_95": [
+        87.54,
+        100
+      ]
+    },
+    "N": {
+      "total": 1030,
+      "correct": 993,
+      "accuracy_pct": 96.41,
+      "ci_95": [
+        95.09,
+        97.38
+      ]
+    },
+    "O": {
+      "total": 1350,
+      "correct": 1300,
+      "accuracy_pct": 96.3,
+      "ci_95": [
+        95.15,
+        97.18
+      ]
+    }
+  },
+  "aromatic": {
+    "n_aromatic_molecules": 179,
+    "n_aromatic_atoms": 969,
+    "n_aromatic_correct": 963,
+    "aromatic_accuracy_pct": 99.38,
+    "ci_95": [
+      98.66,
+      99.72
+    ]
+  },
+  "failed_smiles": [
+    "CC1(C[NH2+]C1)C([O-])=O",
+    "[O-]C(=O)C[NH+]1CCC1",
+    "OC1C[NH2+]C1C([O-])=O",
+    "CC(=N[O-])C1=[NH+]C=CN1",
+    "C[NH2+]CC(=O)C(C)=N[O-]",
+    "CNC(=[NH2+])C(CO)=N[O-]",
+    "C[NH+](C)C(C#C)C([O-])=O",
+    "CC([NH3+])C(C)(N)C([O-])=O",
+    "CC1C(NC1=[NH2+])C([O-])=O",
+    "CN1CC([NH+]=C1)C([O-])=O",
+    "CC(CCC[NH3+])C([O-])=O",
+    "NC(=[NH2+])C1=C(O)N=N[N-]1",
+    "[NH3+]CCOC1=NC=N[N-]1"
+  ],
+  "n_wrong_predictions": 104,
+  "wrong_prediction_rate_pct": 1.2
+}
