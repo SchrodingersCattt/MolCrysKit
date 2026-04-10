@@ -1,0 +1,42 @@
+{
+  "timestamp": "20260322_120619",
+  "total_csd": 1413222,
+  "sample_size": 50000,
+  "n_disorder": 9601,
+  "n_missing_h": 10398,
+  "n_needing_any_preprocessing": 18428,
+  "n_needing_both": 1571,
+  "pct_disorder": 19.2,
+  "pct_missing_h": 20.8,
+  "pct_needing_any": 36.86,
+  "pct_needing_both": 3.14,
+  "overlap_matrix": {
+    "disorder_only": {
+      "n": 8030,
+      "pct": 16.06
+    },
+    "missing_h_only": {
+      "n": 8827,
+      "pct": 17.65
+    },
+    "both": {
+      "n": 1571,
+      "pct": 3.14
+    },
+    "neither": {
+      "n": 31572,
+      "pct": 63.14
+    }
+  },
+  "hydrogen_treatment_breakdown": {
+    "Mixed": 13388,
+    "Constr": 23080,
+    "Refall": 1917,
+    "Unknown": 10322,
+    "RefU": 100,
+    "Noref": 804,
+    "Refxyz": 302,
+    "Undef": 86,
+    "Hetero": 1
+  }
+}
