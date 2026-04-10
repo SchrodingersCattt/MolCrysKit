@@ -794,3 +794,70 @@ def reduce_surface_lattice(
         v2 = v2 - m * v1
 
     return v1, v2
+
+
+def min_distance_between_atom_sets(
+    positions_a: np.ndarray,
+    positions_b: np.ndarray,
+    lattice: np.ndarray = None,
+    pbc: tuple = None,
+) -> float:
+    """
+    Calculate the minimum pairwise distance between two sets of atoms.
+
+    When *lattice* and *pbc* are provided, the minimum-image convention is
+    applied so that periodic copies are taken into account.  Otherwise plain
+    Euclidean distances are used.
+
+    Parameters
+    ----------
+    positions_a : np.ndarray
+        Cartesian positions of atom set A, shape ``(N, 3)``.
+    positions_b : np.ndarray
+        Cartesian positions of atom set B, shape ``(M, 3)``.
+    lattice : np.ndarray, optional
+        3×3 lattice matrix (rows = lattice vectors) for PBC distance
+        calculation.  Must be provided together with *pbc*.
+    pbc : tuple of bool, optional
+        Periodic boundary conditions ``(bool, bool, bool)``.
+
+    Returns
+    -------
+    float
+        Minimum distance (Å) between any atom in *A* and any atom in *B*.
+
+    Notes
+    -----
+    Computational complexity is O(N×M).  For very large sets consider
+    spatial partitioning, but for typical molecular-crystal manipulation
+    (hundreds of atoms) this brute-force approach is fast enough.
+    """
+    positions_a = np.atleast_2d(positions_a)
+    positions_b = np.atleast_2d(positions_b)
+
+    use_pbc = (
+        lattice is not None
+        and pbc is not None
+        and any(pbc)
+    )
+
+    if use_pbc:
+        inv_lattice = np.linalg.inv(lattice)
+        # Convert both sets to fractional coordinates
+        frac_a = positions_a @ inv_lattice  # (N, 3)
+        frac_b = positions_b @ inv_lattice  # (M, 3)
+
+        # Difference matrix: (N, M, 3)
+        delta_frac = frac_a[:, None, :] - frac_b[None, :, :]
+        # Reshape to (N*M, 3) for vectorised MIC
+        delta_frac_flat = delta_frac.reshape(-1, 3)
+
+        mic_vectors = minimum_image_vector(delta_frac_flat, lattice)  # (N*M, 3) or (3,) if single
+        mic_vectors = np.atleast_2d(mic_vectors)  # ensure always (K, 3)
+        dists_sq = np.sum(mic_vectors ** 2, axis=1)
+    else:
+        # Simple Euclidean: broadcast (N,1,3) - (1,M,3) -> (N,M,3)
+        diff = positions_a[:, None, :] - positions_b[None, :, :]
+        dists_sq = np.sum(diff ** 2, axis=2).ravel()
+
+    return float(np.sqrt(np.min(dists_sq)))

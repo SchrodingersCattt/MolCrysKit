@@ -179,6 +179,10 @@ class DisorderInfo:
     - disorder_groups: Integer tags (default to 0 if missing or '.' in CIF)
     - assemblies: Assembly ID for each atom (default to empty string if missing)
     - sym_op_indices: Index of the generating symmetry operation for each atom
+    - asym_id: Index of the parent atom in the asymmetric unit (for tracking
+      which expanded copies share the same crystallographic site)
+    - site_symmetry_order: Site symmetry order for each atom (from CIF field
+      _atom_site_site_symmetry_order). Values > 1 indicate special positions.
     """
 
     labels: List[str]
@@ -188,12 +192,18 @@ class DisorderInfo:
     disorder_groups: List[int]
     assemblies: List[str] = None  # New field for assembly information
     sym_op_indices: List[int] = None  # New field for symmetry operation indices
+    asym_id: List[int] = None  # Index of parent asymmetric-unit atom
+    site_symmetry_order: List[int] = None  # Site symmetry order from CIF
 
     def __post_init__(self):
         if self.assemblies is None:
             self.assemblies = []
         if self.sym_op_indices is None:
             self.sym_op_indices = []
+        if self.asym_id is None:
+            self.asym_id = []
+        if self.site_symmetry_order is None:
+            self.site_symmetry_order = []
 
     def summary(self):
         """Print statistics about the disorder information."""
@@ -209,6 +219,11 @@ class DisorderInfo:
         )
         if self.sym_op_indices:
             print(f"  Unique sym op indices: {len(set(self.sym_op_indices))}")
+        if self.asym_id:
+            print(f"  Unique asym unit parents: {len(set(self.asym_id))}")
+        if self.site_symmetry_order:
+            special = sum(1 for s in self.site_symmetry_order if s > 1)
+            print(f"  Atoms on special positions (site_sym_order>1): {special}")
 
 
 def _clean_species_string(species_string: str) -> str:
@@ -454,6 +469,24 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
         else:
             assemblies.append("")  # Default to empty string if missing
 
+    # Extract site symmetry order - default to 1 if missing (general position)
+    # The field _atom_site_site_symmetry_order stores how many symmetry operations
+    # map the atom back to itself (> 1 means it is on a special position).
+    # Older CIF files use _atom_site_symmetry_multiplicity with the same meaning.
+    site_sym_orders_raw = data_block.get(
+        "_atom_site_site_symmetry_order",
+        data_block.get("_atom_site_symmetry_multiplicity", []),
+    )
+    site_sym_orders = []
+    for i in range(n_atoms):
+        if i < len(site_sym_orders_raw) and site_sym_orders_raw[i] not in [".", "?", None]:
+            try:
+                site_sym_orders.append(int(_extract_numeric_value(site_sym_orders_raw[i])))
+            except (ValueError, TypeError):
+                site_sym_orders.append(1)
+        else:
+            site_sym_orders.append(1)
+
     # Ensure all arrays have the same length by padding if necessary
     min_len = n_atoms
     labels = (
@@ -480,6 +513,8 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
     all_disorder_groups = []
     all_assemblies = []  # New list for assemblies
     all_sym_op_indices = []  # New list for symmetry operation indices
+    all_asym_ids = []  # NEW: index of parent asymmetric-unit atom
+    all_site_sym_orders = []  # NEW: site symmetry order for each expanded atom
 
     # For each original atom, apply each symmetry operation
     for i in range(len(labels)):
@@ -517,6 +552,8 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
                     assemblies[i]
                 )  # Copy the assembly ID to the new atom
                 all_sym_op_indices.append(op_idx)  # Store the symmetry operation index
+                all_asym_ids.append(i)  # NEW: track parent asymmetric-unit atom
+                all_site_sym_orders.append(site_sym_orders[i])  # NEW: site symmetry order
 
     # Convert lists to appropriate formats
     all_frac_coords = np.array(all_frac_coords)
@@ -529,6 +566,8 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
         disorder_groups=all_disorder_groups,
         assemblies=all_assemblies,  # Include assemblies in the return
         sym_op_indices=all_sym_op_indices,  # Include symmetry operation indices in the return
+        asym_id=all_asym_ids,  # NEW: parent asymmetric-unit atom index
+        site_symmetry_order=all_site_sym_orders,  # NEW: site symmetry order
     )
 
 
