@@ -86,7 +86,29 @@ class DisorderSolver:
                 # Single atom group - add directly
                 self.atom_groups.append(group_atoms)
             else:
-                # Perform spatial clustering on this group
+                # First check: does the ENTIRE group have any internal conflicts?
+                # If not, keep it as one rigid body without spatial clustering.
+                # This handles cases like NH4+ where 4 H atoms belong to the same
+                # disorder alternative but are not bonded to each other (H-H distance
+                # exceeds bonding threshold), so spatial clustering would incorrectly
+                # split them into singletons.
+                group_set = set(group_atoms)
+                whole_group_has_conflict = False
+                for idx1 in group_atoms:
+                    for idx2 in group_atoms:
+                        if idx1 != idx2 and self.graph.has_edge(idx1, idx2):
+                            whole_group_has_conflict = True
+                            break
+                    if whole_group_has_conflict:
+                        break
+
+                if not whole_group_has_conflict:
+                    # No internal conflicts at all — keep the whole group as one rigid body
+                    self.atom_groups.append(group_atoms)
+                    continue
+
+                # There are internal conflicts: use spatial clustering to split into
+                # sub-groups (connected components), then check each sub-group.
                 # Build a temporary distance graph using ASE's get_distances
                 group_coords = self.info.frac_coords[group_atoms]
                 cart_coords = np.dot(group_coords, self.lattice)
@@ -385,8 +407,14 @@ class DisorderSolver:
                     ):  # Ignore internal edges (though there shouldn't be any)
                         degree += 1
 
-            # Heuristic score similar to main branch
-            score = weight / (degree + 1.0)
+            # Heuristic score: Weight × GroupSize / (Degree + 1)
+            # The GroupSize multiplier ensures that multi-atom rigid bodies
+            # (e.g., ClO3 perchlorate) are preferred over their individual
+            # fragment atoms that appear as singletons at other symmetry
+            # operations.  Without this, a lone O singleton with low degree
+            # can outscore a complete ClO3 group, causing Cl to vanish from
+            # the resolved structure.
+            score = weight * len(group) / (degree + 1.0)
             group_scores.append(score)
 
         # Sort Groups by score (descending)

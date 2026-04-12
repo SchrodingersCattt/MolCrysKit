@@ -84,7 +84,6 @@ class DisorderGraphBuilder:
         self._add_explicit_conflicts()
         self._add_geometric_conflicts()
         self._add_implicit_sp_conflicts()
-        self._add_dg_neg_sp_conflicts()
         self._resolve_valence_conflicts()
         return self.graph
 
@@ -342,7 +341,15 @@ class DisorderGraphBuilder:
                 # NOTE: Implicit SP disorder is handled separately by
                 # _add_implicit_sp_conflicts() using proximity clustering, which is
                 # more robust than a fixed threshold for both heavy atoms and H.
-                if g_i != 0 and g_j != 0 and g_i != g_j:
+                # Only apply the wide DISORDER_CLASH_THRESHOLD (2.2 Å) when
+                # BOTH atoms belong to *positive* explicit disorder groups
+                # (e.g. PART 1 vs PART 2).  Different *negative* PART groups
+                # (e.g. PART -1 vs PART -2) are distinct chemical species that
+                # coexist in the structure (e.g. perchlorate O vs NH4+ H) and
+                # must NOT be treated as disorder alternatives — use the
+                # conservative HARD_SPHERE_THRESHOLD (0.85 Å) instead to avoid
+                # false conflict edges that would exclude one species entirely.
+                if g_i > 0 and g_j > 0 and g_i != g_j:
                     threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
                 else:
                     threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
@@ -535,93 +542,6 @@ class DisorderGraphBuilder:
                                 conflict_type="implicit_sp",
                                 distance=self.dist_matrix[u, v]
                             )
-
-    def _add_dg_neg_sp_conflicts(self):
-        """
-        Add mutual-exclusion edges between symmetry-generated copies of the
-        same PART -1 (dg < 0) disordered molecule that spatially overlap.
-
-        SHELXL PART -1 marks atoms whose symmetry copies are mutually
-        exclusive alternatives.  scan_cif_disorder expands all copies into
-        the unit cell; this method adds conflict edges between copies that
-        clash spatially so the MWIS solver selects only non-overlapping ones.
-
-        Algorithm
-        ---------
-        1. Collect all atoms with dg < 0, group by (dg, assembly).
-        2. Within each (dg, assembly) group, sub-group by sym_op_index to
-           get one "molecule copy" per symmetry-operation origin.
-        3. For each pair of molecule copies (A, B), check whether any atom
-           pair (a ∈ A, b ∈ B) is within DISORDER_CLASH_THRESHOLD.
-           If so, add a single conflict edge between that pair.
-
-        This is O(C(n_copies,2) × n_atoms_per_copy²) distance lookups, all
-        against the precomputed dist_matrix — fast in practice.
-        """
-        has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
-        has_sym_op = (
-            hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
-        )
-        if not has_asym_info or not has_sym_op:
-            return
-
-        from collections import defaultdict
-
-        threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
-
-        # Step 1: group by (dg, assembly) for dg < 0
-        dg_neg_groups: dict = defaultdict(list)
-        for i in range(len(self.info.labels)):
-            dg = self.info.disorder_groups[i]
-            if dg < 0:
-                assembly = (
-                    self.info.assemblies[i]
-                    if i < len(self.info.assemblies)
-                    else ""
-                )
-                dg_neg_groups[(dg, assembly)].append(i)
-
-        for (dg, assembly), atom_indices in dg_neg_groups.items():
-            # Step 2: sub-group by sym_op_index → one molecule copy per op
-            mol_copies: dict = defaultdict(list)
-            for i in atom_indices:
-                sym_op = (
-                    self.info.sym_op_indices[i]
-                    if i < len(self.info.sym_op_indices)
-                    else 0
-                )
-                mol_copies[sym_op].append(i)
-
-            copy_keys = list(mol_copies.keys())
-            if len(copy_keys) < 2:
-                continue
-
-            # Step 3: for each pair of molecule copies, check spatial overlap
-            for ci in range(len(copy_keys)):
-                for cj in range(ci + 1, len(copy_keys)):
-                    atoms_a = mol_copies[copy_keys[ci]]
-                    atoms_b = mol_copies[copy_keys[cj]]
-
-                    # Find the first clashing atom pair
-                    clash_a: int | None = None
-                    clash_b: int | None = None
-                    for a in atoms_a:
-                        for b in atoms_b:
-                            if self.dist_matrix[a, b] < threshold:
-                                clash_a, clash_b = a, b
-                                break
-                        if clash_a is not None:
-                            break
-
-                    if clash_a is not None and not self.graph.has_edge(
-                        clash_a, clash_b
-                    ):
-                        self.graph.add_edge(
-                            clash_a,
-                            clash_b,
-                            conflict_type="dg_neg_sp",
-                            distance=self.dist_matrix[clash_a, clash_b],
-                        )
 
     def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
         if group1 != 0 and group2 != 0 and group1 != group2:
