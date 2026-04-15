@@ -341,7 +341,15 @@ class DisorderGraphBuilder:
                 # NOTE: Implicit SP disorder is handled separately by
                 # _add_implicit_sp_conflicts() using proximity clustering, which is
                 # more robust than a fixed threshold for both heavy atoms and H.
-                if g_i != 0 and g_j != 0 and g_i != g_j:
+                # Only apply the wide DISORDER_CLASH_THRESHOLD (2.2 Å) when
+                # BOTH atoms belong to *positive* explicit disorder groups
+                # (e.g. PART 1 vs PART 2).  Different *negative* PART groups
+                # (e.g. PART -1 vs PART -2) are distinct chemical species that
+                # coexist in the structure (e.g. perchlorate O vs NH4+ H) and
+                # must NOT be treated as disorder alternatives — use the
+                # conservative HARD_SPHERE_THRESHOLD (0.85 Å) instead to avoid
+                # false conflict edges that would exclude one species entirely.
+                if g_i > 0 and g_j > 0 and g_i != g_j:
                     threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
                 else:
                     threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
@@ -449,10 +457,17 @@ class DisorderGraphBuilder:
             if (self.info.disorder_groups[i] == 0
                     and 0 < self.info.occupancies[i] < 1.0
                     and i < len(self.info.asym_id)):
-                # Gate on site_symmetry_order when available
-                if has_site_sym and i < len(self.info.site_symmetry_order):
-                    if self.info.site_symmetry_order[i] <= 1:
-                        continue  # general position — not SP disorder
+                # Gate on site_symmetry_order when available.
+                # Only skip atoms that are on a strict general position (order=1)
+                # AND whose occupancy implies all copies can coexist (occ≈1/n_symops
+                # but n_copies*occ ≈ n_copies).  We cannot compute n_copies here,
+                # so we defer that check to the downstream n_sites >= n_copies guard
+                # (line ~486).  We only use site_sym_order as a positive signal:
+                # order > 1 guarantees SP disorder; order == 1 is ambiguous and
+                # must be allowed through so the downstream check can decide.
+                # (Removing the order<=1 skip fixes NatComm-1 S1/N1 which are on
+                # general positions but still have fractional occupancy because
+                # 24 symops generate 24 copies of which only 6 can coexist.)
                 if self.info.symbols[i] in ("H", "D"):
                     if i not in h_needs_sp_clustering:
                         continue
