@@ -16,14 +16,16 @@ hand-validated CIF in `examples/` and asserts:
 print-only and remain useful for ad-hoc inspection, but they are not
 guardrails — pytest is.
 
-## 2. State on `main` (locked baseline)
+## 2. State on `fix/disorder` (now 21 / 21 green)
 
-Twelve CIFs are green and cannot regress without breaking the suite:
+All 18 regression CIFs and the three topology assertions pass; no
+`xfail` markers remain.
 
 ```
 NatComm-1, PAP-HM4, DAP-4, DAC-4,
 anhydrousCaffeine, anhydrousCaffeine2,
-ZIF-4, TILPEN, 1-HTP, MAF-4, DAN-2, PAP-H4
+ZIF-4, TILPEN, 1-HTP, MAF-4, DAN-2, PAP-H4,
+368K, DAI-X1, ZIF-8, PAP-M5, DAP-O4, PAP-4
 ```
 
 Recently fixed (formerly `xfail`):
@@ -35,16 +37,11 @@ Recently fixed (formerly `xfail`):
 | ZIF-8    | 316 atoms but 40 "over-coord"          | the 40 are solvent-water O ghosts (CIF labels `O*S`), not bugs; declared as `expected_defects=40` |
 | PAP-M5   | 296 atoms but 8 "over-coord"           | the 8 are isolated Ag⁺ counter-ions; added Ag (and other free-cation metals) to `ISOLATED_OK` |
 | DAP-O4   | timed out (>60 s)                      | parser dedup loop in `cif.scan_cif_disorder` was O(N²); now O(N) per-element vectorised → DAP-O4 finishes in ~66 s, atom count 344 matches formula |
-| PAP-4    | timed out (>60 s)                      | same parser fix → finishes in ~38 s; **but** uncovered a separate atom-count issue (see worklist) |
+| PAP-4    | timed out (>60 s)                      | same parser fix → finishes in ~60 s |
+| PAP-4    | resolved to 280, expected 304          | generalised `solver._merge_chemical_motifs` to handle ammonium NH4⁺ (N + 4 H) in addition to water (O + 2 H).  Picker is now greedy with a per-element angle range, hard / soft conflict split, and chemically-valid bond range.  Each H is pre-assigned to its single closest center to prevent stretched bonds from stealing H atoms from a closer center.  Soft-conflict rejection stays *on* for water (matches MAF-4 / ZIF-8 baseline) and *off* for ammonium (the highly-disordered SP centre needs to ignore over-cautious geometric edges). |
 
-Still `xfail`'d — open worklist:
-
-| CIF      | symptom                                | suspected area                                          |
-|----------|----------------------------------------|---------------------------------------------------------|
-| PAP-4    | resolves to 280 atoms, expected 304    | NH4⁺ in the highly-disordered ammonium fragment (24 orientational alternatives, occ ≈ 1/24) is reconstructed as bare NH; the H atoms from any one orientation get knocked out by `symmetry_clash` against the H atoms of every other orientation.  Needs orientation-aware motif merging in `solver._merge_chemical_motifs`. |
-
-When a fix lands, drop the `xfail_reason` in the test case and watch the
-suite turn green.
+When a new fix lands, add a test (or update `expected_atoms` /
+`expected_defects`) in `tests/unit/test_disorder_regression.py`.
 
 ## 3. Why the modules are messy
 
@@ -111,43 +108,35 @@ Tackle in this order; each unblocks the next:
    distance (precomputed 27-shift table).  PAP-4 went 223 s → 38 s,
    DAP-O4 went 60 s timeout → 66 s pass.
 
-### Step 1b — leftover atom-count issue in PAP-4
+### Step 1b — PAP-4 NH4⁺ atom-count fix (done)
 
-PAP-4 now finishes quickly but resolves only 280 of the expected 304
-atoms.  The 24 missing atoms are all H from highly-orientationally-
-disordered NH4⁺ (formula moiety `0.04(H95.84 N24)`, occ ≈ 1/24 per H).
-The solver picks 8 N atoms but only 1 H per N because the H atoms from
-any one NH4⁺ orientation are in `symmetry_clash` with the H atoms of
-every other orientation at the same N.
+`solver._merge_chemical_motifs` was hard-coded for water (O + 2 H);
+PAP-4's NH4⁺ at a 24-orientation special position therefore got
+resolved to bare NH (8 N + 8 H, missing 24 H).
 
-The fix is at the motif level, not the conflict-graph level: the
-solver should treat (N, 4 × H) at each NH4⁺ orientation as a single
-indivisible 5-atom rigid body before MWIS, so that selecting the N
-implies committing to one orientation and brings 4 H along with it.
-This is in scope for the `solver.py` refactor (Step 3 below).
+The merge step now works for any X(H)_n centre via per-element settings
+(`_MOTIF_BOND_CUTOFF`, `_MOTIF_BOND_MIN`, `_MOTIF_MAX_H`,
+`_MOTIF_ANGLE_RANGE`, `_MOTIF_REJECT_SOFT`).  Hard conflicts always
+disqualify a candidate H; soft conflicts only reject the whole motif
+for elements where `_MOTIF_REJECT_SOFT[element]` is True (water yes,
+ammonium no).  Each H is pre-assigned to its single closest center
+within a chemically-valid bond range so an early-iterated center with
+a stretched X-H distance can't steal an H that bonds more strongly to
+a later-iterated center.
 
-### Step 2 — split `graph.py` into a passes module
+Result: PAP-4 = 304 atoms (8 NH4⁺, 24 ClO4⁻, 8 cation), MAF-4 / ZIF-8
+unchanged.
 
-Target layout:
+### Step 2 — graph.py priority refactor (done)
 
-```
-molcrys_kit/analysis/disorder/graph/
-    __init__.py         # re-exports DisorderGraphBuilder
-    builder.py          # high-level orchestration + node setup
-    metrics.py          # _precompute_metrics, distance utilities
-    passes/
-        __init__.py
-        conformers.py
-        explicit.py
-        geometric.py
-        implicit_sp.py
-        valence.py
-    priority.py         # the conflict-type ordering, was a list literal
-```
-
-Re-export the public name from the package `__init__.py` so existing
-imports (`from molcrys_kit.analysis.disorder.graph import
-DisorderGraphBuilder`) keep working.
+Conflict-edge priority is no longer a literal list buried inside
+`_add_geometric_conflicts`.  It now lives in
+`molcrys_kit/analysis/disorder/edge_priority.py` as a documented
+`CONFLICT_PRIORITY` mapping plus an `add_or_promote_edge` helper, and
+every `_add_*_conflicts` pass routes its edge writes through that
+helper.  Splitting `graph.py` into a `passes/` subpackage is no longer
+urgent — the priority logic was the actual source of confusion — but
+the file is still ~1.4 kLOC and could be carved further when convenient.
 
 ### Step 3 — split `solver.py` along the same lines
 
