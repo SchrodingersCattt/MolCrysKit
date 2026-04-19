@@ -110,16 +110,11 @@ CASES: list[CifCase] = [
     CifCase("ZIF-8", "ZIF-8.cif", 316, expected_defects=40),
     CifCase("PAP-M5", "PAP-M5.cif", 296),
     CifCase("DAP-O4", "DAP-O4.cif", 344),
-    # --- to fix (currently red on main) ---
-    CifCase(
-        "PAP-4",
-        "PAP-4.cif",
-        304,
-        xfail_reason=(
-            "resolves to 280 atoms; 24 H missing because the NH4+ in the "
-            "highly-disordered ammonium fragment is reconstructed as bare NH"
-        ),
-    ),
+    # PAP-4: highly-disordered NH4+ at a special position (24 orientations).
+    # Fixed by the chemistry-aware motif merge that ignores soft (geometric /
+    # implicit_sp / valence_geometry) conflicts when reconstructing isolated
+    # X(H)_n centres.  Full PAP-4 solve takes ~60 s on this machine.
+    CifCase("PAP-4", "PAP-4.cif", 304, timeout=180),
 ]
 
 

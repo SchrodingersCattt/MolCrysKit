@@ -179,157 +179,134 @@ class DisorderSolver:
         # Step 2: Merge cross-asym-id chemical motifs (e.g., water O+H)
         self._merge_chemical_motifs()
 
+    # Per-element settings for chemical-motif reconstruction
+    # (water O + 2 H; ammonium N + 4 H).  Subclasses can extend.
+    _MOTIF_BOND_CUTOFF = {"O": 1.4, "N": 1.5}        # Å, X-H upper bound
+    _MOTIF_BOND_MIN = {"O": 0.6, "N": 0.7}           # Å, X-H lower bound
+    _MOTIF_MAX_H = {"O": 2, "N": 4}                  # H atoms per X
+    _MOTIF_ANGLE_RANGE = {"O": (90.0, 120.0),        # H-X-H bounds
+                          "N": (95.0, 125.0)}
+    _MOTIF_HEAVY_CUTOFF = 1.8                        # Å, isolation check
+    _MOTIF_HARD_CONFLICTS = frozenset({
+        "logical_alternative", "symmetry_clash", "explicit", "valence",
+    })
+    # Soft-conflict types and per-element rejection policy.  Water (O)
+    # re-uses the historic pre-fix behaviour of rejecting the whole motif
+    # if any pair of picked atoms has a soft conflict edge — this filters
+    # out chemically-questionable waters whose H atoms only fall inside
+    # the bond cutoff because of overlapping split positions.  Ammonium
+    # (N) keeps the permissive policy because its 24-orientation SP
+    # disorder produces soft conflict edges between every H pair, so any
+    # rejection there drops the whole NH4+ motif (the original PAP-4 bug).
+    _MOTIF_SOFT_CONFLICTS = frozenset({
+        "geometric", "valence_geometry", "implicit_sp",
+    })
+    _MOTIF_REJECT_SOFT = {"O": True, "N": False}
+
     def _merge_chemical_motifs(self):
         """
-        Merge cross-asym-id chemical motifs into composite atom groups.
+        Merge cross-asym-id chemical motifs (water, ammonium) into composite
+        atom groups.
 
         After Step 1 explodes self-conflicting spatial clusters into
-        singletons, partial-occ water O and H end up as independent
-        singleton groups.  This method detects "water-like" O atoms
-        (partial-occ O bonded only to H in the full structure) and
-        assigns each its nearest non-conflicting H atoms to form
-        composite {O, H, H} groups.
+        singletons, isolated centers (water O, ammonium N) and their
+        partial-occ H atoms end up as independent singleton groups.  This
+        pass reconstructs each X(H)_n motif by:
 
-        The approach avoids transitive merges: each O independently
-        selects its best H from each asym_id class (H1WA, H1WB, …),
-        checking that the resulting motif has no internal conflicts.
+        1. Identifying isolated centers — atoms of supported elements (O, N)
+           in singleton groups with no heavy non-H neighbor within
+           ``_MOTIF_HEAVY_CUTOFF``.  Framework O and ligand N fail this
+           check and are not considered.
 
-        Typical case: MAF-4 water disorder where O and H have different
-        asym_ids and are resolved independently by SP clustering.
+        2. Greedily selecting up to ``_MOTIF_MAX_H[element]`` H atoms within
+           the X-H bond cutoff, sorted by distance.  An H is accepted iff:
+             * it has no *hard* conflict (logical_alternative, symmetry_clash,
+               explicit, valence) with an already-picked H, AND
+             * the H-X-H angle to every already-picked H lies inside
+               ``_MOTIF_ANGLE_RANGE[element]``.
+
+           Soft conflicts (valence_geometry, geometric, implicit_sp) are
+           ignored *within* the motif.  Those passes mark every H that
+           looks geometrically suspect as exclusive of its neighbours,
+           which is over-cautious for highly-disordered SP centres
+           (e.g. PAP-4's NH4+ at a 24-orientation special position) where
+           any chemically valid tetrahedron of H atoms necessarily uses
+           split positions that the SP pass treats as exclusive.
+
+        3. Merging the selected ``{X, H, ...}`` into a single rigid-body
+           group, replacing the per-atom singletons.
+
+        Typical cases:
+          * MAF-4 / ZIF-8 water — O + 2 H from different asym_ids.
+          * PAP-4 NH4+ — N + 4 H from one tetrahedral orientation, picked
+            out of ~30 split positions.
         """
-        H_BOND_CUTOFF = 1.4  # Å — O-H bond detection
-        HEAVY_BOND_CUTOFF = 2.0  # Å — disqualifies O from being "water"
-
         n_atoms = len(self.info.labels)
-        has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
 
-        # Build atom → group_index map
         atom_to_group = {}
         for gi, group in enumerate(self.atom_groups):
             for a in group:
                 atom_to_group[a] = gi
 
-        # --- Identify "water O" candidates: partial-occ O in singleton groups
-        #     bonded only to H/D in the full structure (no C/N/S/P/metal). ---
-        non_water_elements = {s for s in set(self.info.symbols)
-                              if s not in ("H", "D", "O")}
-        disq_mask = np.array([s in non_water_elements
-                              for s in self.info.symbols], dtype=bool)
-        disq_indices = np.where(disq_mask)[0]
-
-        water_O_candidates = []
-        for i in range(n_atoms):
-            if (self.info.symbols[i] != "O"
-                    or self.info.occupancies[i] >= 1.0
-                    or self.info.occupancies[i] <= 0.0):
-                continue
-            # Must be a singleton group (exploded from spatial clustering)
-            gi = atom_to_group.get(i)
-            if gi is None or len(self.atom_groups[gi]) != 1:
-                continue
-            water_O_candidates.append(i)
-
-        if not water_O_candidates:
+        centers = self._find_motif_centers(atom_to_group)
+        if not centers:
             return
 
-        # Check which O candidates are genuine water O (no heavy non-H neighbor)
-        if len(disq_indices) > 0:
-            o_frac = self.info.frac_coords[water_O_candidates]
-            d_frac = self.info.frac_coords[disq_indices]
-            diff = o_frac[:, None, :] - d_frac[None, :, :]
-            diff = diff - np.round(diff)
-            cart = np.einsum("nij,jk->nik", diff, self.lattice)
-            dists_o_d = np.linalg.norm(cart, axis=2)
-            is_water = [not bool(np.any(dists_o_d[oi] < HEAVY_BOND_CUTOFF))
-                        for oi in range(len(water_O_candidates))]
-        else:
-            is_water = [True] * len(water_O_candidates)
-
-        water_O = [water_O_candidates[i] for i in range(len(water_O_candidates))
-                    if is_water[i]]
-
-        if not water_O:
+        h_singletons = [
+            i for i in range(n_atoms)
+            if self.info.symbols[i] in ("H", "D")
+            and 0 < self.info.occupancies[i] < 1.0
+            and atom_to_group.get(i) is not None
+            and len(self.atom_groups[atom_to_group[i]]) == 1
+        ]
+        if not h_singletons:
             return
 
-        # --- Find partial-occ H/D in singleton groups ---
-        partial_H_singletons = []
-        for i in range(n_atoms):
-            if (self.info.symbols[i] in ("H", "D")
-                    and 0 < self.info.occupancies[i] < 1.0):
-                gi = atom_to_group.get(i)
-                if gi is not None and len(self.atom_groups[gi]) == 1:
-                    partial_H_singletons.append(i)
-
-        if not partial_H_singletons:
-            return
-
-        # --- Compute O-H distances ---
-        o_frac = self.info.frac_coords[water_O]
-        h_frac = self.info.frac_coords[partial_H_singletons]
-        diff = o_frac[:, None, :] - h_frac[None, :, :]
+        c_frac = self.info.frac_coords[centers]
+        h_frac = self.info.frac_coords[h_singletons]
+        diff = c_frac[:, None, :] - h_frac[None, :, :]
         diff = diff - np.round(diff)
-        cart = np.einsum("nij,jk->nik", diff, self.lattice)
-        dists_o_h = np.linalg.norm(cart, axis=2)  # (n_o, n_h)
+        cart_vecs = np.einsum("nij,jk->nik", diff, self.lattice)  # (n_c, n_h, 3)
+        dists_c_h = np.linalg.norm(cart_vecs, axis=2)             # (n_c, n_h)
 
-        # --- For each water O, group nearby H by asym_id, pick nearest ---
-        # H from the SAME asym_id are competing SP copies (mutually exclusive).
-        # A complete water needs one H from each distinct asym_id class.
-        from collections import defaultdict
+        # Each H atom can only be a real X-H bond for at most one center.
+        # Pre-assign every H to the *closest* center within that center's
+        # chemical bond range so a stretched O-H (e.g. 1.1 Å) on an
+        # early-iterated center can't steal an H that has a stronger 0.86 Å
+        # bond to a later-iterated center.  The lower bound rejects ghost
+        # positions: split-occupancy refinements often place O and H within
+        # ~0.4 Å of each other, which would otherwise win the closest-center
+        # contest despite being below any chemically valid X-H bond length.
+        cutoffs_max = np.array([
+            self._MOTIF_BOND_CUTOFF[self.info.symbols[centers[ci]]]
+            for ci in range(len(centers))
+        ])
+        cutoffs_min = np.array([
+            self._MOTIF_BOND_MIN[self.info.symbols[centers[ci]]]
+            for ci in range(len(centers))
+        ])
+        within = (dists_c_h < cutoffs_max[:, None]) & (dists_c_h >= cutoffs_min[:, None])
+        masked = np.where(within, dists_c_h, np.inf)
+        best_ci_per_h = np.argmin(masked, axis=0) if len(centers) else np.array([], int)
+        any_within = np.any(within, axis=0)
 
         new_groups = []
         merged_group_indices = set()
 
-        for oi, o_idx in enumerate(water_O):
-            near_mask = dists_o_h[oi] < H_BOND_CUTOFF
-            near_h_local = np.where(near_mask)[0]
-
-            if len(near_h_local) == 0:
+        for ci, c_idx in enumerate(centers):
+            allowed_h_mask = any_within & (best_ci_per_h == ci)
+            picked_atoms = self._select_motif_hydrogens(
+                c_idx, ci, dists_c_h, cart_vecs, h_singletons,
+                allowed_h_mask=allowed_h_mask,
+            )
+            if not picked_atoms:
                 continue
 
-            # Group nearby H by asym_id (each asym_id = one H site of the water)
-            asym_h_groups = defaultdict(list)
-            for hj in near_h_local:
-                h_idx = partial_H_singletons[hj]
-                h_asym = (self.info.asym_id[h_idx]
-                          if has_asym_info and h_idx < len(self.info.asym_id)
-                          else h_idx)
-                asym_h_groups[h_asym].append((dists_o_h[oi, hj], h_idx))
+            motif_atoms = [c_idx] + picked_atoms
+            motif_group_indices = {atom_to_group[a] for a in motif_atoms}
 
-            # From each asym_id class, pick the nearest H
-            motif_atoms = [o_idx]
-            for asym_id, candidates in asym_h_groups.items():
-                candidates.sort()  # sort by distance
-                best_h = candidates[0][1]
-                motif_atoms.append(best_h)
-
-            if len(motif_atoms) < 2:
-                continue  # No H found, skip
-
-            # Check: no internal conflicts in the motif
-            has_internal_conflict = False
-            motif_set = set(motif_atoms)
-            for a in motif_atoms:
-                for nb in self.graph.neighbors(a):
-                    if nb in motif_set and nb != a:
-                        has_internal_conflict = True
-                        break
-                if has_internal_conflict:
-                    break
-
-            if has_internal_conflict:
-                continue
-
-            # Record which original groups are being merged
-            motif_group_indices = set()
-            for a in motif_atoms:
-                gi = atom_to_group[a]
-                motif_group_indices.add(gi)
-
-            # Only merge if at least 2 groups involved (O + at least 1 H)
             if len(motif_group_indices) < 2:
                 continue
-
-            # Check that none of these groups were already claimed
             if motif_group_indices & merged_group_indices:
                 continue
 
@@ -339,14 +316,133 @@ class DisorderSolver:
         if not merged_group_indices:
             return
 
-        # Rebuild atom_groups: keep un-merged groups + add new merged groups
-        rebuilt = []
-        for gi, group in enumerate(self.atom_groups):
-            if gi not in merged_group_indices:
-                rebuilt.append(group)
+        rebuilt = [
+            g for gi, g in enumerate(self.atom_groups)
+            if gi not in merged_group_indices
+        ]
         rebuilt.extend(new_groups)
-
         self.atom_groups = rebuilt
+
+    def _find_motif_centers(self, atom_to_group):
+        """Return atom indices of isolated motif centers (water O, ammonium N).
+
+        A center qualifies iff it (1) is in a singleton group from Step 1 and
+        (2) has no heavy non-H neighbour of a different element within
+        ``_MOTIF_HEAVY_CUTOFF``.  The same-element exclusion lets alternative
+        positions of the same chemical site (e.g. two split positions of a
+        single water O) coexist without disqualifying each other.
+        """
+        n_atoms = len(self.info.labels)
+        centers = []
+
+        for sym in self._MOTIF_BOND_CUTOFF.keys():
+            cands = [
+                i for i in range(n_atoms)
+                if self.info.symbols[i] == sym
+                and 0 < self.info.occupancies[i] <= 1.0
+                and atom_to_group.get(i) is not None
+                and len(self.atom_groups[atom_to_group[i]]) == 1
+            ]
+            if not cands:
+                continue
+
+            disq_mask = np.array(
+                [s not in ("H", "D", sym) for s in self.info.symbols]
+            )
+            disq_indices = np.where(disq_mask)[0]
+            if len(disq_indices) == 0:
+                centers.extend(cands)
+                continue
+
+            c_frac = self.info.frac_coords[cands]
+            d_frac = self.info.frac_coords[disq_indices]
+            diff = c_frac[:, None, :] - d_frac[None, :, :]
+            diff = diff - np.round(diff)
+            cart = np.einsum("nij,jk->nik", diff, self.lattice)
+            dists = np.linalg.norm(cart, axis=2)
+            is_isolated = ~np.any(dists < self._MOTIF_HEAVY_CUTOFF, axis=1)
+            centers.extend(
+                cands[i] for i in range(len(cands)) if is_isolated[i]
+            )
+
+        return centers
+
+    def _select_motif_hydrogens(self, c_idx, ci, dists_c_h, cart_vecs,
+                                 h_singletons, allowed_h_mask=None):
+        """Greedy distance-sorted selection of H atoms around one motif center.
+
+        Returns the picked H indices (subset of ``h_singletons``).  Empty
+        list means no acceptable H was found.
+
+        ``allowed_h_mask``, when given, restricts the candidate pool to the
+        H atoms whose closest motif center is this one.  This prevents a
+        center with a stretched X-H distance from claiming an H that has a
+        shorter bond to a different center.
+
+        For elements where ``_MOTIF_REJECT_SOFT[element]`` is True, a final
+        check rejects the whole motif if any picked-pair has a soft
+        conflict edge in the disorder graph.  This keeps water (O) close
+        to the historic pre-fix behaviour of "any internal conflict drops
+        the merge".
+        """
+        c_sym = self.info.symbols[c_idx]
+        cutoff = self._MOTIF_BOND_CUTOFF[c_sym]
+        cutoff_min = self._MOTIF_BOND_MIN[c_sym]
+        max_h = self._MOTIF_MAX_H[c_sym]
+        ang_min, ang_max = self._MOTIF_ANGLE_RANGE[c_sym]
+        reject_soft = self._MOTIF_REJECT_SOFT.get(c_sym, False)
+
+        in_range = (dists_c_h[ci] < cutoff) & (dists_c_h[ci] >= cutoff_min)
+        if allowed_h_mask is None:
+            near_local = np.where(in_range)[0]
+        else:
+            near_local = np.where(in_range & allowed_h_mask)[0]
+        if len(near_local) == 0:
+            return []
+
+        sorted_local = sorted(near_local, key=lambda j: dists_c_h[ci, j])
+
+        picked_atoms = []
+        picked_unit = []
+        for j in sorted_local:
+            if len(picked_atoms) >= max_h:
+                break
+            h = h_singletons[j]
+
+            has_hard = False
+            for p in picked_atoms:
+                if self.graph.has_edge(h, p):
+                    ct = self.graph[h][p].get("conflict_type", "")
+                    if ct in self._MOTIF_HARD_CONFLICTS:
+                        has_hard = True
+                        break
+            if has_hard:
+                continue
+
+            uv = -cart_vecs[ci, j] / dists_c_h[ci, j]
+            angle_ok = True
+            for puv in picked_unit:
+                cos_a = float(np.clip(np.dot(uv, puv), -1.0, 1.0))
+                ang = np.degrees(np.arccos(cos_a))
+                if not (ang_min <= ang <= ang_max):
+                    angle_ok = False
+                    break
+            if not angle_ok:
+                continue
+
+            picked_atoms.append(h)
+            picked_unit.append(uv)
+
+        if reject_soft and picked_atoms:
+            motif_atoms = [c_idx] + picked_atoms
+            for i, a in enumerate(motif_atoms):
+                for b in motif_atoms[i + 1:]:
+                    if self.graph.has_edge(a, b):
+                        ct = self.graph[a][b].get("conflict_type", "")
+                        if ct in self._MOTIF_SOFT_CONFLICTS:
+                            return []
+
+        return picked_atoms
 
     def _max_weight_independent_set_by_groups(
         self, graph=None, weight_attr="occupancy"
