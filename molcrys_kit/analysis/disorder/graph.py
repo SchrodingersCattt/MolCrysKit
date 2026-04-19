@@ -224,6 +224,31 @@ class DisorderGraphBuilder:
 
                 if part_a != part_b:
                     if centroid_dist < SITE_RADIUS:
+                        # For NEGATIVE PART groups (e.g. -1 vs -2 in same
+                        # assembly), the assembly label is shared across ALL
+                        # symmetry copies of the disordered fragment, so
+                        # centroid-proximity alone over-fires.  Two negative
+                        # PARTs are logical alternatives only when they
+                        # describe the SAME crystallographic site, i.e. share
+                        # at least one sym_op_index.  When the sym_op sets
+                        # are disjoint they're distinct sites and must
+                        # coexist (this is the SHELXL convention used by
+                        # e.g. DAI-X1, where -2 and -1 jointly fill the 8
+                        # symmetry copies of one ligand).
+                        if part_a < 0 and part_b < 0:
+                            if self.info.sym_op_indices:
+                                sop_a = {
+                                    self.info.sym_op_indices[aa]
+                                    for aa in atoms_a
+                                    if aa < len(self.info.sym_op_indices)
+                                }
+                                sop_b = {
+                                    self.info.sym_op_indices[bb]
+                                    for bb in atoms_b
+                                    if bb < len(self.info.sym_op_indices)
+                                }
+                                if sop_a.isdisjoint(sop_b):
+                                    continue
                         self._add_conflict_edge(atoms_a, atoms_b, "logical_alternative")
                         continue
 
@@ -279,6 +304,27 @@ class DisorderGraphBuilder:
 
                 has_conflict = False
                 if assembly_i and assembly_j and assembly_i == assembly_j:
+                    g_i = self.info.disorder_groups[i]
+                    g_j = self.info.disorder_groups[j]
+                    # Negative PART groups share the assembly label across
+                    # all symmetry copies, so "same assembly" is not a strong
+                    # enough signal of mutual exclusion.  Only flag a real
+                    # conflict when both atoms refer to the SAME
+                    # crystallographic site (same sym_op_index).  See the
+                    # matching guard in _add_conformer_conflicts.
+                    if g_i < 0 and g_j < 0 and self.info.sym_op_indices:
+                        sop_i = (
+                            self.info.sym_op_indices[i]
+                            if i < len(self.info.sym_op_indices)
+                            else None
+                        )
+                        sop_j = (
+                            self.info.sym_op_indices[j]
+                            if j < len(self.info.sym_op_indices)
+                            else None
+                        )
+                        if sop_i != sop_j:
+                            continue
                     has_conflict = True
                 elif not assembly_i and not assembly_j:
                     if (
