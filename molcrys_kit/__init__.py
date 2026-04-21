@@ -6,7 +6,7 @@ molecular crystal structures, with a particular focus on molecular crystals
 where well-defined molecules occupy crystallographic sites.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .structures.atom import MolAtom
 from .structures.molecule import CrystalMolecule
