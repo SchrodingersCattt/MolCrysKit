@@ -116,8 +116,8 @@ docker build -f Dockerfile.bohrium -t molcryskit-bohrium:latest .
 # Pin to an immutable Git tag instead of the moving main branch
 # (recommended for archival/reviewer reproducibility)
 docker build -f Dockerfile.bohrium \
-    --build-arg MOLCRYSKIT_REF=refs/tags/v0.1.0 \
-    -t molcryskit-bohrium:v0.1.0 .
+    --build-arg MOLCRYSKIT_REF=refs/tags/v0.2.0 \
+    -t molcryskit-bohrium:v0.2.0 .
 ```
 
 The Bohrium image uses `pip install` from the GitHub archive zip (no `git clone`
@@ -134,7 +134,7 @@ to GitHub Container Registry (GHCR).
 The workflow [`publish-ghcr.yml`](.github/workflows/publish-ghcr.yml) pushes
 [`Dockerfile`](Dockerfile) images to `ghcr.io/<owner>/molcryskit`:
 
-- pushing a Git tag such as `v0.1.0` publishes `ghcr.io/<owner>/molcryskit:v0.1.0`
+- pushing a Git tag such as `v0.2.0` publishes `ghcr.io/<owner>/molcryskit:v0.2.0`
 - stable release tags also receive `latest`
 - manual dispatch can publish a development snapshot from a chosen Git ref
 
@@ -142,11 +142,11 @@ Recommended archival pattern:
 
 ```bash
 # 1. Create and push an immutable release tag
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 
 # 2. GitHub Actions publishes the image automatically to GHCR
-#    ghcr.io/<owner>/molcryskit:v0.1.0
+#    ghcr.io/<owner>/molcryskit:v0.2.0
 ```
 
 For Bohrium, keep using [`Dockerfile.bohrium`](Dockerfile.bohrium) as the

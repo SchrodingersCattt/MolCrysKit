@@ -13,8 +13,8 @@
 #
 # Pin to a specific release tag:
 #   docker build -f Dockerfile.bohrium \
-#     --build-arg MOLCRYSKIT_REF=refs/tags/v0.1.0 \
-#     -t molcryskit-bohrium:v0.1.0 .
+#     --build-arg MOLCRYSKIT_REF=refs/tags/v0.2.0 \
+#     -t molcryskit-bohrium:v0.2.0 .
 
 FROM registry.dp.tech/dptech/ubuntu:ubuntu24.04-py3.12
 
@@ -25,7 +25,7 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 # -- MolCrysKit from GitHub archive zip ------------------------------------
 # MOLCRYSKIT_REF must be a GitHub archive ref, e.g. refs/heads/main or
-# refs/tags/v0.1.0.
+# refs/tags/v0.2.0.
 # No git clone needed: pip resolves the archive URL directly and installs all
 # dependencies declared in pyproject.toml automatically.
 ARG MOLCRYSKIT_REF=refs/heads/main
