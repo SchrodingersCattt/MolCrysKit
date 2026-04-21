@@ -12,6 +12,7 @@ import re
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
+from .edge_priority import add_or_promote_edge
 from ...constants.config import (
     DISORDER_CONFIG,
     BONDING_THRESHOLDS,
@@ -224,6 +225,31 @@ class DisorderGraphBuilder:
 
                 if part_a != part_b:
                     if centroid_dist < SITE_RADIUS:
+                        # For NEGATIVE PART groups (e.g. -1 vs -2 in same
+                        # assembly), the assembly label is shared across ALL
+                        # symmetry copies of the disordered fragment, so
+                        # centroid-proximity alone over-fires.  Two negative
+                        # PARTs are logical alternatives only when they
+                        # describe the SAME crystallographic site, i.e. share
+                        # at least one sym_op_index.  When the sym_op sets
+                        # are disjoint they're distinct sites and must
+                        # coexist (this is the SHELXL convention used by
+                        # e.g. DAI-X1, where -2 and -1 jointly fill the 8
+                        # symmetry copies of one ligand).
+                        if part_a < 0 and part_b < 0:
+                            if self.info.sym_op_indices:
+                                sop_a = {
+                                    self.info.sym_op_indices[aa]
+                                    for aa in atoms_a
+                                    if aa < len(self.info.sym_op_indices)
+                                }
+                                sop_b = {
+                                    self.info.sym_op_indices[bb]
+                                    for bb in atoms_b
+                                    if bb < len(self.info.sym_op_indices)
+                                }
+                                if sop_a.isdisjoint(sop_b):
+                                    continue
                         self._add_conflict_edge(atoms_a, atoms_b, "logical_alternative")
                         continue
 
@@ -246,8 +272,7 @@ class DisorderGraphBuilder:
     def _add_conflict_edge(self, atoms_a, atoms_b, type_str):
         for u in atoms_a:
             for v in atoms_b:
-                if not self.graph.has_edge(u, v):
-                    self.graph.add_edge(u, v, conflict_type=type_str)
+                add_or_promote_edge(self.graph, u, v, type_str)
 
     def _has_different_symmetry_provenance(
         self, atoms_a: List[int], atoms_b: List[int]
@@ -279,6 +304,27 @@ class DisorderGraphBuilder:
 
                 has_conflict = False
                 if assembly_i and assembly_j and assembly_i == assembly_j:
+                    g_i = self.info.disorder_groups[i]
+                    g_j = self.info.disorder_groups[j]
+                    # Negative PART groups share the assembly label across
+                    # all symmetry copies, so "same assembly" is not a strong
+                    # enough signal of mutual exclusion.  Only flag a real
+                    # conflict when both atoms refer to the SAME
+                    # crystallographic site (same sym_op_index).  See the
+                    # matching guard in _add_conformer_conflicts.
+                    if g_i < 0 and g_j < 0 and self.info.sym_op_indices:
+                        sop_i = (
+                            self.info.sym_op_indices[i]
+                            if i < len(self.info.sym_op_indices)
+                            else None
+                        )
+                        sop_j = (
+                            self.info.sym_op_indices[j]
+                            if j < len(self.info.sym_op_indices)
+                            else None
+                        )
+                        if sop_i != sop_j:
+                            continue
                     has_conflict = True
                 elif not assembly_i and not assembly_j:
                     if (
@@ -287,8 +333,8 @@ class DisorderGraphBuilder:
                     ):
                         has_conflict = True
 
-                if has_conflict and not self.graph.has_edge(i, j):
-                    self.graph.add_edge(i, j, conflict_type="explicit")
+                if has_conflict:
+                    add_or_promote_edge(self.graph, i, j, "explicit")
 
     def _add_geometric_conflicts(self):
         n_atoms = len(self.info.labels)
@@ -361,25 +407,9 @@ class DisorderGraphBuilder:
                     # would incorrectly classify close S-S or Cd-Cd copies
                     # as "bonded" and prevent conflict edge creation.
                     if is_implicit_sp_disorder or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
-                        if not self.graph.has_edge(i, j):
-                            self.graph.add_edge(
-                                i, j, conflict_type="geometric", distance=dist
-                            )
-                        else:
-                            # Fixed: Check against high-priority conflict types
-                            high_priority_conflicts = [
-                                "logical_alternative",
-                                "symmetry_clash",
-                                "explicit",
-                                "valence",
-                                "valence_geometry",
-                            ]
-                            if (
-                                self.graph[i][j]["conflict_type"]
-                                not in high_priority_conflicts
-                            ):
-                                self.graph[i][j]["conflict_type"] = "geometric"
-                                self.graph[i][j]["distance"] = dist
+                        add_or_promote_edge(
+                            self.graph, i, j, "geometric", distance=dist
+                        )
 
     def _add_implicit_sp_conflicts(self):
         """
@@ -536,12 +566,13 @@ class DisorderGraphBuilder:
                 for ii in range(len(cluster_members)):
                     for jj in range(ii + 1, len(cluster_members)):
                         u, v = cluster_members[ii], cluster_members[jj]
-                        if not self.graph.has_edge(u, v):
-                            self.graph.add_edge(
-                                u, v,
-                                conflict_type="implicit_sp",
-                                distance=self.dist_matrix[u, v]
-                            )
+                        add_or_promote_edge(
+                            self.graph,
+                            u,
+                            v,
+                            "implicit_sp",
+                            distance=self.dist_matrix[u, v],
+                        )
 
     def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
         if group1 != 0 and group2 != 0 and group1 != group2:
@@ -888,11 +919,7 @@ class DisorderGraphBuilder:
                         g_j = self.info.disorder_groups[j_idx]
                         if g_i != 0 and g_j != 0 and g_i == g_j:
                             continue
-                        if self.graph.has_edge(i_idx, j_idx):
-                            if self.graph[i_idx][j_idx]["conflict_type"] == "geometric":
-                                self.graph[i_idx][j_idx]["conflict_type"] = "valence"
-                        else:
-                            self.graph.add_edge(i_idx, j_idx, conflict_type="valence")
+                        add_or_promote_edge(self.graph, i_idx, j_idx, "valence")
 
     # ------------------------------------------------------------------
     # SP cluster helpers
@@ -916,11 +943,7 @@ class DisorderGraphBuilder:
                     u, v = cluster[ii], cluster[jj]
                     if self._is_same_parent_pair(u, v):
                         continue
-                    if self.graph.has_edge(u, v):
-                        if self.graph[u][v]["conflict_type"] == "geometric":
-                            self.graph[u][v]["conflict_type"] = "valence_geometry"
-                    else:
-                        self.graph.add_edge(u, v, conflict_type="valence_geometry")
+                    add_or_promote_edge(self.graph, u, v, "valence_geometry")
 
     def _sp_tetrahedral_single(self, reps, cart_positions,
                                asym_id_to_cluster, center_idx):
@@ -1150,8 +1173,7 @@ class DisorderGraphBuilder:
                         for v in asym_id_to_cluster[cluster_keys[kj]]:
                             if self._is_same_parent_pair(u, v):
                                 continue
-                            if not self.graph.has_edge(u, v):
-                                self.graph.add_edge(u, v, conflict_type="valence_geometry")
+                            add_or_promote_edge(self.graph, u, v, "valence_geometry")
             return
 
         n_groups = len(valid_groups)
@@ -1198,13 +1220,7 @@ class DisorderGraphBuilder:
                                 if self.graph[u][v].get("conflict_type") == "geometric":
                                     self.graph.remove_edge(u, v)
                         else:
-                            # Incompatible — add/upgrade conflict edge
-                            if self.graph.has_edge(u, v):
-                                ct = self.graph[u][v].get("conflict_type", "")
-                                if ct == "geometric":
-                                    self.graph[u][v]["conflict_type"] = "valence_geometry"
-                            else:
-                                self.graph.add_edge(u, v, conflict_type="valence_geometry")
+                            add_or_promote_edge(self.graph, u, v, "valence_geometry")
 
     def _sp_geometry_match(self, reps, cart_positions, asym_id_to_cluster,
                            group_size, target_angle):
@@ -1249,13 +1265,7 @@ class DisorderGraphBuilder:
                     for v in asym_id_to_cluster[cluster_keys[kj]]:
                         if self._is_same_parent_pair(u, v):
                             continue
-                        if self.graph.has_edge(u, v):
-                            if self.graph[u][v]["conflict_type"] == "geometric":
-                                self.graph[u][v]["conflict_type"] = "valence_geometry"
-                        else:
-                            self.graph.add_edge(
-                                u, v, conflict_type="valence_geometry"
-                            )
+                        add_or_promote_edge(self.graph, u, v, "valence_geometry")
 
     def _remove_cross_cluster_geometric_edges(self, asym_id_to_cluster):
         """
@@ -1337,30 +1347,14 @@ class DisorderGraphBuilder:
                         for v in part_b_atoms:
                             if self._is_same_parent_pair(u, v):
                                 continue
-                            if self.graph.has_edge(u, v):
-                                if self.graph[u][v]["conflict_type"] == "geometric":
-                                    self.graph[u][v][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
-                            else:
-                                self.graph.add_edge(
-                                    u, v, conflict_type="valence_geometry"
-                                )
+                            add_or_promote_edge(self.graph, u, v, "valence_geometry")
 
                     # Rogues vs Part A + Part B
                     for r in rogue_atoms:
                         for t in part_a_atoms + part_b_atoms:
                             if self._is_same_parent_pair(r, t):
                                 continue
-                            if self.graph.has_edge(r, t):
-                                if self.graph[r][t]["conflict_type"] == "geometric":
-                                    self.graph[r][t][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
-                            else:
-                                self.graph.add_edge(
-                                    r, t, conflict_type="valence_geometry"
-                                )
+                            add_or_promote_edge(self.graph, r, t, "valence_geometry")
                     return
 
     def _find_tetrahedral_groups(self, atom_indices, cart_positions):
@@ -1418,37 +1412,16 @@ class DisorderGraphBuilder:
                     # Mutually exclude Part A and Part B
                     for u in part_a:
                         for v in part_b:
-                            # Skip symmetry copies of the same asymmetric-unit atom
                             if self._is_same_parent_pair(u, v):
                                 continue
-                            # Check if there's already a geometric edge and upgrade it to valence_geometry
-                            if self.graph.has_edge(u, v):
-                                if self.graph[u][v]["conflict_type"] == "geometric":
-                                    self.graph[u][v][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
-                            else:
-                                self.graph.add_edge(
-                                    u, v, conflict_type="valence_geometry"
-                                )
+                            add_or_promote_edge(self.graph, u, v, "valence_geometry")
 
                     # Exclude rogue atoms from both part_a and part_b
                     for r in rogue_atoms:
                         for target in list(part_a) + list(part_b):
-                            # Skip symmetry copies of the same asymmetric-unit atom
                             if self._is_same_parent_pair(r, target):
                                 continue
-                            # Check if there's already a geometric edge and upgrade it to valence_geometry
-                            if self.graph.has_edge(r, target):
-                                if (
-                                    self.graph[r][target]["conflict_type"]
-                                    == "geometric"
-                                ):
-                                    self.graph[r][target][
-                                        "conflict_type"
-                                    ] = "valence_geometry"
-                            else:
-                                self.graph.add_edge(
-                                    r, target, conflict_type="valence_geometry"
-                                )
+                            add_or_promote_edge(
+                                self.graph, r, target, "valence_geometry"
+                            )
                     return
