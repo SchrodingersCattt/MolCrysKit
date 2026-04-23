@@ -18,19 +18,23 @@ This analysis supports **Figure 4a2** in the manuscript.
 
 ## Benchmark Configuration
 
-- **Supercell scales**: 1×1×1 through 6×6×6 (cubic expansion)
+- **Cubic scales**: 1×1×1 through 6×6×6 for MolCrysKit and ASE
+- **Linear scales**: 1×1×1 through 3×1×1 for Pymatgen
 - **Timing repeats**: 3 per data point
 - **Thread isolation**: OMP/MKL/NumExpr forced to 1 thread; each timing run
   in an isolated subprocess
 - **Hardware**: 4-core Intel Xeon Platinum 8163 CPU @ 2.50 GHz (Bohrium Cloud)
+- **Canonical source**: benchmark results were produced from the Bohrium driver
+  mirrored here as `multi_system_benchmark.py`
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `multi_system_benchmark.py` | Main benchmark script (MolCrysKit vs ASE) |
+| `multi_system_benchmark.py` | Paper-local driver matching the Bohrium benchmark setup |
 | `plot_benchmark.py` | Figure 4a2 generation |
 | `results/multi_system_benchmark.json` | Timing data (MolCrysKit, ASE, Pymatgen) |
+| `slab_examples/` | CIF inputs for HXACAN, OCHTET12, and DAP-M4 |
 
 ## Reproduction
 

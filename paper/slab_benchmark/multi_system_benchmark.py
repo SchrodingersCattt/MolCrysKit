@@ -1,37 +1,31 @@
 """
 Multi-System Slab Generation Benchmark
-=======================================
-Tests MolCrysKit topological slab generation vs ASE across multiple molecular
-crystal systems with different unit cell sizes, demonstrating cubic size scaling.
+======================================
+Paper-local benchmark driver aligned with the Bohrium run that produced the
+committed slab benchmark results for Figure 4a2.
 
 Systems:
-  1. Acetaminophen (HXACAN)  – small organic, monoclinic, ~160 atoms/unit cell
-  2. Caffeine (anhydrous)    – medium organic, monoclinic, ~192 atoms/unit cell
-  3. Isatin (ISATIN)         – medium organic with N/O, monoclinic, ~44 atoms/unit cell
+  1. Acetaminophen (HXACAN)
+  2. beta-HMX (OCHTET12)
+  3. DAP-M4 (UHILUV02)
 
-For each system: time slab generation at 4 supercell scales (n×n×n cubic expansion).
-Compare MCK (topological) with ASE (geometry-only) as reference.
-
-Thread isolation strategy (from MolCrysKit/benchmarks/slab_efficiency.py):
-  - OMP/MKL/NumExpr thread counts forced to 1 at module import AND inside each worker
-  - Each timing call runs in a completely isolated subprocess via multiprocessing.Process
-  - GC is disabled inside the worker during the timed section
-  - Parent process only joins the subprocess; no shared memory beyond a Manager dict
+Benchmark design:
+  - Cubic scaling (n x n x n, n = 1..6): MolCrysKit + ASE
+  - Linear scaling (n x 1 x 1, n = 1..3): Pymatgen only
+  - 3 timing repeats per data point
+  - Each timing call runs in a fully isolated subprocess
+  - OMP/MKL/NumExpr thread count forced to 1 in parent and worker
+  - GC disabled during each timed section
 
 Output:
   results/multi_system_benchmark.json
-  results/multi_system_benchmark_figure.pdf / .png
 
-Usage (local):
-  cd R1/experiments/benchmark
-  python multi_system_benchmark.py
-
-Usage (Bohrium/remote):
-  python multi_system_benchmark.py > eff.log 2>&1
+Usage:
+  python paper/slab_benchmark/multi_system_benchmark.py
 """
 
-# ── thread control (must be set before any numpy/scipy import) ─────────────────
 import os
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
@@ -47,175 +41,250 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from ase.build import surface as ase_surface
+from pymatgen.core.structure import Lattice
+from pymatgen.core.surface import SlabGenerator
+from pymatgen.io.ase import AseAtomsAdaptor
 
-# ── path bootstrap ─────────────────────────────────────────────────────────────
-# Allow running from any working directory; project root is 3 levels up.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_MCK_DEV = str(_PROJECT_ROOT / "MolCrysKit")
-if _MCK_DEV not in sys.path:
-    sys.path.insert(0, _MCK_DEV)
+# Allow running the script from any working directory inside a source checkout.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-# ── paths ──────────────────────────────────────────────────────────────────────
-SCRIPT_DIR  = Path(__file__).resolve().parent
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.operations import generate_topological_slab
+from molcrys_kit.structures import MolecularCrystal
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = SCRIPT_DIR / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-# CIF files live next to this script (copied by copy_cifs.py)
 CIF_DIR = SCRIPT_DIR / "slab_examples"
 
 SYSTEMS = [
     {
-        "name":   "Acetaminophen (HXACAN)",
-        "short":  "HXACAN",
-        "cif":    CIF_DIR / "Acetaminophen_HXACAN.cif",
+        "name": "Acetaminophen (HXACAN)",
+        "short": "HXACAN",
+        "cif": CIF_DIR / "Acetaminophen_HXACAN.cif",
         "miller": (0, 1, 0),
     },
     {
-        "name":   "Caffeine (anhydrous)",
-        "short":  "Caffeine",
-        "cif":    CIF_DIR / "anhydrousCaffeine_CGD_2007_7_1406.cif",
-        "miller": (0, 0, 1),
+        "name": "beta-HMX (OCHTET12)",
+        "short": "HMX",
+        "cif": CIF_DIR / "beta-HMX_OCHTET12.cif",
+        "miller": (0, 1, 0),
     },
     {
-        "name":   "Isatin (ISATIN)",
-        "short":  "ISATIN",
-        "cif":    CIF_DIR / "ISATIN.cif",
-        "miller": (1, 0, 0),
+        "name": "DAP-M4",
+        "short": "DAPM4",
+        "cif": CIF_DIR / "DAP-M4.cif",
+        "miller": (0, 1, 0),
     },
 ]
 
-SCALES   = [1, 2, 3, 4]   # cubic supercell scales (n×n×n)
-N_REPEAT = 3               # timing repeats per data point
-LAYERS   = 3
-VACUUM   = 10.0
+SCALES_CUBIC = [1, 2, 3, 4, 5, 6]
+SCALES_LINEAR = [1, 2, 3]
+PMG_ATOM_LIMIT = 1000
+SUBPROCESS_TIMEOUT = 1800
+NUM_RUNS = 3
+LAYERS = 3
+VACUUM = 10.0
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-# ── logging ────────────────────────────────────────────────────────────────────
-
-def log(msg: str) -> None:
-    ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+def log(message: str) -> None:
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] {message}", flush=True)
 
 
-# ── slab generation functions (top-level for pickle) ──────────────────────────
-
-def _run_ase_slab(atoms, miller, layers, vacuum):
-    """ASE geometry-only slab generation (identical to canonical benchmark)."""
-    from ase.build import surface as ase_surface
+def run_ase_slab_gen(atoms, miller, layers, vacuum):
+    """ASE geometry-only slab generation."""
     slab = ase_surface(atoms, miller, layers=layers, vacuum=vacuum)
     positions = slab.get_positions()
-    cell      = slab.get_cell()
-    z         = positions[:, 2]
-    thickness = np.max(z) - np.min(z)
-    cell[2]   = np.array([0, 0, thickness + vacuum])
-    positions[:, 2] += (-np.min(z) + 1.0)
+    cell = slab.get_cell()
+    z_coords = positions[:, 2]
+    thickness = np.max(z_coords) - np.min(z_coords)
+    cell[2] = np.array([0, 0, thickness + vacuum])
+    positions[:, 2] += (-np.min(z_coords) + 1.0)
     slab.set_positions(positions)
     slab.set_cell(cell, scale_atoms=False)
     return slab
 
 
-def _run_mck_slab(atoms, miller, layers, vacuum):
-    """MolCrysKit topological slab generation (from_ase conversion included)."""
-    from molcrys_kit.structures import MolecularCrystal
-    from molcrys_kit.operations import generate_topological_slab
+def run_pymatgen_slab_gen(ase_structure, miller, layers, vacuum):
+    """Pymatgen geometric+repair slab generation."""
+    bulk_structure = AseAtomsAdaptor.get_structure(ase_structure)
+    reciprocal_lattice = bulk_structure.lattice.reciprocal_lattice
+    d_hkl = 2 * np.pi / np.linalg.norm(reciprocal_lattice.get_cartesian_coords(miller))
+
+    effective_layers = max(0.1, float(layers) - 0.5)
+    slab_thickness = effective_layers * d_hkl
+
+    slab_gen = SlabGenerator(
+        bulk_structure,
+        miller_index=miller,
+        min_slab_size=slab_thickness,
+        min_vacuum_size=vacuum,
+        in_unit_planes=False,
+        center_slab=False,
+        primitive=False,
+    )
+    slabs = slab_gen.get_slabs(repair=True, tol=0.1, ftol=0.2, ztol=0.2)
+    if not slabs:
+        raise ValueError("No slabs generated by Pymatgen")
+
+    slab = slabs[0]
+    cart_coords = slab.cart_coords
+    real_thickness = np.ptp(cart_coords[:, 2])
+    target_c = real_thickness + vacuum
+
+    new_lattice = slab.lattice.matrix.copy()
+    new_lattice[2] *= target_c / np.linalg.norm(new_lattice[2])
+    slab.lattice = Lattice(new_lattice)
+    return AseAtomsAdaptor.get_atoms(slab)
+
+
+def run_mck_slab_gen(atoms, miller, layers, vacuum):
+    """MolCrysKit topological slab generation including from_ase conversion."""
     crystal = MolecularCrystal.from_ase(atoms)
     return generate_topological_slab(crystal, miller, layers=layers, vacuum=vacuum)
 
 
-# ── isolated subprocess worker ────────────────────────────────────────────────
-
-def _benchmark_worker(task_type: str, args_tuple: tuple, return_dict: dict) -> None:
-    """
-    Worker executed in a completely isolated subprocess.
-
-    - Forces OMP_NUM_THREADS=1 again (child environment may differ).
-    - Disables GC during the timed section to eliminate GC jitter.
-    - Returns wall-clock time via a Manager.dict for safe IPC.
-    """
+def _benchmark_worker(task_type: str, args_tuple: tuple, queue: multiprocessing.Queue) -> None:
+    """Run a single timing task inside a fresh subprocess."""
     try:
         import os as _os
+
         _os.environ["OMP_NUM_THREADS"] = "1"
         _os.environ["MKL_NUM_THREADS"] = "1"
+        _os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
         gc.disable()
-        t0 = time.perf_counter()
+        start = time.perf_counter()
 
         if task_type == "ase":
-            _run_ase_slab(*args_tuple)
+            run_ase_slab_gen(*args_tuple)
+        elif task_type == "pmg":
+            run_pymatgen_slab_gen(*args_tuple)
         elif task_type == "mck":
-            _run_mck_slab(*args_tuple)
+            run_mck_slab_gen(*args_tuple)
         else:
             raise ValueError(f"Unknown task type: {task_type!r}")
 
-        t1 = time.perf_counter()
-        return_dict["time"]    = t1 - t0
-        return_dict["success"] = True
-
+        elapsed = time.perf_counter() - start
+        queue.put({"success": True, "time": elapsed})
     except Exception as exc:
-        return_dict["error"]     = str(exc)
-        return_dict["traceback"] = traceback.format_exc()
-        return_dict["success"]   = False
+        queue.put(
+            {
+                "success": False,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+        )
     finally:
         gc.enable()
 
 
-def run_isolated_benchmark(task_type: str, *args) -> float | None:
-    """
-    Spawn a fresh subprocess, run one timing call, wait for it to finish,
-    then return the measured wall time (or None on failure).
-
-    Using a fresh process per call guarantees:
-      - No memory from previous runs leaks into the timed section.
-      - Python's import caches, JIT state, etc. are identical for all runs.
-    """
-    manager     = multiprocessing.Manager()
-    return_dict = manager.dict()
-    p = multiprocessing.Process(
-        target=_benchmark_worker, args=(task_type, args, return_dict)
+def run_isolated_benchmark(task_type: str, *args):
+    """Spawn a fresh subprocess for one timing call."""
+    queue = multiprocessing.Queue()
+    process = multiprocessing.Process(
+        target=_benchmark_worker,
+        args=(task_type, args, queue),
     )
-    p.start()
-    p.join()   # blocks until subprocess exits and memory is fully released
+    process.start()
+    process.join(timeout=SUBPROCESS_TIMEOUT)
 
-    if return_dict.get("success"):
-        return return_dict["time"]
-    else:
-        log(f"    [subprocess error] {return_dict.get('error', 'unknown')}")
-        tb = return_dict.get("traceback", "")
-        if tb:
-            for line in tb.splitlines():
-                log(f"      {line}")
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        log(f"    [subprocess timeout] task={task_type} killed after {SUBPROCESS_TIMEOUT}s")
         return None
 
+    if queue.empty():
+        log(f"    [subprocess error] task={task_type} returned no result")
+        return None
 
-# ── per-system benchmark ───────────────────────────────────────────────────────
+    result = queue.get()
+    if result.get("success"):
+        return result["time"]
+
+    log(f"    [subprocess error] {result.get('error', 'unknown')}")
+    tb = result.get("traceback", "")
+    if tb:
+        for line in tb.splitlines():
+            log(f"      {line}")
+    return None
+
+
+def collect_metadata() -> dict:
+    metadata = {
+        "processor_count": multiprocessing.cpu_count(),
+        "platform_system": platform.system(),
+        "platform_release": platform.release(),
+        "python_version": platform.python_version(),
+        "timestamp": TIMESTAMP,
+        "cpu_model": "Unknown",
+    }
+    try:
+        if platform.system() == "Linux":
+            with open("/proc/cpuinfo", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("model name"):
+                        metadata["cpu_model"] = line.split(":", 1)[1].strip()
+                        break
+        elif platform.system() == "Darwin":
+            import subprocess
+
+            metadata["cpu_model"] = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"]
+            ).decode().strip()
+        elif platform.system() == "Windows":
+            import subprocess
+
+            metadata["cpu_model"] = subprocess.check_output(
+                ["wmic", "cpu", "get", "name"],
+                universal_newlines=True,
+            ).splitlines()[1].strip()
+    except Exception:
+        pass
+    return metadata
+
+
+def save_results(metadata: dict, results: dict) -> Path:
+    output = {"metadata": metadata, "systems": results}
+    output_path = RESULTS_DIR / "multi_system_benchmark.json"
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(output, handle, indent=2)
+    return output_path
+
 
 def benchmark_system(sys_info: dict) -> dict | None:
-    """Run warmup + timed benchmark for one crystal system at all supercell scales."""
-    from molcrys_kit.io.cif import read_mol_crystal
-
-    name     = sys_info["short"]
+    """Benchmark one crystal across cubic and linear scaling schedules."""
+    name = sys_info["name"]
+    short = sys_info["short"]
     cif_path = sys_info["cif"]
-    miller   = sys_info["miller"]
+    miller = sys_info["miller"]
 
-    log(f"  Loading {cif_path.name} …")
+    log(f"\n{'-' * 55}")
+    log(f"System: {name}")
+
     if not cif_path.exists():
         log(f"  ERROR: CIF not found: {cif_path}")
         return None
 
     try:
-        crystal   = read_mol_crystal(str(cif_path))
-        base_ase  = crystal.to_ase()
+        crystal = read_mol_crystal(str(cif_path))
+        base_ase = crystal.to_ase()
         base_natoms = len(base_ase)
-        log(f"  Base unit cell: {base_natoms} atoms")
+        log(f"  Base cell: {base_natoms} atoms")
     except Exception as exc:
-        log(f"  ERROR loading CIF: {exc}")
+        log(f"  ERROR loading CIF for {short}: {exc}")
         traceback.print_exc()
         return None
 
-    # ── warmup (fills OS disk cache, initialises JIT, etc.) ───────────────────
-    log("  Warming up …")
+    log("  Warming up ...")
     try:
         run_isolated_benchmark("mck", base_ase, miller, LAYERS, VACUUM)
         run_isolated_benchmark("ase", base_ase, miller, LAYERS, VACUUM)
@@ -223,43 +292,81 @@ def benchmark_system(sys_info: dict) -> dict | None:
         log(f"  Warmup error (non-fatal): {exc}")
 
     result = {
-        "name":        sys_info["name"],
-        "miller":      list(miller),
+        "name": name,
+        "miller": list(miller),
         "base_natoms": base_natoms,
-        "scales":      [],
-        "natoms":      [],
-        "ase_times":   [],
-        "mck_times":   [],
+        "cubic": {
+            "atoms": [],
+            "ase": [],
+            "mck": [],
+        },
+        "linear": {
+            "atoms": [],
+            "pmg": [],
+        },
     }
 
-    for n in SCALES:
+    log("\n  [A] Cubic scaling (n x n x n)")
+    for n in SCALES_CUBIC:
         super_ase = base_ase * (n, n, n)
-        natoms    = len(super_ase)
-        log(f"\n  Scale {n}×{n}×{n} ({natoms} atoms):")
-        result["scales"].append(n)
-        result["natoms"].append(natoms)
+        natoms = len(super_ase)
+        result["cubic"]["atoms"].append(natoms)
+        log(f"  > {n}x{n}x{n} ({natoms} atoms)")
 
-        # ── ASE ───────────────────────────────────────────────────────────────
-        ase_run_times = []
-        for r in range(N_REPEAT):
-            t = run_isolated_benchmark("ase", super_ase, miller, LAYERS, VACUUM)
-            ase_run_times.append(t)
-            if t is not None:
-                log(f"    ASE  run {r + 1}: {t:.4f} s")
+        ase_times = []
+        for run_idx in range(NUM_RUNS):
+            elapsed = run_isolated_benchmark("ase", super_ase, miller, LAYERS, VACUUM)
+            ase_times.append(elapsed)
+            if elapsed is not None:
+                log(f"    ASE run {run_idx + 1}: {elapsed:.4f} s")
             else:
-                log(f"    ASE  run {r + 1}: FAILED")
-        result["ase_times"].append(ase_run_times)
+                log(f"    ASE run {run_idx + 1}: FAILED")
+        result["cubic"]["ase"].append(ase_times)
 
-        # ── MolCrysKit ────────────────────────────────────────────────────────
-        mck_run_times = []
-        for r in range(N_REPEAT):
-            t = run_isolated_benchmark("mck", super_ase, miller, LAYERS, VACUUM)
-            mck_run_times.append(t)
-            if t is not None:
-                log(f"    MCK  run {r + 1}: {t:.4f} s")
+        mck_times = []
+        for run_idx in range(NUM_RUNS):
+            elapsed = run_isolated_benchmark("mck", super_ase, miller, LAYERS, VACUUM)
+            mck_times.append(elapsed)
+            if elapsed is not None:
+                log(f"    MCK run {run_idx + 1}: {elapsed:.4f} s")
             else:
-                log(f"    MCK  run {r + 1}: FAILED")
-        result["mck_times"].append(mck_run_times)
+                log(f"    MCK run {run_idx + 1}: FAILED")
+        result["cubic"]["mck"].append(mck_times)
+
+        del super_ase
+        gc.collect()
+
+    log("\n  [B] Linear scaling (n x 1 x 1) - Pymatgen")
+    pmg_skip_remaining = False
+    for n in SCALES_LINEAR:
+        super_ase = base_ase * (n, 1, 1)
+        natoms = len(super_ase)
+        result["linear"]["atoms"].append(natoms)
+
+        if natoms > PMG_ATOM_LIMIT:
+            result["linear"]["pmg"].append([None] * NUM_RUNS)
+            log(f"  > {n}x1x1 ({natoms} atoms): SKIPPED (>{PMG_ATOM_LIMIT})")
+            del super_ase
+            continue
+
+        if pmg_skip_remaining:
+            result["linear"]["pmg"].append([None] * NUM_RUNS)
+            log(f"  > {n}x1x1 ({natoms} atoms): SKIPPED (previous scale failed)")
+            del super_ase
+            continue
+
+        log(f"  > {n}x1x1 ({natoms} atoms)")
+        pmg_times = []
+        for run_idx in range(NUM_RUNS):
+            elapsed = run_isolated_benchmark("pmg", super_ase, miller, LAYERS, VACUUM)
+            pmg_times.append(elapsed)
+            if elapsed is None:
+                log(f"    PMG run {run_idx + 1}: FAILED/TIMEOUT")
+                pmg_times.extend([None] * (NUM_RUNS - run_idx - 1))
+                pmg_skip_remaining = True
+                break
+            log(f"    PMG run {run_idx + 1}: {elapsed:.4f} s")
+        result["linear"]["pmg"].append(pmg_times)
 
         del super_ase
         gc.collect()
@@ -267,95 +374,80 @@ def benchmark_system(sys_info: dict) -> dict | None:
     return result
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
-
-def collect_metadata() -> dict:
-    meta = {
-        "processor_count":  multiprocessing.cpu_count(),
-        "platform_system":  platform.system(),
-        "platform_release": platform.release(),
-        "python_version":   platform.python_version(),
-        "timestamp":        TIMESTAMP,
-        "cpu_model":        "Unknown",
-    }
-    try:
-        if platform.system() == "Linux":
-            with open("/proc/cpuinfo") as f:
-                for line in f:
-                    if line.startswith("model name"):
-                        meta["cpu_model"] = line.split(":", 1)[1].strip()
-                        break
-        elif platform.system() == "Darwin":
-            import subprocess
-            meta["cpu_model"] = subprocess.check_output(
-                ["sysctl", "-n", "machdep.cpu.brand_string"]
-            ).decode().strip()
-        elif platform.system() == "Windows":
-            import subprocess
-            meta["cpu_model"] = subprocess.check_output(
-                ["wmic", "cpu", "get", "name"], universal_newlines=True
-            ).split("\n")[1].strip()
-    except Exception:
-        pass
-    return meta
-
-
-def main():
+def main() -> dict:
     log("=" * 62)
-    log("Multi-System Slab Generation Benchmark (isolated subprocess)")
-    log(f"Systems : {[s['short'] for s in SYSTEMS]}")
-    log(f"Scales  : {SCALES} (cubic n×n×n)  |  repeats: {N_REPEAT}")
+    log("Multi-System Slab Generation Benchmark")
+    log(f"Systems       : {[system['short'] for system in SYSTEMS]}")
+    log(f"Cubic scales  : {SCALES_CUBIC} (MCK + ASE)")
+    log(f"Linear scales : {SCALES_LINEAR} (Pymatgen)")
+    log(f"Repeats       : {NUM_RUNS}")
     log("=" * 62)
 
-    meta    = collect_metadata()
-    log(f"System  : {meta['cpu_model']}")
+    metadata = collect_metadata()
+    log(f"CPU: {metadata['cpu_model']}")
 
-    all_results: dict = {}
-
+    results = {}
     for sys_info in SYSTEMS:
-        log(f"\n{'─' * 50}")
-        log(f"Benchmarking: {sys_info['short']}  ({sys_info['name']})")
-        res = benchmark_system(sys_info)
-        if res is not None:
-            all_results[sys_info["short"]] = res
+        system_result = benchmark_system(sys_info)
+        if system_result is None:
+            results[sys_info["short"]] = {
+                "error": f"Failed to benchmark {sys_info['name']}",
+            }
         else:
-            log(f"  SKIPPED: {sys_info['short']}")
+            results[sys_info["short"]] = system_result
 
-    # ── save JSON ─────────────────────────────────────────────────────────────
-    output = {"metadata": meta, "systems": all_results}
-    out_path = RESULTS_DIR / "multi_system_benchmark.json"
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
-    log(f"\nResults saved: {out_path}")
+        checkpoint = save_results(metadata, results)
+        log(f"  [checkpoint] Results saved after {sys_info['short']}: {checkpoint}")
 
-    # ── summary table ─────────────────────────────────────────────────────────
+    final_path = save_results(metadata, results)
+    log(f"\nResults saved: {final_path}")
+
     log("\n" + "=" * 62)
     log("SUMMARY")
     log("=" * 62)
-    for short, res in all_results.items():
-        log(f"\n{res['name']}  (Miller {res['miller']}):")
-        log(f"  {'Scale':>6}  {'Atoms':>7}  {'MCK (s)':>11}  {'ASE (s)':>11}  {'Ratio':>7}")
-        log(f"  {'─'*6}  {'─'*7}  {'─'*11}  {'─'*11}  {'─'*7}")
-        for i, n in enumerate(res["scales"]):
-            natoms = res["natoms"][i]
-            mck_t  = [t for t in res["mck_times"][i] if t is not None]
-            ase_t  = [t for t in res["ase_times"][i]  if t is not None]
-            mck_s  = f"{np.mean(mck_t):.3f}" if mck_t else "N/A"
-            ase_s  = f"{np.mean(ase_t):.4f}" if ase_t else "N/A"
-            ratio  = (f"{np.mean(mck_t) / np.mean(ase_t):.1f}×"
-                      if mck_t and ase_t else "N/A")
-            log(f"  {n:>5}×  {natoms:>7}  {mck_s:>11}  {ase_s:>11}  {ratio:>7}")
+    for short, result in results.items():
+        if "error" in result:
+            log(f"{short}: ERROR - {result['error']}")
+            continue
 
-    return output
+        log(f"\n{result['name']} (Miller {result['miller']}):")
+        log("  Cubic (MCK vs ASE):")
+        log(f"  {'n':>4}  {'atoms':>7}  {'MCK (s)':>10}  {'ASE (s)':>10}  {'ratio':>7}")
+        for idx, n in enumerate(SCALES_CUBIC):
+            natoms = result["cubic"]["atoms"][idx]
+            mck_values = [t for t in result["cubic"]["mck"][idx] if t is not None]
+            ase_values = [t for t in result["cubic"]["ase"][idx] if t is not None]
+            mck_mean = f"{np.mean(mck_values):.3f}" if mck_values else "N/A"
+            ase_mean = f"{np.mean(ase_values):.4f}" if ase_values else "N/A"
+            ratio = (
+                f"{np.mean(mck_values) / np.mean(ase_values):.1f}x"
+                if mck_values and ase_values
+                else "N/A"
+            )
+            log(f"  {n:>4}x  {natoms:>7}  {mck_mean:>10}  {ase_mean:>10}  {ratio:>7}")
 
+        log("  Linear (Pymatgen):")
+        for idx, n in enumerate(SCALES_LINEAR):
+            natoms = result["linear"]["atoms"][idx]
+            pmg_values = [t for t in result["linear"]["pmg"][idx] if t is not None]
+            pmg_mean = f"{np.mean(pmg_values):.4f}" if pmg_values else "SKIPPED"
+            log(f"  {n:>4}x1x1  {natoms:>7}  PMG: {pmg_mean}")
 
-# ── entry point ───────────────────────────────────────────────────────────────
+    return {"metadata": metadata, "systems": results}
+
 
 if __name__ == "__main__":
-    # 'spawn' is required on all platforms so child processes do NOT inherit
-    # the parent's import state, ensuring a truly clean timing environment.
-    multiprocessing.set_start_method("spawn", force=True)
-    multiprocessing.freeze_support()   # harmless no-op on non-Windows
+    multiprocessing.freeze_support()
+
+    if multiprocessing.get_start_method(allow_none=True) is None:
+        preferred_method = "spawn" if platform.system() == "Windows" else "fork"
+        try:
+            multiprocessing.set_start_method(preferred_method)
+        except (RuntimeError, ValueError):
+            try:
+                multiprocessing.set_start_method("spawn")
+            except RuntimeError:
+                pass
 
     try:
         main()
