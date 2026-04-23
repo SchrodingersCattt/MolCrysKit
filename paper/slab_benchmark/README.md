@@ -35,6 +35,7 @@ This analysis supports **Figure 4a2** in the manuscript.
 | `plot_benchmark.py` | Figure 4a2 generation |
 | `results/multi_system_benchmark.json` | Timing data (MolCrysKit, ASE, Pymatgen) |
 | `slab_examples/` | CIF inputs for HXACAN, OCHTET12, and DAP-M4 |
+| `bohrium_submit/submit_bohrium.py` | dpdispatcher driver used to run the benchmark on Bohrium Cloud |
 
 ## Reproduction
 
