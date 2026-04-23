@@ -404,10 +404,40 @@ class DisorderSolver:
 
         picked_atoms = []
         picked_unit = []
+
+        # Guard: when there are at least `max_h` distinct crystallographic H
+        # sites around this centre (distinct asym_ids), each valid orientation
+        # of the XHn motif uses exactly one H per site.  Enforce "one pick per
+        # asym_id" so that the greedy never selects two copies of the same
+        # disorder position (e.g. two H1D atoms pointing in slightly different
+        # but near-parallel directions) before exhausting the other sites.
+        #
+        # When fewer distinct asym_ids are present (e.g. DAP-4 NH4+ where only
+        # H3A and H3B label two sites but a valid tetrahedron uses 3×H3A +
+        # 1×H3B), enforcing the guard would incorrectly cap the count at 2.
+        # In that case we fall back to the original angle-only heuristic.
+        has_asym = bool(self.info.asym_id)
+        if has_asym:
+            candidate_asym_ids = {
+                self.info.asym_id[h_singletons[j]]
+                for j in near_local
+                if h_singletons[j] < len(self.info.asym_id)
+            }
+            enforce_one_per_asym = len(candidate_asym_ids) >= max_h
+        else:
+            enforce_one_per_asym = False
+        picked_asym_ids: set = set()
+
         for j in sorted_local:
             if len(picked_atoms) >= max_h:
                 break
             h = h_singletons[j]
+
+            # One H per crystallographic site (when enough distinct sites exist).
+            if enforce_one_per_asym and h < len(self.info.asym_id):
+                h_asym = self.info.asym_id[h]
+                if h_asym in picked_asym_ids:
+                    continue
 
             has_hard = False
             for p in picked_atoms:
@@ -432,6 +462,8 @@ class DisorderSolver:
 
             picked_atoms.append(h)
             picked_unit.append(uv)
+            if enforce_one_per_asym and h < len(self.info.asym_id):
+                picked_asym_ids.add(self.info.asym_id[h])
 
         if reject_soft and picked_atoms:
             motif_atoms = [c_idx] + picked_atoms
@@ -667,10 +699,18 @@ class DisorderSolver:
         for independent_set in independent_sets:
             cleaned_sets.append(self._remove_orphan_hydrogens(independent_set))
 
-        # Reconstruct crystals
+        # Reconstruct crystals and run valence-completeness diagnostics
+        from .diagnostics import check_valence_completeness
+
         crystals = []
         for independent_set in cleaned_sets:
             crystal = self._reconstruct_crystal(independent_set)
+            issues = check_valence_completeness(crystal, self.info)
+            if issues:
+                for issue in issues:
+                    logger.warning(
+                        "Valence-completeness check: %s", issue
+                    )
             crystals.append(crystal)
 
         return crystals
