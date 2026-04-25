@@ -115,6 +115,14 @@ CASES: list[CifCase] = [
     # implicit_sp / valence_geometry) conflicts when reconstructing isolated
     # X(H)_n centres.  Full PAP-4 solve takes ~60 s on this machine.
     CifCase("PAP-4", "PAP-4.cif", 304, timeout=180),
+    # DAI-4: two chemically equivalent NH4+ sites encoded with different CIF
+    # styles (N1 implicit SHELX riding-H vs N4 explicit disorder_assembly
+    # tags).  Regression guard for the "motif merge picks same-asym_id H
+    # twice" bug where N1 sites were resolved as NH3 instead of NH4+.
+    CifCase("DAI-4", "DAI-4.cif", 336),
+    # DAP-7: hydrazinium/diaminopropane salt with 2 N per cation.  Checks
+    # that the motif merge still handles multi-N cations correctly.
+    CifCase("DAP-7", "DAP-7.cif", 82),
 ]
 
 
@@ -237,4 +245,56 @@ def test_dap4_topology(examples_dir: str):
     assert n_atoms == 336
     assert formulas.get("C6H14N2", 0) == 8
     assert formulas.get("Cl1O4", 0) == 24
-    assert formulas.get("H4N1", 0) == 8
+    # Each ammonium must have exactly 4 H (not 3 as in the pre-fix regression).
+    assert formulas.get("H4N1", 0) == 8, (
+        f"Expected 8 × NH4+ (H4N1), got: {dict(formulas)}"
+    )
+
+
+def test_dai4_topology(examples_dir: str):
+    """DAI-4: both implicit-tagged (N1) and explicit-tagged (N4) NH4+ sites
+    must resolve to H4N1.
+
+    This is the primary regression guard for the motif-merge bug where
+    the greedy loop picked 3× H1D (same asym_id) for N1, producing NH3
+    instead of NH4+.
+    """
+    cif = os.path.join(examples_dir, "DAI-4.cif")
+    if not os.path.exists(cif):
+        pytest.skip("DAI-4.cif not found")
+
+    _, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 336, f"Expected 336 atoms, got {n_atoms}"
+    assert formulas.get("C6H14N2", 0) == 8, (
+        f"Expected 8 × C6H14N2 cation, got: {dict(formulas)}"
+    )
+    assert formulas.get("I1O4", 0) == 24, (
+        f"Expected 24 × IO4- anion, got: {dict(formulas)}"
+    )
+    # This is the key assertion: all 8 ammonium sites (4 N1 + 4 N4) must
+    # have 4 H each.  Before the fix, N1 sites were resolved as H3N1 (NH3).
+    assert formulas.get("H4N1", 0) == 8, (
+        f"Expected 8 × NH4+ (H4N1), got: {dict(formulas)} — "
+        "likely the same-asym_id greedy regression"
+    )
+
+
+def test_dap7_topology(examples_dir: str):
+    """DAP-7: diaminopropane/hydrazinium salt.
+
+    Checks that multi-N cation motifs are still resolved correctly after
+    the motif-merge asym_id guard was introduced.
+    """
+    cif = os.path.join(examples_dir, "DAP-7.cif")
+    if not os.path.exists(cif):
+        pytest.skip("DAP-7.cif not found")
+
+    _, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 82, f"Expected 82 atoms, got {n_atoms}"
+    assert formulas.get("Cl1O4", 0) == 6, (
+        f"Expected 6 × ClO4- anion, got: {dict(formulas)}"
+    )
+    # Hydrazinium/diaminopropane cation: H6N2 (6 H across 2 N atoms).
+    assert formulas.get("H6N2", 0) == 1, (
+        f"Expected 1 × H6N2 cation, got: {dict(formulas)}"
+    )
