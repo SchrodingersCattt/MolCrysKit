@@ -102,7 +102,10 @@ CASES: list[CifCase] = [
     CifCase("MAF-4", "MAF-4.cif", 369),
     CifCase("DAN-2", "DAN-2.cif", 35),
     CifCase("PAP-H4", "PAP-H4.cif", 656),
-    CifCase("368K", "368K.cif", 80),  # 4 isolated Br- counter-ions are fine
+    # 368K: 4-fluorophenethylammonium bromide.  The cation is encoded as
+    # PART -1 on a mirror plane; SP-completion keeps both half-images,
+    # snaps overlapping atoms, and removes/refits ghost hydrogens.
+    CifCase("368K", "368K.cif", 88),  # 4 isolated Br- counter-ions are fine
     CifCase("DAI-X1", "DAI-X1.cif", 112),
     # ZIF-8: 40 orphan O atoms are solvent waters whose H atoms are not
     # refined in the CIF (labels O1S/O2S/O3S, where -S is SHELXL's

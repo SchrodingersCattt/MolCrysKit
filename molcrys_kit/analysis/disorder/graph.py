@@ -38,6 +38,8 @@ class DisorderGraphBuilder:
         self.lattice = lattice
         self.graph = nx.Graph()
         self.conformers = []
+        self.sp_completion_pairs = []
+        self._sp_completion_pair_keys = set()
 
         # Add nodes
         for i in range(len(info.labels)):
@@ -81,11 +83,13 @@ class DisorderGraphBuilder:
         Build the exclusion graph using the Conformer-Centric Architecture.
         """
         self._identify_conformers()
+        self._identify_sp_completion_pairs()
         self._add_conformer_conflicts()
         self._add_explicit_conflicts()
         self._add_geometric_conflicts()
         self._add_implicit_sp_conflicts()
         self._resolve_valence_conflicts()
+        self.graph.graph["sp_completion_pairs"] = self.sp_completion_pairs
         return self.graph
 
     def _identify_conformers(self):
@@ -180,13 +184,104 @@ class DisorderGraphBuilder:
         # Wrap back to unit cell
         return mean_coord - np.floor(mean_coord)
 
+    def _conformer_pair_key(self, atoms_a, atoms_b):
+        return frozenset((frozenset(atoms_a), frozenset(atoms_b)))
+
+    def _is_sp_completion_pair(self, atoms_a, atoms_b) -> bool:
+        return self._conformer_pair_key(atoms_a, atoms_b) in self._sp_completion_pair_keys
+
+    def _sp_completion_match_fraction(self, atoms_a, atoms_b) -> float:
+        """
+        Fraction of atoms in ``atoms_a`` that have a same-label near partner in
+        ``atoms_b``.  Whole-molecule PART -n disorder on a special position has
+        many nearly overlapping symmetry mates plus a few off-mirror atoms that
+        complete the molecule; ordinary ghost clashes do not.
+        """
+        if not atoms_a or not atoms_b:
+            return 0.0
+
+        matches = 0
+        for aa in atoms_a:
+            best = np.inf
+            root = self.root_labels[aa]
+            for bb in atoms_b:
+                if self.root_labels[bb] != root:
+                    continue
+                dist = self.dist_matrix[aa, bb]
+                if dist < best:
+                    best = dist
+            if best < DISORDER_CONFIG["SP_COMPLETION_MATCH_DISTANCE"]:
+                matches += 1
+
+        return matches / len(atoms_a)
+
+    def _identify_sp_completion_pairs(self):
+        """
+        Mark symmetry-related negative-PART conformers that represent a single
+        molecule straddling a special position, rather than mutually-exclusive
+        ghost copies.
+        """
+        self.sp_completion_pairs = []
+        self._sp_completion_pair_keys = set()
+
+        for i, conf_a in enumerate(self.conformers):
+            for j, conf_b in enumerate(self.conformers):
+                if i >= j:
+                    continue
+
+                atoms_a = list(conf_a)
+                atoms_b = list(conf_b)
+                if not atoms_a or not atoms_b:
+                    continue
+                if (
+                    min(len(atoms_a), len(atoms_b))
+                    < DISORDER_CONFIG["SP_COMPLETION_MIN_ATOMS"]
+                ):
+                    continue
+                min_occ = min(
+                    self.info.occupancies[atom]
+                    for atom in atoms_a + atoms_b
+                    if atom < len(self.info.occupancies)
+                )
+                if min_occ < DISORDER_CONFIG["SP_COMPLETION_MIN_OCCUPANCY"]:
+                    continue
+
+                part_a = self.info.disorder_groups[atoms_a[0]]
+                part_b = self.info.disorder_groups[atoms_b[0]]
+                if part_a != part_b or part_a >= 0:
+                    continue
+                if not self._has_different_symmetry_provenance(atoms_a, atoms_b):
+                    continue
+
+                centroid_a = self._get_robust_centroid(atoms_a)
+                centroid_b = self._get_robust_centroid(atoms_b)
+                diff_vec = centroid_a - centroid_b
+                diff_vec = diff_vec - np.round(diff_vec)
+                centroid_dist = np.linalg.norm(np.dot(diff_vec, self.lattice))
+                if centroid_dist >= DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]:
+                    continue
+
+                match_fraction = max(
+                    self._sp_completion_match_fraction(atoms_a, atoms_b),
+                    self._sp_completion_match_fraction(atoms_b, atoms_a),
+                )
+                if not (
+                    DISORDER_CONFIG["SP_COMPLETION_MIN_MATCH_FRAC"]
+                    <= match_fraction
+                    <= DISORDER_CONFIG["SP_COMPLETION_MAX_MATCH_FRAC"]
+                ):
+                    continue
+
+                key = self._conformer_pair_key(atoms_a, atoms_b)
+                if key in self._sp_completion_pair_keys:
+                    continue
+                self._sp_completion_pair_keys.add(key)
+                self.sp_completion_pairs.append((tuple(sorted(atoms_a)), tuple(sorted(atoms_b))))
+
     def _add_conformer_conflicts(self):
         """
         Add conflicts using Dual-Track Logic with Bonded Immunity for Framework.
         """
-        SITE_RADIUS = 3.0
-        GHOST_CLASH_THRESHOLD = 2.0
-
         for i, conf_a in enumerate(self.conformers):
             for j, conf_b in enumerate(self.conformers):
                 if i >= j:
@@ -224,7 +319,7 @@ class DisorderGraphBuilder:
                 centroid_dist = np.linalg.norm(cart_dist_vec)
 
                 if part_a != part_b:
-                    if centroid_dist < SITE_RADIUS:
+                    if centroid_dist < DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]:
                         # For NEGATIVE PART groups (e.g. -1 vs -2 in same
                         # assembly), the assembly label is shared across ALL
                         # symmetry copies of the disordered fragment, so
@@ -256,11 +351,16 @@ class DisorderGraphBuilder:
                 is_diff_sym = self._has_different_symmetry_provenance(atoms_a, atoms_b)
 
                 if part_a == part_b and is_diff_sym:
-                    if centroid_dist < SITE_RADIUS:
+                    if centroid_dist < DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]:
+                        if self._is_sp_completion_pair(atoms_a, atoms_b):
+                            continue
                         has_clash = False
                         for aa in atoms_a:
                             for bb in atoms_b:
-                                if self.dist_matrix[aa, bb] < GHOST_CLASH_THRESHOLD:
+                                if (
+                                    self.dist_matrix[aa, bb]
+                                    < DISORDER_CONFIG["SYMMETRY_GHOST_CLASH_THRESHOLD"]
+                                ):
                                     has_clash = True
                                     break
                             if has_clash:

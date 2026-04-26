@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import networkx as nx
 import random
+import re
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
+from ...constants.config import DISORDER_CONFIG
 from ...analysis.interactions import get_bonding_threshold
 
 
@@ -599,6 +601,251 @@ class DisorderSolver:
 
         return independent_set
 
+    def _root_label(self, atom_idx: int) -> str:
+        label = self.info.labels[atom_idx]
+        match = re.match(r"([A-Za-z]+[0-9]*)", label)
+        return match.group(1) if match else label
+
+    def _minimum_image_distance(self, atom_a: int, atom_b: int) -> float:
+        diff = self.info.frac_coords[atom_a] - self.info.frac_coords[atom_b]
+        diff = diff - np.round(diff)
+        return float(np.linalg.norm(np.dot(diff, self.lattice)))
+
+    def _bond_threshold(self, atom_a: int, atom_b: int) -> float:
+        symbol_a = self.info.symbols[atom_a]
+        symbol_b = self.info.symbols[atom_b]
+        radius_a = get_atomic_radius(symbol_a) if has_atomic_radius(symbol_a) else 0.5
+        radius_b = get_atomic_radius(symbol_b) if has_atomic_radius(symbol_b) else 0.5
+        return get_bonding_threshold(
+            radius_a,
+            radius_b,
+            is_metal_element(symbol_a),
+            is_metal_element(symbol_b),
+        )
+
+    def _bonded_neighbors(self, atom_idx: int, selected: set[int]) -> list[int]:
+        neighbors = []
+        for other in selected:
+            if other == atom_idx:
+                continue
+            if self._minimum_image_distance(atom_idx, other) < self._bond_threshold(atom_idx, other):
+                neighbors.append(other)
+        return neighbors
+
+    def _snap_atom_to_partner(self, kept_atom: int, partner_atom: int) -> None:
+        kept = self.info.frac_coords[kept_atom]
+        partner = self.info.frac_coords[partner_atom]
+        diff = partner - kept
+        diff = diff - np.round(diff)
+        self.info.frac_coords[kept_atom] = (kept + 0.5 * diff) % 1.0
+
+    def _place_h_away_from_anchor_neighbors(
+        self, h_atom: int, anchor_atom: int, selected: set[int]
+    ) -> None:
+        anchor_frac = self.info.frac_coords[anchor_atom]
+        anchor_cart = np.dot(anchor_frac, self.lattice)
+        seed_direction = np.zeros(3)
+
+        for neighbor in self._bonded_neighbors(anchor_atom, selected):
+            if neighbor == h_atom:
+                continue
+            neigh_frac = self.info.frac_coords[neighbor]
+            diff = neigh_frac - anchor_frac
+            diff = diff - np.round(diff)
+            vec = np.dot(diff, self.lattice)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                seed_direction -= vec / norm
+
+        directions = []
+        norm = np.linalg.norm(seed_direction)
+        if norm > 0:
+            directions.append(seed_direction / norm)
+
+        # Deterministic low-cost sphere search.  This is only used for rare
+        # SP-completion H cleanup, so a few dozen trial directions are enough.
+        for x in (-1.0, 0.0, 1.0):
+            for y in (-1.0, 0.0, 1.0):
+                for z in (-1.0, 0.0, 1.0):
+                    vec = np.array([x, y, z], dtype=float)
+                    norm = np.linalg.norm(vec)
+                    if norm > 0:
+                        directions.append(vec / norm)
+
+        inv_lattice = np.linalg.inv(self.lattice)
+        best_frac = None
+        best_score = -np.inf
+        original_frac = self.info.frac_coords[h_atom].copy()
+
+        for direction in directions:
+            new_cart = (
+                anchor_cart
+                + direction * DISORDER_CONFIG["SP_COMPLETION_RELOCATED_C_H_DISTANCE"]
+            )
+            new_frac = np.dot(new_cart, inv_lattice) % 1.0
+            self.info.frac_coords[h_atom] = new_frac
+
+            min_margin = np.inf
+            for other in selected:
+                if other in (h_atom, anchor_atom):
+                    continue
+                dist = self._minimum_image_distance(h_atom, other)
+                threshold = self._bond_threshold(h_atom, other)
+                min_margin = min(min_margin, dist - threshold)
+
+            if min_margin > best_score:
+                best_score = min_margin
+                best_frac = new_frac.copy()
+            if min_margin > 0.05:
+                break
+
+        self.info.frac_coords[h_atom] = best_frac if best_frac is not None else original_frac
+
+    def _apply_sp_completion(self, independent_set: List[int]) -> List[int]:
+        """
+        Complete negative-PART fragments that straddle a special position.
+
+        The graph builder records conformer pairs where most same-label atoms
+        are nearly overlapping symmetry mates.  MWIS either keeps one half or
+        both halves; in both cases we collapse the overlapping sites onto their
+        average position and retain only the non-overlapping partner atoms that
+        complete the molecule.
+        """
+        pairs = self.graph.graph.get("sp_completion_pairs", [])
+        if not pairs:
+            return independent_set
+
+        selected = set(independent_set)
+        ordered = list(independent_set)
+
+        for raw_a, raw_b in pairs:
+            conf_a = set(raw_a)
+            conf_b = set(raw_b)
+            hit_a = selected & conf_a
+            hit_b = selected & conf_b
+            if not hit_a and not hit_b:
+                continue
+
+            if len(hit_b) > len(hit_a):
+                kept, partner = conf_b, conf_a
+            else:
+                kept, partner = conf_a, conf_b
+
+            snapped_partners = set()
+            for kept_atom in sorted(kept):
+                if kept_atom not in selected:
+                    continue
+                best_atom = None
+                best_dist = np.inf
+                kept_root = self._root_label(kept_atom)
+                for partner_atom in partner:
+                    if self._root_label(partner_atom) != kept_root:
+                        continue
+                    dist = self._minimum_image_distance(kept_atom, partner_atom)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_atom = partner_atom
+                if (
+                    best_atom is None
+                    or best_dist >= DISORDER_CONFIG["SP_COMPLETION_MATCH_DISTANCE"]
+                ):
+                    continue
+
+                self._snap_atom_to_partner(kept_atom, best_atom)
+                snapped_partners.add(best_atom)
+
+            for partner_atom in sorted(snapped_partners):
+                selected.discard(partner_atom)
+
+            for partner_atom in sorted(partner - snapped_partners):
+                if partner_atom not in selected:
+                    selected.add(partner_atom)
+                    ordered.append(partner_atom)
+
+        return [atom for atom in ordered if atom in selected]
+
+    def _remove_too_close_sp_hydrogens(self, independent_set: List[int]) -> List[int]:
+        if not self.graph.graph.get("sp_completion_pairs"):
+            return independent_set
+
+        selected = set(independent_set)
+        to_remove = set()
+        heavy_atoms = [a for a in selected if self.info.symbols[a] not in ("H", "D")]
+        for h_atom in [a for a in selected if self.info.symbols[a] in ("H", "D")]:
+            for heavy_atom in heavy_atoms:
+                if (
+                    self._minimum_image_distance(h_atom, heavy_atom)
+                    < DISORDER_CONFIG["SP_COMPLETION_TOO_CLOSE_H_DISTANCE"]
+                ):
+                    to_remove.add(h_atom)
+                    break
+
+        if to_remove:
+            logger.debug(
+                "Removing %d SP-completion H atom(s) too close to heavy atoms: %s",
+                len(to_remove),
+                sorted(to_remove),
+            )
+        return [atom for atom in independent_set if atom not in to_remove]
+
+    def _relocate_overcoord_sp_hydrogens(self, independent_set: List[int]) -> List[int]:
+        if not self.graph.graph.get("sp_completion_pairs"):
+            return independent_set
+
+        selected = set(independent_set)
+        max_coord = {"C": 4, "N": 4, "O": 3}
+
+        for carbon in sorted(a for a in selected if self.info.symbols[a] == "C"):
+            neighbors = self._bonded_neighbors(carbon, selected)
+            if len(neighbors) <= max_coord["C"]:
+                continue
+
+            h_neighbors = [
+                n for n in neighbors if self.info.symbols[n] in ("H", "D")
+            ]
+            if not h_neighbors:
+                continue
+
+            undercoord_carbons = []
+            for candidate in selected:
+                if candidate == carbon or self.info.symbols[candidate] != "C":
+                    continue
+                cand_neighbors = self._bonded_neighbors(candidate, selected)
+                if len(cand_neighbors) >= max_coord["C"]:
+                    continue
+                undercoord_carbons.append(candidate)
+
+            moved = False
+            for h_atom in sorted(
+                h_neighbors,
+                key=lambda h: self._minimum_image_distance(carbon, h),
+                reverse=True,
+            ):
+                targets = [
+                    c for c in undercoord_carbons
+                    if (
+                        self._minimum_image_distance(h_atom, c)
+                        < DISORDER_CONFIG["SP_COMPLETION_UNDERCOORD_H_SEARCH"]
+                    )
+                ]
+                if not targets:
+                    continue
+                target = min(
+                    targets,
+                    key=lambda c: self._minimum_image_distance(h_atom, c),
+                )
+                self._place_h_away_from_anchor_neighbors(h_atom, target, selected)
+                moved = True
+                break
+
+            if moved:
+                logger.debug(
+                    "Relocated an SP-completion H from over-coordinated C%d",
+                    carbon,
+                )
+
+        return independent_set
+
     def solve(
         self, num_structures: int = 1, method: str = "optimal"
     ) -> List[MolecularCrystal]:
@@ -697,7 +944,10 @@ class DisorderSolver:
         # disorder (e.g., MAF-4) where O and H are clustered independently.
         cleaned_sets = []
         for independent_set in independent_sets:
-            cleaned_sets.append(self._remove_orphan_hydrogens(independent_set))
+            completed_set = self._apply_sp_completion(independent_set)
+            completed_set = self._remove_too_close_sp_hydrogens(completed_set)
+            cleaned_set = self._remove_orphan_hydrogens(completed_set)
+            cleaned_sets.append(self._relocate_overcoord_sp_hydrogens(cleaned_set))
 
         # Reconstruct crystals and run valence-completeness diagnostics
         from .diagnostics import check_valence_completeness
