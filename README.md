@@ -168,6 +168,55 @@ Your files will be accessible at `/workspace/my_data/` inside the container.
 
 For detailed architecture, tutorials, and API reference, please see the [`docs/`](docs/) directory.
 
+### Disorder Handling: Explicit vs Implicit Path Compatibility
+
+MolCrysKit resolves crystallographic disorder through two complementary paths
+that are designed to be fully compatible:
+
+**Explicit path** (`_add_explicit_conflicts` + `_add_conformer_conflicts`):
+Processes atoms tagged with `_atom_site_disorder_assembly` / `_atom_site_disorder_group`
+in the CIF (e.g. SHELXL `PART` groups).  Mutual-exclusion edges are added for
+atoms in different groups of the same assembly.  Hydrogen atoms bonded to an
+explicit-disorder centre inherit the centre's group tag and are resolved together
+with it.
+
+**Implicit SP path** (`_add_implicit_sp_conflicts` + `_resolve_valence_conflicts`):
+Processes partial-occupancy atoms on crystallographic special positions that carry
+*no* disorder tags (common in SHELX riding-H refinements).  The algorithm
+clusters copies of each asymmetric-unit site by proximity and adds mutual-exclusion
+edges within each cluster.  For heavy atoms (N, P, S) with sufficient copies
+around them, a tetrahedral/trigonal decomposition (`_sp_tetrahedral_single`) finds
+geometrically valid orientation combinations and adds cross-cluster compatibility
+constraints.
+
+**Motif merge post-pass** (`_merge_chemical_motifs`):
+After the Maximum-Weight Independent Set is solved, isolated XH_n centres
+(e.g. NH4+, H2O) are reconstructed by a greedy distance- and angle-sorted H
+selection.  Soft conflict edges (`valence_geometry`, `implicit_sp`, `geometric`)
+are ignored here so that the strongly disordered SP-position motifs are not
+excluded wholesale.  A key guard enforces **one H per crystallographic site
+(asym_id)** when at least `max_H` distinct asym_ids are present: this prevents
+the greedy from picking multiple copies of the same SHELX H position (which point
+in nearly identical directions) before exhausting the other sites.
+
+**Known-compatible CIF styles for NH4+:**
+
+| Style | Example | Tags | Resolution path |
+|---|---|---|---|
+| Explicit PART groups (`dg=-1`) | DAI-4 N4 | `disorder_assembly=A/B/C/D`, `disorder_group=-1` | Explicit path |
+| Implicit SHELX riding-H (`dg=0`) | DAI-4 N1 | No tags, `occ=1/sso`, `sso>1` | Implicit SP + motif merge |
+| High-multiplicity SP (24 orientations) | PAP-4 | `occ=1/24`, no tags | Implicit SP + motif merge |
+
+Both styles produce correct NH4+ (4 H per nitrogen) after resolution.
+
+**Valence-completeness diagnostics:**
+`DisorderSolver.solve()` automatically calls
+`molcrys_kit.analysis.disorder.diagnostics.check_valence_completeness` on
+each resolved structure.  If an isolated N or O centre has an H count outside
+the expected range (N: 3–4; O: 0–2), a `WARNING` is emitted via the standard
+logging system.  This catch-all does not modify the structure; it only makes
+potential resolution artefacts visible.
+
 ## Project Structure
 
 See the [`molcrys_kit/`](molcrys_kit/) directory for source code and the [`scripts/`](scripts/) directory for utility scripts (e.g. disorder diagnostics, molecule identification, CIF processing).

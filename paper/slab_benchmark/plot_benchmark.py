@@ -12,14 +12,13 @@ Visual encoding:
 Layout: figsize=(12, 3), sharey=True, fontsize=12, Arial
 
 Data source:
-  bohrium_submit/multi_system_benchmark.json  (produced by slab_efficiency.py)
-  fallback: results/multi_system_benchmark.json
+  results/multi_system_benchmark.json
+  (committed Bohrium benchmark result mirrored into this paper directory)
 
 Output: results/multi_system_benchmark_figure.pdf / .png
 """
 
 import json
-import math
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -28,8 +27,7 @@ from pathlib import Path
 
 # ── paths ──────────────────────────────────────────────────────────────────────
 RESULTS_DIR = Path(__file__).parent / "results"
-_bohrium_json = Path(__file__).parent / "bohrium_submit" / "multi_system_benchmark.json"
-DATA_FILE = _bohrium_json if _bohrium_json.exists() else RESULTS_DIR / "multi_system_benchmark.json"
+DATA_FILE = RESULTS_DIR / "multi_system_benchmark.json"
 
 # ── global style ──────────────────────────────────────────────────────────────
 FS = 16  # base font size
@@ -72,27 +70,14 @@ def _parse(atom_list, times_list):
     return np.asarray(x, float), np.asarray(y, float), np.asarray(e, float)
 
 
-def _power_law_fit(x, y):
-    """Fit log y = alpha * log x + c; return (alpha, A) or None."""
-    if len(x) < 3:
-        return None
-    try:
-        c = np.polyfit(np.log(x), np.log(y), 1)
-        return c[0], math.exp(c[1])
-    except Exception:
-        return None
-
-
 # ── load + normalise data ──────────────────────────────────────────────────────
 with open(DATA_FILE, "r") as _f:
     raw = json.load(_f)
 
 if "systems" in raw:
     systems_data = raw["systems"]
-    metadata     = raw.get("metadata", {})
 else:
     systems_data = raw
-    metadata     = {}
 
 def _normalise(res: dict) -> dict:
     """Convert old flat format to new cubic/linear nested format."""

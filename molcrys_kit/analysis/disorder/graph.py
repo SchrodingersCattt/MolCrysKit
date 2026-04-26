@@ -549,12 +549,44 @@ class DisorderGraphBuilder:
         # Pre-compute: for each H atom with dg=0, occ<1, find if it has a
         # full-occupancy bonded non-H center.  If so, valence decomposition
         # from that center will handle it; exclude from SP clustering.
+        #
+        # Exception: "multi-site" SP disorder.  When a group of symmetry-
+        # equivalent H copies (same asym_id) has round(n_copies * occ) > 1,
+        # the H is NOT pure orientational disorder about a single center
+        # (DAP-4 NH4+ case, round(4 * 0.25) = 1).  It is genuine multi-site
+        # SP disorder where only a subset of the copies coexist (DAP-7
+        # hydrazinium H1C case, round(4 * 0.5) = 2).  Valence decomposition
+        # cannot resolve this because it only sees one center at a time;
+        # include such H atoms in SP clustering so pairwise conflicts are
+        # added correctly.
         h_needs_sp_clustering = set()
         n_atoms = len(self.info.labels)
+
+        h_asym_copies: dict = defaultdict(list)
+        for i in range(n_atoms):
+            if (self.info.symbols[i] in ("H", "D")
+                    and self.info.disorder_groups[i] == 0
+                    and 0 < self.info.occupancies[i] < 1.0
+                    and i < len(self.info.asym_id)):
+                h_asym_copies[self.info.asym_id[i]].append(i)
+
+        multi_site_h: set = set()
+        for asym_id, h_indices in h_asym_copies.items():
+            n_copies = len(h_indices)
+            if n_copies < 2:
+                continue
+            occ = self.info.occupancies[h_indices[0]]
+            n_sites = max(1, round(n_copies * occ))
+            if n_sites > 1:
+                multi_site_h.update(h_indices)
+
         for i in range(n_atoms):
             if (self.info.symbols[i] in ("H", "D")
                     and self.info.disorder_groups[i] == 0
                     and 0 < self.info.occupancies[i] < 1.0):
+                if i in multi_site_h:
+                    h_needs_sp_clustering.add(i)
+                    continue
                 # Check if any bonded non-H neighbor has full occupancy
                 has_full_occ_center = False
                 for j in range(n_atoms):
