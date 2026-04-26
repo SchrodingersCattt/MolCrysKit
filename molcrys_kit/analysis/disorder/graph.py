@@ -27,14 +27,6 @@ from ...utils.geometry import (
 
 logger = logging.getLogger(__name__)
 
-SP_COMPLETION_SITE_RADIUS = 3.0
-SP_COMPLETION_DISTANCE = 1.5
-SP_COMPLETION_FRAC = 0.55
-SP_COMPLETION_MAX_FRAC = 0.75
-SP_COMPLETION_MIN_ATOMS = 10
-SP_COMPLETION_MIN_OCCUPANCY = 0.25
-GHOST_CLASH_THRESHOLD = 2.0
-
 
 class DisorderGraphBuilder:
     """
@@ -218,7 +210,7 @@ class DisorderGraphBuilder:
                 dist = self.dist_matrix[aa, bb]
                 if dist < best:
                     best = dist
-            if best < SP_COMPLETION_DISTANCE:
+            if best < DISORDER_CONFIG["SP_COMPLETION_MATCH_DISTANCE"]:
                 matches += 1
 
         return matches / len(atoms_a)
@@ -241,14 +233,17 @@ class DisorderGraphBuilder:
                 atoms_b = list(conf_b)
                 if not atoms_a or not atoms_b:
                     continue
-                if min(len(atoms_a), len(atoms_b)) < SP_COMPLETION_MIN_ATOMS:
+                if (
+                    min(len(atoms_a), len(atoms_b))
+                    < DISORDER_CONFIG["SP_COMPLETION_MIN_ATOMS"]
+                ):
                     continue
                 min_occ = min(
                     self.info.occupancies[atom]
                     for atom in atoms_a + atoms_b
                     if atom < len(self.info.occupancies)
                 )
-                if min_occ < SP_COMPLETION_MIN_OCCUPANCY:
+                if min_occ < DISORDER_CONFIG["SP_COMPLETION_MIN_OCCUPANCY"]:
                     continue
 
                 part_a = self.info.disorder_groups[atoms_a[0]]
@@ -263,14 +258,18 @@ class DisorderGraphBuilder:
                 diff_vec = centroid_a - centroid_b
                 diff_vec = diff_vec - np.round(diff_vec)
                 centroid_dist = np.linalg.norm(np.dot(diff_vec, self.lattice))
-                if centroid_dist >= SP_COMPLETION_SITE_RADIUS:
+                if centroid_dist >= DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]:
                     continue
 
                 match_fraction = max(
                     self._sp_completion_match_fraction(atoms_a, atoms_b),
                     self._sp_completion_match_fraction(atoms_b, atoms_a),
                 )
-                if not (SP_COMPLETION_FRAC <= match_fraction <= SP_COMPLETION_MAX_FRAC):
+                if not (
+                    DISORDER_CONFIG["SP_COMPLETION_MIN_MATCH_FRAC"]
+                    <= match_fraction
+                    <= DISORDER_CONFIG["SP_COMPLETION_MAX_MATCH_FRAC"]
+                ):
                     continue
 
                 key = self._conformer_pair_key(atoms_a, atoms_b)
@@ -320,7 +319,7 @@ class DisorderGraphBuilder:
                 centroid_dist = np.linalg.norm(cart_dist_vec)
 
                 if part_a != part_b:
-                    if centroid_dist < SP_COMPLETION_SITE_RADIUS:
+                    if centroid_dist < DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]:
                         # For NEGATIVE PART groups (e.g. -1 vs -2 in same
                         # assembly), the assembly label is shared across ALL
                         # symmetry copies of the disordered fragment, so
@@ -352,13 +351,16 @@ class DisorderGraphBuilder:
                 is_diff_sym = self._has_different_symmetry_provenance(atoms_a, atoms_b)
 
                 if part_a == part_b and is_diff_sym:
-                    if centroid_dist < SP_COMPLETION_SITE_RADIUS:
+                    if centroid_dist < DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]:
                         if self._is_sp_completion_pair(atoms_a, atoms_b):
                             continue
                         has_clash = False
                         for aa in atoms_a:
                             for bb in atoms_b:
-                                if self.dist_matrix[aa, bb] < GHOST_CLASH_THRESHOLD:
+                                if (
+                                    self.dist_matrix[aa, bb]
+                                    < DISORDER_CONFIG["SYMMETRY_GHOST_CLASH_THRESHOLD"]
+                                ):
                                     has_clash = True
                                     break
                             if has_clash:

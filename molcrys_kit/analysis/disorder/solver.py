@@ -21,6 +21,7 @@ from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
+from ...constants.config import DISORDER_CONFIG
 from ...analysis.interactions import get_bonding_threshold
 
 
@@ -28,11 +29,6 @@ class DisorderSolver:
     """
     Solves the disorder problem by finding independent sets in the exclusion graph.
     """
-
-    _SP_COMPLETION_DISTANCE = 1.5
-    _SP_TOO_CLOSE_H_DISTANCE = 0.65
-    _SP_RELOCATED_C_H_DISTANCE = 1.09
-    _SP_UNDERCOORD_H_SEARCH = 1.7
 
     def __init__(self, info: DisorderInfo, graph: nx.Graph, lattice: np.ndarray):
         """
@@ -682,7 +678,10 @@ class DisorderSolver:
         original_frac = self.info.frac_coords[h_atom].copy()
 
         for direction in directions:
-            new_cart = anchor_cart + direction * self._SP_RELOCATED_C_H_DISTANCE
+            new_cart = (
+                anchor_cart
+                + direction * DISORDER_CONFIG["SP_COMPLETION_RELOCATED_C_H_DISTANCE"]
+            )
             new_frac = np.dot(new_cart, inv_lattice) % 1.0
             self.info.frac_coords[h_atom] = new_frac
 
@@ -746,7 +745,10 @@ class DisorderSolver:
                     if dist < best_dist:
                         best_dist = dist
                         best_atom = partner_atom
-                if best_atom is None or best_dist >= self._SP_COMPLETION_DISTANCE:
+                if (
+                    best_atom is None
+                    or best_dist >= DISORDER_CONFIG["SP_COMPLETION_MATCH_DISTANCE"]
+                ):
                     continue
 
                 self._snap_atom_to_partner(kept_atom, best_atom)
@@ -771,7 +773,10 @@ class DisorderSolver:
         heavy_atoms = [a for a in selected if self.info.symbols[a] not in ("H", "D")]
         for h_atom in [a for a in selected if self.info.symbols[a] in ("H", "D")]:
             for heavy_atom in heavy_atoms:
-                if self._minimum_image_distance(h_atom, heavy_atom) < self._SP_TOO_CLOSE_H_DISTANCE:
+                if (
+                    self._minimum_image_distance(h_atom, heavy_atom)
+                    < DISORDER_CONFIG["SP_COMPLETION_TOO_CLOSE_H_DISTANCE"]
+                ):
                     to_remove.add(h_atom)
                     break
 
@@ -818,7 +823,10 @@ class DisorderSolver:
             ):
                 targets = [
                     c for c in undercoord_carbons
-                    if self._minimum_image_distance(h_atom, c) < self._SP_UNDERCOORD_H_SEARCH
+                    if (
+                        self._minimum_image_distance(h_atom, c)
+                        < DISORDER_CONFIG["SP_COMPLETION_UNDERCOORD_H_SEARCH"]
+                    )
                 ]
                 if not targets:
                     continue

@@ -95,6 +95,22 @@ DISORDER_CONFIG = {
     # clustering or is handled by valence/tetrahedral decomposition from its center.
     # Covers standard O-H (~0.96 Å), N-H (~1.01 Å), and short X-ray H (~0.75 Å).
     "SP_H_BOND_DETECTION_CUTOFF": 1.5,
+    # SP-completion for whole-molecule PART -n disorder on a special position.
+    # These thresholds identify cases like 368K where most atoms overlap with a
+    # symmetry mate, while a minority of off-special-position atoms complete the
+    # molecule and should coexist rather than be treated as symmetry ghosts.
+    "SP_COMPLETION_SITE_RADIUS": 3.0,
+    "SP_COMPLETION_MATCH_DISTANCE": 1.5,
+    "SP_COMPLETION_MIN_MATCH_FRAC": 0.55,
+    "SP_COMPLETION_MAX_MATCH_FRAC": 0.75,
+    "SP_COMPLETION_MIN_ATOMS": 10,
+    "SP_COMPLETION_MIN_OCCUPANCY": 0.25,
+    "SYMMETRY_GHOST_CLASH_THRESHOLD": 2.0,
+    # H cleanup after SP-completion.  The C-H value mirrors BOND_LENGTHS["C-H"]
+    # but remains here so the disorder post-processing thresholds stay together.
+    "SP_COMPLETION_TOO_CLOSE_H_DISTANCE": 0.65,
+    "SP_COMPLETION_RELOCATED_C_H_DISTANCE": 1.09,
+    "SP_COMPLETION_UNDERCOORD_H_SEARCH": 1.7,
     # Orphan-H removal cutoffs (post-processing in _remove_orphan_hydrogens):
     "ORPHAN_H_BOND_CUTOFF": 1.4,      # Å — H must have a heavy atom within this to not be orphan
     "WATER_O_H_CUTOFF": 1.4,          # Å — O-H bond for water completeness check
