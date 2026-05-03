@@ -6,7 +6,7 @@ This module provides coordinate transformations and geometric calculations.
 
 import itertools
 import numpy as np
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from ..constants import get_atomic_mass, has_atomic_mass
 
 
@@ -253,6 +253,71 @@ def calculate_center_of_mass(atom_coords: np.ndarray, atom_symbols: list) -> np.
     center_of_mass = np.sum(atom_coords * masses[:, np.newaxis], axis=0) / total_mass
 
     return center_of_mass
+
+
+def unwrap_positions_along_bonds(
+    graph,
+    indices,
+    base_positions: np.ndarray,
+    *,
+    max_atoms: Optional[int] = None,
+) -> Tuple[np.ndarray, bool]:
+    """
+    Unwrap a bonded component by walking edge vectors in a graph.
+
+    Parameters
+    ----------
+    graph
+        Graph whose edges carry a ``vector`` attribute. The vector is expected
+        to point from the smaller node id to the larger node id, matching the
+        convention used by ASE ``neighbor_list("D")`` call sites in MolCrysKit.
+    indices
+        Node ids forming the component to unwrap. The returned positions follow
+        this order.
+    base_positions
+        Cartesian positions indexed by node id.
+    max_atoms
+        Optional safety cap. Components larger than this are returned unchanged
+        with ``completed=False`` so polymeric or framework-like components do
+        not trigger unbounded traversal.
+
+    Returns
+    -------
+    Tuple[np.ndarray, bool]
+        ``(positions, completed)``. ``completed`` is false when the size cap is
+        exceeded or the graph traversal does not reach every requested node.
+    """
+    indices = list(indices)
+    base_positions = np.asarray(base_positions, dtype=float)
+    if not indices:
+        return np.zeros((0, 3), dtype=float), True
+
+    if max_atoms is not None and len(indices) > int(max_atoms):
+        return base_positions[indices].copy(), False
+
+    local_of = {idx: pos for pos, idx in enumerate(indices)}
+    out = base_positions[indices].copy()
+    visited = {indices[0]}
+    queue = [indices[0]]
+
+    while queue:
+        u = queue.pop(0)
+        u_local = local_of[u]
+        for v in graph.neighbors(u):
+            if v not in local_of or v in visited:
+                continue
+            edge_data = graph.get_edge_data(u, v) or {}
+            edge_vec = np.asarray(edge_data.get("vector", base_positions[v] - base_positions[u]), dtype=float)
+            small, large = (u, v) if u < v else (v, u)
+            shift = edge_vec if u == small else -edge_vec
+            out[local_of[v]] = out[u_local] + shift
+            visited.add(v)
+            queue.append(v)
+
+            if max_atoms is not None and len(visited) > int(max_atoms):
+                return base_positions[indices].copy(), False
+
+    return out, len(visited) == len(indices)
 
 
 def rotate_vector(vector: np.ndarray, axis: np.ndarray, angle_deg: float) -> np.ndarray:

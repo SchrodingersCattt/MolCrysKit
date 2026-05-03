@@ -27,12 +27,14 @@ from ..constants import (
     has_atomic_radius,
     is_metal_element,
 )
-from ..utils.geometry import minimum_image_distance
+from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bonds
 from ..constants import DEFAULT_NEIGHBOR_CUTOFF
 
 
 def identify_molecules(
-    atoms: Atoms, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None
+    atoms: Atoms,
+    bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
+    max_atoms: Optional[int] = None,
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -98,58 +100,16 @@ def identify_molecules(
         atom_indices = list(component)
         mol_atoms = atoms[atom_indices]
 
-        # Local (molecule) index -> Global (crystal) index map
-        local_to_global = {i: idx for i, idx in enumerate(atom_indices)}
-
         # Reconstruct molecule topology
         if len(atom_indices) > 1:
-            curr_positions = mol_atoms.get_positions()
-            visited = {0}
-            queue = [0]
-
-            while queue:
-                u_local = queue.pop(0)
-                u_global = local_to_global[u_local]
-
-                # Check neighbors in global graph
-                for v_global in crystal_graph.neighbors(u_global):
-                    if v_global in atom_indices:
-                        v_local = atom_indices.index(v_global)
-
-                        if v_local not in visited:
-                            # Retrieve the stored bond vector
-                            edge_data = crystal_graph.get_edge_data(u_global, v_global)
-                            d_vec = edge_data["vector"]
-
-                            # Determine direction:
-                            # neighbor_list returns D_ij for the pair it found.
-                            # We stored D_vec. If graph is undirected, we need to know if
-                            # D_vec corresponds to u->v or v->u.
-                            #
-                            # However, neighbor_list guarantees i < j usually? No.
-                            # But in our loop `if i >= j: continue`, we only added edges where i < j.
-                            # So the stored `vector` is definitely from smaller_index -> larger_index.
-
-                            idx1 = min(u_global, v_global)
-                            idx2 = max(u_global, v_global)
-
-                            # The stored vector is from idx1 -> idx2
-                            vector_1_to_2 = d_vec
-
-                            if u_global == idx1:
-                                # We are moving u -> v (small -> large)
-                                shift = vector_1_to_2
-                            else:
-                                # We are moving u -> v (large -> small)
-                                shift = -vector_1_to_2
-
-                            # Apply exact shift. No guessing, no MIC.
-                            curr_positions[v_local] = curr_positions[u_local] + shift
-
-                            visited.add(v_local)
-                            queue.append(v_local)
-
+            curr_positions, completed = unwrap_positions_along_bonds(
+                crystal_graph,
+                atom_indices,
+                atoms.get_positions(),
+                max_atoms=max_atoms,
+            )
             mol_atoms.set_positions(curr_positions)
+            mol_atoms.info["unwrap_completed"] = completed
 
         # Preserve disorder-related arrays when creating molecules
         # Copy over disorder metadata for the sliced atoms
@@ -596,7 +556,9 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
 
 
 def read_mol_crystal(
-    filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None
+    filepath: str,
+    bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
+    max_atoms: Optional[int] = None,
 ) -> MolecularCrystal:
     """
     Parse a CIF file with advanced molecular grouping.
@@ -666,7 +628,7 @@ def read_mol_crystal(
     atoms.set_array(KEY_LABEL, np.array(disorder_info.labels[:len(symbols)]))
     
     # Identify molecular units using graph-based approach
-    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
+    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms)
 
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
@@ -675,7 +637,9 @@ def read_mol_crystal(
 
 
 def parse_cif_advanced(
-    filepath: str, bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None
+    filepath: str,
+    bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
+    max_atoms: Optional[int] = None,
 ) -> MolecularCrystal:
     """
     Parse a CIF file with advanced molecular grouping.
@@ -708,4 +672,4 @@ def parse_cif_advanced(
         DeprecationWarning,
         stacklevel=2,
     )
-    return read_mol_crystal(filepath, bond_thresholds)
+    return read_mol_crystal(filepath, bond_thresholds, max_atoms=max_atoms)

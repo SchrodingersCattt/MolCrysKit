@@ -21,6 +21,7 @@ from ..constants import (
     has_atomic_radius,
     is_metal_element,
 )
+from ..utils.geometry import unwrap_positions_along_bonds
 import itertools
 
 
@@ -112,7 +113,7 @@ class MolecularCrystal:
         return f"MolecularCrystal(lattice={self.lattice.tolist()}, molecules_count={len(self.molecules)}, pbc={self.pbc})"
 
     @classmethod
-    def from_ase(cls, atoms: Atoms, bond_thresholds=None) -> "MolecularCrystal":
+    def from_ase(cls, atoms: Atoms, bond_thresholds=None, max_atoms=None) -> "MolecularCrystal":
         """
         Create a MolecularCrystal from an ASE Atoms object.
 
@@ -144,7 +145,7 @@ class MolecularCrystal:
         pbc = tuple(atoms.get_pbc())
 
         # Identify molecular units using graph-based approach
-        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds)
+        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms)
 
         # Create and return a new MolecularCrystal instance
         return cls(lattice, molecules, pbc)
@@ -316,7 +317,7 @@ class MolecularCrystal:
 
         return summary_str
 
-    def get_unwrapped_molecules(self) -> List[CrystalMolecule]:
+    def get_unwrapped_molecules(self, max_atoms=None) -> List[CrystalMolecule]:
         """
         Reconstruct whole molecules across periodic boundaries to form continuous molecules.
 
@@ -371,32 +372,17 @@ class MolecularCrystal:
                         g.add_edge(u, v, vector=d_vec)
 
             # 4. BFS Traversal to unwrap
-            visited = {0}
-            queue = [0]
-            positions = temp_atoms.get_positions()
-
-            while queue:
-                u = queue.pop(0)
-                for v in g.neighbors(u):
-                    if v not in visited:
-                        # Retrieve the stored vector
-                        small = min(u, v)
-                        large = max(u, v)
-                        edge_data = g.get_edge_data(small, large)
-                        vec_small_to_large = edge_data["vector"]
-
-                        if u == small:
-                            shift_vec = vec_small_to_large
-                        else:
-                            shift_vec = -vec_small_to_large
-
-                        positions[v] = positions[u] + shift_vec
-                        visited.add(v)
-                        queue.append(v)
+            positions, completed = unwrap_positions_along_bonds(
+                g,
+                range(len(temp_atoms)),
+                temp_atoms.get_positions(),
+                max_atoms=max_atoms,
+            )
 
             # 5. Create new CrystalMolecule
             new_mol_atoms = temp_atoms.copy()
             new_mol_atoms.set_positions(positions)
+            new_mol_atoms.info["unwrap_completed"] = completed
             unwrapped_molecule = CrystalMolecule(new_mol_atoms, self, check_pbc=False)
             unwrapped_molecules.append(unwrapped_molecule)
 
