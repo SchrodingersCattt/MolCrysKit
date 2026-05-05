@@ -83,14 +83,18 @@ class ChemicalEnvironment:
         Aromaticity is detected geometrically (no Hückel) using three criteria:
         1. Ring size ∈ {5, 6, 7}
         2. All ring atoms are C, N, O (S excluded: C-S ~1.71 Å exceeds length window)
-        3. All consecutive ring-bond lengths ∈ [1.30, 1.45] Å
+        3. All consecutive ring-bond lengths ∈ [1.20, 1.45] Å
+           The lower bound is 1.20 (not 1.30) to accommodate short N=N double bonds
+           (~1.25 Å) in pseudo-aromatic rings such as sydnones, oxadiazines, and
+           triazine-like heterocycles.  Bonds below ~1.20 Å do not occur between
+           ring heavy atoms in organic molecules.
         4. Ring is planar by the max-out-of-plane criterion
 
         Result: self._atom_aromatic_ring_sizes[atom_idx] -> list of ring sizes
         (empty list means not in any aromatic ring).
         """
         _AROM_ATOMS = {'C', 'N', 'O'}
-        _BOND_MIN = 1.30
+        _BOND_MIN = 1.20  # allows N=N (~1.25 Å) in pseudo-aromatic rings
         _BOND_MAX = 1.45
 
         self._atom_aromatic_ring_sizes: Dict[int, List[int]] = {
@@ -655,7 +659,13 @@ class NitrogenSite(HybridizedSite):
                 num_h = 0
                 geometry = 'linear'
             # sp2: aromatic ring N (pyridine, pyrrole, imidazole, etc.)
-            elif in_ring and is_planar_ring:
+            # Guard: min_heavy < 1.42 Å ensures we only enter this branch for
+            # rings with genuine aromatic bond character (pyrrole C-N ~1.37-1.40,
+            # pyridine C-N ~1.33-1.34).  Without the guard, sp3 N atoms in
+            # geometrically-planar saturated rings (azacyclopropane fused to cage
+            # systems, strained azetidines, etc.) would be misclassified as sp2
+            # now that ring detection correctly identifies those rings as rings.
+            elif in_ring and is_planar_ring and min_heavy < 1.42:
                 if 6 in ring_sizes:  # Pyridine-like: lone pair in plane, no H
                     num_h = 0
                     geometry = 'planar_aromatic'
@@ -696,7 +706,10 @@ class NitrogenSite(HybridizedSite):
             # sp3 N-N(hydrazine):         min_heavy ~1.45
             # Threshold 1.42 Å: covers aniline (1.40), amide (1.34), enamine (1.37)
             # while excluding sp3 amine (1.46+) and hydrazine N-N (1.45)
-            if in_ring and is_planar_ring:
+            # Guard: same reasoning as coord==2 above — only enter ring+planar path
+            # when bond lengths confirm aromatic character.  sp3 N in strained
+            # planar rings (cage compounds, bicyclic azetidines) have C-N ≥ 1.42 Å.
+            if in_ring and is_planar_ring and min_heavy < 1.42:
                 # Aromatic ring N (e.g. N-substituted pyrrole, indole)
                 num_h = 0
                 geometry = 'trigonal_planar'
@@ -809,17 +822,22 @@ class GenericSite(HybridizedSite):
                         num_h = 0
                         geometry = 'bent'  # sp3 oxetane ether
                 elif in_ring and is_planar_ring and ring_sizes and min(ring_sizes) >= 5:
-                    # Aromatic O in 5/6/7-membered planar ring (furan-like) → sp2.
-                    # Key discriminator vs. non-aromatic ring ethers (THF, THP):
-                    # furan C-O ~1.37 Å; non-aromatic ether C-O ~1.43-1.45 Å.
-                    # Use bond length threshold to reject non-aromatic ring ethers
-                    # that happen to be geometrically planar (e.g. bridged bicyclic).
-                    if min_heavy < 1.41:
+                    # Fallback for O in a planar 5/6/7-membered ring that was NOT
+                    # caught by the aromatic pre-pass short-circuit above.
+                    # The pre-pass now uses bond-length window [1.20, 1.45] Å, which
+                    # covers standard furan-like O AND pseudo-aromatic rings with N=N.
+                    # This branch should only be reached in edge cases (e.g. one ring
+                    # bond marginally > 1.45 Å due to coordinate noise).
+                    # Threshold 1.40 Å: covers genuine furan C-O (~1.36-1.37 Å) plus
+                    # pseudo-aromatic ring O where the pre-pass missed one N=N/N-O bond
+                    # just outside the window (~1.37-1.39 Å C-O).  Strained sp3 cage
+                    # O-C bonds are typically ≥ 1.40 Å, so most are excluded.
+                    if min_heavy < 1.40:
                         num_h = 0
-                        geometry = 'trigonal_planar'  # furan-like sp2
+                        geometry = 'trigonal_planar'  # furan-like sp2 (missed by pre-pass)
                     else:
                         num_h = 0
-                        geometry = 'bent'  # non-aromatic planar ring ether → sp3
+                        geometry = 'bent'  # strained sp3 ring ether or non-aromatic planar ring
                 elif min_heavy < 1.38:
                     # sp2 O with genuine conjugation (not in a small ring):
                     #   vinyl ether O-C(sp2): ~1.36-1.37
