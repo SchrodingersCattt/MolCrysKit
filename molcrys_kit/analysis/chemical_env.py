@@ -6,6 +6,7 @@ of atoms in molecular crystals, including coordination numbers, bond angles,
 and ring detection.
 """
 
+import warnings
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 import networkx as nx
@@ -71,7 +72,15 @@ class ChemicalEnvironment:
                     if int_idx in cycle
                 ]
                 self._atom_rings[idx] = atom_cycles
-        except Exception:
+        except (ValueError, TypeError, nx.NetworkXError) as e:
+            warnings.warn(
+                f"Ring detection failed ({type(e).__name__}: {e}). "
+                "Hydrogen completion may be inaccurate for ring atoms. "
+                "This is usually caused by unusual graph node types or a "
+                "disconnected graph — please report if it occurs on a valid CIF.",
+                RuntimeWarning,
+                stacklevel=4,
+            )
             self._atom_rings = {}
 
         self._precompute_aromatic_rings()
@@ -275,56 +284,34 @@ class ChemicalEnvironment:
             - ring_sizes: List of sizes of rings this atom belongs to
             - is_ring_planar: Boolean for the smallest ring, whether it's planar
         """
+        atom_cycles = self._atom_rings.get(atom_index, [])
+
+        if not atom_cycles:
+            return {'in_ring': False, 'ring_sizes': [], 'is_ring_planar': False}
+
+        ring_sizes = [len(cycle) for cycle in atom_cycles]
+
+        # Check planarity of the smallest ring.  _is_ring_planar does SVD on
+        # a small point set; wrap only that call so a degenerate geometry
+        # (e.g. collinear atoms after coordinate noise) produces a warning
+        # rather than a hard crash.
+        is_ring_planar = False
+        smallest_ring = min(atom_cycles, key=len)
         try:
-            # Use cached ring info
-            atom_cycles = self._atom_rings.get(atom_index, [])
-            
-            if not atom_cycles:
-                return {
-                    'in_ring': False,
-                    'ring_sizes': [],
-                    'is_ring_planar': False
-                }
-            
-            # Get ring sizes
-            ring_sizes = [len(cycle) for cycle in atom_cycles]
-            
-            # Determine if the smallest ring is planar
-            is_ring_planar = False
-            if ring_sizes:
-                # Find the smallest ring
-                min_size = min(ring_sizes)
-                smallest_ring_cycles = [cycle for cycle in atom_cycles if len(cycle) == min_size]
-                
-                if smallest_ring_cycles:
-                    # Take the first occurrence of the smallest ring size
-                    smallest_ring = smallest_ring_cycles[0]
-                    
-                    # Check if the atoms in the ring lie on a plane
-                    is_ring_planar = self._is_ring_planar(smallest_ring)
-            
-            return {
-                'in_ring': True,
-                'ring_sizes': sorted(ring_sizes),
-                'is_ring_planar': is_ring_planar
-            }
-        except Exception:
-            # If there's an issue with cycle detection, fall back to basic check
-            neighbors = list(self.graph.neighbors(atom_index))
-            if len(neighbors) < 2:
-                return {
-                    'in_ring': False,
-                    'ring_sizes': [],
-                    'is_ring_planar': False
-                }
-            
-            # Simple check: if neighbors are interconnected, it might be in a ring
-            # This is a simplified fallback
-            return {
-                'in_ring': False,
-                'ring_sizes': [],
-                'is_ring_planar': False
-            }
+            is_ring_planar = self._is_ring_planar(smallest_ring)
+        except (ValueError, np.linalg.LinAlgError) as e:
+            warnings.warn(
+                f"Planarity check failed for ring {smallest_ring} "
+                f"({type(e).__name__}: {e}); treating ring as non-planar.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
+        return {
+            'in_ring': True,
+            'ring_sizes': sorted(ring_sizes),
+            'is_ring_planar': is_ring_planar,
+        }
     
     def _is_ring_planar(self, ring_atom_indices: List[int], max_dev_tolerance: float = 0.25) -> bool:
         """
