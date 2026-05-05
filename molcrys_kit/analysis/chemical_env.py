@@ -6,6 +6,7 @@ of atoms in molecular crystals, including coordination numbers, bond angles,
 and ring detection.
 """
 
+import warnings
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 import networkx as nx
@@ -45,16 +46,169 @@ class ChemicalEnvironment:
         self._precompute_ring_info()
     
     def _precompute_ring_info(self):
-        """Precompute ring membership for all atoms to avoid repeated heavy calculations."""
+        """Precompute ring membership for all atoms to avoid repeated heavy calculations.
+
+        Note: nx.minimum_cycle_basis can fail when graph node IDs are numpy integer
+        types (np.int64) because networkx 3.5's internal Dijkstra compares node IDs
+        with ``==`` which may raise a ValueError for numpy arrays.  We work around
+        this by relabelling the graph with plain Python ints before calling the
+        function, then mapping the results back.
+        """
         try:
-            cycles = nx.minimum_cycle_basis(self.graph)
+            # Convert node IDs to plain Python ints to avoid numpy comparison issues
+            node_ids = list(self.graph.nodes())
+            int_to_orig = {i: n for i, n in enumerate(node_ids)}
+            orig_to_int = {n: i for i, n in enumerate(node_ids)}
+            relabelled = nx.relabel_nodes(self.graph, orig_to_int)
+
+            raw_cycles = nx.minimum_cycle_basis(relabelled, weight=None)
+
             self._atom_rings = {}
             for idx in self.graph.nodes():
-                # Find all cycles this atom belongs to
-                atom_cycles = [cycle for cycle in cycles if idx in cycle]
+                int_idx = orig_to_int[idx]
+                atom_cycles = [
+                    [int_to_orig[n] for n in cycle]
+                    for cycle in raw_cycles
+                    if int_idx in cycle
+                ]
                 self._atom_rings[idx] = atom_cycles
-        except Exception:
+        except (ValueError, TypeError, nx.NetworkXError) as e:
+            warnings.warn(
+                f"Ring detection failed ({type(e).__name__}: {e}). "
+                "Hydrogen completion may be inaccurate for ring atoms. "
+                "This is usually caused by unusual graph node types or a "
+                "disconnected graph — please report if it occurs on a valid CIF.",
+                RuntimeWarning,
+                stacklevel=4,
+            )
             self._atom_rings = {}
+
+        self._precompute_aromatic_rings()
+
+    def _precompute_aromatic_rings(self):
+        """
+        Identify aromatic rings and cache membership per atom.
+
+        Aromaticity is detected geometrically (no Hückel) using three criteria:
+        1. Ring size ∈ {5, 6, 7}
+        2. All ring atoms are C, N, O (S excluded: C-S ~1.71 Å exceeds length window)
+        3. All consecutive ring-bond lengths ∈ [1.20, 1.45] Å
+           The lower bound is 1.20 (not 1.30) to accommodate short N=N double bonds
+           (~1.25 Å) in pseudo-aromatic rings such as sydnones, oxadiazines, and
+           triazine-like heterocycles.  Bonds below ~1.20 Å do not occur between
+           ring heavy atoms in organic molecules.
+        4. Ring is planar by the max-out-of-plane criterion
+
+        Result: self._atom_aromatic_ring_sizes[atom_idx] -> list of ring sizes
+        (empty list means not in any aromatic ring).
+        """
+        _AROM_ATOMS = {'C', 'N', 'O'}
+        _BOND_MIN = 1.20  # allows N=N (~1.25 Å) in pseudo-aromatic rings
+        _BOND_MAX = 1.45
+
+        self._atom_aromatic_ring_sizes: Dict[int, List[int]] = {
+            idx: [] for idx in self.graph.nodes()
+        }
+
+        all_cycles = []
+        for cycles in self._atom_rings.values():
+            for c in cycles:
+                # Use frozenset to deduplicate cycles across atoms
+                key = frozenset(c)
+                if key not in {frozenset(x) for x in all_cycles}:
+                    all_cycles.append(c)
+
+        for cycle in all_cycles:
+            n = len(cycle)
+            if n not in (5, 6, 7):
+                continue
+
+            # Criterion 2: all atoms must be C/N/O
+            symbols = [self.graph.nodes[i].get('symbol', '') for i in cycle]
+            if not all(s in _AROM_ATOMS for s in symbols):
+                continue
+
+            # Criterion 3: consecutive ring-bond lengths in aromatic window
+            ok = True
+            for k in range(n):
+                a, b = cycle[k], cycle[(k + 1) % n]
+                if not self.graph.has_edge(a, b):
+                    ok = False
+                    break
+                d = np.linalg.norm(self.positions[b] - self.positions[a])
+                if not (_BOND_MIN <= d <= _BOND_MAX):
+                    ok = False
+                    break
+            if not ok:
+                continue
+
+            # Criterion 4: planarity
+            if not self._is_ring_planar(cycle):
+                continue
+
+            # All criteria met -> mark atoms
+            for idx in cycle:
+                self._atom_aromatic_ring_sizes[idx].append(n)
+
+    def atom_aromatic_ring_sizes(self, atom_index: int) -> List[int]:
+        """
+        Return list of aromatic ring sizes the atom belongs to (empty if none).
+
+        Parameters
+        ----------
+        atom_index : int
+            Index of the atom to query.
+
+        Returns
+        -------
+        List[int]
+            Sizes of aromatic rings containing this atom.  Empty list means the
+            atom is not in any detected aromatic ring.
+        """
+        return self._atom_aromatic_ring_sizes.get(atom_index, [])
+
+    def has_conjugated_ring_bond(self, atom_index: int, threshold: float = 1.43) -> bool:
+        """
+        Return True if any ring bond *not* directly involving *atom_index* has length
+        ≤ *threshold* Å.
+
+        This is a robust indicator of π-delocalization in the ring around the atom.
+        Unlike checking the atom's own bond lengths (which can be contracted by ring
+        strain), the OTHER ring bonds sharply distinguish aromatic and sp3 rings:
+
+        * Aromatic C–C / C–N:  ~1.33–1.42 Å  →  comfortably ≤ 1.43 Å
+        * sp3 C–C:             ~1.50–1.54 Å  →  clearly  >  1.43 Å  (Δ ≈ 0.10 Å)
+        * sp3 C–N:             ~1.46–1.48 Å  →  clearly  >  1.43 Å  (Δ ≈ 0.07 Å)
+
+        Checking only bonds that do NOT touch the query atom avoids the ambiguity of
+        the atom's own bonds, which may be shortened by strain (sp3 cage O–C ~1.38 Å)
+        yet still fail the conjugated-ring criterion because the adjacent C–C bonds
+        (~1.52 Å) exceed the threshold.
+
+        Parameters
+        ----------
+        atom_index : int
+            The ring atom whose neighbouring ring bonds are checked.
+        threshold : float
+            Upper bound for "aromatic-like" bond length (Å).  Default 1.43 Å.
+
+        Returns
+        -------
+        bool
+            True if the ring contains at least one bond (not touching atom_index)
+            shorter than *threshold*.
+        """
+        rings = self._atom_rings.get(atom_index, [])
+        for ring in rings:
+            n = len(ring)
+            for k in range(n):
+                a, b = ring[k], ring[(k + 1) % n]
+                if atom_index in (a, b):
+                    continue  # skip bonds that touch the query atom
+                d = float(np.linalg.norm(self.positions[a] - self.positions[b]))
+                if d <= threshold:
+                    return True
+        return False
 
     def get_local_geometry_stats(self, atom_index: int) -> Dict:
         """
@@ -130,99 +284,72 @@ class ChemicalEnvironment:
             - ring_sizes: List of sizes of rings this atom belongs to
             - is_ring_planar: Boolean for the smallest ring, whether it's planar
         """
+        atom_cycles = self._atom_rings.get(atom_index, [])
+
+        if not atom_cycles:
+            return {'in_ring': False, 'ring_sizes': [], 'is_ring_planar': False}
+
+        ring_sizes = [len(cycle) for cycle in atom_cycles]
+
+        # Check planarity of the smallest ring.  _is_ring_planar does SVD on
+        # a small point set; wrap only that call so a degenerate geometry
+        # (e.g. collinear atoms after coordinate noise) produces a warning
+        # rather than a hard crash.
+        is_ring_planar = False
+        smallest_ring = min(atom_cycles, key=len)
         try:
-            # Use cached ring info
-            atom_cycles = self._atom_rings.get(atom_index, [])
-            
-            if not atom_cycles:
-                return {
-                    'in_ring': False,
-                    'ring_sizes': [],
-                    'is_ring_planar': False
-                }
-            
-            # Get ring sizes
-            ring_sizes = [len(cycle) for cycle in atom_cycles]
-            
-            # Determine if the smallest ring is planar
-            is_ring_planar = False
-            if ring_sizes:
-                # Find the smallest ring
-                min_size = min(ring_sizes)
-                smallest_ring_cycles = [cycle for cycle in atom_cycles if len(cycle) == min_size]
-                
-                if smallest_ring_cycles:
-                    # Take the first occurrence of the smallest ring size
-                    smallest_ring = smallest_ring_cycles[0]
-                    
-                    # Check if the atoms in the ring lie on a plane
-                    is_ring_planar = self._is_ring_planar(smallest_ring)
-            
-            return {
-                'in_ring': True,
-                'ring_sizes': sorted(ring_sizes),
-                'is_ring_planar': is_ring_planar
-            }
-        except Exception:
-            # If there's an issue with cycle detection, fall back to basic check
-            neighbors = list(self.graph.neighbors(atom_index))
-            if len(neighbors) < 2:
-                return {
-                    'in_ring': False,
-                    'ring_sizes': [],
-                    'is_ring_planar': False
-                }
-            
-            # Simple check: if neighbors are interconnected, it might be in a ring
-            # This is a simplified fallback
-            return {
-                'in_ring': False,
-                'ring_sizes': [],
-                'is_ring_planar': False
-            }
+            is_ring_planar = self._is_ring_planar(smallest_ring)
+        except (ValueError, np.linalg.LinAlgError) as e:
+            warnings.warn(
+                f"Planarity check failed for ring {smallest_ring} "
+                f"({type(e).__name__}: {e}); treating ring as non-planar.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
+        return {
+            'in_ring': True,
+            'ring_sizes': sorted(ring_sizes),
+            'is_ring_planar': is_ring_planar,
+        }
     
-    def _is_ring_planar(self, ring_atom_indices: List[int], tolerance: float = 0.1) -> bool:
+    def _is_ring_planar(self, ring_atom_indices: List[int], max_dev_tolerance: float = 0.25) -> bool:
         """
-        Check if the atoms in a ring lie on a plane using SVD.
-        
+        Check if the atoms in a ring lie on a plane using max-out-of-plane deviation.
+
+        Uses SVD to find the best-fit plane normal, then reports the maximum
+        perpendicular distance of any ring atom from that plane.  This is
+        more robust than the previous smallest-singular-value criterion, which
+        grows with ring size and was sensitive to CSD refinement noise (~0.1 Å).
+
         Parameters
         ----------
         ring_atom_indices : List[int]
-            Indices of atoms forming the ring
-        tolerance : float
-            Tolerance for considering atoms to be coplanar
-            
+            Indices of atoms forming the ring.
+        max_dev_tolerance : float
+            Maximum allowed out-of-plane deviation in Angstroms.  Default 0.25 Å
+            is chosen to accept aromatic rings in structures refined to R~0.07
+            (typical CSD noise ±0.04-0.06 Å) while still rejecting sp3 chair-
+            like distortions (~0.5 Å).
+
         Returns
         -------
         bool
-            True if the ring is planar, False otherwise
+            True if the maximum out-of-plane deviation is below the tolerance.
         """
         if len(ring_atom_indices) < 3:
-            return False  # Need at least 3 atoms to define a plane
-        
-        # Get positions of ring atoms
-        ring_positions = np.array([self.positions[idx] for idx in ring_atom_indices])
-        
-        # Calculate centroid of ring atoms
-        centroid = np.mean(ring_positions, axis=0)
-        
-        # Center the positions at the origin
-        centered_positions = ring_positions - centroid
-        
-        # Perform SVD to find principal components
-        U, s, Vt = np.linalg.svd(centered_positions)
-        
-        # The singular values represent the spread along each principal component
-        # For a planar ring, the smallest singular value should be close to zero
-        # (meaning little variation in the third dimension)
-        if len(s) >= 3:
-            # The third singular value represents variation in the direction 
-            # perpendicular to the plane defined by the first two components
-            smallest_sv = s[2]  # Third singular value
-            return smallest_sv < tolerance
-        else:
-            # If fewer than 3 dimensions are found, consider it planar
-            return True
+            return False
+
+        pts = np.array([self.positions[idx] for idx in ring_atom_indices], dtype=float)
+        centroid = pts.mean(axis=0)
+        centered = pts - centroid
+
+        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+        # Last row of Vt is the direction of minimum variance (ring normal)
+        normal = Vt[-1]
+
+        deviations = np.abs(centered @ normal)
+        return float(deviations.max()) < max_dev_tolerance
 
     def get_site(self, atom_index: int) -> 'HybridizedSite':
         """
@@ -309,22 +436,42 @@ class CarbonSite(HybridizedSite):
     def get_hydrogen_completion_strategy(self) -> Dict:
         """
         Determine hydrogen_completion strategy for carbon based on its environment.
-        
+
+        Aromatic-ring membership (detected by geometric pre-pass) short-circuits
+        the local-geometry heuristic to avoid misclassifying 5-membered aromatic
+        ring carbons as sp3 (their internal angle ~108° is nearly identical to the
+        tetrahedral ideal of 109.5°).
+
         Returns
         -------
         dict
             Contains 'num_h', 'geometry', and 'bond_length' keys
         """
         from ..constants.config import BOND_LENGTHS
-        
+
+        bond_length = BOND_LENGTHS.get(f"{self.element}-H", 1.0)
+
+        # Aromatic short-circuit: if the atom is in a detected aromatic ring,
+        # decide purely from coordination number (no geometry scoring needed).
+        arom_sizes = self.env.atom_aromatic_ring_sizes(self.atom_index)
+        if arom_sizes:
+            coord = self.geometry_stats['coordination_number']
+            if coord == 2:
+                # Aromatic CH (e.g. indole C2, pyrrole C3/C4, benzene CH)
+                return {'num_h': 1, 'geometry': 'trigonal_planar', 'bond_length': bond_length}
+            elif coord == 3:
+                # Aromatic C with three ring/substituent bonds — no H needed
+                return {'num_h': 0, 'geometry': 'trigonal_planar', 'bond_length': bond_length}
+            # coord==1 or coord==4 in an aromatic ring: fall through to general logic
+            # (unusual but possible in distorted/disordered structures)
+
         coord = self.geometry_stats['coordination_number']
         avg_len = self.geometry_stats['average_bond_length']
-        
+
         # Defaults
         num_h = 0
         geometry = 'tetrahedral'
-        bond_length = BOND_LENGTHS.get(f"{self.element}-H", 1.0)
-        
+
         if coord == 3:
             # Case: sp2 (Planar, ~360 sum) vs sp3 (Pyramidal, ~328.5 sum)
             # Previous logic was flawed: it prioritized ring planarity over local geometry
@@ -376,11 +523,14 @@ class CarbonSite(HybridizedSite):
             
             # 2. Bond Length Bias (Adjust scores based on length)
             # If length > 1.46 (typical single bond), heavily penalize sp/sp2
-            if avg_len > 1.46: 
+            if avg_len > 1.46:
                 score_sp3 -= 15.0  # Strong bonus for sp3
                 score_sp  += 20.0  # Penalty for sp
-            # If length < 1.38 (typical double/aromatic), penalize sp3
-            elif avg_len < 1.38:
+            # If length < 1.42 (aromatic / double bond range), penalize sp3.
+            # Threshold raised from 1.38 to 1.42: covers aromatic C-C/C-N up to
+            # ~1.42 Å (e.g. indole C2-C3 1.385 Å), acting as a safety net when
+            # the aromatic pre-pass misses a distorted ring.
+            elif avg_len < 1.42:
                 score_sp2 -= 10.0  # Bonus for sp2
                 score_sp3 += 20.0  # Penalty for sp3
             
@@ -467,21 +617,46 @@ class NitrogenSite(HybridizedSite):
     def get_hydrogen_completion_strategy(self) -> Dict:
         """
         Determine hydrogen_completion strategy for nitrogen based on its environment.
-        
-        Primary decision criterion: shortest heavy-atom bond length (min_heavy).
+
+        Aromatic-ring membership (detected by geometric pre-pass) short-circuits
+        the heuristic to correctly distinguish pyridine-like N (coord=2, 0H) from
+        pyrrole-like N (coord=2, 1H) and N-substituted aromatic N (coord=3, 0H).
+
+        Primary decision criterion (non-aromatic): shortest heavy-atom bond length.
         Secondary criterion: ring planarity (for aromatic systems).
         Tertiary criterion: bond angle (for linear sp detection).
         """
         from ..constants.config import BOND_LENGTHS
-        
+
+        bond_length = BOND_LENGTHS.get(f"{self.element}-H", 1.0)
+
+        # Aromatic short-circuit
+        arom_sizes = self.env.atom_aromatic_ring_sizes(self.atom_index)
+        if arom_sizes:
+            coord = self.geometry_stats['coordination_number']
+            if coord == 2:
+                min_heavy = self._min_heavy_bond_len()
+                # Pyridine-like (lone pair in plane, 0H): 6-membered ring, OR
+                # bond to a neighbouring aromatic C is short (imidazole C2-N ~1.32 Å)
+                # indicating genuine imine character.
+                if 6 in arom_sizes or min_heavy < 1.34:
+                    return {'num_h': 0, 'geometry': 'planar_aromatic', 'bond_length': bond_length}
+                else:
+                    # Pyrrole-like (lone pair in π system, 1H): typically 5-ring,
+                    # N–C bonds ~1.37–1.40 Å (longer than the imine threshold).
+                    return {'num_h': 1, 'geometry': 'planar_bisector', 'bond_length': bond_length}
+            elif coord == 3:
+                # N-substituted aromatic N (e.g. indole N, N-methyl pyrrole) — no H
+                return {'num_h': 0, 'geometry': 'trigonal_planar', 'bond_length': bond_length}
+            # coord==1 or coord==4: unusual in aromatic context, fall through
+
         coord = self.geometry_stats['coordination_number']
         avg_len = self.geometry_stats['average_bond_length']
-        
+
         # Defaults
         num_h = 0
         geometry = 'tetrahedral'
-        bond_length = BOND_LENGTHS.get(f"{self.element}-H", 1.0)
-        
+
         # Shortest heavy-atom bond: most reliable hybridization indicator
         min_heavy = self._min_heavy_bond_len()
         
@@ -514,7 +689,15 @@ class NitrogenSite(HybridizedSite):
                 num_h = 0
                 geometry = 'linear'
             # sp2: aromatic ring N (pyridine, pyrrole, imidazole, etc.)
-            elif in_ring and is_planar_ring:
+            # Guard: min_heavy < 1.42 Å checks the bonds TO THIS NITROGEN specifically.
+            # sp2 N bonds (pyridine, pyrrole, amide, aniline): 1.33–1.40 Å — all < 1.42.
+            # sp3 N bonds (tertiary amine, cage N): ≥ 1.44 Å — excluded by guard.
+            # We deliberately check bonds to N (not max_ring_bond_len) because some
+            # non-fully-aromatic rings contain a long C-C bond between two sp2 carbons
+            # (e.g. isatin, where C2-C3 ~1.52 Å) yet the N itself IS sp2 with short
+            # N-C bonds (~1.37-1.40 Å).  max_ring_bond_len would incorrectly reject
+            # such rings, while min_heavy correctly accepts them.
+            elif in_ring and is_planar_ring and min_heavy < 1.42:
                 if 6 in ring_sizes:  # Pyridine-like: lone pair in plane, no H
                     num_h = 0
                     geometry = 'planar_aromatic'
@@ -555,7 +738,10 @@ class NitrogenSite(HybridizedSite):
             # sp3 N-N(hydrazine):         min_heavy ~1.45
             # Threshold 1.42 Å: covers aniline (1.40), amide (1.34), enamine (1.37)
             # while excluding sp3 amine (1.46+) and hydrazine N-N (1.45)
-            if in_ring and is_planar_ring:
+            # Same min_heavy guard as coord==2 for the same reason: the N-atom's own
+            # bond lengths reliably reflect its hybridization even when the ring
+            # contains long C-C bonds between sp2 carbons (as in isatin or maleimide).
+            if in_ring and is_planar_ring and min_heavy < 1.42:
                 # Aromatic ring N (e.g. N-substituted pyrrole, indole)
                 num_h = 0
                 geometry = 'trigonal_planar'
@@ -583,7 +769,11 @@ class GenericSite(HybridizedSite):
     def get_hydrogen_completion_strategy(self) -> Dict:
         """
         Determine hydrogen_completion strategy for generic elements based on their environment.
-        
+
+        For oxygen specifically, aromatic-ring membership (furan-like O) is detected
+        via the geometric pre-pass and short-circuits the heuristic to avoid adding
+        a spurious H to a furan-type O.
+
         Returns
         -------
         dict
@@ -591,17 +781,21 @@ class GenericSite(HybridizedSite):
         """
         import numpy as np
         from ..constants.config import BOND_LENGTHS
-        
+
         coord = self.geometry_stats['coordination_number']
         avg_len = self.geometry_stats['average_bond_length']
-        
+
         # Defaults
         num_h = 0
         geometry = 'tetrahedral'
         bond_length = BOND_LENGTHS.get(f"{self.element}-H", 1.0)
-        
+
         atom_symbol = self.element
-        
+
+        # Aromatic short-circuit for oxygen (furan-like: lone pair in π system, 0H)
+        if atom_symbol == 'O' and self.env.atom_aromatic_ring_sizes(self.atom_index):
+            return {'num_h': 0, 'geometry': 'trigonal_planar', 'bond_length': bond_length}
+
         # Shortest heavy-atom bond length: primary hybridization indicator
         # (avoids distortion from short X-H bonds, e.g. O-H ~0.97 Å)
         graph = self.env.graph
@@ -660,17 +854,26 @@ class GenericSite(HybridizedSite):
                         num_h = 0
                         geometry = 'bent'  # sp3 oxetane ether
                 elif in_ring and is_planar_ring and ring_sizes and min(ring_sizes) >= 5:
-                    # Aromatic O in 5/6/7-membered planar ring (furan-like) → sp2.
-                    # Key discriminator vs. non-aromatic ring ethers (THF, THP):
-                    # furan C-O ~1.37 Å; non-aromatic ether C-O ~1.43-1.45 Å.
-                    # Use bond length threshold to reject non-aromatic ring ethers
-                    # that happen to be geometrically planar (e.g. bridged bicyclic).
-                    if min_heavy < 1.41:
+                    # Fallback for O in a planar 5/6/7-membered ring that was NOT
+                    # caught by the aromatic pre-pass short-circuit above.
+                    # The pre-pass uses bond-length window [1.20, 1.45] Å, covering
+                    # standard furan-like O AND pseudo-aromatic rings with N=N.
+                    # This branch fires only for rare edge cases (e.g. one ring bond
+                    # marginally > 1.45 Å due to coordinate noise in experimental data).
+                    #
+                    # In this residual population we use O's own bond length (min_heavy)
+                    # as the discriminant.  In real crystal structures:
+                    #   Aromatic ring O (furan, benzofuran, chromene, …):  C–O ~1.36 Å
+                    #   sp3 ether O (THF, THP, dioxane, cage compounds):   C–O ~1.43 Å
+                    # The ~0.07 Å gap gives robust separation for the experimental data
+                    # that MolCrysKit is designed for (CSD / CIF files).
+                    # Threshold 1.40 Å places the boundary in the middle of this gap.
+                    if min_heavy < 1.40:
                         num_h = 0
-                        geometry = 'trigonal_planar'  # furan-like sp2
+                        geometry = 'trigonal_planar'  # furan-like sp2 (missed by pre-pass)
                     else:
                         num_h = 0
-                        geometry = 'bent'  # non-aromatic planar ring ether → sp3
+                        geometry = 'bent'  # sp3 ring ether
                 elif min_heavy < 1.38:
                     # sp2 O with genuine conjugation (not in a small ring):
                     #   vinyl ether O-C(sp2): ~1.36-1.37
