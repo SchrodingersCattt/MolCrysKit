@@ -158,6 +158,49 @@ class ChemicalEnvironment:
         """
         return self._atom_aromatic_ring_sizes.get(atom_index, [])
 
+    def has_conjugated_ring_bond(self, atom_index: int, threshold: float = 1.43) -> bool:
+        """
+        Return True if any ring bond *not* directly involving *atom_index* has length
+        ≤ *threshold* Å.
+
+        This is a robust indicator of π-delocalization in the ring around the atom.
+        Unlike checking the atom's own bond lengths (which can be contracted by ring
+        strain), the OTHER ring bonds sharply distinguish aromatic and sp3 rings:
+
+        * Aromatic C–C / C–N:  ~1.33–1.42 Å  →  comfortably ≤ 1.43 Å
+        * sp3 C–C:             ~1.50–1.54 Å  →  clearly  >  1.43 Å  (Δ ≈ 0.10 Å)
+        * sp3 C–N:             ~1.46–1.48 Å  →  clearly  >  1.43 Å  (Δ ≈ 0.07 Å)
+
+        Checking only bonds that do NOT touch the query atom avoids the ambiguity of
+        the atom's own bonds, which may be shortened by strain (sp3 cage O–C ~1.38 Å)
+        yet still fail the conjugated-ring criterion because the adjacent C–C bonds
+        (~1.52 Å) exceed the threshold.
+
+        Parameters
+        ----------
+        atom_index : int
+            The ring atom whose neighbouring ring bonds are checked.
+        threshold : float
+            Upper bound for "aromatic-like" bond length (Å).  Default 1.43 Å.
+
+        Returns
+        -------
+        bool
+            True if the ring contains at least one bond (not touching atom_index)
+            shorter than *threshold*.
+        """
+        rings = self._atom_rings.get(atom_index, [])
+        for ring in rings:
+            n = len(ring)
+            for k in range(n):
+                a, b = ring[k], ring[(k + 1) % n]
+                if atom_index in (a, b):
+                    continue  # skip bonds that touch the query atom
+                d = float(np.linalg.norm(self.positions[a] - self.positions[b]))
+                if d <= threshold:
+                    return True
+        return False
+
     def get_local_geometry_stats(self, atom_index: int) -> Dict:
         """
         Calculate raw geometry statistics. Does NOT make decisions (e.g. is_planar).
@@ -659,12 +702,14 @@ class NitrogenSite(HybridizedSite):
                 num_h = 0
                 geometry = 'linear'
             # sp2: aromatic ring N (pyridine, pyrrole, imidazole, etc.)
-            # Guard: min_heavy < 1.42 Å ensures we only enter this branch for
-            # rings with genuine aromatic bond character (pyrrole C-N ~1.37-1.40,
-            # pyridine C-N ~1.33-1.34).  Without the guard, sp3 N atoms in
-            # geometrically-planar saturated rings (azacyclopropane fused to cage
-            # systems, strained azetidines, etc.) would be misclassified as sp2
-            # now that ring detection correctly identifies those rings as rings.
+            # Guard: min_heavy < 1.42 Å checks the bonds TO THIS NITROGEN specifically.
+            # sp2 N bonds (pyridine, pyrrole, amide, aniline): 1.33–1.40 Å — all < 1.42.
+            # sp3 N bonds (tertiary amine, cage N): ≥ 1.44 Å — excluded by guard.
+            # We deliberately check bonds to N (not max_ring_bond_len) because some
+            # non-fully-aromatic rings contain a long C-C bond between two sp2 carbons
+            # (e.g. isatin, where C2-C3 ~1.52 Å) yet the N itself IS sp2 with short
+            # N-C bonds (~1.37-1.40 Å).  max_ring_bond_len would incorrectly reject
+            # such rings, while min_heavy correctly accepts them.
             elif in_ring and is_planar_ring and min_heavy < 1.42:
                 if 6 in ring_sizes:  # Pyridine-like: lone pair in plane, no H
                     num_h = 0
@@ -706,9 +751,9 @@ class NitrogenSite(HybridizedSite):
             # sp3 N-N(hydrazine):         min_heavy ~1.45
             # Threshold 1.42 Å: covers aniline (1.40), amide (1.34), enamine (1.37)
             # while excluding sp3 amine (1.46+) and hydrazine N-N (1.45)
-            # Guard: same reasoning as coord==2 above — only enter ring+planar path
-            # when bond lengths confirm aromatic character.  sp3 N in strained
-            # planar rings (cage compounds, bicyclic azetidines) have C-N ≥ 1.42 Å.
+            # Same min_heavy guard as coord==2 for the same reason: the N-atom's own
+            # bond lengths reliably reflect its hybridization even when the ring
+            # contains long C-C bonds between sp2 carbons (as in isatin or maleimide).
             if in_ring and is_planar_ring and min_heavy < 1.42:
                 # Aromatic ring N (e.g. N-substituted pyrrole, indole)
                 num_h = 0
@@ -824,20 +869,24 @@ class GenericSite(HybridizedSite):
                 elif in_ring and is_planar_ring and ring_sizes and min(ring_sizes) >= 5:
                     # Fallback for O in a planar 5/6/7-membered ring that was NOT
                     # caught by the aromatic pre-pass short-circuit above.
-                    # The pre-pass now uses bond-length window [1.20, 1.45] Å, which
-                    # covers standard furan-like O AND pseudo-aromatic rings with N=N.
-                    # This branch should only be reached in edge cases (e.g. one ring
-                    # bond marginally > 1.45 Å due to coordinate noise).
-                    # Threshold 1.40 Å: covers genuine furan C-O (~1.36-1.37 Å) plus
-                    # pseudo-aromatic ring O where the pre-pass missed one N=N/N-O bond
-                    # just outside the window (~1.37-1.39 Å C-O).  Strained sp3 cage
-                    # O-C bonds are typically ≥ 1.40 Å, so most are excluded.
+                    # The pre-pass uses bond-length window [1.20, 1.45] Å, covering
+                    # standard furan-like O AND pseudo-aromatic rings with N=N.
+                    # This branch fires only for rare edge cases (e.g. one ring bond
+                    # marginally > 1.45 Å due to coordinate noise in experimental data).
+                    #
+                    # In this residual population we use O's own bond length (min_heavy)
+                    # as the discriminant.  In real crystal structures:
+                    #   Aromatic ring O (furan, benzofuran, chromene, …):  C–O ~1.36 Å
+                    #   sp3 ether O (THF, THP, dioxane, cage compounds):   C–O ~1.43 Å
+                    # The ~0.07 Å gap gives robust separation for the experimental data
+                    # that MolCrysKit is designed for (CSD / CIF files).
+                    # Threshold 1.40 Å places the boundary in the middle of this gap.
                     if min_heavy < 1.40:
                         num_h = 0
                         geometry = 'trigonal_planar'  # furan-like sp2 (missed by pre-pass)
                     else:
                         num_h = 0
-                        geometry = 'bent'  # strained sp3 ring ether or non-aromatic planar ring
+                        geometry = 'bent'  # sp3 ring ether
                 elif min_heavy < 1.38:
                     # sp2 O with genuine conjugation (not in a small ring):
                     #   vinyl ether O-C(sp2): ~1.36-1.37
