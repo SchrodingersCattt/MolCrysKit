@@ -123,6 +123,80 @@ def _edge_bicapped_square_antiprism() -> np.ndarray:
     return _normalize_points(base + caps)
 
 
+def _tetrahedron() -> np.ndarray:
+    """Regular tetrahedron (CN=4)."""
+    return _normalize_points([
+        [1.0,  1.0,  1.0],
+        [1.0, -1.0, -1.0],
+        [-1.0,  1.0, -1.0],
+        [-1.0, -1.0,  1.0],
+    ])
+
+
+def _square_planar() -> np.ndarray:
+    """Square planar (CN=4)."""
+    return _normalize_points([
+        [1.0,  0.0, 0.0],
+        [-1.0,  0.0, 0.0],
+        [0.0,  1.0, 0.0],
+        [0.0, -1.0, 0.0],
+    ])
+
+
+def _trigonal_bipyramid() -> np.ndarray:
+    """Trigonal bipyramid (CN=5)."""
+    equatorial = _ring(3, 0.0, 0.0, radius=1.0)
+    axial = [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]
+    return _normalize_points(equatorial + axial)
+
+
+def _square_pyramid() -> np.ndarray:
+    """Square pyramid (CN=5)."""
+    base = _ring(4, -0.30, 0.0, radius=0.95)
+    apex = [[0.0, 0.0, 1.0]]
+    return _normalize_points(base + apex)
+
+
+def _octahedron() -> np.ndarray:
+    """Regular octahedron (CN=6)."""
+    return _normalize_points([
+        [1.0,  0.0,  0.0],
+        [-1.0,  0.0,  0.0],
+        [0.0,  1.0,  0.0],
+        [0.0, -1.0,  0.0],
+        [0.0,  0.0,  1.0],
+        [0.0,  0.0, -1.0],
+    ])
+
+
+def _trigonal_prism() -> np.ndarray:
+    """Trigonal prism (CN=6)."""
+    top = _ring(3, 0.55, 0.0)
+    bottom = _ring(3, -0.55, 0.0)
+    return _normalize_points(top + bottom)
+
+
+def _pentagonal_bipyramid() -> np.ndarray:
+    """Pentagonal bipyramid (CN=7)."""
+    equatorial = _ring(5, 0.0, 0.0, radius=1.0)
+    axial = [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]
+    return _normalize_points(equatorial + axial)
+
+
+def _capped_octahedron() -> np.ndarray:
+    """Capped octahedron (CN=7): octahedron + one face cap."""
+    oct_pts = [
+        [1.0,  0.0,  0.0],
+        [-1.0,  0.0,  0.0],
+        [0.0,  1.0,  0.0],
+        [0.0, -1.0,  0.0],
+        [0.0,  0.0,  1.0],
+        [0.0,  0.0, -1.0],
+    ]
+    cap = [[0.577, 0.577, 0.577]]
+    return _normalize_points(oct_pts + cap)
+
+
 def _icosahedron() -> np.ndarray:
     phi = (1.0 + math.sqrt(5.0)) / 2.0
     pts = []
@@ -153,6 +227,22 @@ def _cuboctahedron() -> np.ndarray:
 
 
 IDEAL_POLYHEDRA: Dict[int, Dict[str, np.ndarray]] = {
+    4: {
+        "tetrahedron": _tetrahedron(),
+        "square_planar": _square_planar(),
+    },
+    5: {
+        "trigonal_bipyramid": _trigonal_bipyramid(),
+        "square_pyramid": _square_pyramid(),
+    },
+    6: {
+        "octahedron": _octahedron(),
+        "trigonal_prism": _trigonal_prism(),
+    },
+    7: {
+        "pentagonal_bipyramid": _pentagonal_bipyramid(),
+        "capped_octahedron": _capped_octahedron(),
+    },
     8: {
         "cube": _cube(),
         "square_antiprism": _square_antiprism(),
