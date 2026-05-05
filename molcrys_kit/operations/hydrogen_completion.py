@@ -30,29 +30,29 @@ def add_hydrogens(crystal, target_elements: Optional[List[str]] = None, optimize
     crystal : MolecularCrystal
         The molecular crystal to hydrogenate.
     target_elements : Optional[List[str]]
-        List of atomic symbols to specifically hydrogenate. Only these elements
-        will have hydrogens added. If None or empty, no elements will be targeted.
+        Whitelist of atomic symbols to hydrogenate (e.g. ``["C", "N", "O"]``).
+        When provided, only atoms whose symbol is in this list are processed.
+        When ``None`` (the default), all heavy atoms are processed.
     optimize_torsion : bool
         Whether to perform conformational optimization to adjust torsion angles.
         Default is False to preserve ring structures and crystal packing.
     rules : Optional[List[Dict]]
-        Override rules for coordination geometry. Format:
-        [
-            {
-                "symbol": str,              # Required. E.g., "O", "N"
-                "neighbors": List[str],     # Optional. E.g., ["Cl", "S"]. Context condition.
-                "target_coordination": int, # Optional. Override coordination.
-                "geometry": str             # Optional. Override geometry.
-            },
-            ...
-        ]
+        Per-atom override rules for coordination geometry. Each rule is a dict:
 
-        Processing Logic:
-        1. Specific rules (with neighbors) take priority
-        2. General rules (without neighbors) take second priority
-        3. Default rules are used if no user rules match
+        .. code-block:: python
+
+            {
+                "symbol": str,              # Required. E.g. "O", "N"
+                "neighbors": List[str],     # Optional. Context filter (e.g. ["Cl", "S"])
+                "target_coordination": int, # Optional. Desired total coordination.
+                "geometry": str,            # Optional. Override placement geometry.
+            }
+
+        Priority order: specific rules (with ``neighbors``) > general rules
+        (without ``neighbors``) > built-in defaults.
     bond_lengths : Optional[Dict]
-        Override bond lengths for specific atom pairs.
+        Override bond lengths for specific atom pairs, keyed as ``"X-H"``
+        (e.g. ``{"C-H": 1.09, "N-H": 1.01}``).
 
     Returns
     -------
@@ -137,9 +137,9 @@ class HydrogenCompleter:
         Parameters
         ----------
         target_elements : Optional[List[str]]
-            List of atomic symbols to specifically hydrogenate. Only these elements
-            will have hydrogens added. If None or empty, no elements will be targeted.
-            This implements a whitelist-only approach for explicit targeting.
+            Whitelist of atomic symbols to hydrogenate (e.g. ``["C", "N", "O"]``).
+            When provided, only atoms whose symbol is in this list are processed.
+            When ``None`` (the default), all heavy atoms are processed.
         optimize_torsion : bool
             Whether to perform conformational optimization to adjust torsion angles.
             Default is False to preserve ring structures and crystal packing.
@@ -209,10 +209,7 @@ class HydrogenCompleter:
                 if target_elements and symbol not in target_elements:
                     continue
 
-                # Get local geometry stats and ring info
                 env_stats = chem_env.get_local_geometry_stats(atom_idx)
-                ring_info = chem_env.detect_ring_info(atom_idx)
-                # Determine hydrogen_completion strategy using the new API
                 site = chem_env.get_site(atom_idx)
                 h_strategy = site.get_hydrogen_completion_strategy()
                 
@@ -328,11 +325,14 @@ class HydrogenCompleter:
         self, crystal: MolecularCrystal, bond_lengths: Dict
     ) -> MolecularCrystal:
         """
-        Optimize conformations to achieve staggered arrangements where possible.
-        """
-        # For now, we'll implement a basic version that adjusts dihedral angles
-        # between sp3 centers connected by single bonds
+        Adjust dihedral angles around sp3–sp3 single bonds to favour
+        staggered conformations.
 
+        Only bonds between atoms in ``["C", "N", "O", "S", "P"]`` are
+        considered.  Rotations smaller than 5° are skipped.  Ring bonds
+        are not explicitly excluded, so this helper should only be called
+        when ``optimize_torsion=True`` and the user accepts that caveat.
+        """
         # Get unwrapped molecules for this crystal
         unwrapped_mols = crystal.get_unwrapped_molecules()
         new_molecules = []
