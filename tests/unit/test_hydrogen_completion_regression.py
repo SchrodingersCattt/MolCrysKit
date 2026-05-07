@@ -28,7 +28,7 @@ def _cif(name):
     return os.path.join(_EXAMPLES, name)
 
 
-def _hydrogenate(cif_path, target_elements):
+def _hydrogenate(cif_path, target_elements, **kwargs):
     """Read CIF, add hydrogens, return list of (formula, n_atoms) per molecule."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -36,7 +36,7 @@ def _hydrogenate(cif_path, target_elements):
         from molcrys_kit.operations import add_hydrogens
 
         crystal = read_mol_crystal(cif_path)
-        hcrystal = add_hydrogens(crystal, target_elements=target_elements)
+        hcrystal = add_hydrogens(crystal, target_elements=target_elements, **kwargs)
 
     return [(m.get_chemical_formula(), len(m)) for m in hcrystal.molecules]
 
@@ -162,3 +162,153 @@ def test_petn_formula():
         assert formula == "C5H8N4O12", (
             f"Molecule {i}: expected C5H8N4O12, got {formula}"
         )
+
+
+# ---------------------------------------------------------------------------
+# BRCRIM10 / bromocriptine methylsulfonate isopropanol solvate
+# Issue #18 reopened case.  PR1 covers the neutral/anion terminal-O failures:
+#   - methanesulfonate should be CH3O3S, not CH4O3S
+#   - isopropanol should be C3H8O, not C3H7O
+# The protonated bromocriptine cation is handled in the follow-up
+# charge-aware PR.
+# ---------------------------------------------------------------------------
+
+def test_brcrim10_mesylate_formula():
+    """BRCRIM10: methanesulfonate fragments must be CH3O3S."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+    mesylates = [(formula, n_atoms) for formula, n_atoms in results if formula == "CH3O3S"]
+    assert len(mesylates) == 2, (
+        f"Expected 2 CH3O3S mesylate fragments, got {results}"
+    )
+    assert all(n_atoms == 8 for _, n_atoms in mesylates)
+
+
+def test_brcrim10_isopropanol_formula():
+    """BRCRIM10: isopropanol fragments must be C3H8O."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+    isopropanols = [
+        (formula, n_atoms) for formula, n_atoms in results if formula == "C3H8O"
+    ]
+    assert len(isopropanols) == 2, (
+        f"Expected 2 C3H8O isopropanol fragments, got {results}"
+    )
+    assert all(n_atoms == 12 for _, n_atoms in isopropanols)
+
+
+def test_brcrim10_cation_formula():
+    """BRCRIM10: bromocriptine cations must be C32H41BrN5O5."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+    cations = [
+        (formula, n_atoms) for formula, n_atoms in results
+        if formula == "C32H41BrN5O5"
+    ]
+    assert len(cations) == 2, (
+        f"Expected 2 C32H41BrN5O5 cation fragments, got {results}"
+    )
+    assert all(n_atoms == 84 for _, n_atoms in cations)
+
+
+def test_brcrim10_total_nodes():
+    """BRCRIM10: total atom count must match all corrected fragments."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from molcrys_kit.io import read_mol_crystal
+        from molcrys_kit.operations import add_hydrogens
+
+        crystal = read_mol_crystal(path)
+        hcrystal = add_hydrogens(crystal)
+
+    assert hcrystal.get_total_nodes() == 208
+
+
+def test_brcrim10_formula_moiety_path():
+    """BRCRIM10 should still converge to the moiety formulas via the moiety path."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    from molcrys_kit.io import read_mol_crystal
+    from molcrys_kit.operations import add_hydrogens
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        crystal = read_mol_crystal(path)
+        hcrystal = add_hydrogens(crystal)
+
+    results = [(m.get_chemical_formula(), len(m)) for m in hcrystal.molecules]
+    assert sum(1 for formula, _ in results if formula == "C32H41BrN5O5") == 2
+    assert sum(1 for formula, _ in results if formula == "CH3O3S") == 2
+    assert sum(1 for formula, _ in results if formula == "C3H8O") == 2
+
+
+def test_brcrim10_use_formula_moiety_false_keeps_heuristic_path():
+    """Opting out of formula moiety keeps the heuristic-only BRCRIM10 result."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None, use_formula_moiety=False)
+
+    assert sum(1 for formula, _ in results if formula == "C32H41BrN5O5") == 2
+    assert sum(1 for formula, _ in results if formula == "CH3O3S") == 2
+    assert sum(1 for formula, _ in results if formula == "C3H8O") == 2
+
+
+def test_map_methylammonium_perchlorate_formula():
+    """MAP: moiety should enforce CH6N+ and ClO4- without perchlorate O-H."""
+    path = _cif("MAP.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+
+    assert ("CH6N", 8) in results
+    assert ("ClO4", 5) in results
+
+
+def test_suxrua_ammonium_perchlorate_formula():
+    """SUXRUA has unknown moiety; heuristics should infer NH4+ and ClO4-."""
+    path = _cif("SUXRUA.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+
+    assert ("H4N", 5) in results
+    assert ("ClO4", 5) in results
+
+
+def test_isolated_water_coord0_default():
+    """A single isolated O without moiety defaults to neutral water."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from ase import Atoms
+        from molcrys_kit.operations import add_hydrogens
+        from molcrys_kit.structures.crystal import MolecularCrystal
+
+        crystal = MolecularCrystal(
+            lattice=[[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            molecules=[Atoms(symbols=["O"], positions=[[5.0, 5.0, 5.0]])],
+            pbc=(True, True, True),
+        )
+        hcrystal = add_hydrogens(crystal, target_elements=None)
+
+    assert len(hcrystal.molecules) == 1
+    assert hcrystal.molecules[0].get_chemical_formula() == "H2O"
+    assert len(hcrystal.molecules[0]) == 3

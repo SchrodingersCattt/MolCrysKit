@@ -8,7 +8,7 @@ for molecular crystals.
 import numpy as np
 import networkx as nx
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from ase import Atoms
 from ase.neighborlist import neighbor_list
@@ -37,6 +37,8 @@ class MolecularCrystal:
         List of molecules in the crystal, each represented as a CrystalMolecule object.
     pbc : Tuple[bool, bool, bool]
         Periodic boundary conditions along each lattice vector.
+    formula_moiety : Optional[str]
+        Raw CIF _chemical_formula_moiety value when available.
     """
 
     def __init__(
@@ -44,6 +46,7 @@ class MolecularCrystal:
         lattice: np.ndarray,
         molecules: List[Atoms],
         pbc: Tuple[bool, bool, bool] = (True, True, True),
+        formula_moiety: Optional[str] = None,
     ):
         """
         Initialize a MolecularCrystal.
@@ -56,11 +59,14 @@ class MolecularCrystal:
             List of molecules in the crystal, each represented as an ASE Atoms object.
         pbc : Tuple[bool, bool, bool], default=(True, True, True)
             Periodic boundary conditions along each lattice vector.
+        formula_moiety : Optional[str], default=None
+            Raw CIF _chemical_formula_moiety value when available.
         """
         from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
         
         self.lattice = np.array(lattice)
         self.pbc = pbc
+        self.formula_moiety = formula_moiety
 
         # Wrap each ASE Atoms object in a CrystalMolecule
         self.molecules = []
@@ -174,7 +180,9 @@ class MolecularCrystal:
         Returns
         -------
         MolecularCrystal
-            New crystal representing the supercell.
+            New crystal representing the supercell.  The raw CIF
+            `formula_moiety` metadata is not propagated because the repeated
+            cell no longer has the same asymmetric-unit formula context.
         """
 
         # Create new lattice vectors

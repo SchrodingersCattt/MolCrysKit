@@ -214,6 +214,26 @@ def _clean_species_string(species_string: str) -> str:
     return element_match.group(0) if element_match else cleaned
 
 
+def _extract_formula_moiety(parser: CifParser) -> Optional[str]:
+    """Extract the raw _chemical_formula_moiety field from pymatgen's CIF data."""
+    try:
+        cif_data = getattr(parser, "_cif")
+        blocks = list(cif_data.data.values())
+        if not blocks:
+            return None
+
+        block = blocks[0]
+        data = getattr(block, "data", block)
+        value = data.get("_chemical_formula_moiety")
+        if value is None:
+            return None
+
+        value = str(value).strip()
+        return value or None
+    except (AttributeError, KeyError, IndexError, TypeError):
+        return None
+
+
 def _extract_numeric_value(value_str: str) -> float:
     """
     Extract numeric value from CIF strings like '12.345(6)', '0.5', or '.'.
@@ -573,11 +593,17 @@ def read_mol_crystal(
         Custom dictionary with atom pairs as keys and bonding thresholds as values.
         Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
         be the distance thresholds for bonding in Angstroms.
+    max_atoms : int, optional
+        Optional maximum molecule size passed to molecule identification.
+    max_atoms : int, optional
+        Optional maximum molecule size passed to molecule identification.
 
     Returns
     -------
     MolecularCrystal
-        Parsed crystal structure with identified molecular units.
+        Parsed crystal structure with identified molecular units.  When the CIF
+        contains `_chemical_formula_moiety`, the raw field is stored on
+        `MolecularCrystal.formula_moiety` for downstream hydrogen completion.
     """
     from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
     
@@ -606,6 +632,8 @@ def read_mol_crystal(
             # Fallback for older pymatgen versions
             structures = parser.get_structures()
 
+    formula_moiety = _extract_formula_moiety(parser)
+
     # For simplicity, we take the first structure
     structure = structures[0]
 
@@ -633,7 +661,7 @@ def read_mol_crystal(
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
 
-    return MolecularCrystal(lattice, molecules, pbc)
+    return MolecularCrystal(lattice, molecules, pbc, formula_moiety=formula_moiety)
 
 
 def parse_cif_advanced(
@@ -658,7 +686,9 @@ def parse_cif_advanced(
     Returns
     -------
     MolecularCrystal
-        Parsed crystal structure with identified molecular units.
+        Parsed crystal structure with identified molecular units.  Delegates to
+        `read_mol_crystal`, including any `formula_moiety` metadata read from
+        `_chemical_formula_moiety`.
 
     Raises
     ------
