@@ -23,7 +23,7 @@ class ChemicalEnvironment:
     planarity, and ring membership for atoms in a crystal structure.
     """
     
-    def __init__(self, crystal_molecule):
+    def __init__(self, crystal_molecule, anion_positions=None):
         """
         Initialize with a CrystalMolecule or graph + positions.
         
@@ -33,6 +33,9 @@ class ChemicalEnvironment:
             Either a CrystalMolecule object or a tuple containing
             (graph, positions) where graph is a NetworkX graph and 
             positions is a list of 3D coordinates.
+        anion_positions : Optional[List]
+            Cartesian positions of anion atoms in the parent crystal. Used for
+            charge-aware protonation heuristics.
         """
         if hasattr(crystal_molecule, 'graph') and hasattr(crystal_molecule, 'get_positions'):
             # It's a CrystalMolecule object
@@ -41,6 +44,12 @@ class ChemicalEnvironment:
         else:
             # It's a (graph, positions) tuple
             self.graph, self.positions = crystal_molecule
+
+        self.anion_positions = (
+            np.array(anion_positions, dtype=float)
+            if anion_positions is not None and len(anion_positions) > 0
+            else np.empty((0, 3), dtype=float)
+        )
         
         # Precompute cycle basis ONCE per molecule to avoid repeated heavy calculations
         self._precompute_ring_info()
@@ -229,6 +238,31 @@ class ChemicalEnvironment:
         # Neutral carboxylic acids have one short C=O and one longer C-OH and
         # should still receive the hydroxyl H on the longer terminal O.
         return max(co_lengths) <= 1.32 and (max(co_lengths) - min(co_lengths)) <= 0.08
+
+    def _is_carbonyl_like_C(self, atom_index: int) -> bool:
+        """Return True for C centers with a terminal C=O-like oxygen."""
+        if self.graph.nodes[atom_index].get('symbol', '') != 'C':
+            return False
+
+        c_pos = self.positions[atom_index]
+        for nb in self._heavy_neighbors(atom_index):
+            if self.graph.nodes[nb].get('symbol', '') != 'O':
+                continue
+            if len(self._heavy_neighbors(nb)) != 1:
+                continue
+            co_len = float(np.linalg.norm(self.positions[nb] - c_pos))
+            if co_len < 1.30:
+                return True
+        return False
+
+    def nearest_anion_distance(self, atom_index: int) -> float:
+        """Return nearest distance from atom_index to known anion atoms."""
+        if len(self.anion_positions) == 0:
+            return float('inf')
+
+        center = self.positions[atom_index]
+        distances = np.linalg.norm(self.anion_positions - center, axis=1)
+        return float(distances.min())
 
     def has_conjugated_ring_bond(self, atom_index: int, threshold: float = 1.43) -> bool:
         """
@@ -676,6 +710,40 @@ class NitrogenSite(HybridizedSite):
             if graph.nodes[nb].get('symbol', '') != 'H'
         ]
         return min(dists) if dists else self.geometry_stats['average_bond_length']
+
+    def _is_secondary_amide_like(self) -> bool:
+        """Return True for coord-2 N attached to at least one carbonyl C."""
+        if self.geometry_stats['coordination_number'] != 2:
+            return False
+
+        min_heavy = self._min_heavy_bond_len()
+        if min_heavy < 1.30:
+            return False
+
+        neighbors = self.env._heavy_neighbors(self.atom_index)
+        return any(
+            self.env.graph.nodes[nb].get('symbol', '') == 'C'
+            and self.env._is_carbonyl_like_C(nb)
+            for nb in neighbors
+        )
+
+    def _is_protonated_tertiary_amine_like(self) -> bool:
+        """Return True for tertiary amine N close to an anion site."""
+        neighbors = self.env._heavy_neighbors(self.atom_index)
+        if len(neighbors) != 3:
+            return False
+        if any(self.env.graph.nodes[nb].get('symbol', '') != 'C' for nb in neighbors):
+            return False
+
+        center = self.env.positions[self.atom_index]
+        n_c_lengths = [
+            float(np.linalg.norm(self.env.positions[nb] - center))
+            for nb in neighbors
+        ]
+        if min(n_c_lengths) < 1.42:
+            return False
+
+        return self.env.nearest_anion_distance(self.atom_index) < 3.20
     
     def get_hydrogen_completion_strategy(self) -> Dict:
         """
@@ -702,7 +770,7 @@ class NitrogenSite(HybridizedSite):
                 # Pyridine-like (lone pair in plane, 0H): 6-membered ring, OR
                 # bond to a neighbouring aromatic C is short (imidazole C2-N ~1.32 Å)
                 # indicating genuine imine character.
-                if 6 in arom_sizes or min_heavy < 1.34:
+                if 6 in arom_sizes or min_heavy < 1.32:
                     return {'num_h': 0, 'geometry': 'planar_aromatic', 'bond_length': bond_length}
                 else:
                     # Pyrrole-like (lone pair in π system, 1H): typically 5-ring,
@@ -768,6 +836,9 @@ class NitrogenSite(HybridizedSite):
                     num_h = 1
                     geometry = 'planar_bisector'
             # sp2: imine/amide N with short bond (C=N ~1.28, amide N-C ~1.34)
+            elif self._is_secondary_amide_like():
+                num_h = 1
+                geometry = 'trigonal_planar'
             elif min_heavy < 1.38:
                 num_h = 0
                 geometry = 'trigonal_planar'
@@ -812,6 +883,9 @@ class NitrogenSite(HybridizedSite):
                 # sp2: aniline, amide, enamine — shortest bond shows conjugation
                 num_h = 0
                 geometry = 'trigonal_planar'
+            elif self._is_protonated_tertiary_amine_like():
+                num_h = 1
+                geometry = 'tetrahedral'
             else:
                 # sp3: tertiary amine, hydrazine N
                 num_h = 0

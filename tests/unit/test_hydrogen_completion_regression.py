@@ -201,3 +201,37 @@ def test_brcrim10_isopropanol_formula():
         f"Expected 2 C3H8O isopropanol fragments, got {results}"
     )
     assert all(n_atoms == 12 for _, n_atoms in isopropanols)
+
+
+def test_brcrim10_cation_formula():
+    """BRCRIM10: bromocriptine cations must be C32H41BrN5O5."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+    cations = [
+        (formula, n_atoms) for formula, n_atoms in results
+        if formula == "C32H41BrN5O5"
+    ]
+    assert len(cations) == 2, (
+        f"Expected 2 C32H41BrN5O5 cation fragments, got {results}"
+    )
+    assert all(n_atoms == 84 for _, n_atoms in cations)
+
+
+def test_brcrim10_total_nodes():
+    """BRCRIM10: total atom count must match all corrected fragments."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from molcrys_kit.io import read_mol_crystal
+        from molcrys_kit.operations import add_hydrogens
+
+        crystal = read_mol_crystal(path)
+        hcrystal = add_hydrogens(crystal)
+
+    assert hcrystal.get_total_nodes() == 208

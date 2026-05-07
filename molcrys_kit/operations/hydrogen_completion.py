@@ -128,6 +128,56 @@ class HydrogenCompleter:
         # No rule matched
         return None
 
+    def _collect_anion_positions(self) -> List[np.ndarray]:
+        """
+        Collect Cartesian positions of likely anion atoms across the crystal.
+
+        These positions are used only by charge-aware protonation heuristics.
+        Detection is deliberately conservative: terminal O atoms on sulfonate,
+        phosphonate, or carboxylate-like centers, plus standalone halide ions.
+        """
+        anion_positions = []
+        halides = {"F", "Cl", "Br", "I"}
+
+        for unwrapped_mol in self.unwrapped_molecules:
+            symbols = unwrapped_mol.get_chemical_symbols()
+            positions = unwrapped_mol.get_positions()
+
+            if len(symbols) == 1 and symbols[0] in halides:
+                anion_positions.append(positions[0])
+                continue
+
+            chem_env = ChemicalEnvironment(unwrapped_mol)
+            for atom_idx, symbol in enumerate(symbols):
+                if symbol != "O":
+                    continue
+
+                heavy_neighbors = chem_env._heavy_neighbors(atom_idx)
+                if len(heavy_neighbors) != 1:
+                    continue
+
+                neighbor_idx = heavy_neighbors[0]
+                neighbor_symbol = chem_env.graph.nodes[neighbor_idx].get('symbol', '')
+                if (
+                    (neighbor_symbol == "S" and chem_env._is_sulfonate_like_S(neighbor_idx))
+                    or (neighbor_symbol == "P" and chem_env._is_phosphonate_like_P(neighbor_idx))
+                    or (neighbor_symbol == "C" and chem_env._is_carboxylate_like_C(neighbor_idx))
+                ):
+                    anion_positions.append(positions[atom_idx])
+
+        if not anion_positions:
+            return []
+
+        lattice = np.asarray(self.crystal.lattice)
+        image_positions = []
+        for pos in anion_positions:
+            for i in (-1, 0, 1):
+                for j in (-1, 0, 1):
+                    for k in (-1, 0, 1):
+                        image_positions.append(pos + np.dot([i, j, k], lattice))
+
+        return image_positions
+
     def add_hydrogens(
         self, target_elements: Optional[List[str]] = None, optimize_torsion: bool = False, rules: Optional[List[Dict]] = None, bond_lengths: Optional[Dict] = None
     ) -> MolecularCrystal:
@@ -190,6 +240,7 @@ class HydrogenCompleter:
 
         # Create new molecules with hydrogen atoms added
         new_molecules = []
+        anion_positions = self._collect_anion_positions()
 
         for mol_idx, unwrapped_mol in enumerate(self.unwrapped_molecules):
             # Get atomic symbols and positions
@@ -201,7 +252,7 @@ class HydrogenCompleter:
             new_atoms = unwrapped_mol.copy()
 
             # Create chemical environment analyzer for this molecule
-            chem_env = ChemicalEnvironment(unwrapped_mol)
+            chem_env = ChemicalEnvironment(unwrapped_mol, anion_positions=anion_positions)
 
             # For each atom in the molecule, check if it needs hydrogens
             for atom_idx in range(len(symbols)):
