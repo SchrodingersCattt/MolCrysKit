@@ -283,8 +283,8 @@ def test_map_methylammonium_perchlorate_formula():
 
 
 def test_suxrua_ammonium_perchlorate_formula():
-    """SUXRUA_ap has unknown moiety; heuristics should infer NH4+ and ClO4-."""
-    path = _cif("SUXRUA_ap.cif")
+    """SUXRUA has unknown moiety; heuristics should infer NH4+ and ClO4-."""
+    path = _cif("SUXRUA.cif")
     if not os.path.exists(path):
         pytest.skip(f"CIF not found: {path}")
 
