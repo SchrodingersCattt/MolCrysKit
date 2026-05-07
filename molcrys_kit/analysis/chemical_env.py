@@ -167,6 +167,69 @@ class ChemicalEnvironment:
         """
         return self._atom_aromatic_ring_sizes.get(atom_index, [])
 
+    def _heavy_neighbors(self, atom_index: int) -> List[int]:
+        """Return non-hydrogen neighbours of an atom."""
+        return [
+            nb for nb in self.graph.neighbors(atom_index)
+            if self.graph.nodes[nb].get('symbol', '') != 'H'
+        ]
+
+    def _is_sulfonate_like_S(self, atom_index: int) -> bool:
+        """Return True for S centers with three or more terminal O neighbours."""
+        if self.graph.nodes[atom_index].get('symbol', '') != 'S':
+            return False
+
+        oxygen_neighbors = [
+            nb for nb in self._heavy_neighbors(atom_index)
+            if self.graph.nodes[nb].get('symbol', '') == 'O'
+        ]
+        terminal_oxygen_count = sum(
+            len(self._heavy_neighbors(o_idx)) == 1
+            for o_idx in oxygen_neighbors
+        )
+        return terminal_oxygen_count >= 3
+
+    def _is_phosphonate_like_P(self, atom_index: int) -> bool:
+        """Return True for P centers with three or more terminal O neighbours."""
+        if self.graph.nodes[atom_index].get('symbol', '') != 'P':
+            return False
+
+        oxygen_neighbors = [
+            nb for nb in self._heavy_neighbors(atom_index)
+            if self.graph.nodes[nb].get('symbol', '') == 'O'
+        ]
+        terminal_oxygen_count = sum(
+            len(self._heavy_neighbors(o_idx)) == 1
+            for o_idx in oxygen_neighbors
+        )
+        return terminal_oxygen_count >= 3
+
+    def _is_carboxylate_like_C(self, atom_index: int) -> bool:
+        """Return True for carbon centers with two terminal O neighbours."""
+        if self.graph.nodes[atom_index].get('symbol', '') != 'C':
+            return False
+
+        oxygen_neighbors = [
+            nb for nb in self._heavy_neighbors(atom_index)
+            if self.graph.nodes[nb].get('symbol', '') == 'O'
+        ]
+        if len(oxygen_neighbors) != 2:
+            return False
+
+        if not all(len(self._heavy_neighbors(o_idx)) == 1 for o_idx in oxygen_neighbors):
+            return False
+
+        c_pos = self.positions[atom_index]
+        co_lengths = [
+            float(np.linalg.norm(self.positions[o_idx] - c_pos))
+            for o_idx in oxygen_neighbors
+        ]
+
+        # In carboxylates the two C-O distances are both short and similar.
+        # Neutral carboxylic acids have one short C=O and one longer C-OH and
+        # should still receive the hydroxyl H on the longer terminal O.
+        return max(co_lengths) <= 1.32 and (max(co_lengths) - min(co_lengths)) <= 0.08
+
     def has_conjugated_ring_bond(self, atom_index: int, threshold: float = 1.43) -> bool:
         """
         Return True if any ring bond *not* directly involving *atom_index* has length
@@ -801,10 +864,10 @@ class GenericSite(HybridizedSite):
         graph = self.env.graph
         positions = self.env.positions
         center = positions[self.atom_index]
+        heavy_neighbors = self.env._heavy_neighbors(self.atom_index)
         heavy_dists = [
             np.linalg.norm(positions[nb] - center)
-            for nb in graph.neighbors(self.atom_index)
-            if graph.nodes[nb].get('symbol', '') != 'H'
+            for nb in heavy_neighbors
         ]
         min_heavy = min(heavy_dists) if heavy_dists else avg_len
         
@@ -821,21 +884,36 @@ class GenericSite(HybridizedSite):
         #   3-membered ring: strained → sp3 regardless of length
         if atom_symbol == 'O':
             if coord == 1:
-                # Terminal O: only one heavy bond, no H confusion
-                # Decision hierarchy based on bond length:
-                #   C=O carbonyl:   ~1.20-1.25  → sp2 (no H)
-                #   N=O oxime/nitroso: ~1.21-1.40 → sp2 (no H)
-                #   C-OH alcohol:   ~1.41-1.43  → sp3 (add 1 H)
-                # Threshold 1.42: covers all sp2 terminal O (carbonyl + oxime),
-                # while the alcohol O-C bond is typically ≥1.41 in 3D optimised geom.
-                # In practice the gap is small but bond length is the best available
-                # single descriptor without explicit bond-order information.
-                if min_heavy < 1.42:
+                # Terminal O is ambiguous by length alone in noisy CIFs.  Prefer
+                # the neighbour's local environment over a single C/S-O cutoff.
+                neighbor_idx = heavy_neighbors[0] if heavy_neighbors else None
+                neighbor_symbol = (
+                    graph.nodes[neighbor_idx].get('symbol', '')
+                    if neighbor_idx is not None else ''
+                )
+
+                if neighbor_idx is not None and (
+                    (neighbor_symbol == 'S' and self.env._is_sulfonate_like_S(neighbor_idx))
+                    or (neighbor_symbol == 'P' and self.env._is_phosphonate_like_P(neighbor_idx))
+                ):
                     num_h = 0
-                    geometry = 'trigonal_planar'  # sp2: carbonyl or oxime O
+                    geometry = 'trigonal_planar'  # sulfonate/phosphonate O
+                elif neighbor_idx is not None and neighbor_symbol == 'C':
+                    if self.env._is_carboxylate_like_C(neighbor_idx):
+                        num_h = 0
+                        geometry = 'trigonal_planar'  # carboxylate O
+                    elif min_heavy < 1.30:
+                        num_h = 0
+                        geometry = 'trigonal_planar'  # clear carbonyl O
+                    else:
+                        num_h = 1
+                        geometry = 'bent'  # alcohol/enol/carboxylic-acid O
+                elif min_heavy < 1.30:
+                    num_h = 0
+                    geometry = 'trigonal_planar'  # clear terminal double-bond O
                 else:
                     num_h = 1
-                    geometry = 'bent'  # sp3 hydroxyl
+                    geometry = 'bent'  # terminal hydroxyl-like O
             elif coord == 2:
                 if in_ring and ring_sizes and min(ring_sizes) <= 3:
                     # Oxirane: highly strained 3-membered ring → always sp3

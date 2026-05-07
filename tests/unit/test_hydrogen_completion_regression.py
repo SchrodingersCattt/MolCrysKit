@@ -162,3 +162,42 @@ def test_petn_formula():
         assert formula == "C5H8N4O12", (
             f"Molecule {i}: expected C5H8N4O12, got {formula}"
         )
+
+
+# ---------------------------------------------------------------------------
+# BRCRIM10 / bromocriptine methylsulfonate isopropanol solvate
+# Issue #18 reopened case.  PR1 covers the neutral/anion terminal-O failures:
+#   - methanesulfonate should be CH3O3S, not CH4O3S
+#   - isopropanol should be C3H8O, not C3H7O
+# The protonated bromocriptine cation is handled in the follow-up
+# charge-aware PR.
+# ---------------------------------------------------------------------------
+
+def test_brcrim10_mesylate_formula():
+    """BRCRIM10: methanesulfonate fragments must be CH3O3S."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+    mesylates = [(formula, n_atoms) for formula, n_atoms in results if formula == "CH3O3S"]
+    assert len(mesylates) == 2, (
+        f"Expected 2 CH3O3S mesylate fragments, got {results}"
+    )
+    assert all(n_atoms == 8 for _, n_atoms in mesylates)
+
+
+def test_brcrim10_isopropanol_formula():
+    """BRCRIM10: isopropanol fragments must be C3H8O."""
+    path = _cif("BRCRIM10.cif")
+    if not os.path.exists(path):
+        pytest.skip(f"CIF not found: {path}")
+
+    results = _hydrogenate(path, target_elements=None)
+    isopropanols = [
+        (formula, n_atoms) for formula, n_atoms in results if formula == "C3H8O"
+    ]
+    assert len(isopropanols) == 2, (
+        f"Expected 2 C3H8O isopropanol fragments, got {results}"
+    )
+    assert all(n_atoms == 12 for _, n_atoms in isopropanols)
