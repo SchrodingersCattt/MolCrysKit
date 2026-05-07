@@ -2,8 +2,8 @@
 Chemical environment analyzer for molecular crystals.
 
 This module provides classes and functions to analyze the local environment
-of atoms in molecular crystals, including coordination numbers, bond angles,
-and ring detection.
+of atoms in a molecule or molecular fragment, including coordination numbers,
+bond angles, and ring detection.
 """
 
 import warnings
@@ -17,10 +17,10 @@ from ..utils.geometry import angle_between_vectors
 
 class ChemicalEnvironment:
     """
-    Analyzes the local chemical environment of atoms in a molecular crystal.
+    Analyzes the local chemical environment of atoms in a molecule.
     
     Provides methods to calculate coordination numbers, bond angles, 
-    planarity, and ring membership for atoms in a crystal structure.
+    planarity, and ring membership for atoms in a molecular graph.
     """
     
     def __init__(self, crystal_molecule, anion_positions=None, cation_positions=None):
@@ -34,11 +34,11 @@ class ChemicalEnvironment:
             (graph, positions) where graph is a NetworkX graph and 
             positions is a list of 3D coordinates.
         anion_positions : Optional[List]
-            Cartesian positions of anion atoms in the parent crystal. Used for
-            charge-aware protonation heuristics.
+            Caller-supplied Cartesian positions of likely anion sites in the
+            parent crystal. Used for charge-aware protonation heuristics.
         cation_positions : Optional[List]
-            Cartesian positions of cation atoms in the parent crystal. Used for
-            context-aware isolated ion/water heuristics.
+            Caller-supplied Cartesian positions of likely cation sites in the
+            parent crystal. Used for context-aware isolated ion/water heuristics.
         """
         if hasattr(crystal_molecule, 'graph') and hasattr(crystal_molecule, 'get_positions'):
             # It's a CrystalMolecule object
@@ -285,7 +285,7 @@ class ChemicalEnvironment:
         return False
 
     def nearest_anion_distance(self, atom_index: int) -> float:
-        """Return nearest distance from atom_index to known anion atoms."""
+        """Return nearest distance to caller-supplied likely anion positions."""
         if len(self.anion_positions) == 0:
             return float('inf')
 
@@ -294,7 +294,7 @@ class ChemicalEnvironment:
         return float(distances.min())
 
     def nearest_cation_distance(self, atom_index: int) -> float:
-        """Return nearest distance from atom_index to known cation atoms."""
+        """Return nearest distance to caller-supplied likely cation positions."""
         if len(self.cation_positions) == 0:
             return float('inf')
 
@@ -493,7 +493,7 @@ class ChemicalEnvironment:
         Parameters
         ----------
         atom_index : int
-            Index of the atom in the crystal
+            Index of the atom in the molecule
             
         Returns
         -------
@@ -526,11 +526,11 @@ class HybridizedSite(ABC):
         Parameters
         ----------
         atom_index : int
-            Index of the atom in the crystal
+            Index of the atom in the molecule
         element : str
             Element symbol
         env : ChemicalEnvironment
-            The chemical environment of the crystal
+            The chemical environment of the molecule
         """
         self.atom_index = atom_index
         self.element = element
@@ -576,6 +576,8 @@ class CarbonSite(HybridizedSite):
         the local-geometry heuristic to avoid misclassifying 5-membered aromatic
         ring carbons as sp3 (their internal angle ~108° is nearly identical to the
         tetrahedral ideal of 109.5°).
+
+        Isolated carbon (coord=0) defaults to methane-like tetrahedral C-H4.
 
         Returns
         -------
@@ -798,6 +800,9 @@ class NitrogenSite(HybridizedSite):
         Primary decision criterion (non-aromatic): shortest heavy-atom bond length.
         Secondary criterion: ring planarity (for aromatic systems).
         Tertiary criterion: bond angle (for linear sp detection).
+
+        Isolated nitrogen (coord=0) defaults to NH3, or NH4-like when a
+        caller-supplied anion probe is nearby.
         """
         from ..constants.config import BOND_LENGTHS
 
@@ -960,6 +965,10 @@ class GenericSite(HybridizedSite):
         For oxygen specifically, aromatic-ring membership (furan-like O) is detected
         via the geometric pre-pass and short-circuits the heuristic to avoid adding
         a spurious H to a furan-type O.
+
+        Isolated oxygen (coord=0) uses caller-supplied ion probes to distinguish
+        water-like, hydroxide-like, and oxonium-like H counts. Terminal O atoms on
+        hypercoordinate oxo centers such as perchlorate/nitrate are treated as 0H.
 
         Returns
         -------

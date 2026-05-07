@@ -27,7 +27,8 @@ def create_supercell(
     Returns
     -------
     MolecularCrystal
-        Supercell structure.
+        Supercell structure.  CIF `formula_moiety` metadata is not propagated
+        because the molecule partitioning is rebuilt for the repeated cell.
     """
 
     # Get the ASE Atoms object using the to_ase method

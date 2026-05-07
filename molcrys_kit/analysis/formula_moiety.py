@@ -2,8 +2,8 @@
 Utilities for parsing CIF ``_chemical_formula_moiety`` values.
 
 The parser intentionally keeps moiety fragments unscaled: ``0.5(C3 H8 O1)``
-represents a fragment whose composition is still ``C3H8O`` and whose
-multiplier is ``0.5``.
+represents a fragment whose stored element counts are still ``C3 H8 O1`` and
+whose multiplier is ``0.5``.
 """
 
 from __future__ import annotations

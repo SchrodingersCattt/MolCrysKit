@@ -58,6 +58,9 @@ def _build_crystal_with_replaced_molecule(
 ) -> MolecularCrystal:
     """Return a new ``MolecularCrystal`` identical to *crystal* except that
     the molecule at *molecule_index* has been replaced by *new_molecule*.
+
+    Raw CIF ``formula_moiety`` metadata is intentionally not propagated because
+    the edited molecular set may no longer match the original formula context.
     """
     new_molecules = []
     for i, mol in enumerate(crystal.molecules):

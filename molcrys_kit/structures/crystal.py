@@ -180,7 +180,9 @@ class MolecularCrystal:
         Returns
         -------
         MolecularCrystal
-            New crystal representing the supercell.
+            New crystal representing the supercell.  The raw CIF
+            `formula_moiety` metadata is not propagated because the repeated
+            cell no longer has the same asymmetric-unit formula context.
         """
 
         # Create new lattice vectors

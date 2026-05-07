@@ -2,9 +2,9 @@
 
 ## Hydrogen Completion
 
-MolCrysKit provides functionality to add hydrogen atoms to molecular crystals based on geometric rules and chemical constraints. This is particularly useful for generating complete structures from X-ray diffraction data, which often does not resolve hydrogen positions.
+MolCrysKit provides functionality to add hydrogen atoms to molecular crystals based on geometric rules, chemical constraints, and CIF formula metadata when available. This is particularly useful for generating complete structures from X-ray diffraction data, which often does not resolve hydrogen positions.
 
-**Note:** `add_hydrogens` uses a whitelist-only policy: you must pass `target_elements` (e.g. `["O","N","C"]`). If `target_elements` is `None` or empty, no hydrogens are added.
+**Note:** `target_elements` is optional. When it is `None` (the default), all heavy atoms are processed. When provided, it acts as a whitelist (for example, `["O", "N", "C"]`).
 
 ### Key Features:
 - Automatic determination of hydrogen atom positions based on coordination geometry
@@ -12,10 +12,12 @@ MolCrysKit provides functionality to add hydrogen atoms to molecular crystals ba
 - Customizable rules for specific atom types
 - Configurable bond lengths for different atom pairs
 - Preservation of molecular topology during hydrogen completion
+- CIF `_chemical_formula_moiety` support: when a parseable moiety formula matches a molecular fragment, its H count is used to correct the heuristic plan before H atoms are placed
 
 ### Best Practices:
 - Verify that the crystal structure is of sufficient quality for hydrogen addition
 - Consider using custom rules for specific chemical environments
+- Use `use_formula_moiety=False` only when you explicitly want the older heuristic-only behavior
 - Validate the hydrogen-bonding network after hydrogen completion
 - Use appropriate bond lengths for your specific system
 
@@ -28,13 +30,15 @@ from molcrys_kit.io.output import write_cif
 # Load a molecular crystal from a CIF file
 crystal = read_mol_crystal('bulk.cif')
 
-# Add hydrogens with default rules (target_elements is required: only these elements get hydrogens added)
-hydrogenated_crystal = add_hydrogens(crystal, target_elements=["O", "N", "C"])
+# Add hydrogens with default rules.
+# If the CIF contains _chemical_formula_moiety, it is used to correct
+# per-fragment H counts; geometry/placement still comes from heuristics.
+hydrogenated_crystal = add_hydrogens(crystal)
 
 print(f"Original crystal has {crystal.get_total_nodes()} atoms")
 print(f"Hydrogenated crystal has {hydrogenated_crystal.get_total_nodes()} atoms")
 
-# Add hydrogens with custom rules and target elements
+# Add hydrogens with custom rules and an element whitelist
 custom_rules = [
     {
         "symbol": "N",              # Nitrogen atoms
@@ -59,7 +63,8 @@ hydrogenated_crystal = add_hydrogens(
     crystal,
     target_elements=["O", "N", "C"],
     rules=custom_rules,
-    bond_lengths=custom_bond_lengths
+    bond_lengths=custom_bond_lengths,
+    use_formula_moiety=True,  # default; set False for heuristic-only mode
 )
 
 # Save the hydrogenated crystal to a CIF file

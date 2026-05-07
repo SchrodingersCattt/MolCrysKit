@@ -593,11 +593,17 @@ def read_mol_crystal(
         Custom dictionary with atom pairs as keys and bonding thresholds as values.
         Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
         be the distance thresholds for bonding in Angstroms.
+    max_atoms : int, optional
+        Optional maximum molecule size passed to molecule identification.
+    max_atoms : int, optional
+        Optional maximum molecule size passed to molecule identification.
 
     Returns
     -------
     MolecularCrystal
-        Parsed crystal structure with identified molecular units.
+        Parsed crystal structure with identified molecular units.  When the CIF
+        contains `_chemical_formula_moiety`, the raw field is stored on
+        `MolecularCrystal.formula_moiety` for downstream hydrogen completion.
     """
     from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
     
@@ -680,7 +686,9 @@ def parse_cif_advanced(
     Returns
     -------
     MolecularCrystal
-        Parsed crystal structure with identified molecular units.
+        Parsed crystal structure with identified molecular units.  Delegates to
+        `read_mol_crystal`, including any `formula_moiety` metadata read from
+        `_chemical_formula_moiety`.
 
     Raises
     ------

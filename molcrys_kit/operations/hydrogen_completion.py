@@ -1,8 +1,9 @@
 """
 hydrogen_completion operations for molecular crystals.
 
-This module provides functionality to add hydrogen atoms to molecular crystals
-based on geometric rules and chemical constraints.
+This module provides functionality to add hydrogen atoms to molecular crystals.
+It builds a heuristic per-atom H plan, optionally corrects fragment H counts
+from CIF `_chemical_formula_moiety`, and then places hydrogens geometrically.
 """
 
 import numpy as np
@@ -24,7 +25,7 @@ from ..utils.geometry import (
 
 
 def add_hydrogens(
-    crystal,
+    crystal: MolecularCrystal,
     target_elements: Optional[List[str]] = None,
     optimize_torsion: bool = False,
     rules=None,
@@ -92,7 +93,11 @@ def add_hydrogens(
 
 class HydrogenCompleter:
     """
-    Class for adding hydrogen atoms to molecular crystals based on geometric rules.
+    Class for adding hydrogen atoms to molecular crystals.
+
+    The completer keeps geometric placement heuristics as the base path and can
+    use CIF `_chemical_formula_moiety` metadata as a per-fragment H-count
+    constraint before placement.
     """
 
     def __init__(self, crystal: MolecularCrystal):
