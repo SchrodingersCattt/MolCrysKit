@@ -209,6 +209,16 @@ in nearly identical directions) before exhausting the other sites.
 
 Both styles produce correct NH4+ (4 H per nitrogen) after resolution.
 
+**Replica generation modes:**
+`DisorderSolver.solve()` and
+`generate_ordered_replicas_from_disordered_sites()` support three resolution
+modes.  `method="optimal"` returns the single greedy maximum-weight independent
+set.  `method="random"` samples one valid alternative from each independent
+PART/SP decision component, weighted by occupancy and reproducible with
+`random_seed`.  `method="enumerate"` returns the Cartesian product of independent
+alternatives, sorted by joint occupancy probability; pass `generate_count > 1`
+to cap enumeration to the top-N combinations.
+
 **Valence-completeness diagnostics:**
 `DisorderSolver.solve()` automatically calls
 `molcrys_kit.analysis.disorder.diagnostics.check_valence_completeness` on

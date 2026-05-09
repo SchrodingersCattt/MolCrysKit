@@ -635,76 +635,147 @@ class DisorderGraphBuilder:
                         continue
                 sp_groups[self.info.asym_id[i]].append(i)
 
-        for asym_id, indices in sp_groups.items():
-            n_copies = len(indices)
-            if n_copies < 2:
-                continue
+        # Pre-compute connected-component fragment ids over full-occupancy
+        # heavy atoms.  This is only needed when there are multi-site H
+        # atoms whose proximity-only clustering can be misled by lattice
+        # coincidences (DAP-7 H1C: copies anchored to different hydrazinium
+        # cations happen to lie 1.44 Å apart, making them look like SP
+        # equivalents even though they belong to chemically distinct
+        # cations).  Bucketing H copies by their nearest full-occ anchor's
+        # fragment restores the correct semantics: only H atoms anchored
+        # to the same chemical fragment compete for the same proton site.
+        heavy_anchor_fragment: dict = {}
+        if multi_site_h:
+            heavy_graph = nx.Graph()
+            for a in range(n_atoms):
+                if self.info.symbols[a] in ("H", "D"):
+                    continue
+                if self.info.occupancies[a] < 1.0:
+                    continue
+                heavy_graph.add_node(a)
+            for a in heavy_graph.nodes():
+                for b in heavy_graph.nodes():
+                    if a >= b:
+                        continue
+                    d = self.dist_matrix[a, b]
+                    if d >= 2.0:
+                        continue
+                    if self._are_bonded(
+                        self.info.symbols[a], self.info.symbols[b], d,
+                        self.info.disorder_groups[a],
+                        self.info.disorder_groups[b],
+                    ):
+                        heavy_graph.add_edge(a, b)
+            for fid, comp in enumerate(nx.connected_components(heavy_graph)):
+                for atom in comp:
+                    heavy_anchor_fragment[atom] = fid
 
-            occ = self.info.occupancies[indices[0]]
+        def _bucket_indices_by_anchor(indices_list):
+            """Partition multi-site H copies by full-occ anchor fragment.
 
-            # Compute expected number of physical sites.
-            # Primary method: n_sites = round(n_copies * occ)
-            # This is more robust than round(1/occ) for non-standard
-            # occupancies like 0.06 or 0.04.
-            n_sites = max(1, round(n_copies * occ))
-            multiplicity = n_copies // n_sites if n_sites > 0 else n_copies
+            Returns a list of buckets (each a list of atom indices) ready for
+            independent proximity clustering.  Non-H atoms and H atoms that
+            have no full-occ heavy anchor fall through as a single bucket so
+            existing behaviour is preserved.
+            """
+            if not heavy_anchor_fragment:
+                return [list(indices_list)]
+            # Only re-bucket multi-site H copies; everything else stays whole.
+            if not all(idx in multi_site_h for idx in indices_list):
+                return [list(indices_list)]
 
-            # If division isn't clean, try round(1/occ) as fallback
-            if n_copies % n_sites != 0:
-                multiplicity_alt = max(1, round(1.0 / occ))
-                if n_copies % multiplicity_alt == 0:
-                    multiplicity = multiplicity_alt
-                    n_sites = n_copies // multiplicity
+            cutoff = DISORDER_CONFIG["SP_H_BOND_DETECTION_CUTOFF"]
+            buckets: dict = defaultdict(list)
+            unbucketed: list = []
+            for h_idx in indices_list:
+                best_anchor = None
+                best_dist = np.inf
+                for j in range(n_atoms):
+                    if j == h_idx:
+                        continue
+                    if self.info.symbols[j] in ("H", "D"):
+                        continue
+                    if j not in heavy_anchor_fragment:
+                        continue
+                    d = self.dist_matrix[h_idx, j]
+                    if d < cutoff and d < best_dist:
+                        best_dist = d
+                        best_anchor = j
+                if best_anchor is None:
+                    unbucketed.append(h_idx)
                 else:
-                    # Neither method gives clean partition; fall back to
-                    # best-effort clustering with uneven cluster sizes
-                    pass
+                    buckets[heavy_anchor_fragment[best_anchor]].append(h_idx)
+            if not buckets:
+                return [list(indices_list)]
+            result = list(buckets.values())
+            if unbucketed:
+                # Unbucketed H copies (no full-occ anchor) keep the legacy
+                # all-pairs proximity behaviour amongst themselves.
+                result.append(unbucketed)
+            return result
 
-            if n_sites < 1 or n_sites >= n_copies:
-                # multiplicity < 2 means no within-cluster conflicts needed
-                continue
+        for asym_id, indices in sp_groups.items():
+            for bucket in _bucket_indices_by_anchor(indices):
+                self._cluster_and_add_sp_edges(bucket)
 
-            # Build sub-distance-matrix for this asym_id group
-            sub_dists = np.zeros((n_copies, n_copies))
-            for ii in range(n_copies):
-                for jj in range(ii + 1, n_copies):
-                    d = self.dist_matrix[indices[ii], indices[jj]]
-                    sub_dists[ii, jj] = d
-                    sub_dists[jj, ii] = d
+    def _cluster_and_add_sp_edges(self, indices):
+        """Run hierarchical proximity clustering over a single SP bucket and
+        add mutual-exclusion edges within each resulting cluster."""
+        n_copies = len(indices)
+        if n_copies < 2:
+            return
 
-            # Hierarchical clustering: partition n_copies atoms into n_sites
-            # clusters of `multiplicity` atoms each, based on proximity.
+        occ = self.info.occupancies[indices[0]]
 
-            # Convert to condensed distance matrix for scipy
-            from scipy.cluster.hierarchy import linkage, fcluster
-            condensed = []
-            for ii in range(n_copies):
-                for jj in range(ii + 1, n_copies):
-                    condensed.append(sub_dists[ii, jj])
-            condensed = np.array(condensed)
+        # Compute expected number of physical sites.
+        # Primary method: n_sites = round(n_copies * occ)
+        # This is more robust than round(1/occ) for non-standard
+        # occupancies like 0.06 or 0.04.
+        n_sites = max(1, round(n_copies * occ))
+        multiplicity = n_copies // n_sites if n_sites > 0 else n_copies
 
-            if len(condensed) == 0:
-                continue
+        # If division isn't clean, try round(1/occ) as fallback
+        if n_copies % n_sites != 0:
+            multiplicity_alt = max(1, round(1.0 / occ))
+            if n_copies % multiplicity_alt == 0:
+                multiplicity = multiplicity_alt
+                n_sites = n_copies // multiplicity
 
-            Z = linkage(condensed, method='complete')
-            # Cut the dendrogram to get n_sites clusters
-            labels = fcluster(Z, t=n_sites, criterion='maxclust')
+        if n_sites < 1 or n_sites >= n_copies:
+            return
 
-            # Add mutual-exclusion edges within each cluster
-            for cluster_id in set(labels):
-                cluster_members = [indices[k] for k in range(n_copies)
-                                   if labels[k] == cluster_id]
-                # Add all-pairs conflict edges
-                for ii in range(len(cluster_members)):
-                    for jj in range(ii + 1, len(cluster_members)):
-                        u, v = cluster_members[ii], cluster_members[jj]
-                        add_or_promote_edge(
-                            self.graph,
-                            u,
-                            v,
-                            "implicit_sp",
-                            distance=self.dist_matrix[u, v],
-                        )
+        sub_dists = np.zeros((n_copies, n_copies))
+        for ii in range(n_copies):
+            for jj in range(ii + 1, n_copies):
+                d = self.dist_matrix[indices[ii], indices[jj]]
+                sub_dists[ii, jj] = d
+                sub_dists[jj, ii] = d
+
+        from scipy.cluster.hierarchy import linkage, fcluster
+        condensed = []
+        for ii in range(n_copies):
+            for jj in range(ii + 1, n_copies):
+                condensed.append(sub_dists[ii, jj])
+        condensed = np.array(condensed)
+        if len(condensed) == 0:
+            return
+
+        Z = linkage(condensed, method='complete')
+        labels = fcluster(Z, t=n_sites, criterion='maxclust')
+
+        for cluster_id in set(labels):
+            cluster_members = [indices[k] for k in range(n_copies)
+                               if labels[k] == cluster_id]
+            for ii in range(len(cluster_members)):
+                for jj in range(ii + 1, len(cluster_members)):
+                    u, v = cluster_members[ii], cluster_members[jj]
+                    add_or_promote_edge(
+                        self.graph,
+                        u,
+                        v,
+                        "implicit_sp",
+                        distance=self.dist_matrix[u, v],
+                    )
 
     def _are_bonded(self, s1, s2, dist, group1=0, group2=0):
         if group1 != 0 and group2 != 0 and group1 != group2:

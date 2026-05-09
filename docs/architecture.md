@@ -37,7 +37,8 @@ The [DisorderSolver](../molcrys_kit/analysis/disorder/solver.py) implements the 
 
 - Groups atoms into rigid bodies based on disorder group and assembly information
 - Implements a greedy algorithm to select groups with high occupancy weights and low conflict degrees
-- Optionally applies randomized weights to generate ensembles of physically realistic structures
+- Samples PART/SP alternatives by occupancy with `method="random"` to generate reproducible ensembles when a seed is provided
+- Enumerates Cartesian products of independent PART/SP alternatives with `method="enumerate"`
 - Reconstructs complete molecular crystals from the selected atom sets
 
 The MWIS solution represents a compromise between maximizing total occupancy (thermodynamic stability) and minimizing steric clashes (geometric feasibility), resulting in physically realistic ordered structures from disordered crystal data.
