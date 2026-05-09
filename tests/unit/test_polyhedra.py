@@ -14,6 +14,7 @@ Tests cover:
 """
 
 import math
+from dataclasses import FrozenInstanceError
 
 import numpy as np
 import pytest
@@ -29,10 +30,25 @@ from molcrys_kit.structures.polyhedra import (
 )
 from molcrys_kit.analysis.packing_shell import angular_rmsd_vs_ideals
 
+EXPECTED_POLYHEDRA = {
+    4: {"tetrahedron", "square_planar"},
+    5: {"trigonal_bipyramid", "square_pyramid"},
+    6: {"octahedron", "trigonal_prism"},
+    7: {"pentagonal_bipyramid", "capped_octahedron"},
+    8: {"cube", "square_antiprism", "dodecahedron"},
+    9: {"tricapped_trigonal_prism", "capped_square_antiprism"},
+    10: {"bicapped_square_antiprism", "bicapped_dodecahedron"},
+    11: {
+        "capped_pentagonal_antiprism",
+        "capped_pentagonal_prism",
+        "edge_bicapped_square_antiprism",
+    },
+    12: {"icosahedron", "cuboctahedron"},
+}
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Fixtures
-# ═══════════════════════════════════════════════════════════════════════════════
+
+# --- Fixtures ---
+
 
 @pytest.fixture
 def all_polys():
@@ -46,43 +62,40 @@ def poly(request):
     return request.param
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Registry completeness
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Registry completeness ---
+
 
 class TestRegistryCompleteness:
     """Ensure all expected coordination numbers are covered."""
 
     def test_cn_range_4_to_12(self):
-        expected_cns = {4, 5, 6, 7, 8, 9, 10, 11, 12}
         actual_cns = set(IDEAL_POLYHEDRA.keys())
-        assert expected_cns <= actual_cns, (
-            f"Missing CNs: {expected_cns - actual_cns}"
-        )
+        assert (
+            set(EXPECTED_POLYHEDRA) <= actual_cns
+        ), f"Missing CNs: {set(EXPECTED_POLYHEDRA) - actual_cns}"
 
-    def test_at_least_two_per_cn(self, all_polys):
-        """Each CN should have at least 2 candidate polyhedra for comparison."""
-        from collections import Counter
-        cn_counts = Counter(p.cn for p in all_polys)
-        for cn in range(4, 13):
-            assert cn_counts[cn] >= 2, (
-                f"CN={cn} has only {cn_counts[cn]} polyhedron(s), need >= 2"
-            )
+    def test_expected_catalog_entries_are_registered(self):
+        """Each expected CN exposes its known candidate polyhedra."""
+        for cn, expected_names in EXPECTED_POLYHEDRA.items():
+            actual_names = set(IDEAL_POLYHEDRA[cn])
+            assert (
+                expected_names <= actual_names
+            ), f"CN={cn} missing polyhedra: {expected_names - actual_names}"
 
     def test_no_duplicate_names(self, all_polys):
         names = [p.name for p in all_polys]
-        assert len(names) == len(set(names)), (
-            f"Duplicate names: {[n for n in names if names.count(n) > 1]}"
-        )
+        assert len(names) == len(
+            set(names)
+        ), f"Duplicate names: {[n for n in names if names.count(n) > 1]}"
 
     def test_total_count(self, all_polys):
-        """Sanity check: expect at least 20 polyhedra."""
-        assert len(all_polys) >= 20
+        """Sanity check: catalog has at least the expected entries."""
+        expected_count = sum(len(names) for names in EXPECTED_POLYHEDRA.values())
+        assert len(all_polys) >= expected_count
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Vertex normalization
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Vertex normalization ---
+
 
 class TestNormalization:
     """All vertices should lie on the unit sphere (centered at origin)."""
@@ -90,8 +103,10 @@ class TestNormalization:
     def test_vertices_on_unit_sphere(self, poly):
         norms = np.linalg.norm(poly.vertices, axis=1)
         np.testing.assert_allclose(
-            norms, np.ones(poly.cn), atol=1e-12,
-            err_msg=f"{poly.name}: vertices not on unit sphere"
+            norms,
+            np.ones(poly.cn),
+            atol=1e-12,
+            err_msg=f"{poly.name}: vertices not on unit sphere",
         )
 
     def test_centroid_near_origin(self, poly):
@@ -100,24 +115,29 @@ class TestNormalization:
         offset = np.linalg.norm(centroid)
         # Symmetric polyhedra: centroid exactly at origin
         # Capped/asymmetric polyhedra: centroid may drift (up to ~0.2 for capped)
-        if poly.category in ("platonic", "archimedean", "prism", "antiprism", "bipyramid"):
+        if poly.category in (
+            "platonic",
+            "archimedean",
+            "prism",
+            "antiprism",
+            "bipyramid",
+        ):
             np.testing.assert_allclose(
-                centroid, np.zeros(3), atol=1e-8,
-                err_msg=f"{poly.name}: centroid not at origin"
+                centroid,
+                np.zeros(3),
+                atol=1e-8,
+                err_msg=f"{poly.name}: centroid not at origin",
             )
         else:
             # Capped polyhedra: just ensure offset is bounded
-            assert offset < 0.3, (
-                f"{poly.name}: centroid offset {offset:.4f} too large"
-            )
+            assert offset < 0.3, f"{poly.name}: centroid offset {offset:.4f} too large"
 
     def test_vertex_count_matches_cn(self, poly):
         assert poly.vertices.shape == (poly.cn, 3)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Angular RMSD self-match
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Angular RMSD self-match ---
+
 
 class TestSelfRMSD:
     """Each ideal polyhedron should give RMSD=0 when scored against itself."""
@@ -129,16 +149,15 @@ class TestSelfRMSD:
         assert best is not None, f"{poly.name}: no match found"
         assert best["name"] == poly.name, (
             f"{poly.name}: best match is '{best['name']}' "
-            f"(RMSD={best['angular_rmsd']:.4f}°)"
+            f"(RMSD={best['angular_rmsd']:.4f} deg)"
         )
-        assert best["angular_rmsd"] < 1e-8, (
-            f"{poly.name}: self-RMSD = {best['angular_rmsd']:.2e}, expected ~0"
-        )
+        assert (
+            best["angular_rmsd"] < 1e-8
+        ), f"{poly.name}: self-RMSD = {best['angular_rmsd']:.2e}, expected ~0"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Cross-RMSD discrimination
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Cross-RMSD discrimination ---
+
 
 class TestCrossRMSD:
     """Different polyhedra of the same CN should be distinguishable."""
@@ -159,30 +178,29 @@ class TestCrossRMSD:
             second = result["results"][1]
             assert second["angular_rmsd"] > 0.1, (
                 f"CN={cn}: {names[0]} vs {second['name']} "
-                f"RMSD={second['angular_rmsd']:.4f}° — too similar"
+                f"RMSD={second['angular_rmsd']:.4f} deg - too similar"
             )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Specific geometry checks
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Specific geometry checks ---
+
 
 class TestSpecificGeometry:
     """Check well-known angular relationships for selected polyhedra."""
 
     def test_tetrahedron_angles_are_109_47(self):
-        """All inter-vertex angles from center should be arccos(-1/3) ≈ 109.47°."""
+        """All inter-vertex angles from center should be arccos(-1/3)."""
         verts = ideal_polyhedra_for_cn(4)["tetrahedron"]
         angles = []
         for i in range(4):
             for j in range(i + 1, 4):
                 cosang = np.clip(np.dot(verts[i], verts[j]), -1.0, 1.0)
                 angles.append(math.degrees(math.acos(cosang)))
-        expected = math.degrees(math.acos(-1.0 / 3.0))  # 109.4712°
+        expected = math.degrees(math.acos(-1.0 / 3.0))  # 109.4712 degrees
         np.testing.assert_allclose(angles, [expected] * 6, atol=0.01)
 
     def test_octahedron_has_90_and_180_angles(self):
-        """Octahedron: 12 angles at 90° and 3 at 180°."""
+        """Octahedron: 12 angles at 90 degrees and 3 at 180 degrees."""
         verts = ideal_polyhedra_for_cn(6)["octahedron"]
         angles = []
         for i in range(6):
@@ -201,39 +219,42 @@ class TestSpecificGeometry:
         assert s[-1] < 1e-10
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Metadata
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Metadata ---
+
 
 class TestMetadata:
     """Check metadata consistency."""
 
     def test_point_group_is_set(self, poly):
-        assert poly.point_group != "?", (
-            f"{poly.name}: point_group not set"
-        )
+        assert poly.point_group != "?", f"{poly.name}: point_group not set"
 
     def test_category_is_valid(self, poly):
         valid_categories = {
-            "platonic", "archimedean", "prism", "antiprism",
-            "bipyramid", "capped", "other"
+            "platonic",
+            "archimedean",
+            "prism",
+            "antiprism",
+            "bipyramid",
+            "capped",
+            "other",
         }
-        assert poly.category in valid_categories, (
-            f"{poly.name}: invalid category '{poly.category}'"
-        )
+        assert (
+            poly.category in valid_categories
+        ), f"{poly.name}: invalid category '{poly.category}'"
 
     def test_platonic_have_oh_td_or_ih(self, all_polys):
         """Platonic solids must have Oh, Td, or Ih symmetry."""
         platonics = [p for p in all_polys if p.category == "platonic"]
         for p in platonics:
-            assert p.point_group in ("Oh", "Td", "Ih"), (
-                f"Platonic {p.name} has unexpected point_group={p.point_group}"
-            )
+            assert p.point_group in (
+                "Oh",
+                "Td",
+                "Ih",
+            ), f"Platonic {p.name} has unexpected point_group={p.point_group}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Public API
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- Public API ---
+
 
 class TestPublicAPI:
     """Backward-compatible public API."""
@@ -273,7 +294,7 @@ class TestPublicAPI:
         assert all(isinstance(p, IdealPolyhedron) for p in polys)
 
     def test_convex_hull_payload_minimal(self):
-        # Less than 4 points → no hull
+        # Less than 4 points -> no hull
         coords = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
         result = convex_hull_payload(coords)
         assert result["simplices"] == []
@@ -285,25 +306,35 @@ class TestPublicAPI:
         result = convex_hull_payload(coords)
         assert len(result["vertices"]) == 8
         assert len(result["simplices"]) > 0
-        # Triangulated cube: 6 faces × 2 triangles = 12 triangles,
+        # Triangulated cube: 6 faces x 2 triangles = 12 triangles,
         # 12 face edges + 6 diagonal edges = 18 unique edges
         assert len(result["edges"]) >= 12
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# IdealPolyhedron dataclass
-# ═══════════════════════════════════════════════════════════════════════════════
+# --- IdealPolyhedron dataclass ---
+
 
 class TestIdealPolyhedronDataclass:
     """Test the IdealPolyhedron dataclass behavior."""
 
     def test_frozen(self):
         p = get_polyhedron("cube")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             p.name = "not_a_cube"
 
     def test_repr_does_not_include_vertices(self):
         p = get_polyhedron("cube")
         r = repr(p)
         # vertices field has repr=False
-        assert "vertices" not in r or "array" not in r
+        assert "vertices" not in r
+        assert "array(" not in r
+
+    def test_invalid_shape_raises_value_error(self):
+        with pytest.raises(ValueError):
+            IdealPolyhedron(
+                name="invalid",
+                cn=4,
+                point_group="?",
+                category="other",
+                vertices=np.zeros((3, 3)),
+            )
