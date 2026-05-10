@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import itertools
 import math
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -52,6 +53,121 @@ def _normalize_points(points: Iterable[Iterable[float]]) -> np.ndarray:
     if np.any(nonzero):
         arr[nonzero] /= norms[nonzero][:, None]
     return arr
+
+
+def _group_coplanar_hull_faces(
+    coords: np.ndarray,
+    hull,
+    *,
+    face_merge_tol_deg: float = 1.0,
+    plane_tol: float = 1e-6,
+) -> List[Tuple[np.ndarray, Tuple[int, ...]]]:
+    """Merge ConvexHull simplices that lie on the same polygonal face."""
+    cos_tol = math.cos(math.radians(face_merge_tol_deg))
+    groups: List[Dict[str, Any]] = []
+
+    for simplex, equation in zip(hull.simplices, hull.equations):
+        normal = np.asarray(equation[:3], dtype=float)
+        offset = float(equation[3])
+        norm = float(np.linalg.norm(normal))
+        if norm < 1e-12:
+            continue
+        normal = normal / norm
+        offset = offset / norm
+
+        match = None
+        for group in groups:
+            if (
+                float(np.dot(normal, group["normal"])) >= cos_tol
+                and abs(offset - group["offset"]) <= plane_tol
+            ):
+                match = group
+                break
+        if match is None:
+            match = {"normal": normal, "offset": offset, "vertices": set()}
+            groups.append(match)
+        match["vertices"].update(int(idx) for idx in simplex)
+
+    return [
+        (np.asarray(group["normal"], dtype=float), tuple(sorted(group["vertices"])))
+        for group in groups
+    ]
+
+
+def _ordered_face_edges(
+    coords: np.ndarray,
+    normal: np.ndarray,
+    vertices: Sequence[int],
+) -> List[Tuple[int, int]]:
+    """Return polygon-cycle edges for one merged convex-hull face."""
+    vertices = tuple(int(idx) for idx in vertices)
+    if len(vertices) < 2:
+        return []
+    if len(vertices) == 2:
+        return [tuple(sorted(vertices))]
+
+    pts = coords[list(vertices)]
+    centroid = pts.mean(axis=0)
+    normal = np.asarray(normal, dtype=float)
+    normal_norm = float(np.linalg.norm(normal))
+    if normal_norm < 1e-12:
+        normal = np.array([0.0, 0.0, 1.0])
+    else:
+        normal = normal / normal_norm
+
+    # Pick a stable in-plane basis and sort vertices by polar angle.
+    ref = pts[0] - centroid
+    ref -= np.dot(ref, normal) * normal
+    ref_norm = float(np.linalg.norm(ref))
+    if ref_norm < 1e-12:
+        ref = np.array([1.0, 0.0, 0.0])
+        ref -= np.dot(ref, normal) * normal
+        ref_norm = float(np.linalg.norm(ref))
+    e1 = ref / ref_norm
+    e2 = np.cross(normal, e1)
+    angles = []
+    for idx in vertices:
+        vec = coords[idx] - centroid
+        angles.append(math.atan2(float(np.dot(vec, e2)), float(np.dot(vec, e1))))
+    ordered = [idx for _, idx in sorted(zip(angles, vertices))]
+    return [
+        tuple(sorted((ordered[i], ordered[(i + 1) % len(ordered)])))
+        for i in range(len(ordered))
+    ]
+
+
+def _polyhedron_topology_signature(
+    coords: Iterable[Iterable[float]],
+    *,
+    face_merge_tol_deg: float = 1.0,
+) -> Dict[str, Any]:
+    """Return hull face-size, edge-count, and vertex-degree signatures."""
+    coords_arr = _array(coords)
+    if len(coords_arr) < 4 or ConvexHull is None:
+        return {"face_signature": {}, "edge_count": 0, "vertex_degree_signature": {}}
+    try:
+        hull = ConvexHull(coords_arr)
+    except Exception:
+        return {"face_signature": {}, "edge_count": 0, "vertex_degree_signature": {}}
+
+    face_groups = _group_coplanar_hull_faces(
+        coords_arr, hull, face_merge_tol_deg=face_merge_tol_deg
+    )
+    face_counter = Counter(len(vertices) for _, vertices in face_groups)
+    edges = set()
+    for normal, vertices in face_groups:
+        edges.update(_ordered_face_edges(coords_arr, normal, vertices))
+
+    degrees = defaultdict(int)
+    for i, j in edges:
+        degrees[i] += 1
+        degrees[j] += 1
+    degree_counter = Counter(degrees.values())
+    return {
+        "face_signature": dict(sorted(face_counter.items())),
+        "edge_count": len(edges),
+        "vertex_degree_signature": dict(sorted(degree_counter.items())),
+    }
 
 
 # --- Parametric vertex constructors ---
@@ -141,6 +257,9 @@ class IdealPolyhedron:
     point_group: str
     category: str
     vertices: np.ndarray = field(repr=False)
+    face_signature: Dict[int, int] = field(default_factory=dict)
+    edge_count: int = 0
+    vertex_degree_signature: Dict[int, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.vertices.shape != (self.cn, 3):
@@ -162,6 +281,7 @@ def _register(
 ) -> None:
     """Normalize vertices and register as an ideal polyhedron."""
     verts = _normalize_points(raw_vertices)
+    topology = _polyhedron_topology_signature(verts)
     _REGISTRY.append(
         IdealPolyhedron(
             name=name,
@@ -169,6 +289,9 @@ def _register(
             point_group=point_group,
             category=category,
             vertices=verts,
+            face_signature=topology["face_signature"],
+            edge_count=int(topology["edge_count"]),
+            vertex_degree_signature=topology["vertex_degree_signature"],
         )
     )
 
@@ -304,6 +427,25 @@ _register(
     category="capped",
 )
 
+_register(
+    "bicapped_cube",
+    10,
+    [
+        [-1, -1, -1],
+        [-1, -1, 1],
+        [-1, 1, -1],
+        [-1, 1, 1],
+        [1, -1, -1],
+        [1, -1, 1],
+        [1, 1, -1],
+        [1, 1, 1],
+        [0, 0, 1],
+        [0, 0, -1],
+    ],
+    point_group="D4h",
+    category="capped",
+)
+
 
 # --- CN = 11 ---
 
@@ -330,6 +472,33 @@ _register(
     + _ring(4, -0.34, 45.0)
     + [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]],
     point_group="C2v",
+    category="capped",
+)
+
+# Tricapped cube (C3v): 8 cube corners + 3 face caps on the three mutually
+# orthogonal faces meeting at the corner (1,1,1). Caps lie on the 3-fold axis
+# along the body diagonal, so the polyhedron retains C3v symmetry. This is the
+# canonical CN=11 environment for several lanthanide and actinide complexes
+# and for hydrogen-bonded inorganic-cation coordination shells (e.g. ClO4^-
+# around an A2BX5 A-site cation), which the existing pentagonal-(anti)prism
+# and edge-bicapped square antiprism candidates do not represent well.
+_register(
+    "tricapped_cube",
+    11,
+    [
+        [-1, -1, -1],
+        [-1, -1, 1],
+        [-1, 1, -1],
+        [-1, 1, 1],
+        [1, -1, -1],
+        [1, -1, 1],
+        [1, 1, -1],
+        [1, 1, 1],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+    ],
+    point_group="C3v",
     category="capped",
 )
 

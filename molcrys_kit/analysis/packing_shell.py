@@ -282,6 +282,11 @@ def angular_rmsd_vs_ideals(
     shell_coords: Iterable[Iterable[float]],
     center: Iterable[float] = None,
 ) -> Dict[str, Any]:
+    """Score a shell by legacy sorted-angle RMSD.
+
+    Deprecated for naming; use :func:`molcrys_kit.analysis.shape.classify_shell`
+    instead. This function is retained as a low-level diagnostic.
+    """
     coords = _array(shell_coords)
     cn = int(len(coords))
     signature = compute_angular_signature(coords, center=center)
