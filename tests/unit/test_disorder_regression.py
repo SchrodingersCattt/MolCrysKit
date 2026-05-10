@@ -124,8 +124,11 @@ CASES: list[CifCase] = [
     # twice" bug where N1 sites were resolved as NH3 instead of NH4+.
     CifCase("DAI-4", "DAI-4.cif", 336),
     # DAP-7: hydrazinium/diaminopropane salt with 2 N per cation.  Checks
-    # that the motif merge still handles multi-N cations correctly.
-    CifCase("DAP-7", "DAP-7.cif", 82),
+    # that the motif merge still handles multi-N cations correctly.  The
+    # H1C protons sit on a 0.5-occupancy disorder pair (one proton per
+    # hydrazinium); both N1-N1 cations must survive with a single H1C
+    # each, giving 6×ClO4 + 2×C6H14N2 + 2×H5N2 = 88 atoms.
+    CifCase("DAP-7", "DAP-7.cif", 88),
 ]
 
 
@@ -285,19 +288,70 @@ def test_dai4_topology(examples_dir: str):
 def test_dap7_topology(examples_dir: str):
     """DAP-7: diaminopropane/hydrazinium salt.
 
-    Checks that multi-N cation motifs are still resolved correctly after
-    the motif-merge asym_id guard was introduced.
+    Checks the chemically correct stoichiometry: 6 perchlorate anions, 2
+    diaminopropanediium cations (C6H14N2), and 2 mono-protonated
+    hydrazinium cations (H5N2 each, with one of the two 0.5-occupancy
+    H1C protons surviving per cation).
     """
     cif = os.path.join(examples_dir, "DAP-7.cif")
     if not os.path.exists(cif):
         pytest.skip("DAP-7.cif not found")
 
     _, n_atoms, _, formulas = _resolve(cif)
-    assert n_atoms == 82, f"Expected 82 atoms, got {n_atoms}"
+    assert n_atoms == 88, f"Expected 88 atoms, got {n_atoms}"
     assert formulas.get("Cl1O4", 0) == 6, (
         f"Expected 6 × ClO4- anion, got: {dict(formulas)}"
     )
-    # Hydrazinium/diaminopropane cation: H6N2 (6 H across 2 N atoms).
-    assert formulas.get("H6N2", 0) == 1, (
-        f"Expected 1 × H6N2 cation, got: {dict(formulas)}"
+    assert formulas.get("C6H14N2", 0) == 2, (
+        f"Expected 2 × C6H14N2 dication, got: {dict(formulas)}"
     )
+    # Hydrazinium cation: monoprotonated N2H5+ (5 H across the 2 N atoms).
+    assert formulas.get("H5N2", 0) == 2, (
+        f"Expected 2 × H5N2+ hydrazinium cation, got: {dict(formulas)}"
+    )
+
+
+def test_dap7_no_unphysical_proton_split(examples_dir: str):
+    """DAP-7: every enumerated/random replica must give 2 × H5N2+.
+
+    The two hydrazinium cations are independent decision components, each
+    with two mutually-exclusive H1C alternatives.  A regression in the
+    implicit-SP conflict edges or the rigid-body splitter could merge
+    both cations into a single component (producing N2H6 + N2H4) or
+    drop the conflict edge altogether (producing N2H6 × 2).  Walk every
+    enumerated alternative and every random sample and refuse anything
+    that is not exactly H5N2 × 2.
+    """
+    cif = os.path.join(examples_dir, "DAP-7.cif")
+    if not os.path.exists(cif):
+        pytest.skip("DAP-7.cif not found")
+
+    forbidden = {"H4N2", "N2H4", "H6N2", "N2H6"}
+    expected_hydrazinium = 2
+
+    for method, count in (("enumerate", 8), ("random", 16)):
+        crystals = generate_ordered_replicas_from_disordered_sites(
+            cif,
+            generate_count=count,
+            method=method,
+            random_seed=0,
+        )
+        assert crystals, f"{method}: no replicas returned"
+        for replica_idx, crystal in enumerate(crystals):
+            moiety = Counter()
+            for mol in crystal.molecules:
+                ce = Counter(mol.get_chemical_symbols())
+                key = "".join(
+                    f"{el}{ce[el]}" if ce[el] != 1 else el
+                    for el in sorted(ce)
+                )
+                moiety[key] += 1
+            unphysical = forbidden & set(moiety)
+            assert not unphysical, (
+                f"{method} replica {replica_idx}: forbidden hydrazinium "
+                f"moiety {unphysical} present in {dict(moiety)}"
+            )
+            assert moiety.get("H5N2", 0) == expected_hydrazinium, (
+                f"{method} replica {replica_idx}: expected "
+                f"{expected_hydrazinium}× H5N2+, got {dict(moiety)}"
+            )

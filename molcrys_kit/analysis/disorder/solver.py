@@ -8,9 +8,9 @@ into valid, ordered MolecularCrystal objects by solving the Maximum Independent 
 import logging
 import numpy as np
 import networkx as nx
-import random
+import random as _random_module
 import re
-from typing import List
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -152,31 +152,44 @@ class DisorderSolver:
                 # Find connected components (potential "Rigid Bodies")
                 components = list(nx.connected_components(temp_graph))
 
-                # For each component, check if it contains internal conflicts
+                # For each component, check if it contains internal conflicts.
+                # When a component has an internal conflict, only the atoms
+                # actually participating in that conflict are exploded into
+                # singletons.  The remaining "stable" atoms are still bonded
+                # to one another (no internal exclusion edge), so they keep
+                # their rigid body — possibly split into sub-bodies if the
+                # bond subgraph is disconnected after removing the conflict
+                # atoms.  This is the case e.g. for DAP-7 hydrazinium where
+                # only the H1C protons compete (occ=0.5 within one cation),
+                # while N1 + H1D + H1E (full occupancy) should always coexist.
                 for comp in components:
                     comp_list = list(comp)
                     comp_atoms = [group_atoms[i] for i in comp_list]
 
-                    # Check if this component has any internal conflicts in the main graph
-                    has_internal_conflict = False
-
-                    # Check all pairs of atoms in this component for conflicts in the main graph
+                    conflict_atoms: set = set()
                     if len(comp_atoms) > 1:
-                        for idx1 in comp_atoms:
-                            for idx2 in comp_atoms:
-                                if idx1 != idx2 and self.graph.has_edge(idx1, idx2):
-                                    has_internal_conflict = True
-                                    break
-                            if has_internal_conflict:
-                                break
+                        for ii, idx1 in enumerate(comp_atoms):
+                            for idx2 in comp_atoms[ii + 1:]:
+                                if self.graph.has_edge(idx1, idx2):
+                                    conflict_atoms.add(idx1)
+                                    conflict_atoms.add(idx2)
 
-                    if has_internal_conflict:
-                        # Explode into single-atom groups if the rigid body is self-conflicting
-                        for atom_idx in comp_atoms:
-                            self.atom_groups.append([atom_idx])
-                    else:
-                        # Keep as a rigid body group
+                    if not conflict_atoms:
                         self.atom_groups.append(comp_atoms)
+                        continue
+
+                    stable_local = [
+                        k for k in comp_list
+                        if group_atoms[k] not in conflict_atoms
+                    ]
+                    if stable_local:
+                        stable_subgraph = temp_graph.subgraph(stable_local)
+                        for sub_comp in nx.connected_components(stable_subgraph):
+                            sub_atoms = [group_atoms[k] for k in sub_comp]
+                            self.atom_groups.append(sub_atoms)
+
+                    for atom_idx in conflict_atoms:
+                        self.atom_groups.append([atom_idx])
 
         # Step 2: Merge cross-asym-id chemical motifs (e.g., water O+H)
         self._merge_chemical_motifs()
@@ -204,6 +217,8 @@ class DisorderSolver:
         "geometric", "valence_geometry", "implicit_sp",
     })
     _MOTIF_REJECT_SOFT = {"O": True, "N": False}
+    _MAX_ALTERNATIVES_PER_COMPONENT = 32
+    _MAX_ENUMERATED_STRUCTURES = 4096
 
     def _merge_chemical_motifs(self):
         """
@@ -601,6 +616,225 @@ class DisorderSolver:
 
         return independent_set
 
+    def _group_base_occupancies(self, group: List[int]) -> List[float]:
+        return [
+            self.info.occupancies[node]
+            for node in group
+            if node < len(self.info.occupancies)
+        ]
+
+    def _is_valid_atom_group(self, group: List[int]) -> bool:
+        base_occs = self._group_base_occupancies(group)
+        return not (base_occs and all(occ <= 0.0 for occ in base_occs))
+
+    def _group_weight(self, group: List[int]) -> float:
+        return float(sum(self._group_base_occupancies(group)))
+
+    def _build_group_conflict_graph(self) -> nx.Graph:
+        """
+        Build a conflict graph where each node is one rigid atom group.
+
+        Two group nodes are adjacent when any atom pair across the groups has a
+        conflict edge in the atom-level exclusion graph.  Connected components
+        of this graph are independent disorder decisions.
+        """
+        group_graph = nx.Graph()
+        atom_to_group = {}
+
+        for group_idx, group in enumerate(self.atom_groups):
+            if not self._is_valid_atom_group(group):
+                continue
+            group_graph.add_node(
+                group_idx,
+                atoms=list(group),
+                weight=self._group_weight(group),
+            )
+            for atom_idx in group:
+                atom_to_group[atom_idx] = group_idx
+
+        for atom_a, atom_b in self.graph.edges():
+            group_a = atom_to_group.get(atom_a)
+            group_b = atom_to_group.get(atom_b)
+            if group_a is None or group_b is None or group_a == group_b:
+                continue
+            group_graph.add_edge(group_a, group_b)
+
+        return group_graph
+
+    def _enumerate_alternatives(
+        self,
+        group_graph: nx.Graph,
+        component_groups,
+        max_alts: int = 32,
+    ) -> List[Tuple[List[int], float]]:
+        """
+        Enumerate geometrically valid alternatives for one decision component.
+
+        Alternatives are maximal independent sets of the group-level conflict
+        component.  Since the atom-level graph already contains geometric,
+        valence, explicit PART, and implicit-SP conflicts, every returned
+        alternative is internally conflict-free.
+        """
+        component = group_graph.subgraph(component_groups).copy()
+        if component.number_of_nodes() == 0:
+            return []
+
+        complement = nx.complement(component)
+        alternatives = []
+        max_collect = max(max_alts * 64, 256)
+
+        for clique in nx.find_cliques(complement):
+            atoms = []
+            weight = 0.0
+            for group_idx in sorted(clique):
+                group_atoms = group_graph.nodes[group_idx]["atoms"]
+                atoms.extend(group_atoms)
+                weight += group_graph.nodes[group_idx]["weight"]
+            if weight <= 0.0:
+                continue
+            alternatives.append((atoms, weight))
+            if len(alternatives) >= max_collect:
+                logger.warning(
+                    "Capping disorder alternatives collection at %d for a "
+                    "component with %d groups",
+                    max_collect,
+                    component.number_of_nodes(),
+                )
+                break
+
+        alternatives.sort(
+            key=lambda item: (item[1], len(item[0]), tuple(sorted(item[0]))),
+            reverse=True,
+        )
+        return alternatives[:max_alts]
+
+    def _build_decision_alternatives(
+        self, max_alts_per_component: Optional[int] = None
+    ) -> List[List[Tuple[List[int], float]]]:
+        if max_alts_per_component is None:
+            max_alts_per_component = self._MAX_ALTERNATIVES_PER_COMPONENT
+        group_graph = self._build_group_conflict_graph()
+        if group_graph.number_of_nodes() == 0:
+            return []
+
+        all_alternatives = []
+        for component in nx.connected_components(group_graph):
+            alternatives = self._enumerate_alternatives(
+                group_graph,
+                component,
+                max_alts=max_alts_per_component,
+            )
+            if alternatives:
+                all_alternatives.append(alternatives)
+
+        return all_alternatives
+
+    def _combine_alternatives(self, picked_alternatives) -> List[int]:
+        selected = []
+        for atoms, _weight in picked_alternatives:
+            selected.extend(atoms)
+        return selected
+
+    def _weighted_choice(self, alternatives, rng):
+        weights = [max(weight, 0.0) for _atoms, weight in alternatives]
+        if not any(weights):
+            weights = [1.0] * len(alternatives)
+        return rng.choices(alternatives, weights=weights, k=1)[0]
+
+    def _enumerate_weighted_products(
+        self,
+        component_alternatives,
+        limit: Optional[int] = None,
+    ) -> List[List[int]]:
+        ranked = [(1.0, [])]
+        beam_limit = limit if limit is not None else None
+
+        for alternatives in component_alternatives:
+            next_ranked = []
+            for prob, picked in ranked:
+                for alt in alternatives:
+                    next_ranked.append((prob * alt[1], picked + [alt]))
+            next_ranked.sort(
+                key=lambda item: (
+                    item[0],
+                    sum(len(atoms) for atoms, _weight in item[1]),
+                    tuple(sorted(self._combine_alternatives(item[1]))),
+                ),
+                reverse=True,
+            )
+            if beam_limit is not None:
+                next_ranked = next_ranked[:beam_limit]
+            ranked = next_ranked
+
+        return [self._combine_alternatives(picked) for _prob, picked in ranked]
+
+    def _solve_random(
+        self,
+        num_structures: int,
+        rng: _random_module.Random,
+    ) -> List[List[int]]:
+        component_alternatives = self._build_decision_alternatives()
+        if not component_alternatives:
+            return []
+
+        target = max(1, num_structures)
+        max_attempts = max(target * 20, 100)
+        independent_sets = []
+        seen_structures = set()
+
+        for _attempt in range(max_attempts):
+            picked = [
+                self._weighted_choice(alternatives, rng)
+                for alternatives in component_alternatives
+            ]
+            solution = self._combine_alternatives(picked)
+            solution_tuple = tuple(sorted(solution))
+            if solution_tuple in seen_structures:
+                continue
+            seen_structures.add(solution_tuple)
+            independent_sets.append(solution)
+            if len(independent_sets) >= target:
+                return independent_sets
+
+        # If weighted sampling missed rare alternatives, fill deterministically
+        # so callers asking for an ensemble still get as much coverage as exists.
+        for solution in self._enumerate_weighted_products(
+            component_alternatives,
+            limit=target,
+        ):
+            solution_tuple = tuple(sorted(solution))
+            if solution_tuple in seen_structures:
+                continue
+            seen_structures.add(solution_tuple)
+            independent_sets.append(solution)
+            if len(independent_sets) >= target:
+                break
+
+        return independent_sets
+
+    def _solve_enumerate(self, num_structures: Optional[int]) -> List[List[int]]:
+        component_alternatives = self._build_decision_alternatives()
+        if not component_alternatives:
+            return []
+
+        # In enumerate mode, the default num_structures=1 means "all"; callers
+        # can pass a value >1 to request the top-N most probable combinations.
+        limit = num_structures if num_structures and num_structures > 1 else None
+        if limit is None:
+            total = 1
+            for alternatives in component_alternatives:
+                total *= len(alternatives)
+                if total > self._MAX_ENUMERATED_STRUCTURES:
+                    limit = self._MAX_ENUMERATED_STRUCTURES
+                    logger.warning(
+                        "Enumerate mode found more than %d alternative "
+                        "combinations; returning the top %d by occupancy",
+                        self._MAX_ENUMERATED_STRUCTURES,
+                        self._MAX_ENUMERATED_STRUCTURES,
+                    )
+                    break
+        return self._enumerate_weighted_products(component_alternatives, limit=limit)
+
     def _root_label(self, atom_idx: int) -> str:
         label = self.info.labels[atom_idx]
         match = re.match(r"([A-Za-z]+[0-9]*)", label)
@@ -847,7 +1081,10 @@ class DisorderSolver:
         return independent_set
 
     def solve(
-        self, num_structures: int = 1, method: str = "optimal"
+        self,
+        num_structures: int = 1,
+        method: str = "optimal",
+        random_seed: Optional[int] = None,
     ) -> List[MolecularCrystal]:
         """
         Solve the disorder problem and generate ordered structures using Group-Based approach.
@@ -855,9 +1092,15 @@ class DisorderSolver:
         Parameters:
         -----------
         num_structures : int
-            Number of structures to generate (for 'random' method)
+            Number of structures to generate for 'random', and an optional
+            top-N cap for 'enumerate' when greater than 1.
         method : str
-            'optimal' for single best structure, 'random' for ensemble
+            'optimal' for the single greedy MWIS structure, 'random' for
+            occupancy-weighted sampling across PART/SP alternatives, and
+            'enumerate' for Cartesian enumeration of those alternatives.
+        random_seed : int, optional
+            Seed for reproducible 'random' ensembles. Has no effect for
+            'optimal' or 'enumerate'.
 
         Returns:
         --------
@@ -865,6 +1108,7 @@ class DisorderSolver:
             List of ordered molecular crystal structures
         """
         # Initialize atom groups (Identify Rigid Bodies)
+        self.atom_groups = []
         self._identify_atom_groups()
 
         # Ensure graph has occupancy weights
@@ -888,56 +1132,21 @@ class DisorderSolver:
             ]
 
         elif method == "random":
-            independent_sets = []
-            seen_structures = set()
-
-            for _ in range(num_structures):
-                # Create temp graph with randomized weights
-                temp_graph = self.graph.copy()
-
-                for node in temp_graph.nodes():
-                    base_weight = temp_graph.nodes[node].get("occupancy", 1.0)
-                    random_noise = random.uniform(0, 1e-5)
-                    temp_graph.nodes[node]["randomized_weight"] = (
-                        base_weight + random_noise
-                    )
-
-                try:
-                    # Solve using Group-Based MWIS
-                    solution = self._max_weight_independent_set_by_groups(
-                        graph=temp_graph, weight_attr="randomized_weight"
-                    )
-                except:
-                    solution = self._random_independent_set()
-
-                solution_tuple = tuple(sorted(solution))
-                if solution_tuple not in seen_structures:
-                    seen_structures.add(solution_tuple)
-                    independent_sets.append(solution)
-
-            # Fill remaining with pure random if needed
-            attempts = 0
-            max_attempts = num_structures * 10
-            while len(independent_sets) < num_structures and attempts < max_attempts:
-                temp_graph = self.graph.copy()
-                for node in temp_graph.nodes():
-                    base_weight = temp_graph.nodes[node].get("occupancy", 1.0)
-                    random_noise = random.uniform(0, 1e-5)
-                    temp_graph.nodes[node]["randomized_weight"] = (
-                        base_weight + random_noise
-                    )
-
-                solution = self._max_weight_independent_set_by_groups(
-                    graph=temp_graph, weight_attr="randomized_weight"
+            rng = _random_module.Random(random_seed)
+            try:
+                independent_sets = self._solve_random(num_structures, rng)
+            except Exception:
+                logger.exception(
+                    "PART-aware random solve failed; falling back to shuffled MIS"
                 )
+                independent_sets = [self._random_independent_set(rng=rng)]
 
-                solution_tuple = tuple(sorted(solution))
-                if solution_tuple not in seen_structures:
-                    seen_structures.add(solution_tuple)
-                    independent_sets.append(solution)
-                attempts += 1
+        elif method == "enumerate":
+            independent_sets = self._solve_enumerate(num_structures)
         else:
-            raise ValueError(f"Unknown method: {method}. Use 'optimal' or 'random'")
+            raise ValueError(
+                f"Unknown method: {method}. Use 'optimal', 'random', or 'enumerate'"
+            )
 
         # Post-process: remove orphan H/D atoms that lack bonded heavy-atom
         # partners in the survived set.  This fixes cross-asym-id water
@@ -965,12 +1174,16 @@ class DisorderSolver:
 
         return crystals
 
-    def _random_independent_set(self) -> List[int]:
+    def _random_independent_set(
+        self, rng: Optional[_random_module.Random] = None
+    ) -> List[int]:
         """
         Fallback: Generate a random independent set using a randomized greedy algorithm.
         """
+        if rng is None:
+            rng = _random_module.Random()
         nodes = list(self.graph.nodes())
-        random.shuffle(nodes)
+        rng.shuffle(nodes)
         independent_set = []
         for node in nodes:
             connected_to_set = False

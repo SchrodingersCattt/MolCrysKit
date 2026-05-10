@@ -14,6 +14,13 @@ from molcrys_kit.analysis.disorder.solver import DisorderSolver
 from molcrys_kit.structures.crystal import MolecularCrystal
 
 
+def _crystal_symbol_signature(crystal):
+    symbols = []
+    for molecule in crystal.molecules:
+        symbols.extend(molecule.get_chemical_symbols())
+    return tuple(sorted(symbols))
+
+
 def _max_independent_set_size(graph, nodes):
     """Max independent set size for subgraph of given nodes."""
     sub = graph.subgraph(nodes).copy()
@@ -166,6 +173,27 @@ class TestDisorderSolver:
         graph = builder.build()
         return info, graph, lattice
 
+    @pytest.fixture
+    def multi_part_setup(self):
+        """Two independent assemblies, each with two PART alternatives."""
+        info = DisorderInfo(
+            labels=["A1", "A2", "B1", "B2"],
+            symbols=["C", "O", "N", "F"],
+            frac_coords=np.array([
+                [0.10, 0.10, 0.10],
+                [0.16, 0.10, 0.10],
+                [0.60, 0.60, 0.60],
+                [0.66, 0.60, 0.60],
+            ]),
+            occupancies=[0.7, 0.3, 0.6, 0.4],
+            disorder_groups=[1, 2, 1, 2],
+            assemblies=["A", "A", "B", "B"],
+        )
+        lattice = np.eye(3) * 20.0
+        builder = DisorderGraphBuilder(info, lattice)
+        graph = builder.build()
+        return info, graph, lattice
+
     def test_optimal_solve(self, simple_disorder_setup):
         info, graph, lattice = simple_disorder_setup
         solver = DisorderSolver(info, graph, lattice)
@@ -188,6 +216,83 @@ class TestDisorderSolver:
         solver = DisorderSolver(info, graph, lattice)
         with pytest.raises(ValueError, match="Unknown method"):
             solver.solve(method="invalid")
+
+    def test_random_covers_all_parts(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=20, method="random", random_seed=0)
+
+        signatures = {_crystal_symbol_signature(crystal) for crystal in results}
+        assert signatures == {
+            ("C", "N"),
+            ("C", "F"),
+            ("N", "O"),
+            ("F", "O"),
+        }
+
+    def test_random_seed_reproducible(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver_a = DisorderSolver(info, graph, lattice)
+        solver_b = DisorderSolver(info, graph, lattice)
+
+        results_a = solver_a.solve(num_structures=4, method="random", random_seed=42)
+        results_b = solver_b.solve(num_structures=4, method="random", random_seed=42)
+
+        assert [
+            _crystal_symbol_signature(crystal) for crystal in results_a
+        ] == [
+            _crystal_symbol_signature(crystal) for crystal in results_b
+        ]
+
+    def test_random_weighted_by_occupancy(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        draws = 500
+        c_count = 0
+
+        for seed in range(draws):
+            solver = DisorderSolver(info, graph, lattice)
+            result = solver.solve(
+                num_structures=1,
+                method="random",
+                random_seed=seed,
+            )[0]
+            if "C" in _crystal_symbol_signature(result):
+                c_count += 1
+
+        assert abs((c_count / draws) - 0.7) < 0.08
+
+    def test_enumerate_yields_all_combinations(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(method="enumerate")
+
+        assert [
+            _crystal_symbol_signature(crystal) for crystal in results
+        ] == [
+            ("C", "N"),
+            ("C", "F"),
+            ("N", "O"),
+            ("F", "O"),
+        ]
+
+    def test_enumerate_caps_at_num_structures(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=2, method="enumerate")
+
+        assert [
+            _crystal_symbol_signature(crystal) for crystal in results
+        ] == [
+            ("C", "N"),
+            ("C", "F"),
+        ]
+
+    def test_optimal_prefers_highest_occupancy_parts(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=1, method="optimal")
+
+        assert _crystal_symbol_signature(results[0]) == ("C", "N")
 
     def test_reconstruct_gives_valid_crystal(self, simple_disorder_setup):
         info, graph, lattice = simple_disorder_setup
