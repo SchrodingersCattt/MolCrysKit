@@ -37,7 +37,7 @@ EXPECTED_POLYHEDRA = {
     7: {"pentagonal_bipyramid", "capped_octahedron"},
     8: {"cube", "square_antiprism", "dodecahedron"},
     9: {"tricapped_trigonal_prism", "capped_square_antiprism"},
-    10: {"bicapped_square_antiprism", "bicapped_dodecahedron"},
+    10: {"bicapped_square_antiprism", "bicapped_dodecahedron", "bicapped_cube"},
     11: {
         "capped_pentagonal_antiprism",
         "capped_pentagonal_prism",
@@ -218,6 +218,18 @@ class TestSpecificGeometry:
         _, s, _ = np.linalg.svd(verts - verts.mean(axis=0))
         # Smallest singular value should be ~0 (planar)
         assert s[-1] < 1e-10
+
+    def test_bicapped_cube_has_d4_axis_through_caps(self):
+        """Bicapped cube CN=10: opposite face caps define a four-fold axis."""
+        verts = ideal_polyhedra_for_cn(10)["bicapped_cube"]
+        # Rotation by 90 deg around the cap axis maps (x,y,z) -> (-y,x,z).
+        rotated = np.column_stack((-verts[:, 1], verts[:, 0], verts[:, 2]))
+        for v in rotated:
+            distances = np.linalg.norm(verts - v, axis=1)
+            assert distances.min() < 1e-9, (
+                f"bicapped_cube: rotated vertex {v} has no partner; "
+                f"min distance {distances.min():.2e}"
+            )
 
     def test_tricapped_cube_has_c3_axis_along_body_diagonal(self):
         """Tricapped cube CN=11: 120 deg rotation about (1,1,1) is a symmetry."""
