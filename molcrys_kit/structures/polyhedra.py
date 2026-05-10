@@ -333,6 +333,33 @@ _register(
     category="capped",
 )
 
+# Tricapped cube (C3v): 8 cube corners + 3 face caps on the three mutually
+# orthogonal faces meeting at the corner (1,1,1). Caps lie on the 3-fold axis
+# along the body diagonal, so the polyhedron retains C3v symmetry. This is the
+# canonical CN=11 environment for several lanthanide and actinide complexes
+# and for hydrogen-bonded inorganic-cation coordination shells (e.g. ClO4^-
+# around an A2BX5 A-site cation), which the existing pentagonal-(anti)prism
+# and edge-bicapped square antiprism candidates do not represent well.
+_register(
+    "tricapped_cube",
+    11,
+    [
+        [-1, -1, -1],
+        [-1, -1, 1],
+        [-1, 1, -1],
+        [-1, 1, 1],
+        [1, -1, -1],
+        [1, -1, 1],
+        [1, 1, -1],
+        [1, 1, 1],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+    ],
+    point_group="C3v",
+    category="capped",
+)
+
 
 # --- CN = 12 ---
 

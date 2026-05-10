@@ -42,6 +42,7 @@ EXPECTED_POLYHEDRA = {
         "capped_pentagonal_antiprism",
         "capped_pentagonal_prism",
         "edge_bicapped_square_antiprism",
+        "tricapped_cube",
     },
     12: {"icosahedron", "cuboctahedron"},
 }
@@ -217,6 +218,19 @@ class TestSpecificGeometry:
         _, s, _ = np.linalg.svd(verts - verts.mean(axis=0))
         # Smallest singular value should be ~0 (planar)
         assert s[-1] < 1e-10
+
+    def test_tricapped_cube_has_c3_axis_along_body_diagonal(self):
+        """Tricapped cube CN=11: 120 deg rotation about (1,1,1) is a symmetry."""
+        verts = ideal_polyhedra_for_cn(11)["tricapped_cube"]
+        # Rotation by 120 deg around the body-diagonal cycles (x,y,z) -> (y,z,x).
+        rotated = verts[:, [1, 2, 0]]
+        # Match each rotated vertex to a vertex in the original set.
+        for v in rotated:
+            distances = np.linalg.norm(verts - v, axis=1)
+            assert distances.min() < 1e-9, (
+                f"tricapped_cube: rotated vertex {v} has no partner; "
+                f"min distance {distances.min():.2e}"
+            )
 
 
 # --- Metadata ---
