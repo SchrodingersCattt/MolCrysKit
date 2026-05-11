@@ -144,29 +144,68 @@ def _polyhedron_topology_signature(
     """Return hull face-size, edge-count, and vertex-degree signatures."""
     coords_arr = _array(coords)
     if len(coords_arr) < 4 or ConvexHull is None:
-        return {"face_signature": {}, "edge_count": 0, "vertex_degree_signature": {}}
+        return {
+            "face_signature": {},
+            "edge_count": 0,
+            "vertex_degree_signature": {},
+            "faces": (),
+            "edges": (),
+        }
     try:
         hull = ConvexHull(coords_arr)
     except Exception:
-        return {"face_signature": {}, "edge_count": 0, "vertex_degree_signature": {}}
+        return {
+            "face_signature": {},
+            "edge_count": 0,
+            "vertex_degree_signature": {},
+            "faces": (),
+            "edges": (),
+        }
 
     face_groups = _group_coplanar_hull_faces(
         coords_arr, hull, face_merge_tol_deg=face_merge_tol_deg
     )
     face_counter = Counter(len(vertices) for _, vertices in face_groups)
     edges = set()
+    face_infos = []
     for normal, vertices in face_groups:
-        edges.update(_ordered_face_edges(coords_arr, normal, vertices))
+        face_edges = _ordered_face_edges(coords_arr, normal, vertices)
+        edges.update(face_edges)
+        centroid = coords_arr[list(vertices)].mean(axis=0)
+        face_infos.append(
+            FaceInfo(
+                normal=tuple(float(x) for x in normal),
+                centroid=tuple(float(x) for x in centroid),
+                vertex_indices=tuple(int(idx) for idx in vertices),
+                polygon_size=len(vertices),
+            )
+        )
 
     degrees = defaultdict(int)
     for i, j in edges:
         degrees[i] += 1
         degrees[j] += 1
     degree_counter = Counter(degrees.values())
+    edge_infos = []
+    for i, j in sorted(edges):
+        midpoint = 0.5 * (coords_arr[i] + coords_arr[j])
+        direction = coords_arr[j] - coords_arr[i]
+        norm = float(np.linalg.norm(direction))
+        if norm > 1e-12:
+            direction = direction / norm
+        edge_infos.append(
+            EdgeInfo(
+                midpoint=tuple(float(x) for x in midpoint),
+                direction=tuple(float(x) for x in direction),
+                vertex_pair=(int(i), int(j)),
+            )
+        )
     return {
         "face_signature": dict(sorted(face_counter.items())),
         "edge_count": len(edges),
         "vertex_degree_signature": dict(sorted(degree_counter.items())),
+        "faces": tuple(face_infos),
+        "edges": tuple(edge_infos),
     }
 
 
@@ -249,6 +288,25 @@ def _cuboctahedron() -> List[List[float]]:
 
 
 @dataclass(frozen=True)
+class FaceInfo:
+    """One merged convex-hull face."""
+
+    normal: Tuple[float, float, float]
+    centroid: Tuple[float, float, float]
+    vertex_indices: Tuple[int, ...]
+    polygon_size: int
+
+
+@dataclass(frozen=True)
+class EdgeInfo:
+    """One edge from the merged convex-hull face graph."""
+
+    midpoint: Tuple[float, float, float]
+    direction: Tuple[float, float, float]
+    vertex_pair: Tuple[int, int]
+
+
+@dataclass(frozen=True)
 class IdealPolyhedron:
     """One ideal polyhedron geometry with metadata."""
 
@@ -260,6 +318,12 @@ class IdealPolyhedron:
     face_signature: Dict[int, int] = field(default_factory=dict)
     edge_count: int = 0
     vertex_degree_signature: Dict[int, int] = field(default_factory=dict)
+    faces: Tuple[FaceInfo, ...] = field(default_factory=tuple)
+    edges: Tuple[EdgeInfo, ...] = field(default_factory=tuple)
+    vertex_axes: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)), repr=False)
+    dual_of: Optional[str] = None
+    capped_from: Optional[Tuple[str, int]] = None
+    ambo_of: Tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if self.vertices.shape != (self.cn, 3):
@@ -278,6 +342,9 @@ def _register(
     *,
     point_group: str = "?",
     category: str = "other",
+    dual_of: Optional[str] = None,
+    capped_from: Optional[Tuple[str, int]] = None,
+    ambo_of: Tuple[str, ...] = (),
 ) -> None:
     """Normalize vertices and register as an ideal polyhedron."""
     verts = _normalize_points(raw_vertices)
@@ -292,6 +359,12 @@ def _register(
             face_signature=topology["face_signature"],
             edge_count=int(topology["edge_count"]),
             vertex_degree_signature=topology["vertex_degree_signature"],
+            faces=tuple(topology.get("faces", ())),
+            edges=tuple(topology.get("edges", ())),
+            vertex_axes=verts.copy(),
+            dual_of=dual_of,
+            capped_from=capped_from,
+            ambo_of=tuple(ambo_of),
         )
     )
 
@@ -304,6 +377,7 @@ _register(
     [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]],
     point_group="Td",
     category="platonic",
+    dual_of="tetrahedron",
 )
 
 _register(
@@ -318,7 +392,12 @@ _register(
 # --- CN = 5 ---
 
 _register(
-    "trigonal_bipyramid", 5, _bipyramid(3), point_group="D3h", category="bipyramid"
+    "trigonal_bipyramid",
+    5,
+    _bipyramid(3),
+    point_group="D3h",
+    category="bipyramid",
+    dual_of="trigonal_prism",
 )
 
 _register(
@@ -327,6 +406,7 @@ _register(
     _ring(4, -0.30, 0.0, radius=0.95) + [[0.0, 0.0, 1.0]],
     point_group="C4v",
     category="capped",
+    capped_from=("square_planar", 1),
 )
 
 
@@ -338,9 +418,17 @@ _register(
     [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]],
     point_group="Oh",
     category="platonic",
+    dual_of="cube",
 )
 
-_register("trigonal_prism", 6, _prism(3), point_group="D3h", category="prism")
+_register(
+    "trigonal_prism",
+    6,
+    _prism(3),
+    point_group="D3h",
+    category="prism",
+    dual_of="trigonal_bipyramid",
+)
 
 
 # --- CN = 7 ---
@@ -363,6 +451,7 @@ _register(
     ],
     point_group="C3v",
     category="capped",
+    capped_from=("octahedron", 1),
 )
 
 
@@ -383,6 +472,7 @@ _register(
     ],
     point_group="Oh",
     category="platonic",
+    dual_of="octahedron",
 )
 
 _register("square_antiprism", 8, _antiprism(4), point_group="D4d", category="antiprism")
@@ -398,6 +488,7 @@ _register(
     _prism(3) + _ring(3, 0.0, 60.0, radius=1.0),
     point_group="D3h",
     category="capped",
+    capped_from=("trigonal_prism", 3),
 )
 
 _register(
@@ -406,6 +497,7 @@ _register(
     _ring(4, 0.42, 0.0) + _ring(4, -0.42, 45.0) + [[0.0, 0.0, 1.0]],
     point_group="C4v",
     category="capped",
+    capped_from=("square_antiprism", 1),
 )
 
 
@@ -417,6 +509,7 @@ _register(
     _ring(4, 0.36, 0.0) + _ring(4, -0.36, 45.0) + [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]],
     point_group="D4d",
     category="capped",
+    capped_from=("square_antiprism", 2),
 )
 
 _register(
@@ -425,6 +518,7 @@ _register(
     _dodecahedron8() + [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]],
     point_group="D2d",
     category="capped",
+    capped_from=("dodecahedron", 2),
 )
 
 _register(
@@ -444,6 +538,7 @@ _register(
     ],
     point_group="D4h",
     category="capped",
+    capped_from=("cube", 2),
 )
 
 
@@ -455,6 +550,7 @@ _register(
     _ring(5, 0.36, 0.0) + _ring(5, -0.36, 36.0) + [[0.0, 0.0, 1.0]],
     point_group="C5v",
     category="capped",
+    capped_from=("pentagonal_bipyramid", 4),
 )
 
 _register(
@@ -463,6 +559,7 @@ _register(
     _ring(5, 0.42, 0.0) + _ring(5, -0.42, 0.0) + [[0.0, 0.0, 1.0]],
     point_group="C5v",
     category="capped",
+    capped_from=("trigonal_prism", 5),
 )
 
 _register(
@@ -473,6 +570,7 @@ _register(
     + [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]],
     point_group="C2v",
     category="capped",
+    capped_from=("square_antiprism", 3),
 )
 
 # Tricapped cube (C3v): 8 cube corners + 3 face caps on the three mutually
@@ -500,6 +598,7 @@ _register(
     ],
     point_group="C3v",
     category="capped",
+    capped_from=("cube", 3),
 )
 
 
@@ -508,7 +607,12 @@ _register(
 _register("icosahedron", 12, _icosahedron(), point_group="Ih", category="platonic")
 
 _register(
-    "cuboctahedron", 12, _cuboctahedron(), point_group="Oh", category="archimedean"
+    "cuboctahedron",
+    12,
+    _cuboctahedron(),
+    point_group="Oh",
+    category="archimedean",
+    ambo_of=("cube", "octahedron"),
 )
 
 
@@ -564,6 +668,8 @@ def convex_hull_payload(shell_coords: Iterable[Iterable[float]]) -> Dict[str, An
 
 
 __all__ = [
+    "EdgeInfo",
+    "FaceInfo",
     "IDEAL_POLYHEDRA",
     "IdealPolyhedron",
     "all_ideal_polyhedra",
