@@ -278,6 +278,22 @@ class TestMetadata:
                 "Ih",
             ), f"Platonic {p.name} has unexpected point_group={p.point_group}"
 
+    def test_face_signature_matches_known_topology(self):
+        """Known convex-hull face graphs should be cached on registry entries."""
+        expected = {
+            "tetrahedron": {3: 4},
+            "cube": {4: 6},
+            "octahedron": {3: 8},
+            "icosahedron": {3: 20},
+            "cuboctahedron": {3: 8, 4: 6},
+        }
+        for name, face_signature in expected.items():
+            poly = get_polyhedron(name)
+            assert poly is not None
+            assert poly.face_signature == face_signature
+            assert poly.edge_count > 0
+            assert sum(poly.vertex_degree_signature.values()) == poly.cn
+
 
 # --- Public API ---
 

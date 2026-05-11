@@ -15,6 +15,7 @@ from .packing_shell import (
     hull_encloses_center,
     planarity_analysis,
 )
+from .shape import classify_shell, cshm, topology_signature
 
 
 __all__ = [
@@ -25,8 +26,10 @@ __all__ = [
     "DEFAULT_POLYHEDRON_SEARCH_CUTOFF",
     "angular_rmsd_vs_ideals",
     "assign_mol_formal_charges",
+    "classify_shell",
     "compute_angular_signature",
     "compute_topo_signature",
+    "cshm",
     "heavy_signature",
     "match_molecule_to_fragment",
     "parse_moiety_string",
@@ -35,4 +38,5 @@ __all__ = [
     "find_polyhedra",
     "hull_encloses_center",
     "planarity_analysis",
+    "topology_signature",
 ]
