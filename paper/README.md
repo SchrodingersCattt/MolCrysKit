@@ -5,7 +5,8 @@ This directory contains benchmark scripts and processed results for the paper:
 > **MolCrysKit: A Topology-Aware Toolkit for Bridging Experimental Molecular-Crystal
 > Structures and Simulation-Ready Modeling**
 >
-> Ming-Yu Guo and Wei-Xiong Zhang, *J. Chem. Inf. Model.*, 2026
+> Ming-Yu Guo and Wei-Xiong Zhang, *J. Chem. Inf. Model.* **2026**, *66* (9),
+> 4999-5007. https://doi.org/10.1021/acs.jcim.6c00168
 
 ## Contents
 
