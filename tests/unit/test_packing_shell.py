@@ -1,5 +1,6 @@
 """Tests for packing-shell polyhedra analysis."""
 
+import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -379,7 +380,14 @@ def test_find_polyhedra_molecule_level_rocksalt_octahedron_with_cutoff():
         assert record["center_formula"] == "N"
         assert record["shell_formula"] == "Cl"
         assert record["coordination_number"] == 6
-        assert record["mode"] == "cutoff"
+        # Molecule level: cutoff= is the search radius; the gap+enclosure
+        # heuristic then resolves the shell.  The octahedral hull of the
+        # six face neighbours encloses the centre, so the expansion path
+        # is exercised here.
+        assert record["mode"] == "gap+enclosure"
+        assert record["cutoff"] is None        # no hard cap was applied
+        assert record["hard_cutoff"] is None
+        assert record["search_cutoff"] == pytest.approx(3.0)
         assert len(record["shell_molecule_indices"]) == 6
         assert all(np.isclose(d, 2.5, atol=1e-6) for d in record["shell_distances"])
         assert record["center_kind"] == "centroid"
@@ -405,8 +413,19 @@ def test_find_polyhedra_molecule_level_central_indices_filter():
 
 
 def test_find_polyhedra_molecule_level_homo_pair_excludes_self_image():
-    """An A--A search must drop the (t=0, same molecule) self image but must
-    keep every periodic image of the same molecule."""
+    """An A--A search must drop the (t=0, same molecule) self image but
+    must keep every periodic image of the same molecule.
+
+    The 4 N centroids of ``_rocksalt_molecular_crystal`` lie on an FCC
+    sublattice with lattice parameter ``a``, so each N has 12
+    face-diagonal nearest neighbours at sqrt(2)*a/2 = 3.536 Å — all of
+    them within the molecule-level search radius ``cutoff=4``.  The
+    exact CN reported is then determined by gap+enclosure (which stops
+    at the smallest hull-enclosing prefix); we therefore assert the
+    invariants the homo-pair path must preserve regardless of the
+    expansion endpoint: every shell entry is a non-self image, gaps are
+    zero (all distances equal), and the mode reflects the new path.
+    """
     crys = _rocksalt_molecular_crystal(a=5.0)
     polys = find_polyhedra(crys, "N", "N", level="molecule", cutoff=4.0)
     for record in polys:
@@ -415,8 +434,14 @@ def test_find_polyhedra_molecule_level_homo_pair_excludes_self_image():
                                    record["shell_offsets"]):
             if lig_idx == ci:
                 assert not np.allclose(offset, [0.0, 0.0, 0.0])
-        # Closest neighbours are 12 face-diagonal images at √2·a/2 = 3.536 Å
-        assert record["coordination_number"] >= 6
+        assert record["coordination_number"] >= 4
+        assert record["mode"] == "gap+enclosure"
+        assert record["hard_cutoff"] is None
+        # All 12 candidates are equidistant at sqrt(2)*a/2; the kept
+        # shell is a prefix of that list, so every kept distance must
+        # match the FCC NN distance.
+        assert all(np.isclose(d, np.sqrt(2) * 2.5, atol=1e-6)
+                   for d in record["shell_distances"])
 
 
 def test_find_polyhedra_molecule_level_center_kind_choices():
@@ -477,15 +502,30 @@ def test_find_polyhedra_molecule_level_invalid_search_cutoff_raises():
 
 def test_find_polyhedra_molecule_level_moiety_string_matches_full_fragments():
     """The 'N H4' moiety string must match a real NH4 molecule with 5 atoms
-    via heavy-atom signature, and likewise 'Cl O4' must pick up the ClO4."""
+    via heavy-atom signature, and likewise 'Cl O4' must pick up the ClO4.
+
+    Geometry is CsCl-like: the cube of 8 NH4-image centroids at
+    distance sqrt(3)*a/2 = 5.196 Å encloses the central ClO4, so
+    gap+enclosure resolves the full CN=8 cube from search radius
+    ``cutoff=8`` without needing the historical hard-cap mode.
+
+    A tight ``centroid_offset_frac`` is used so that the expansion does
+    not terminate on a 7-vertex sub-cube (whose hull centroid drifts
+    just inside the default 0.15 fractional tolerance) — the algorithm
+    only commits to the full cube when the hull centroid sits exactly
+    at the centre, which happens at the 8th point.
+    """
     crys = _toy_perchlorate_crystal(a=6.0)
-    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule", cutoff=8.0)
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+                           cutoff=8.0, centroid_offset_frac=0.05)
     assert len(polys) == 1
     record = polys[0]
     assert record["center_formula"] == "H4N"
     assert record["shell_formula"] == "ClO4"
-    # CsCl-like geometry: 8 nearest images at sqrt(3)*a/2 = 5.196 Å
     assert record["coordination_number"] == 8
+    assert record["mode"] == "gap+enclosure"
+    assert record["hard_cutoff"] is None
+    assert record["search_cutoff"] == pytest.approx(8.0)
     assert np.isclose(np.mean(record["shell_distances"]),
                       6.0 * np.sqrt(3) / 2, atol=1e-6)
 
@@ -516,30 +556,45 @@ def test_find_polyhedra_molecule_level_dap4_nh4_cuboctahedron_extended_shell():
     """At the perovskite A--X12 cuboctahedron cutoff (~8 Å), NH4 sees
     all 12 ClO4 anions on the surrounding cuboctahedron vertices: 6
     near-corner ClO4 at ~3.6 Å plus 6 farther ClO4 at ~7.9 Å.
+
+    The 6 nearest ClO4 already form an octahedron that encloses the
+    NH4 centre, so plain gap+enclosure would stop at CN=6.  We opt
+    into the historical "fill the 8 Å ball" semantics via
+    ``hard_cutoff=8`` to keep the cuboctahedron interpretation.
     """
     from molcrys_kit.io.cif import read_mol_crystal
     crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
     polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
-                           cutoff=8.0, score_shape=True)
+                           hard_cutoff=8.0, score_shape=True)
     assert len(polys) == 8
     for record in polys:
         assert record["coordination_number"] == 12
+        assert record["mode"] == "cutoff"
+        assert record["hard_cutoff"] == pytest.approx(8.0)
+        assert record["cutoff"] == pytest.approx(8.0)
         assert record["best_match"]["name"] == "cuboctahedron"
 
 
 def test_find_polyhedra_molecule_level_dap4_clo4_square_planar():
-    """Reverse query at cutoff=8 Å: every ClO4 anion is surrounded by 4
-    NH4+ cations in a square-planar arrangement (the four corners of the
-    A2 cage face that the ClO4 sits on). The cutoff=5 Å view truncates
-    the cage to the two nearest NH4 (dimer).
+    """Reverse query at the 8 Å hard cap: every ClO4 anion is surrounded
+    by 4 NH4+ cations in a square-planar arrangement (the four corners
+    of the A2 cage face that the ClO4 sits on).  The cutoff=5 Å view
+    truncates the cage to the two nearest NH4 (dimer).
+
+    A square-planar 4-shell never encloses the centre, so plain
+    gap+enclosure would expand past CN=4.  We use ``hard_cutoff=8`` to
+    pin the analysis to "all NH4 within 8 Å", matching the original
+    physical intent of this test.
     """
     from molcrys_kit.io.cif import read_mol_crystal
     crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
     polys = find_polyhedra(crys, "Cl O4", "N H4", level="molecule",
-                           cutoff=8.0, score_shape=True)
+                           hard_cutoff=8.0, score_shape=True)
     assert len(polys) == 24
     for record in polys:
         assert record["coordination_number"] == 4
+        assert record["mode"] == "cutoff"
+        assert record["hard_cutoff"] == pytest.approx(8.0)
         assert record["best_match"]["name"] == "square_planar"
 
 
@@ -574,12 +629,153 @@ def test_find_polyhedra_molecule_level_diagonal_image_neighbour():
 def test_find_polyhedra_molecule_level_dap4_dap_cation_cn12():
     """The DAP^2+ cation occupies the A1 site of the perovskite framework
     and is surrounded by 12 ClO4 anions in the cuboctahedral A1-X12 shell.
+
+    Same as the NH4--cuboctahedron case: the nearest ClO4 sub-shell
+    around DAP^2+ already encloses the cation under gap+enclosure, so
+    we opt into the historical hard-cap mode via ``hard_cutoff=8`` to
+    keep all 12 ClO4 in the analysis.
     """
     from molcrys_kit.io.cif import read_mol_crystal
     crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
-    polys = find_polyhedra(crys, "C6 N2", "Cl O4", level="molecule", cutoff=8.0)
+    polys = find_polyhedra(crys, "C6 N2", "Cl O4", level="molecule",
+                           hard_cutoff=8.0)
     assert len(polys) == 8  # eight DAP cations per Pa-3 cell
     cn_histogram = Counter(r["coordination_number"] for r in polys)
     assert cn_histogram[12] == 8, (
         f"expected every DAP cation to be CN=12, got {dict(cn_histogram)}"
     )
+    for record in polys:
+        assert record["mode"] == "cutoff"
+        assert record["hard_cutoff"] == pytest.approx(8.0)
+
+
+# --- molecule-level: cutoff / hard_cutoff semantics regression tests ---
+
+
+def test_find_polyhedra_molecule_cutoff_is_search_radius_not_hard_cap():
+    """`cutoff=10` at molecule level previously triggered the historical
+    ``mode='cutoff'`` "fill the 10 Å ball" behaviour and returned CN=30
+    around an NH4 site in DAP-4 (every ClO4 within 10 Å, ignoring the
+    obvious gap between the first and second packing shell).  After the
+    redesign ``cutoff`` is a search radius only, so the gap+enclosure
+    heuristic now stops at the natural CN=6 octahedron.
+
+    This test is the regression that protects against accidentally
+    re-introducing the old footgun (cf. MV agent surprise: a generous
+    radius was meant as "look that far for candidates" but used to be
+    interpreted as "make the shell exactly that big").
+    """
+    from molcrys_kit.io.cif import read_mol_crystal
+    crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+                           cutoff=10.0)
+    assert len(polys) == 8
+    for record in polys:
+        assert record["mode"] == "gap+enclosure"
+        assert record["cutoff"] is None         # hard cap NOT applied
+        assert record["hard_cutoff"] is None
+        assert record["search_cutoff"] == pytest.approx(10.0)
+        assert record["coordination_number"] == 6
+
+
+def test_find_polyhedra_molecule_hard_cutoff_restores_fill_mode():
+    """`hard_cutoff` is the explicit opt-in for the historical
+    "fill the ball" semantics on the molecule level.  Passing
+    ``hard_cutoff=10`` on the same DAP-4 / NH4 query must therefore
+    reach the same CN that ``cutoff=10`` would have produced under the
+    old design (one A--X12 cuboctahedron plus the next-nearest layer of
+    ClO4 anions inside the 10 Å ball, i.e. roughly the perovskite
+    A--X30 over-shell).
+    """
+    from molcrys_kit.io.cif import read_mol_crystal
+    crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+                           hard_cutoff=10.0)
+    assert len(polys) == 8
+    for record in polys:
+        assert record["mode"] == "cutoff"
+        assert record["cutoff"] == pytest.approx(10.0)
+        assert record["hard_cutoff"] == pytest.approx(10.0)
+        # cutoff=10 on this Pa-3 perovskite reaches well past the first
+        # cuboctahedron, so the CN must be >12 (the old "footgun" value
+        # the MV agent reported was 30, but exact CN depends on cell
+        # parameters; >12 is the salient claim).
+        assert record["coordination_number"] > 12
+
+
+def test_find_polyhedra_molecule_cscl_hard_cutoff_cross_check():
+    """Cross-validation between gap+enclosure (``cutoff=8``) and hard
+    cap (``hard_cutoff=8``) on the toy CsCl-like crystal: both paths
+    must report the same 8-coordinate cube, since 5.196 Å sits exactly
+    between the first 8 nearest images and the next packing shell, and
+    the cube encloses the centre cleanly.  ``centroid_offset_frac`` is
+    tightened on the gap+enclosure call so that the expansion goes all
+    the way to the full cube (the default 0.15 fractional tolerance is
+    forgiving enough to enclose at the 7-vertex sub-cube).
+    """
+    crys = _toy_perchlorate_crystal(a=6.0)
+    polys_gap = find_polyhedra(crys, "N H4", "Cl O4",
+                               level="molecule",
+                               cutoff=8.0,
+                               centroid_offset_frac=0.05)
+    polys_hard = find_polyhedra(crys, "N H4", "Cl O4",
+                                level="molecule", hard_cutoff=8.0)
+    assert len(polys_gap) == len(polys_hard) == 1
+
+    assert polys_gap[0]["mode"] == "gap+enclosure"
+    assert polys_gap[0]["hard_cutoff"] is None
+
+    assert polys_hard[0]["mode"] == "cutoff"
+    assert polys_hard[0]["hard_cutoff"] == pytest.approx(8.0)
+    assert polys_hard[0]["cutoff"] == pytest.approx(8.0)
+
+    assert polys_gap[0]["coordination_number"] == polys_hard[0]["coordination_number"] == 8
+    assert sorted(polys_gap[0]["shell_distances"]) == pytest.approx(
+        sorted(polys_hard[0]["shell_distances"]), abs=1e-6
+    )
+
+
+def test_find_polyhedra_atom_level_rejects_hard_cutoff():
+    """On the atom level there is no semantic ambiguity for ``cutoff``
+    (it has always been the hard radial cap), so the redesigned
+    ``hard_cutoff`` kwarg is forbidden there.  The error message must
+    point users at ``cutoff`` to make the migration mechanical.
+    """
+    atoms = _rocksalt_atoms(a=5.0)
+    with pytest.raises(ValueError, match="hard_cutoff is only meaningful"):
+        find_polyhedra(atoms, "Pb", "I", level="atom", hard_cutoff=3.0)
+
+
+def test_find_polyhedra_molecule_search_cutoff_alias_matches_cutoff():
+    """``search_cutoff`` is a non-deprecated synonym of ``cutoff`` on
+    the molecule level.  Identical inputs through either kwarg must
+    produce identical record fields, with no DeprecationWarning.
+    """
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        via_cutoff = find_polyhedra(crys, "N", "Cl", level="molecule",
+                                    cutoff=3.0)
+        via_alias = find_polyhedra(crys, "N", "Cl", level="molecule",
+                                   search_cutoff=3.0)
+    assert len(via_cutoff) == len(via_alias) == 4
+    for rc, ra in zip(via_cutoff, via_alias):
+        assert rc["coordination_number"] == ra["coordination_number"]
+        assert rc["mode"] == ra["mode"]
+        assert rc["search_cutoff"] == ra["search_cutoff"] == pytest.approx(3.0)
+        assert rc["hard_cutoff"] == ra["hard_cutoff"] is None
+        assert sorted(rc["shell_distances"]) == pytest.approx(
+            sorted(ra["shell_distances"]), abs=1e-6
+        )
+
+
+def test_find_polyhedra_molecule_cutoff_and_search_cutoff_are_mutually_exclusive():
+    """Both kwargs are valid spellings of the search radius, so giving
+    them together is ambiguous and must raise (rather than silently
+    picking one) — the design choice that motivated keeping the alias
+    instead of deprecating it.
+    """
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    with pytest.raises(ValueError, match="only one of cutoff= or search_cutoff="):
+        find_polyhedra(crys, "N", "Cl", level="molecule",
+                       cutoff=3.0, search_cutoff=3.0)

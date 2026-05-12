@@ -638,6 +638,7 @@ def _find_polyhedra_molecule_level(
     center_kind: str,
     cutoff: Optional[float],
     search_cutoff: Optional[float],
+    hard_cutoff: Optional[float],
     enforce_enclosure: bool,
     centroid_offset_frac: float,
     fallback_max: Optional[int],
@@ -665,12 +666,34 @@ def _find_polyhedra_molecule_level(
     central_sig = _parse_moiety_signature(central)
     ligand_sig = _parse_moiety_signature(ligand)
 
-    if cutoff is not None and search_cutoff is None:
-        search_cutoff = float(cutoff)
-    if search_cutoff is None:
-        search_cutoff = float(DEFAULT_MOLECULAR_SEARCH_CUTOFF)
-    if search_cutoff <= 0:
-        raise ValueError(f"search_cutoff must be positive, got {search_cutoff!r}.")
+    # On the molecule level, ``cutoff`` is the candidate **search radius**
+    # (the value fed into the lattice-translation enumerator and the
+    # ``dists <= radius`` mask). ``search_cutoff`` is a non-deprecated
+    # synonym kept for callers who prefer the more self-documenting name;
+    # giving both raises immediately to avoid silently picking one. The
+    # "fill the ball" historical behaviour is opted into separately via
+    # ``hard_cutoff``, which is the value forwarded to
+    # :func:`detect_coordination_number` as ``cutoff=``.
+    if cutoff is not None and search_cutoff is not None:
+        raise ValueError(
+            "Pass only one of cutoff= or search_cutoff= on level='molecule'; "
+            "they are synonyms (both denote the candidate search radius)."
+        )
+    radius = cutoff if cutoff is not None else search_cutoff
+    if radius is None:
+        radius = float(DEFAULT_MOLECULAR_SEARCH_CUTOFF)
+    else:
+        radius = float(radius)
+    if radius <= 0:
+        raise ValueError(
+            f"cutoff/search_cutoff must be positive, got {radius!r}."
+        )
+    if hard_cutoff is not None:
+        hard_cutoff = float(hard_cutoff)
+        if hard_cutoff <= 0:
+            raise ValueError(
+                f"hard_cutoff must be positive when given, got {hard_cutoff!r}."
+            )
 
     centres = np.array(
         [_molecule_centre(mol, center_kind) for mol in molecules], dtype=float
@@ -696,8 +719,8 @@ def _find_polyhedra_molecule_level(
         return []
 
     # The translation set must cover every t such that
-    # |c_ligand + t - c_central| <= search_cutoff for any (central, ligand)
-    # pair. The triangle inequality bounds |t| <= search_cutoff +
+    # |c_ligand + t - c_central| <= radius for any (central, ligand)
+    # pair. The triangle inequality bounds |t| <= radius +
     # |c_ligand - c_central|, so we enumerate to the worst-case pair
     # distance (diagonal of the axis-aligned bounding box of all centres).
     # Without this, centroids near opposite cell corners or in
@@ -709,7 +732,7 @@ def _find_polyhedra_molecule_level(
         centroid_extent = 0.0
     translations = _lattice_translations(
         np.asarray(lattice, dtype=float),
-        float(search_cutoff) + centroid_extent,
+        radius + centroid_extent,
     )
 
     results: List[Dict[str, Any]] = []
@@ -723,7 +746,7 @@ def _find_polyhedra_molecule_level(
             cand_pts = lig_centres[:, None, :] + translations[None, :, :]  # (L, T, 3)
             cand_vecs = cand_pts - center_pos                       # (L, T, 3)
             dists = np.linalg.norm(cand_vecs, axis=-1)              # (L, T)
-            mask = dists <= float(search_cutoff)
+            mask = dists <= radius
             if homo_pair:
                 # Exclude the self image (centroid of the same molecule at t=0)
                 self_mask = np.zeros_like(mask, dtype=bool)
@@ -759,7 +782,7 @@ def _find_polyhedra_molecule_level(
             center=center_pos.tolist(),
             enforce_enclosure=enforce_enclosure,
             centroid_offset_frac=centroid_offset_frac,
-            cutoff=cutoff,
+            cutoff=hard_cutoff,
         )
 
         cn = int(cn_info["coordination_number"])
@@ -786,8 +809,13 @@ def _find_polyhedra_molecule_level(
             "gap_value": cn_info["gap_value"],
             "enclosed": cn_info["enclosed"],
             "enclosure_expanded": cn_info["enclosure_expanded"],
+            # ``record["cutoff"]`` echoes what detect_coordination_number
+            # received, kept for BC.  Downstream code that wants to
+            # inspect "was a hard cap applied?" should read the
+            # explicit ``record["hard_cutoff"]`` field below.
             "cutoff": cn_info["cutoff"],
-            "search_cutoff": float(search_cutoff),
+            "search_cutoff": radius,
+            "hard_cutoff": hard_cutoff,
         }
 
         if score_shape:
@@ -812,6 +840,7 @@ def find_polyhedra(
     center_kind: str = "centroid",
     cutoff: Optional[float] = None,
     search_cutoff: Optional[float] = None,
+    hard_cutoff: Optional[float] = None,
     enforce_enclosure: bool = True,
     centroid_offset_frac: float = DEFAULT_CENTROID_OFFSET_FRAC,
     fallback_max: Optional[int] = None,
@@ -844,6 +873,10 @@ def find_polyhedra(
       cation (e.g. ``"C2 H10 N2"``) and ``B`` is a polyatomic anion
       (e.g. ``"Cl O4"``).
 
+    The three radial knobs (``cutoff``, ``search_cutoff``, ``hard_cutoff``)
+    carry **different meanings on the two levels** by design; see the
+    "Radial knobs" subsection below for the rationale.
+
     Parameters
     ----------
     structure
@@ -868,15 +901,12 @@ def find_polyhedra(
         ``"heavy_centroid"`` (unweighted mean of non-H atoms). Ignored
         when ``level="atom"``.
     cutoff
-        Hard radial cutoff in Å. When set, the polyhedron is exactly the
-        B atoms (or B molecules) within ``cutoff`` of A — no gap
-        detection, no hull expansion (passed through to
-        :func:`detect_coordination_number` as ``cutoff``).
+        See "Radial knobs" below; meaning depends on ``level``.
     search_cutoff
-        Maximum A–B distance considered when collecting candidate
-        neighbours. Defaults to ``cutoff`` if given, otherwise to
-        :data:`DEFAULT_POLYHEDRON_SEARCH_CUTOFF` (atom level) or
-        :data:`DEFAULT_MOLECULAR_SEARCH_CUTOFF` (molecule level).
+        See "Radial knobs" below; meaning depends on ``level``.
+    hard_cutoff
+        See "Radial knobs" below; ``level="molecule"`` only — passing it
+        with ``level="atom"`` raises ``ValueError``.
     enforce_enclosure
         Forwarded to :func:`detect_coordination_number`. Set ``False`` to
         get the gap-only CN without expanding to wrap the central atom.
@@ -891,6 +921,45 @@ def find_polyhedra(
         Optional iterable of indices restricting the search to a subset
         of central atoms (``level="atom"``) or central molecules
         (``level="molecule"``).
+
+    Radial knobs
+    ------------
+    The three radius arguments split responsibility cleanly between
+    "where do we look for candidates?" and "which neighbours count as
+    the shell?". They are wired differently across the two levels so
+    that the most natural reading of ``cutoff=`` matches the level's
+    most common use-case:
+
+    * ``level="atom"``: ``cutoff`` is the **historical hard radial
+      cutoff** (passed straight to :func:`detect_coordination_number` as
+      ``cutoff=``); ``search_cutoff`` is the candidate radius for the
+      ASE neighbour list. Atom-level callers writing
+      ``find_polyhedra(atoms, "Pb", "I", cutoff=3)`` expect "octahedral
+      Pb--I within 3 Å", which is the hard-cap semantics, so this stays
+      unchanged for full backward compatibility. Passing ``hard_cutoff``
+      on atom level raises ``ValueError`` because it would duplicate
+      ``cutoff`` and dilute the asymmetry between the two levels.
+
+    * ``level="molecule"``: ``cutoff`` is the **candidate search
+      radius**; the CN is then chosen by the gap+enclosure heuristic in
+      :func:`detect_coordination_number`. ``search_cutoff`` is a
+      non-deprecated synonym of ``cutoff`` for callers who prefer the
+      more self-documenting name (passing both raises ``ValueError``).
+      Use ``hard_cutoff`` to opt back into the historical "fill the
+      ball" behaviour (forwarded to :func:`detect_coordination_number`
+      as ``cutoff=``). The molecule-level default
+      (:data:`DEFAULT_MOLECULAR_SEARCH_CUTOFF`) is set generously so the
+      first packing-shell is captured without forcing callers to pick a
+      radius.
+
+      Worked example on a DAP-4 Pa-3 perovskite cell:
+
+      >>> find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+      ...                cutoff=8.0)              # gap+enclosure
+      # -> CN=6 octahedron (the NaCl-like first shell stops here)
+      >>> find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+      ...                hard_cutoff=8.0)         # historical fill mode
+      # -> CN=12 cuboctahedron (the full perovskite A--X12 cage)
 
     Returns
     -------
@@ -925,9 +994,24 @@ def find_polyhedra(
           carry per-atom image bookkeeping)
         * ``shell_coords``: translated Cartesian centroids
         * ``shell_distances``: A--B centroid distances, ascending
+        * ``hard_cutoff``: ``None`` in gap+enclosure mode, or the float
+          value passed when the historical hard-cap mode was opted into.
+          Downstream code should prefer this field over ``cutoff`` to
+          inspect "was a hard cap applied?", since the molecule-level
+          ``record["cutoff"]`` echoes what
+          :func:`detect_coordination_number` received (i.e. the value of
+          ``hard_cutoff``), which is the opposite of the kwarg
+          ``cutoff=`` semantics on this level.
         * ``best_match`` (only when ``score_shape=True``)
     """
     if level == "atom":
+        if hard_cutoff is not None:
+            raise ValueError(
+                "hard_cutoff is only meaningful when level='molecule', where "
+                "cutoff= now means the search radius. On level='atom', "
+                "cutoff= already is the hard radial cap; pass cutoff= "
+                "instead of hard_cutoff."
+            )
         return _find_polyhedra_atom_level(
             structure,
             central,
@@ -948,6 +1032,7 @@ def find_polyhedra(
             center_kind=center_kind,
             cutoff=cutoff,
             search_cutoff=search_cutoff,
+            hard_cutoff=hard_cutoff,
             enforce_enclosure=enforce_enclosure,
             centroid_offset_frac=centroid_offset_frac,
             fallback_max=fallback_max,
