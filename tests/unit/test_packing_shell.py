@@ -1,16 +1,23 @@
 """Tests for packing-shell polyhedra analysis."""
 
+from collections import Counter
+from pathlib import Path
+
 import numpy as np
 import pytest
 from ase import Atoms
 
 from molcrys_kit.analysis.packing_shell import (
+    DEFAULT_MOLECULAR_SEARCH_CUTOFF,
     angular_rmsd_vs_ideals,
     detect_coordination_number,
     find_polyhedra,
     hull_encloses_center,
 )
+from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.polyhedra import convex_hull_payload, ideal_polyhedra_for_cn
+
+_CIF_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
 
 
 def test_ideal_polyhedra_catalog_exposes_cn8_cube():
@@ -278,3 +285,240 @@ def test_find_polyhedra_invalid_search_cutoff_raises():
     atoms = _rocksalt_atoms(a=5.0)
     with pytest.raises(ValueError):
         find_polyhedra(atoms, central="Pb", ligand="I", search_cutoff=0.0)
+
+
+def test_find_polyhedra_atom_level_record_carries_level_field():
+    atoms = _rocksalt_atoms(a=5.0)
+    polys = find_polyhedra(atoms, central="Pb", ligand="I", cutoff=3.0)
+    for record in polys:
+        assert record["level"] == "atom"
+
+
+def test_find_polyhedra_invalid_level_raises():
+    atoms = _rocksalt_atoms(a=5.0)
+    with pytest.raises(ValueError, match="level must be"):
+        find_polyhedra(atoms, central="Pb", ligand="I", level="banana")
+
+
+# --- find_polyhedra(level="molecule") tests ---
+
+
+def _rocksalt_molecular_crystal(a: float = 5.0) -> MolecularCrystal:
+    """4-N + 4-Cl rocksalt-style MolecularCrystal whose centroids form a
+    perfect octahedral A--B coordination at distance ``a/2``.
+    """
+    cell = np.eye(3) * a
+    a_positions = [
+        [0.0, 0.0, 0.0],
+        [a / 2, a / 2, 0.0],
+        [a / 2, 0.0, a / 2],
+        [0.0, a / 2, a / 2],
+    ]
+    b_positions = [
+        [a / 2, 0.0, 0.0],
+        [0.0, a / 2, 0.0],
+        [0.0, 0.0, a / 2],
+        [a / 2, a / 2, a / 2],
+    ]
+    molecules = []
+    for pos in a_positions:
+        molecules.append(Atoms(symbols=["N"], positions=[pos], cell=cell, pbc=True))
+    for pos in b_positions:
+        molecules.append(Atoms(symbols=["Cl"], positions=[pos], cell=cell, pbc=True))
+    return MolecularCrystal(lattice=cell, molecules=molecules)
+
+
+def _toy_perchlorate_crystal(a: float = 6.0) -> MolecularCrystal:
+    """Tiny molecular crystal with one full NH4 (5 atoms) and one full ClO4
+    (5 atoms) placed so their centroids sit on a CsCl-like (0,0,0) /
+    (a/2,a/2,a/2) sublattice. Exercises moiety-string parsing ('N H4',
+    'Cl O4') against multi-atom molecules.
+    """
+    cell = np.eye(3) * a
+
+    nh4_centre = np.array([0.0, 0.0, 0.0])
+    nh4_local = np.array([
+        [0.0, 0.0, 0.0],
+        [0.6, 0.6, 0.6],
+        [-0.6, -0.6, 0.6],
+        [0.6, -0.6, -0.6],
+        [-0.6, 0.6, -0.6],
+    ])
+    nh4 = Atoms(
+        symbols=["N", "H", "H", "H", "H"],
+        positions=nh4_centre + nh4_local,
+        cell=cell,
+        pbc=True,
+    )
+    # Centroid of nh4_local is exactly (0,0,0), so centroid coincides with N.
+
+    clo4_centre = np.array([a / 2, a / 2, a / 2])
+    clo4_local = np.array([
+        [0.0, 0.0, 0.0],
+        [0.7, 0.7, 0.7],
+        [-0.7, -0.7, 0.7],
+        [0.7, -0.7, -0.7],
+        [-0.7, 0.7, -0.7],
+    ])
+    clo4 = Atoms(
+        symbols=["Cl", "O", "O", "O", "O"],
+        positions=clo4_centre + clo4_local,
+        cell=cell,
+        pbc=True,
+    )
+
+    return MolecularCrystal(lattice=cell, molecules=[nh4, clo4])
+
+
+def test_find_polyhedra_molecule_level_rocksalt_octahedron_with_cutoff():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    polys = find_polyhedra(crys, "N", "Cl", level="molecule", cutoff=3.0)
+    assert len(polys) == 4
+    for record in polys:
+        assert record["level"] == "molecule"
+        assert record["center_formula"] == "N"
+        assert record["shell_formula"] == "Cl"
+        assert record["coordination_number"] == 6
+        assert record["mode"] == "cutoff"
+        assert len(record["shell_molecule_indices"]) == 6
+        assert all(np.isclose(d, 2.5, atol=1e-6) for d in record["shell_distances"])
+        assert record["center_kind"] == "centroid"
+
+
+def test_find_polyhedra_molecule_level_rocksalt_score_shape():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    polys = find_polyhedra(crys, "N", "Cl", level="molecule",
+                           cutoff=3.0, score_shape=True)
+    for record in polys:
+        match = record["best_match"]
+        assert match is not None
+        assert match["name"] == "octahedron"
+        assert match["angular_rmsd"] < 1e-6
+
+
+def test_find_polyhedra_molecule_level_central_indices_filter():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    polys = find_polyhedra(crys, "N", "Cl", level="molecule",
+                           cutoff=3.0, central_indices=[0])
+    assert len(polys) == 1
+    assert polys[0]["center_molecule_index"] == 0
+
+
+def test_find_polyhedra_molecule_level_homo_pair_excludes_self_image():
+    """An A--A search must drop the (t=0, same molecule) self image but must
+    keep every periodic image of the same molecule."""
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    polys = find_polyhedra(crys, "N", "N", level="molecule", cutoff=4.0)
+    for record in polys:
+        ci = record["center_molecule_index"]
+        for lig_idx, offset in zip(record["shell_molecule_indices"],
+                                   record["shell_offsets"]):
+            if lig_idx == ci:
+                assert not np.allclose(offset, [0.0, 0.0, 0.0])
+        # Closest neighbours are 12 face-diagonal images at √2·a/2 = 3.536 Å
+        assert record["coordination_number"] >= 6
+
+
+def test_find_polyhedra_molecule_level_center_kind_choices():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    for kind in ("centroid", "com", "heavy_centroid"):
+        polys = find_polyhedra(crys, "N", "Cl", level="molecule",
+                               cutoff=3.0, center_kind=kind)
+        assert len(polys) == 4
+        for record in polys:
+            assert record["coordination_number"] == 6
+            assert record["center_kind"] == kind
+
+
+def test_find_polyhedra_molecule_level_returns_empty_for_unknown_central_moiety():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    polys = find_polyhedra(crys, "Cs", "Cl", level="molecule", cutoff=3.0)
+    assert polys == []
+
+
+def test_find_polyhedra_molecule_level_default_search_cutoff_used():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    polys = find_polyhedra(crys, "N", "Cl", level="molecule")
+    for record in polys:
+        assert record["search_cutoff"] == DEFAULT_MOLECULAR_SEARCH_CUTOFF
+
+
+def test_find_polyhedra_molecule_level_rejects_non_molecular_crystal():
+    atoms = _rocksalt_atoms(a=5.0)
+    with pytest.raises(TypeError, match="MolecularCrystal-like"):
+        find_polyhedra(atoms, "Pb", "I", level="molecule", cutoff=3.0)
+
+
+def test_find_polyhedra_molecule_level_invalid_center_kind_raises():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    with pytest.raises(ValueError, match="center_kind"):
+        find_polyhedra(crys, "N", "Cl", level="molecule",
+                       cutoff=3.0, center_kind="bogus")
+
+
+def test_find_polyhedra_molecule_level_empty_moiety_raises():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    with pytest.raises(ValueError, match="non-empty"):
+        find_polyhedra(crys, "", "Cl", level="molecule", cutoff=3.0)
+
+
+def test_find_polyhedra_molecule_level_multifragment_moiety_raises():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    with pytest.raises(ValueError, match="exactly one fragment"):
+        find_polyhedra(crys, "N H4, C2 H10 N2", "Cl",
+                       level="molecule", cutoff=3.0)
+
+
+def test_find_polyhedra_molecule_level_invalid_search_cutoff_raises():
+    crys = _rocksalt_molecular_crystal(a=5.0)
+    with pytest.raises(ValueError, match="search_cutoff must be positive"):
+        find_polyhedra(crys, "N", "Cl", level="molecule", search_cutoff=0.0)
+
+
+def test_find_polyhedra_molecule_level_moiety_string_matches_full_fragments():
+    """The 'N H4' moiety string must match a real NH4 molecule with 5 atoms
+    via heavy-atom signature, and likewise 'Cl O4' must pick up the ClO4."""
+    crys = _toy_perchlorate_crystal(a=6.0)
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule", cutoff=8.0)
+    assert len(polys) == 1
+    record = polys[0]
+    assert record["center_formula"] == "H4N"
+    assert record["shell_formula"] == "ClO4"
+    # CsCl-like geometry: 8 nearest images at sqrt(3)*a/2 = 5.196 Å
+    assert record["coordination_number"] == 8
+    assert np.isclose(np.mean(record["shell_distances"]),
+                      6.0 * np.sqrt(3) / 2, atol=1e-6)
+
+
+def test_find_polyhedra_molecule_level_dap4_nh4_octahedral_cage():
+    """Sanity check on the real DAP-4 perovskite CIF.  The NH4 sublattice
+    sits on the A2 site of a Pa-3 perovskite framework with ClO4 on the
+    B site, so the cleanest NH4 cages should be CN=6 octahedra at ~3.6 Å.
+    """
+    from molcrys_kit.io.cif import read_mol_crystal
+    crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+                           cutoff=5.0, score_shape=True)
+    assert len(polys) == 8  # eight NH4 per Pa-3 cell
+    octahedral = [r for r in polys if r["coordination_number"] == 6]
+    assert len(octahedral) >= 4, (
+        "at least half of NH4 sites should resolve to a CN=6 cage of ClO4"
+    )
+    for record in octahedral:
+        assert record["best_match"]["name"] == "octahedron"
+        # NH4..ClO4 first-shell centroid distance ~3.6 Å in DAP-4
+        assert 3.4 <= float(np.mean(record["shell_distances"])) <= 3.8
+
+
+def test_find_polyhedra_molecule_level_dap4_dap_cation_cn12():
+    """The DAP^2+ cation occupies the A1 site of the perovskite framework
+    and is surrounded by 12 ClO4 anions in the cuboctahedral A1-X12 shell.
+    """
+    from molcrys_kit.io.cif import read_mol_crystal
+    crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
+    polys = find_polyhedra(crys, "C6 N2", "Cl O4", level="molecule", cutoff=8.0)
+    assert len(polys) == 8  # eight DAP cations per Pa-3 cell
+    cn_histogram = Counter(r["coordination_number"] for r in polys)
+    assert cn_histogram[12] == 8, (
+        f"expected every DAP cation to be CN=12, got {dict(cn_histogram)}"
+    )
