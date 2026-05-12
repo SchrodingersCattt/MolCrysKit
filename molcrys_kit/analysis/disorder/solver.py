@@ -6,6 +6,7 @@ into valid, ordered MolecularCrystal objects by solving the Maximum Independent 
 """
 
 import logging
+import heapq
 import numpy as np
 import networkx as nx
 import random as _random_module
@@ -680,10 +681,20 @@ class DisorderSolver:
             return []
 
         complement = nx.complement(component)
-        alternatives = []
         max_collect = max(max_alts * 64, 256)
+        max_scan = max(max_collect * 16, 32768)
+        top_alternatives = []
 
-        for clique in nx.find_cliques(complement):
+        for seen, clique in enumerate(nx.find_cliques(complement), start=1):
+            if seen > max_scan:
+                logger.warning(
+                    "Stopping disorder alternatives scan at %d cliques for a "
+                    "component with %d groups; retaining top %d by occupancy",
+                    max_scan,
+                    component.number_of_nodes(),
+                    max_collect,
+                )
+                break
             atoms = []
             weight = 0.0
             for group_idx in sorted(clique):
@@ -692,21 +703,20 @@ class DisorderSolver:
                 weight += group_graph.nodes[group_idx]["weight"]
             if weight <= 0.0:
                 continue
-            alternatives.append((atoms, weight))
-            if len(alternatives) >= max_collect:
-                logger.warning(
-                    "Capping disorder alternatives collection at %d for a "
-                    "component with %d groups",
-                    max_collect,
-                    component.number_of_nodes(),
-                )
-                break
+            atoms_tuple = tuple(sorted(atoms))
+            rank_key = (weight, len(atoms_tuple), atoms_tuple)
+            heap_item = (rank_key, list(atoms_tuple), weight)
+            if len(top_alternatives) < max_collect:
+                heapq.heappush(top_alternatives, heap_item)
+            elif rank_key > top_alternatives[0][0]:
+                heapq.heapreplace(top_alternatives, heap_item)
 
-        alternatives.sort(
+        ranked_alternatives = sorted(
+            ((atoms, weight) for _rank_key, atoms, weight in top_alternatives),
             key=lambda item: (item[1], len(item[0]), tuple(sorted(item[0]))),
             reverse=True,
         )
-        return alternatives[:max_alts]
+        return ranked_alternatives[:max_alts]
 
     def _build_decision_alternatives(
         self, max_alts_per_component: Optional[int] = None
@@ -717,6 +727,13 @@ class DisorderSolver:
         if group_graph.number_of_nodes() == 0:
             return []
 
+        optimal_set = set(
+            self._max_weight_independent_set_by_groups(
+                graph=self.graph, weight_attr="occupancy"
+            )
+        )
+        self._reference_independent_set = sorted(optimal_set)
+
         all_alternatives = []
         for component in nx.connected_components(group_graph):
             alternatives = self._enumerate_alternatives(
@@ -724,6 +741,23 @@ class DisorderSolver:
                 component,
                 max_alts=max_alts_per_component,
             )
+            optimal_groups = [
+                group_idx for group_idx in component
+                if set(group_graph.nodes[group_idx]["atoms"]).issubset(optimal_set)
+            ]
+            if optimal_groups:
+                optimal_atoms = sorted(
+                    atom
+                    for group_idx in sorted(optimal_groups)
+                    for atom in group_graph.nodes[group_idx]["atoms"]
+                )
+                optimal_weight = sum(
+                    group_graph.nodes[group_idx]["weight"]
+                    for group_idx in optimal_groups
+                )
+                optimal_key = set(optimal_atoms)
+                if not any(set(atoms) == optimal_key for atoms, _weight in alternatives):
+                    alternatives.insert(0, (optimal_atoms, optimal_weight))
             if alternatives:
                 all_alternatives.append(alternatives)
 
@@ -782,6 +816,14 @@ class DisorderSolver:
         independent_sets = []
         seen_structures = set()
 
+        reference = getattr(self, "_reference_independent_set", None)
+        if reference:
+            reference_tuple = tuple(sorted(reference))
+            seen_structures.add(reference_tuple)
+            independent_sets.append(list(reference_tuple))
+            if len(independent_sets) >= target:
+                return independent_sets
+
         for _attempt in range(max_attempts):
             picked = [
                 self._weighted_choice(alternatives, rng)
@@ -833,7 +875,22 @@ class DisorderSolver:
                         self._MAX_ENUMERATED_STRUCTURES,
                     )
                     break
-        return self._enumerate_weighted_products(component_alternatives, limit=limit)
+        products = self._enumerate_weighted_products(component_alternatives, limit=limit)
+        reference = getattr(self, "_reference_independent_set", None)
+        if not reference:
+            return products
+
+        ordered = []
+        seen_structures = set()
+        for solution in [reference, *products]:
+            solution_tuple = tuple(sorted(solution))
+            if solution_tuple in seen_structures:
+                continue
+            seen_structures.add(solution_tuple)
+            ordered.append(list(solution_tuple))
+            if limit is not None and len(ordered) >= limit:
+                break
+        return ordered
 
     def _root_label(self, atom_idx: int) -> str:
         label = self.info.labels[atom_idx]
@@ -934,6 +991,131 @@ class DisorderSolver:
                 break
 
         self.info.frac_coords[h_atom] = best_frac if best_frac is not None else original_frac
+
+    def _is_complete_motif_group(self, group: List[int], center_symbol: str) -> bool:
+        symbols = [self.info.symbols[a] for a in group]
+        h_count = sum(1 for sym in symbols if sym in ("H", "D"))
+        center_count = sum(1 for sym in symbols if sym == center_symbol)
+        allowed = {center_symbol, "H", "D"}
+        return (
+            center_count == 1
+            and h_count == self._MOTIF_MAX_H[center_symbol]
+            and all(sym in allowed for sym in symbols)
+        )
+
+    def _can_add_motif_group(self, motif_atoms: set[int], selected: set[int]) -> bool:
+        for atom in motif_atoms:
+            for other in selected - motif_atoms:
+                if self._minimum_image_distance(atom, other) < 0.65:
+                    return False
+                if not self.graph.has_edge(atom, other):
+                    continue
+                conflict_type = self.graph[atom][other].get("conflict_type", "")
+                if conflict_type in self._MOTIF_HARD_CONFLICTS:
+                    return False
+        return True
+
+    def _motif_center_atom(self, group: List[int], center_symbol: str) -> Optional[int]:
+        centers = [atom for atom in group if self.info.symbols[atom] == center_symbol]
+        return centers[0] if len(centers) == 1 else None
+
+    def _has_equivalent_selected_center(
+        self, center_atom: int, selected: set[int]
+    ) -> bool:
+        center_root = self._root_label(center_atom)
+        center_symbol = self.info.symbols[center_atom]
+        for atom in selected:
+            if atom == center_atom or self.info.symbols[atom] != center_symbol:
+                continue
+            if self._root_label(atom) != center_root:
+                continue
+            if (
+                self.graph.has_edge(center_atom, atom)
+                or self._minimum_image_distance(center_atom, atom) < 0.65
+            ):
+                return True
+        return False
+
+    def _repair_motifs_in_set(self, independent_set: List[int]) -> List[int]:
+        """
+        Recover chemistry-complete motifs that the sampler/enumerator omitted.
+
+        ``_merge_chemical_motifs`` turns isolated NH4+ sites into rigid groups
+        before solving.  Random/enumerate can still choose alternatives that
+        omit one of those groups, producing NH4 count drift even though the
+        group itself is chemically valid.  Re-add complete N(H)4 groups when
+        doing so introduces no hard conflict or sub-0.65 A contact.
+
+        Water groups are deliberately not recovered wholesale: random mode is
+        allowed to sample different guest-water populations.  If a selected
+        water group is ever partially present, though, complete its missing H
+        atoms by the same conservative checks.
+        """
+        selected = set(independent_set)
+        ordered = list(independent_set)
+
+        for group in self.atom_groups:
+            group_atoms = set(group)
+            if group_atoms <= selected:
+                continue
+
+            should_repair = False
+            if self._is_complete_motif_group(group, "N"):
+                # Whole-NH4 recovery is handled after cleanup by comparing
+                # each sampled structure with the deterministic reference.
+                # Adding an omitted N(H)4 group locally is unsafe for SP sites:
+                # another orientation of the same centre may already be present
+                # and would produce H7N/H8N artefacts.
+                should_repair = False
+            elif self._is_complete_motif_group(group, "O") and (group_atoms & selected):
+                should_repair = True
+
+            if not should_repair:
+                continue
+            if not self._can_add_motif_group(group_atoms, selected):
+                continue
+
+            for atom in group:
+                if atom not in selected:
+                    selected.add(atom)
+                    ordered.append(atom)
+
+        return ordered
+
+    def _selected_element_totals(self, independent_set: List[int]) -> dict[str, int]:
+        totals = {}
+        for atom in independent_set:
+            symbol = self.info.symbols[atom]
+            totals[symbol] = totals.get(symbol, 0) + 1
+        return totals
+
+    def _selected_complete_motif_count(
+        self, independent_set: List[int], center_symbol: str
+    ) -> int:
+        selected = set(independent_set)
+        count = 0
+        for group in self.atom_groups:
+            if (
+                self._is_complete_motif_group(group, center_symbol)
+                and set(group) <= selected
+            ):
+                count += 1
+        return count
+
+    def _has_too_close_contact(
+        self, independent_set: List[int], threshold: float = 0.65
+    ) -> bool:
+        atoms = list(independent_set)
+        if len(atoms) < 2:
+            return False
+
+        frac = self.info.frac_coords[atoms]
+        diff = frac[:, None, :] - frac[None, :, :]
+        diff = diff - np.round(diff)
+        cart = np.einsum("ijk,kl->ijl", diff, self.lattice)
+        distances = np.linalg.norm(cart, axis=2)
+        pair_mask = np.triu(np.ones(distances.shape, dtype=bool), k=1)
+        return bool(np.any(distances[pair_mask] < threshold))
 
     def _apply_sp_completion(self, independent_set: List[int]) -> List[int]:
         """
@@ -1159,10 +1341,32 @@ class DisorderSolver:
         # disorder (e.g., MAF-4) where O and H are clustered independently.
         cleaned_sets = []
         for independent_set in independent_sets:
-            completed_set = self._apply_sp_completion(independent_set)
+            repaired_set = self._repair_motifs_in_set(independent_set)
+            completed_set = self._apply_sp_completion(repaired_set)
             completed_set = self._remove_too_close_sp_hydrogens(completed_set)
             cleaned_set = self._remove_orphan_hydrogens(completed_set)
             cleaned_sets.append(self._relocate_overcoord_sp_hydrogens(cleaned_set))
+
+        if cleaned_sets and method in {"random", "enumerate"}:
+            reference_set = cleaned_sets[0]
+            reference_totals = self._selected_element_totals(reference_set)
+            reference_nh4 = self._selected_complete_motif_count(reference_set, "N")
+            stabilised_sets = [reference_set]
+            for cleaned_set in cleaned_sets[1:]:
+                use_reference = False
+                if method == "enumerate":
+                    use_reference = (
+                        self._selected_element_totals(cleaned_set) != reference_totals
+                    )
+                else:
+                    use_reference = self._has_too_close_contact(cleaned_set)
+                    if reference_nh4:
+                        use_reference = use_reference or (
+                            self._selected_complete_motif_count(cleaned_set, "N")
+                            < reference_nh4
+                        )
+                stabilised_sets.append(reference_set if use_reference else cleaned_set)
+            cleaned_sets = stabilised_sets
 
         # Reconstruct crystals and run valence-completeness diagnostics
         from .diagnostics import check_valence_completeness

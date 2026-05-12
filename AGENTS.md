@@ -47,11 +47,11 @@ higher-confidence types always win via `add_or_promote_edge`.
 
 ### Motif merge post-pass
 
-After MWIS, `_merge_chemical_motifs` reconstructs isolated XH_n motifs
-(NH4+, H2O) from the remaining singletons.  For nitrogen centres, soft
-conflicts (`valence_geometry`, `implicit_sp`, `geometric`) are ignored
-(`_MOTIF_REJECT_SOFT["N"] = False`) because the SP disorder typically adds
-soft edges between *every* H pair.
+During group identification, `_merge_chemical_motifs` reconstructs isolated
+XH_n motifs (NH4+, H2O) from the remaining singletons.  For nitrogen centres,
+soft conflicts (`valence_geometry`, `implicit_sp`, `geometric`) are ignored
+(`_MOTIF_REJECT_SOFT["N"] = False`) because the SP disorder typically adds soft
+edges between *every* H pair.
 
 **One-per-asym_id guard** (added in feat/sp-nh4-implicit-hardening):
 When the number of distinct `asym_id` values among candidate H atoms is
@@ -62,6 +62,41 @@ would monopolise the 4 available slots before other H sites can be chosen).
 The guard is disabled when fewer distinct asym_ids exist (e.g. DAP-4 NH4+
 with only 2 H labels but needing 4 H), preserving the original angle-only
 heuristic for those cases.
+
+### Three-mode solver contract
+
+`DisorderSolver.solve()` supports three modes with deliberately different
+semantics:
+
+- `optimal`: deterministic greedy MWIS over rigid groups.  The group score is
+  `occupancy_sum * group_size / (external_degree + 1)`, preserving the
+  ClO3-vs-lone-O heuristic.
+- `random`: replica 0 is the deterministic MWIS reference.  Later replicas are
+  occupancy-weighted samples over PART/SP alternatives and may legitimately
+  vary in guest/alternative populations, but must remain chemically valid.
+- `enumerate`: deterministic top-N enumeration.  Every returned replica must be
+  chemistry-equivalent to the MWIS reference (same element totals and motif
+  counts), even if the raw alternative pool contains lower-quality variants.
+
+Random/enumerate alternatives intentionally keep a linear occupancy weight
+(`sum(group occupancy)`) so the sampler remains occupancy-weighted rather than
+using the optimal-mode `* group_size / degree` heuristic.  The solver instead
+stabilises outputs by:
+
+1. Scanning clique alternatives with a bounded top-K heap rather than keeping
+   the first `max_alts * 64` cliques yielded by NetworkX.  This keeps memory
+   bounded while preventing high-weight alternatives from being missed simply
+   because they appear late in DFS order.
+2. Injecting the MWIS reference into each component's alternative pool and
+   returning it as replica 0 for both `random` and `enumerate`.
+3. Running the post-pass chain in this order:
+   `_repair_motifs_in_set` → `_apply_sp_completion` →
+   `_remove_too_close_sp_hydrogens` → `_remove_orphan_hydrogens` →
+   `_relocate_overcoord_sp_hydrogens`.
+4. Replacing non-reference `random` samples with the MWIS reference when they
+   break complete NH4 motif counts or contain sub-0.65 Å contacts.  Replacing
+   non-reference `enumerate` samples when their element totals drift from the
+   reference.
 
 ### Do not add a single "unified" path
 
@@ -82,7 +117,7 @@ Rules:
   function that asserts per-molecule formula counts.
 - `xfail_reason` is allowed for known-broken cases but must be removed when
   fixed.
-- The corresponding CIF must be copied to `examples/`.
+- The corresponding CIF must be copied to `tests/data/cif/`.
 - Full suite (including PAP-4, timeout=180 s) must remain green.
 
 Current targeted assertions beyond atom count:

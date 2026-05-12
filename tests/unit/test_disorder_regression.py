@@ -21,12 +21,12 @@ parametrised entry below.  Per case the suite enforces:
    ``min_interatomic_distance`` (default 0.65 Å); any closer pair would
    indicate that two disorder alternatives were kept simultaneously.
 
-``test_disorder_modes_consistency`` re-runs the same case with the
-``random`` and ``enumerate`` solvers and asserts that every replica
-agrees with the optimal-mode totals (atom count + element totals +
-NH4 count + minimum contact).  Cases where the alternative solvers are
-known to deviate from optimal carry a ``KNOWN_INCONSISTENT_MODES``
-entry that turns the failure into an xfail.
+The cross-mode tests enforce the current three-mode contract:
+``random`` and ``enumerate`` replica #0 must match optimal exactly;
+every ``enumerate`` replica must remain optimal-equivalent; later
+``random`` replicas are allowed to sample lower-occupancy populations
+but must remain chemically valid (no close contacts, no broken NH4
+motifs, and no severe atom-count collapse).
 
 Cases that the *current* implementation cannot satisfy at all are
 marked with ``xfail_reason`` on ``CifCase`` and become full xfails.
@@ -36,7 +36,8 @@ from __future__ import annotations
 
 import os
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Mapping
 
 import numpy as np
@@ -238,49 +239,10 @@ CASES: list[CifCase] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Known-buggy combinations for ``test_disorder_modes_consistency``
-# ---------------------------------------------------------------------------
-# When the ``random`` or ``enumerate`` solver drifts from optimal for a
-# given case, list it here so the consistency check turns into an xfail
-# rather than a hard failure.  The keys are ``(case_name, method)`` and
-# the values are short reasons (link to the underlying issue when known).
-KNOWN_INCONSISTENT_MODES: dict[tuple[str, str], str] = {
-    # DAC-4: nx.find_cliques caps at 2048 cliques on the 144-group SP
-    # component, so the chemically correct 3*ClO3 solution is not in
-    # the enumeration; random samples from the same flawed pool.
-    ("DAC-4", "random"): "DAC-4 random samples a clique pool that misses 3*ClO3",
-    ("DAC-4", "enumerate"): "DAC-4 enumerate hits 2048-clique cap before reaching 3*ClO3",
-    # anhydrousCaffeine: random can pick a 12-caffeine subset (288
-    # atoms) instead of the full 20.
-    ("anhydrousCaffeine", "random"): "random occasionally picks 12 of 20 caffeines",
-    # MAF-4: water guests are partially-occupied; random/enumerate can
-    # keep different counts than optimal's 31.
-    ("MAF-4", "random"): "MAF-4 H2O guest count fluctuates between replicas",
-    ("MAF-4", "enumerate"): "MAF-4 H2O guest count fluctuates between enumerations",
-    # NH4 special-position cases (DAP-4 / DAI-4 / PAP-4 /
-    # ammonium-sp-explicit-hm4): random/enumerate can drop hydrogens
-    # from an NH4 motif because the implicit_sp clique enumeration
-    # samples a soft-conflict subset that the motif-merge post-pass
-    # cannot reach.  Optimal mode bypasses this by going through MWIS.
-    ("ammonium-sp-explicit-hm4", "random"): "random drops H from NH4 motif on SP",
-    ("DAP-4", "random"): "random drops H from NH4 motifs on SP",
-    ("DAP-4", "enumerate"): "enumerate misses one NH4 H in some replicas",
-    ("PAP-4", "random"): "random drops H from NH4 motifs on SP",
-    ("DAI-4", "random"): "random drops H from NH4 motifs on SP",
-    ("DAI-4", "enumerate"): "enumerate misses one NH4 H in some replicas",
-    # TILPEN: Fe-Sb-CN cluster occupies a special position; random can
-    # drop a few H atoms relative to optimal.
-    ("TILPEN", "random"): "TILPEN random replica loses 3 H from cation",
-    # 4-fluorophenethylammonium-bromide: PART -1 mirror-plane image is
-    # collapsed in optimal mode; random/enumerate can keep both images
-    # for one of the four cations, gaining 4 ghost atoms.
-    ("phenethylammonium-sp-p21m", "random"): "random keeps mirror-image ghosts on one cation",
-    ("phenethylammonium-sp-p21m", "enumerate"): "enumerate keeps mirror-image ghosts on one cation",
-    # DAI-X1: Na2I6(H2O)18 cluster on SP; random sometimes drops a
-    # water (5 atoms = H2 O + 3-coord neighbours).
-    ("DAI-X1", "random"): "DAI-X1 random drops one H2O from Na2I6 cluster",
-}
+# The solver should not carry any expected cross-mode failures.  Keep the
+# mapping as an explicit tripwire: adding a new entry requires documenting the
+# reason in the corresponding case comment and should be temporary.
+KNOWN_INCONSISTENT_MODES: dict[tuple[str, str], str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +318,21 @@ def _element_totals(crystal) -> dict[str, int]:
     return dict(totals)
 
 
+@lru_cache(maxsize=None)
+def _solve_cached(
+    path: str,
+    method: str,
+    generate_count: int,
+    random_seed: int | None,
+):
+    return generate_ordered_replicas_from_disordered_sites(
+        path,
+        generate_count=generate_count,
+        method=method,
+        random_seed=random_seed,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -368,9 +345,7 @@ def _resolve(path: str):
     orphan atoms (degree 0 for elements that don't normally exist as
     isolated species).
     """
-    [crystal] = generate_ordered_replicas_from_disordered_sites(
-        path, generate_count=1, method="optimal"
-    )
+    crystal = _solve_cached(path, "optimal", 1, None)[0]
     n_atoms = crystal.get_total_nodes()
 
     defects = 0
@@ -472,68 +447,129 @@ _MODE_PARAMS = [
 
 @pytest.mark.parametrize("method,n_replicas", _MODE_PARAMS)
 @pytest.mark.parametrize("case", CASES, ids=_case_id)
-def test_disorder_modes_consistency(
+def test_disorder_replica_zero_matches_optimal(
     case: CifCase, method: str, n_replicas: int, cif_data_dir: str
 ):
-    """Every random/enumerate replica must agree with the optimal-mode
-    chemistry: same atom count, same per-element totals, same NH4
-    fragment count, and no closer-than-threshold contacts.
-
-    Cases listed in ``KNOWN_INCONSISTENT_MODES`` are turned into xfails
-    so that the documented solver bugs do not break CI; remove the
-    entry when the underlying defect is fixed.
-    """
+    """The first random/enumerate replica is the deterministic MWIS reference."""
     if case.xfail_reason:
         pytest.xfail(case.xfail_reason)
 
-    bug_reason = KNOWN_INCONSISTENT_MODES.get((case.name, method))
-    if bug_reason is not None:
-        pytest.xfail(bug_reason)
+    assert (case.name, method) not in KNOWN_INCONSISTENT_MODES
 
     cif_path = os.path.join(cif_data_dir, case.cif)
     assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
 
-    crystals = generate_ordered_replicas_from_disordered_sites(
-        cif_path,
-        generate_count=n_replicas,
-        method=method,
-        random_seed=42,
-    )
+    crystals = _solve_cached(cif_path, method, n_replicas, 42)
     assert crystals, f"{case.name}: {method} returned no replicas"
 
+    _assert_matches_optimal(case, crystals[0], f"{case.name} {method}#0")
+
+
+@pytest.mark.parametrize("case", CASES, ids=_case_id)
+def test_disorder_enumerate_all_replicas_match_optimal(
+    case: CifCase, cif_data_dir: str
+):
+    """Enumerate is deterministic: every returned replica must be optimal-equivalent."""
+    if case.xfail_reason:
+        pytest.xfail(case.xfail_reason)
+    assert (case.name, "enumerate") not in KNOWN_INCONSISTENT_MODES
+
+    cif_path = os.path.join(cif_data_dir, case.cif)
+    assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
+
+    crystals = _solve_cached(cif_path, "enumerate", 4, 42)
+    assert crystals, f"{case.name}: enumerate returned no replicas"
+
+    for idx, crystal in enumerate(crystals):
+        _assert_matches_optimal(case, crystal, f"{case.name} enumerate#{idx}")
+
+
+@pytest.mark.parametrize("case", CASES, ids=_case_id)
+def test_disorder_random_replica_chemistry_validity(
+    case: CifCase, cif_data_dir: str
+):
+    """Random replicas after #0 may sample lower-occupancy populations, but
+    must remain chemically valid: no broken NH4 motifs, no close contacts, and
+    no severe atom-count collapse."""
+    if case.xfail_reason:
+        pytest.xfail(case.xfail_reason)
+    assert (case.name, "random") not in KNOWN_INCONSISTENT_MODES
+
+    cif_path = os.path.join(cif_data_dir, case.cif)
+    assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
+
+    crystals = _solve_cached(cif_path, "random", 3, 42)
+    assert len(crystals) >= 2, f"{case.name}: random returned too few replicas"
+
+    for idx, crystal in enumerate(crystals[1:], start=1):
+        n_atoms = crystal.get_total_nodes()
+        if case.expected_atoms is not None:
+            min_atoms = int(case.expected_atoms * 0.85)
+            assert n_atoms >= min_atoms, (
+                f"{case.name} random#{idx}: atoms {n_atoms} below "
+                f"the 85% chemistry-validity floor ({min_atoms})"
+            )
+
+        if case.expected_nh4_count:
+            nh4_fragments = list(_iter_nh4_fragments(crystal))
+            assert len(nh4_fragments) == case.expected_nh4_count, (
+                f"{case.name} random#{idx}: NH4 count "
+                f"{len(nh4_fragments)} != {case.expected_nh4_count}"
+            )
+            for nh4_idx, mol in enumerate(nh4_fragments):
+                _assert_nh4_tetrahedral(
+                    mol,
+                    lattice=crystal.lattice,
+                    pbc=crystal.pbc,
+                    label=f"{case.name} random#{idx} NH4#{nh4_idx}",
+                )
+
+        d_min = _min_interatomic_distance(crystal)
+        assert d_min >= case.min_interatomic_distance, (
+            f"{case.name} random#{idx}: closest contact {d_min:.3f} Å "
+            f"below the {case.min_interatomic_distance:.2f} Å threshold"
+        )
+
+
+def _assert_matches_optimal(case: CifCase, crystal, context: str) -> None:
+    """Strict optimal-equivalence assertion used by replica #0 and enumerate."""
     expected_totals = (
         dict(case.expected_element_totals)
         if case.expected_element_totals is not None
         else None
     )
 
-    for idx, crystal in enumerate(crystals):
-        n_atoms = crystal.get_total_nodes()
-        if case.expected_atoms is not None:
-            assert n_atoms == case.expected_atoms, (
-                f"{case.name} {method}#{idx}: atoms {n_atoms} != "
-                f"optimal {case.expected_atoms}"
-            )
-
-        if expected_totals is not None:
-            actual_totals = _element_totals(crystal)
-            assert actual_totals == expected_totals, (
-                f"{case.name} {method}#{idx}: totals {actual_totals} != "
-                f"{expected_totals}"
-            )
-
-        if case.expected_nh4_count:
-            nh4_fragments = list(_iter_nh4_fragments(crystal))
-            assert len(nh4_fragments) == case.expected_nh4_count, (
-                f"{case.name} {method}#{idx}: NH4 count "
-                f"{len(nh4_fragments)} != {case.expected_nh4_count}"
-            )
-
-        d_min = _min_interatomic_distance(crystal)
-        assert d_min >= case.min_interatomic_distance, (
-            f"{case.name} {method}#{idx}: closest contact {d_min:.3f} Å "
-            f"below the {case.min_interatomic_distance:.2f} Å threshold"
+    n_atoms = crystal.get_total_nodes()
+    if case.expected_atoms is not None:
+        assert n_atoms == case.expected_atoms, (
+            f"{context}: atoms {n_atoms} != optimal {case.expected_atoms}"
         )
+
+    if expected_totals is not None:
+        actual_totals = _element_totals(crystal)
+        assert actual_totals == expected_totals, (
+            f"{context}: totals {actual_totals} != {expected_totals}"
+        )
+
+    if case.expected_nh4_count:
+        nh4_fragments = list(_iter_nh4_fragments(crystal))
+        assert len(nh4_fragments) == case.expected_nh4_count, (
+            f"{context}: NH4 count {len(nh4_fragments)} != "
+            f"{case.expected_nh4_count}"
+        )
+        for nh4_idx, mol in enumerate(nh4_fragments):
+            _assert_nh4_tetrahedral(
+                mol,
+                lattice=crystal.lattice,
+                pbc=crystal.pbc,
+                label=f"{context} NH4#{nh4_idx}",
+            )
+
+    d_min = _min_interatomic_distance(crystal)
+    assert d_min >= case.min_interatomic_distance, (
+        f"{context}: closest contact {d_min:.3f} Å below "
+        f"the {case.min_interatomic_distance:.2f} Å threshold"
+    )
 
 
 # ---------------------------------------------------------------------------

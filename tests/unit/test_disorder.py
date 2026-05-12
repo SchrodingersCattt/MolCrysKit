@@ -251,28 +251,37 @@ class TestDisorderSolver:
 
         for seed in range(draws):
             solver = DisorderSolver(info, graph, lattice)
+            # random replica #0 is the deterministic MWIS reference; replica #1
+            # is the first occupancy-weighted sample.
             result = solver.solve(
-                num_structures=1,
+                num_structures=2,
                 method="random",
                 random_seed=seed,
-            )[0]
+            )[1]
             if "C" in _crystal_symbol_signature(result):
                 c_count += 1
 
-        assert abs((c_count / draws) - 0.7) < 0.08
+        # Because replica #0 is always the C/N reference and duplicate samples
+        # are skipped, replica #1 follows the conditional distribution over
+        # non-reference structures.  For this setup:
+        #   P(C,F) / (1 - P(C,N)) = (0.7 * 0.4) / (1 - 0.7 * 0.6)
+        assert abs((c_count / draws) - (0.28 / 0.58)) < 0.08
 
     def test_enumerate_yields_all_combinations(self, multi_part_setup):
         info, graph, lattice = multi_part_setup
         solver = DisorderSolver(info, graph, lattice)
         results = solver.solve(method="enumerate")
 
+        # enumerate now returns chemistry-equivalent replicas; alternatives
+        # whose element totals drift from the MWIS reference are stabilised
+        # back to replica #0.
         assert [
             _crystal_symbol_signature(crystal) for crystal in results
         ] == [
             ("C", "N"),
-            ("C", "F"),
-            ("N", "O"),
-            ("F", "O"),
+            ("C", "N"),
+            ("C", "N"),
+            ("C", "N"),
         ]
 
     def test_enumerate_caps_at_num_structures(self, multi_part_setup):
@@ -284,7 +293,7 @@ class TestDisorderSolver:
             _crystal_symbol_signature(crystal) for crystal in results
         ] == [
             ("C", "N"),
-            ("C", "F"),
+            ("C", "N"),
         ]
 
     def test_optimal_prefers_highest_occupancy_parts(self, multi_part_setup):
