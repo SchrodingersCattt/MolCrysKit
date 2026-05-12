@@ -10,7 +10,12 @@ from ase import Atoms
 # Suppress pymatgen/CIF parsing warnings in tests (test data may have occupancy quirks)
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
-from molcrys_kit.io.cif import read_mol_crystal, parse_cif_advanced, identify_molecules
+from molcrys_kit.io.cif import (
+    identify_molecules,
+    parse_cif_advanced,
+    read_mol_crystal,
+    scan_cif_disorder,
+)
 from molcrys_kit.structures.molecule import CrystalMolecule
 
 
@@ -22,6 +27,37 @@ class TestReadMolCrystal:
         assert crystal is not None
         assert len(crystal.molecules) >= 1
         assert all(isinstance(m, CrystalMolecule) for m in crystal.molecules)
+
+    def test_question_mark_attached_hydrogens_is_tolerated(self, tmp_path):
+        cif = tmp_path / "attached_hydrogens_unknown.cif"
+        cif.write_text(
+            """data_test
+_symmetry_space_group_name_H-M 'P 1'
+_cell_length_a 10
+_cell_length_b 10
+_cell_length_c 10
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_symmetry_equiv_pos_as_xyz
+'x,y,z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_attached_hydrogens
+C1 C 0 0 0 1 ?
+""",
+            encoding="utf-8",
+        )
+
+        info = scan_cif_disorder(str(cif))
+        assert info.labels == ["C1"]
+        assert info.occupancies == [1.0]
 
     def test_molecules_have_graph_and_ase_api(self, test_cif_path):
         crystal = read_mol_crystal(test_cif_path)
@@ -74,6 +110,21 @@ class TestIdentifyMoleculesFromAtoms:
         assert len(by_size[1].graph.nodes()) == 2
         assert len(by_size[1].graph.edges()) == 1
         assert len(by_size[0].graph.edges()) == 0
+
+    def test_exclude_indices_skips_bonding_but_preserves_indices(self):
+        atoms = Atoms(
+            symbols=["H", "O", "Cl"],
+            positions=[
+                [0.0, 0.0, 0.0],
+                [0.9, 0.0, 0.0],
+                [5.0, 5.0, 5.0],
+            ],
+        )
+        molecules = identify_molecules(atoms, exclude_indices={1})
+
+        assert sorted(len(mol) for mol in molecules) == [1, 1, 1]
+        assert sorted(mol.info["atom_indices"] for mol in molecules) == [[0], [1], [2]]
+        assert all(mol.info["bond_pairs"] == [] for mol in molecules)
 
     def test_water_ammonia_neon(self):
         atoms = Atoms(

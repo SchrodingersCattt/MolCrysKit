@@ -294,6 +294,21 @@ class TestDisorderSolver:
 
         assert _crystal_symbol_signature(results[0]) == ("C", "N")
 
+    def test_solve_can_return_kept_indices(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(
+            num_structures=1,
+            method="optimal",
+            return_kept_indices=True,
+        )
+
+        assert len(results) == 1
+        crystal, kept_indices = results[0]
+        assert isinstance(crystal, MolecularCrystal)
+        assert kept_indices == [0, 2]
+        assert tuple(sorted(info.symbols[i] for i in kept_indices)) == _crystal_symbol_signature(crystal)
+
     def test_reconstruct_gives_valid_crystal(self, simple_disorder_setup):
         info, graph, lattice = simple_disorder_setup
         solver = DisorderSolver(info, graph, lattice)

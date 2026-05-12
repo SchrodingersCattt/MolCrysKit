@@ -5,11 +5,11 @@ This module orchestrates the full disorder handling workflow:
 Phase 1 (Data Extraction) -> Phase 2 (Graph Building) -> Phase 3 (Structure Generation)
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from ...structures.crystal import MolecularCrystal
 from .graph import DisorderGraphBuilder
 from .solver import DisorderSolver
-from ...io.cif import scan_cif_disorder  # Correct import from io module
+from ...io.cif import _pymatgen_cif_parser, scan_cif_disorder  # Correct import from io module
 
 
 def generate_ordered_replicas_from_disordered_sites(
@@ -17,7 +17,8 @@ def generate_ordered_replicas_from_disordered_sites(
     generate_count: int = 1,
     method: str = "optimal",
     random_seed: Optional[int] = None,
-) -> List[MolecularCrystal]:
+    return_kept_indices: bool = False,
+) -> List[MolecularCrystal] | List[Tuple[MolecularCrystal, List[int]]]:
     """
     Process a disordered CIF file through the full disorder handling pipeline.
 
@@ -34,20 +35,23 @@ def generate_ordered_replicas_from_disordered_sites(
         enumeration.
     random_seed : int, optional
         Seed forwarded to 'random' mode for reproducible ensembles.
+    return_kept_indices : bool, optional
+        When True, return ``(crystal, kept_indices)`` tuples where
+        ``kept_indices`` index the source ``DisorderInfo`` arrays selected
+        by the solver.
 
     Returns:
     --------
-    List[MolecularCrystal]
-        List of ordered molecular crystal structures
+    List[MolecularCrystal] or List[Tuple[MolecularCrystal, List[int]]]
+        List of ordered molecular crystal structures, optionally paired
+        with selected source atom indices.
     """
     # Phase 1: Extract raw disorder data
     info = scan_cif_disorder(filepath)
 
     # Extract lattice matrix from CIF file using pymatgen
     try:
-        from pymatgen.io.cif import CifParser
-
-        parser = CifParser(filepath)
+        parser = _pymatgen_cif_parser(filepath)
         structure = parser.parse_structures()[0]  # Get first structure
         lattice_matrix = structure.lattice.matrix
     except ImportError:
@@ -66,6 +70,7 @@ def generate_ordered_replicas_from_disordered_sites(
         num_structures=generate_count,
         method=method,
         random_seed=random_seed,
+        return_kept_indices=return_kept_indices,
     )
 
     return results
