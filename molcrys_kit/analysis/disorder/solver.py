@@ -1085,7 +1085,8 @@ class DisorderSolver:
         num_structures: int = 1,
         method: str = "optimal",
         random_seed: Optional[int] = None,
-    ) -> List[MolecularCrystal]:
+        return_kept_indices: bool = False,
+    ) -> List[MolecularCrystal] | List[Tuple[MolecularCrystal, List[int]]]:
         """
         Solve the disorder problem and generate ordered structures using Group-Based approach.
 
@@ -1101,11 +1102,16 @@ class DisorderSolver:
         random_seed : int, optional
             Seed for reproducible 'random' ensembles. Has no effect for
             'optimal' or 'enumerate'.
+        return_kept_indices : bool, optional
+            When True, return ``(crystal, kept_indices)`` tuples where
+            ``kept_indices`` are indices into ``DisorderInfo`` arrays after
+            all SP-completion / orphan-H cleanup passes.
 
         Returns:
         --------
-        List[MolecularCrystal]
-            List of ordered molecular crystal structures
+        List[MolecularCrystal] or List[Tuple[MolecularCrystal, List[int]]]
+            List of ordered molecular crystal structures, optionally paired
+            with the selected source atom indices.
         """
         # Initialize atom groups (Identify Rigid Bodies)
         self.atom_groups = []
@@ -1170,7 +1176,10 @@ class DisorderSolver:
                     logger.warning(
                         "Valence-completeness check: %s", issue
                     )
-            crystals.append(crystal)
+            if return_kept_indices:
+                crystals.append((crystal, list(independent_set)))
+            else:
+                crystals.append(crystal)
 
         return crystals
 

@@ -31,10 +31,82 @@ from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bond
 from ..constants import DEFAULT_NEIGHBOR_CUTOFF
 
 
+_PYMATGEN_NUMERIC_MISSING_TAGS = {
+    "_atom_site_attached_hydrogens",
+}
+
+
+def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
+    """Return CIF text with pymatgen-hostile ``?`` numeric sentinels fixed.
+
+    SHELX-derived CIFs sometimes use ``?`` for numeric loop fields such as
+    ``_atom_site_attached_hydrogens``. The CIF convention allows this as an
+    unknown value, but pymatgen's numeric conversion raises before MolCrysKit
+    can apply its own tolerant parsers. We only rewrite known numeric tags and
+    leave coordinates / disorder labels untouched.
+    """
+    lines = text.splitlines(keepends=True)
+    out = list(lines)
+    changed = False
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().lower() != "loop_":
+            i += 1
+            continue
+        j = i + 1
+        tags: list[str] = []
+        while j < len(lines) and lines[j].lstrip().startswith("_"):
+            tags.append(lines[j].strip().split()[0])
+            j += 1
+        if not tags:
+            i = j
+            continue
+        numeric_cols = {
+            col for col, tag in enumerate(tags)
+            if tag in _PYMATGEN_NUMERIC_MISSING_TAGS
+        }
+        if not numeric_cols:
+            i = j
+            continue
+        k = j
+        while k < len(lines):
+            stripped = lines[k].strip()
+            if not stripped:
+                k += 1
+                continue
+            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+                break
+            tokens = stripped.split()
+            if len(tokens) == len(tags):
+                row_changed = False
+                for col in numeric_cols:
+                    if tokens[col] == "?":
+                        tokens[col] = "0"
+                        changed = True
+                        row_changed = True
+                if row_changed:
+                    newline = "\n" if lines[k].endswith("\n") else ""
+                    out[k] = " ".join(tokens) + newline
+            k += 1
+        i = k
+    return "".join(out), changed
+
+
+def _pymatgen_cif_parser(filepath: str, **kwargs) -> CifParser:
+    """Create a CifParser, sanitising known numeric ``?`` fields if needed."""
+    with open(filepath, encoding="utf-8") as handle:
+        text = handle.read()
+    sanitized, changed = _sanitize_cif_text_for_pymatgen(text)
+    if changed:
+        return CifParser.from_str(sanitized, **kwargs)
+    return CifParser(filepath, **kwargs)
+
+
 def identify_molecules(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     max_atoms: Optional[int] = None,
+    exclude_indices: Optional[set[int]] = None,
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -47,6 +119,8 @@ def identify_molecules(
     
     crystal_graph = nx.Graph()
     symbols = atoms.get_chemical_symbols()
+
+    excluded = {int(i) for i in (exclude_indices or set())}
 
     for i in range(len(atoms)):
         crystal_graph.add_node(i, symbol=symbols[i])
@@ -66,6 +140,8 @@ def identify_molecules(
         zip(i_list, j_list, d_list, D_vectors)
     ):
         if i >= j:
+            continue
+        if int(i) in excluded or int(j) in excluded:
             continue
 
         pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
@@ -97,8 +173,9 @@ def identify_molecules(
     molecules = []
 
     for component in components:
-        atom_indices = list(component)
+        atom_indices = sorted(int(i) for i in component)
         mol_atoms = atoms[atom_indices]
+        mol_atoms.info["atom_indices"] = list(atom_indices)
 
         # Reconstruct molecule topology
         if len(atom_indices) > 1:
@@ -122,6 +199,11 @@ def identify_molecules(
         # Create molecule, explicitly disabling internal PBC checks
         # because we have already unwrapped it perfectly.
         molecule = CrystalMolecule(mol_atoms, check_pbc=False)
+        molecule.info["atom_indices"] = list(atom_indices)
+        molecule.info["bond_pairs"] = [
+            (int(u), int(v))
+            for u, v in sorted(crystal_graph.subgraph(atom_indices).edges())
+        ]
         molecules.append(molecule)
 
     return molecules
@@ -340,7 +422,7 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
         Object containing raw extracted disorder data for the full unit cell.
     """
     # Parse the CIF file using pymatgen to get the raw data dictionary
-    parser = CifParser(filepath, occupancy_tolerance=1, site_tolerance=1e-2)
+    parser = _pymatgen_cif_parser(filepath, occupancy_tolerance=1, site_tolerance=1e-2)
     cif_data = parser.as_dict()
 
     # We'll use the first data block for simplicity
@@ -614,7 +696,7 @@ def read_mol_crystal(
     # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
     # Also using more tolerant parameters to handle CIF files with full coordinates
     try:
-        parser = CifParser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
+        parser = _pymatgen_cif_parser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
         # Use parse_structures instead of get_structures to avoid deprecation warning
         try:
             structures = parser.parse_structures()
@@ -623,7 +705,7 @@ def read_mol_crystal(
             structures = parser.get_structures()
     except Exception:
         print("Warning: CIF parsing failed. Trying with more relaxed parameters...")
-        parser = CifParser(
+        parser = _pymatgen_cif_parser(
             filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1
         )
         try:
