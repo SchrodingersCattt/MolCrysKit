@@ -9,11 +9,17 @@ analysis, which lives in :mod:`molcrys_kit.analysis.chemical_env`.
 from __future__ import annotations
 
 import itertools
-from typing import Any, Dict, Iterable, Optional, Sequence
+from collections import Counter
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from ..structures.polyhedra import ideal_polyhedra_for_cn
+from .formula_moiety import (
+    Fragment,
+    heavy_signature,
+    parse_moiety_string,
+)
 
 try:
     from scipy.spatial import ConvexHull
@@ -361,11 +367,27 @@ def detect_prism_vs_antiprism(shell_coords: Iterable[Iterable[float]]) -> Dict[s
     return {"classification": classification, "twist_deg": twist}
 
 
-# Default neighbour search radius for find_polyhedra when neither ``cutoff``
-# nor ``search_cutoff`` is supplied.  6.0 Å covers typical CN<=12 metal-ligand
-# shells (M-X up to ~3.2 Å plus a margin) without explosive neighbour pair
-# counts.  Override via the ``search_cutoff`` argument when needed.
+# Default neighbour search radius for find_polyhedra(level="atom") when neither
+# ``cutoff`` nor ``search_cutoff`` is supplied.  6.0 Å covers typical CN<=12
+# metal-ligand shells (M-X up to ~3.2 Å plus a margin) without explosive
+# neighbour pair counts.  Override via the ``search_cutoff`` argument when
+# needed.
 DEFAULT_POLYHEDRON_SEARCH_CUTOFF = 6.0
+
+# Default neighbour search radius for find_polyhedra(level="molecule").  At the
+# centroid--centroid scale, A and B molecules typically sit 6--10 Å apart in
+# ABX3 / ABX4 / A2BX5 hybrid perovskites, so 12 Å comfortably captures CN<=12
+# first shells without inflating the candidate count by replicating distant
+# cells unnecessarily.  Override via the ``search_cutoff`` argument when
+# needed.
+DEFAULT_MOLECULAR_SEARCH_CUTOFF = 12.0
+
+# Centre choice for level="molecule".  ``centroid`` is the unweighted mean of
+# all atom positions (matches MolCrysKit's ``CrystalMolecule.get_centroid``),
+# ``com`` is the mass-weighted centre of mass, and ``heavy_centroid`` is the
+# unweighted mean over non-hydrogen atoms (matches publications that draw
+# packing shells from heavy-atom skeletons of organic cations).
+_MOLECULE_CENTRE_KINDS = ("centroid", "com", "heavy_centroid")
 
 
 def _structure_to_atoms(structure):
@@ -375,82 +397,123 @@ def _structure_to_atoms(structure):
     return structure
 
 
-def find_polyhedra(
+def _parse_moiety_signature(text: str) -> Tuple[Tuple[str, int], ...]:
+    """Parse a single moiety string (e.g. ``"N H4"``, ``"Cl O4"``, ``"I"``).
+
+    The returned heavy-atom signature is what
+    :func:`molcrys_kit.analysis.formula_moiety.heavy_signature` returns for
+    the parsed composition, so a molecule and a moiety string match iff the
+    molecule's non-H elements are the same multiset.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(
+            f"level='molecule' requires a non-empty moiety string, got {text!r}."
+        )
+    fragments = parse_moiety_string(text)
+    if not fragments:
+        raise ValueError(
+            f"Could not parse moiety string {text!r}. Expected e.g. "
+            "'N H4', 'Cl O4', 'C2 H10 N2 2+', or a single element symbol."
+        )
+    if len(fragments) > 1:
+        raise ValueError(
+            f"Moiety string {text!r} contains {len(fragments)} fragments; "
+            "find_polyhedra(level='molecule') takes exactly one fragment per "
+            "central/ligand argument."
+        )
+    return heavy_signature(fragments[0].composition)
+
+
+def _format_molecule_formula(symbols: Sequence[str]) -> str:
+    """Render a Hill-ish (C, H, then alphabetical) formula label."""
+    counts = Counter(symbols)
+    if not counts:
+        return ""
+    ordered: List[str] = []
+    if "C" in counts:
+        ordered.append("C")
+    if "H" in counts:
+        ordered.append("H")
+    ordered.extend(sorted(e for e in counts if e not in {"C", "H"}))
+    parts: List[str] = []
+    for element in ordered:
+        count = counts[element]
+        parts.append(element if count == 1 else f"{element}{count}")
+    return "".join(parts)
+
+
+def _molecule_centre(molecule, kind: str) -> np.ndarray:
+    """Return the Cartesian centre of ``molecule`` according to ``kind``."""
+    positions = np.asarray(molecule.get_positions(), dtype=float)
+    if positions.size == 0:
+        raise ValueError("Cannot compute molecule centre: empty molecule.")
+    if kind == "centroid":
+        return positions.mean(axis=0)
+    if kind == "com":
+        masses = np.asarray(molecule.get_masses(), dtype=float)
+        total = float(masses.sum())
+        if total <= 0:
+            return positions.mean(axis=0)
+        return np.average(positions, axis=0, weights=masses)
+    if kind == "heavy_centroid":
+        symbols = list(molecule.get_chemical_symbols())
+        mask = np.array([s != "H" for s in symbols], dtype=bool)
+        if not mask.any():
+            return positions.mean(axis=0)
+        return positions[mask].mean(axis=0)
+    raise ValueError(
+        f"center_kind must be one of {_MOLECULE_CENTRE_KINDS!r}, got {kind!r}."
+    )
+
+
+def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarray:
+    """Enumerate every lattice translation whose Cartesian length is
+    ``<= search_radius``.
+
+    Uses each axis's family-of-planes perpendicular spacing
+    (``V / |b × c|`` and cyclic permutations) as the per-axis enumeration
+    bound. That is the strictest envelope that still captures every
+    in-radius translation for an arbitrary triclinic lattice, including
+    elongated and oblique cells where ``max(|a|, |b|, |c|)`` would
+    silently miss diagonal images (``|t| = sqrt(2)·a`` for a cubic cell,
+    etc.). Returns the translations as Cartesian Å vectors.
+    """
+    lattice = np.asarray(lattice, dtype=float)
+    if lattice.shape != (3, 3):
+        raise ValueError(f"lattice must be a 3x3 matrix, got shape {lattice.shape}.")
+    a, b, c = lattice[0], lattice[1], lattice[2]
+    volume = abs(float(np.dot(a, np.cross(b, c))))
+    if volume <= 0:
+        raise ValueError("lattice vectors must be linearly independent.")
+    d_a = volume / float(np.linalg.norm(np.cross(b, c)))
+    d_b = volume / float(np.linalg.norm(np.cross(c, a)))
+    d_c = volume / float(np.linalg.norm(np.cross(a, b)))
+    n_a = int(np.ceil(search_radius / d_a))
+    n_b = int(np.ceil(search_radius / d_b))
+    n_c = int(np.ceil(search_radius / d_c))
+    translations: List[np.ndarray] = []
+    for ia in range(-n_a, n_a + 1):
+        for ib in range(-n_b, n_b + 1):
+            for ic in range(-n_c, n_c + 1):
+                t = ia * a + ib * b + ic * c
+                if np.linalg.norm(t) <= search_radius:
+                    translations.append(t)
+    return np.asarray(translations, dtype=float)
+
+
+def _find_polyhedra_atom_level(
     structure,
     central: str,
     ligand: str,
     *,
-    cutoff: Optional[float] = None,
-    search_cutoff: Optional[float] = None,
-    enforce_enclosure: bool = True,
-    centroid_offset_frac: float = DEFAULT_CENTROID_OFFSET_FRAC,
-    fallback_max: Optional[int] = None,
-    score_shape: bool = False,
-    central_indices: Optional[Sequence[int]] = None,
-) -> Sequence[Dict[str, Any]]:
-    """Enumerate A--B coordination polyhedra in a periodic structure.
-
-    For every atom whose chemical symbol equals ``central``, find the
-    surrounding atoms whose symbol equals ``ligand`` (PBC-aware), then run
-    :func:`detect_coordination_number` on that ordered shell.
-
-    The function strictly considers **only** A--B distances: atoms of any
-    other element (including other A atoms that happen to fall inside the
-    candidate hull) are never added to the shell. This is the explicit
-    bypass for the gap+enclosure expansion described in the docstring of
-    :func:`detect_coordination_number`.
-
-    Parameters
-    ----------
-    structure
-        ``molcrys_kit.structures.crystal.MolecularCrystal`` or any object
-        with a ``to_ase()`` method, or an ``ase.Atoms`` directly.
-    central, ligand
-        Chemical symbols of the central (A) and ligand (B) species. They
-        may be equal (homo-A--A polyhedra are supported).
-    cutoff
-        Hard radial cutoff in Å. When set, the polyhedron is exactly the
-        B atoms within ``cutoff`` of A — no gap detection, no hull
-        expansion (passed through to :func:`detect_coordination_number`
-        as ``cutoff``).
-    search_cutoff
-        Maximum A–B distance considered when collecting candidate
-        neighbours via :func:`ase.neighborlist.neighbor_list`. Defaults
-        to ``cutoff`` if given, otherwise to
-        :data:`DEFAULT_POLYHEDRON_SEARCH_CUTOFF`.
-    enforce_enclosure
-        Forwarded to :func:`detect_coordination_number`. Set ``False`` to
-        get the gap-only CN without expanding to wrap the central atom.
-        Has no effect on the chosen CN in cutoff mode.
-    centroid_offset_frac, fallback_max
-        Forwarded to :func:`detect_coordination_number`.
-    score_shape
-        When true, also score each shell against the ideal-polyhedra
-        catalogue using :func:`angular_rmsd_vs_ideals`. Adds a
-        ``best_match`` field per result.
-    central_indices
-        Optional iterable of atom indices to restrict the search to a
-        subset of A atoms (useful when only a few sites are interesting).
-
-    Returns
-    -------
-    list of dict
-        One entry per A atom. Each dict contains:
-
-        * ``center_index``: index in the source ``Atoms`` object
-        * ``center_symbol``: ``central``
-        * ``center_position``: Cartesian position (length-3 list)
-        * ``shell_indices``: ligand atom indices, ordered by distance
-        * ``shell_offsets``: PBC image offsets for each shell atom
-        * ``shell_coords``: Cartesian positions with PBC offset applied
-        * ``shell_distances``: A--B distances, ascending
-        * ``coordination_number`` / ``mode`` / ``primary_gap_cn`` /
-          ``enclosed`` / ``enclosure_expanded`` / ``cutoff`` /
-          ``gap_index`` / ``gap_value`` (from
-          :func:`detect_coordination_number`)
-        * ``best_match`` (only when ``score_shape=True``): best ideal
-          polyhedron and its angular RMSD, or ``None`` for low CN.
-    """
+    cutoff: Optional[float],
+    search_cutoff: Optional[float],
+    enforce_enclosure: bool,
+    centroid_offset_frac: float,
+    fallback_max: Optional[int],
+    score_shape: bool,
+    central_indices: Optional[Sequence[int]],
+) -> List[Dict[str, Any]]:
     try:
         from ase.neighborlist import neighbor_list
     except ImportError as exc:  # pragma: no cover - ase is a hard dep
@@ -495,7 +558,7 @@ def find_polyhedra(
             continue
         shells[src_i].append((float(dist), int(dst), np.asarray(vec, dtype=float)))
 
-    results: list = []
+    results: List[Dict[str, Any]] = []
     for center_idx in central_atoms:
         entries = shells.get(center_idx, [])
         entries.sort(key=lambda item: item[0])
@@ -535,6 +598,7 @@ def find_polyhedra(
         )
 
         record = {
+            "level": "atom",
             "center_index": int(center_idx),
             "center_symbol": central,
             "center_position": center_pos.tolist(),
@@ -566,8 +630,426 @@ def find_polyhedra(
     return results
 
 
+def _find_polyhedra_molecule_level(
+    structure,
+    central: str,
+    ligand: str,
+    *,
+    center_kind: str,
+    cutoff: Optional[float],
+    search_cutoff: Optional[float],
+    hard_cutoff: Optional[float],
+    enforce_enclosure: bool,
+    centroid_offset_frac: float,
+    fallback_max: Optional[int],
+    score_shape: bool,
+    central_indices: Optional[Sequence[int]],
+) -> List[Dict[str, Any]]:
+    if center_kind not in _MOLECULE_CENTRE_KINDS:
+        raise ValueError(
+            f"center_kind must be one of {_MOLECULE_CENTRE_KINDS!r}, "
+            f"got {center_kind!r}."
+        )
+    molecules = getattr(structure, "molecules", None)
+    lattice = getattr(structure, "lattice", None)
+    if molecules is None or lattice is None:
+        raise TypeError(
+            "find_polyhedra(level='molecule') requires a MolecularCrystal-like "
+            "object with .molecules and .lattice; got "
+            f"{type(structure).__name__}. Build one via "
+            "molcrys_kit.io.cif.read_mol_crystal()."
+        )
+    molecules = list(molecules)
+    if not molecules:
+        return []
+
+    central_sig = _parse_moiety_signature(central)
+    ligand_sig = _parse_moiety_signature(ligand)
+
+    # On the molecule level, ``cutoff`` is the candidate **search radius**
+    # (the value fed into the lattice-translation enumerator and the
+    # ``dists <= radius`` mask). ``search_cutoff`` is a non-deprecated
+    # synonym kept for callers who prefer the more self-documenting name;
+    # giving both raises immediately to avoid silently picking one. The
+    # "fill the ball" historical behaviour is opted into separately via
+    # ``hard_cutoff``, which is the value forwarded to
+    # :func:`detect_coordination_number` as ``cutoff=``.
+    if cutoff is not None and search_cutoff is not None:
+        raise ValueError(
+            "Pass only one of cutoff= or search_cutoff= on level='molecule'; "
+            "they are synonyms (both denote the candidate search radius)."
+        )
+    radius = cutoff if cutoff is not None else search_cutoff
+    if radius is None:
+        radius = float(DEFAULT_MOLECULAR_SEARCH_CUTOFF)
+    else:
+        radius = float(radius)
+    if radius <= 0:
+        raise ValueError(
+            f"cutoff/search_cutoff must be positive, got {radius!r}."
+        )
+    if hard_cutoff is not None:
+        hard_cutoff = float(hard_cutoff)
+        if hard_cutoff <= 0:
+            raise ValueError(
+                f"hard_cutoff must be positive when given, got {hard_cutoff!r}."
+            )
+        if hard_cutoff > radius:
+            radius = hard_cutoff
+
+    centres = np.array(
+        [_molecule_centre(mol, center_kind) for mol in molecules], dtype=float
+    )
+    sigs: List[Tuple[Tuple[str, int], ...]] = []
+    formulas: List[str] = []
+    for mol in molecules:
+        symbols = list(mol.get_chemical_symbols())
+        sigs.append(heavy_signature(dict(Counter(s for s in symbols if s != "H"))))
+        formulas.append(_format_molecule_formula(symbols))
+
+    central_index_set = (
+        {int(i) for i in central_indices} if central_indices is not None else None
+    )
+
+    central_mols = [
+        i for i, sig in enumerate(sigs)
+        if sig == central_sig
+        and (central_index_set is None or i in central_index_set)
+    ]
+    ligand_mols = [i for i, sig in enumerate(sigs) if sig == ligand_sig]
+    if not central_mols:
+        return []
+
+    # The translation set must cover every t such that
+    # |c_ligand + t - c_central| <= radius for any (central, ligand)
+    # pair. The triangle inequality bounds |t| <= radius +
+    # |c_ligand - c_central|, so we enumerate to the worst-case pair
+    # distance (diagonal of the axis-aligned bounding box of all centres).
+    # Without this, centroids near opposite cell corners or in
+    # unwrapped molecule reconstructions would silently miss
+    # diagonal-image neighbours.
+    if len(centres) > 1:
+        centroid_extent = float(np.linalg.norm(np.ptp(centres, axis=0)))
+    else:
+        centroid_extent = 0.0
+    translations = _lattice_translations(
+        np.asarray(lattice, dtype=float),
+        radius + centroid_extent,
+    )
+
+    results: List[Dict[str, Any]] = []
+    homo_pair = central_sig == ligand_sig
+    for center_mol_idx in central_mols:
+        center_pos = centres[center_mol_idx]
+
+        # Generate every image of every ligand molecule, vectorised
+        if ligand_mols:
+            lig_centres = centres[ligand_mols]                       # (L, 3)
+            cand_pts = lig_centres[:, None, :] + translations[None, :, :]  # (L, T, 3)
+            cand_vecs = cand_pts - center_pos                       # (L, T, 3)
+            dists = np.linalg.norm(cand_vecs, axis=-1)              # (L, T)
+            mask = dists <= radius
+            if homo_pair:
+                # Exclude the self image (centroid of the same molecule at t=0)
+                self_mask = np.zeros_like(mask, dtype=bool)
+                same = [pos for pos, idx in enumerate(ligand_mols) if idx == center_mol_idx]
+                if same:
+                    zero_t = int(np.argmin(np.linalg.norm(translations, axis=1)))
+                    for pos in same:
+                        self_mask[pos, zero_t] = True
+                mask &= ~self_mask
+            # Always drop numerically coincident centres (e.g. PBC duplicates
+            # that survived the lattice prune for a centroid sitting on a face)
+            mask &= dists > 1e-6
+            rows, cols = np.where(mask)
+        else:
+            rows = cols = np.empty(0, dtype=int)
+
+        if rows.size:
+            order = np.argsort(dists[rows, cols])
+            sorted_dists = dists[rows, cols][order]
+            sorted_pts = cand_pts[rows, cols][order]
+            sorted_lig_mols = [int(ligand_mols[r]) for r in rows[order]]
+            sorted_offsets = [translations[c].tolist() for c in cols[order]]
+        else:
+            sorted_dists = np.empty(0, dtype=float)
+            sorted_pts = np.empty((0, 3), dtype=float)
+            sorted_lig_mols = []
+            sorted_offsets = []
+
+        cn_info = detect_coordination_number(
+            sorted_dists.tolist(),
+            fallback_max=fallback_max,
+            coords=sorted_pts.tolist() if sorted_pts.size else None,
+            center=center_pos.tolist(),
+            enforce_enclosure=enforce_enclosure,
+            centroid_offset_frac=centroid_offset_frac,
+            cutoff=hard_cutoff,
+        )
+
+        cn = int(cn_info["coordination_number"])
+        kept_dists = sorted_dists[:cn].tolist()
+        kept_pts = sorted_pts[:cn].tolist()
+        kept_lig_mols = sorted_lig_mols[:cn]
+        kept_offsets = sorted_offsets[:cn]
+
+        record = {
+            "level": "molecule",
+            "center_molecule_index": int(center_mol_idx),
+            "center_formula": formulas[center_mol_idx],
+            "center_position": center_pos.tolist(),
+            "center_kind": center_kind,
+            "shell_molecule_indices": kept_lig_mols,
+            "shell_formula": formulas[ligand_mols[0]] if ligand_mols else "",
+            "shell_offsets": kept_offsets,
+            "shell_coords": kept_pts,
+            "shell_distances": kept_dists,
+            "coordination_number": cn,
+            "mode": cn_info["mode"],
+            "primary_gap_cn": cn_info["primary_gap_cn"],
+            "gap_index": cn_info["gap_index"],
+            "gap_value": cn_info["gap_value"],
+            "enclosed": cn_info["enclosed"],
+            "enclosure_expanded": cn_info["enclosure_expanded"],
+            # ``record["cutoff"]`` echoes what detect_coordination_number
+            # received, kept for BC.  Downstream code that wants to
+            # inspect "was a hard cap applied?" should read the
+            # explicit ``record["hard_cutoff"]`` field below.
+            "cutoff": cn_info["cutoff"],
+            "search_cutoff": radius,
+            "hard_cutoff": hard_cutoff,
+        }
+
+        if score_shape:
+            if cn >= 4 and len(kept_pts) == cn:
+                record["best_match"] = angular_rmsd_vs_ideals(
+                    kept_pts, center=center_pos
+                )["best_match"]
+            else:
+                record["best_match"] = None
+
+        results.append(record)
+
+    return results
+
+
+def find_polyhedra(
+    structure,
+    central: str,
+    ligand: str,
+    *,
+    level: str = "atom",
+    center_kind: str = "centroid",
+    cutoff: Optional[float] = None,
+    search_cutoff: Optional[float] = None,
+    hard_cutoff: Optional[float] = None,
+    enforce_enclosure: bool = True,
+    centroid_offset_frac: float = DEFAULT_CENTROID_OFFSET_FRAC,
+    fallback_max: Optional[int] = None,
+    score_shape: bool = False,
+    central_indices: Optional[Sequence[int]] = None,
+) -> List[Dict[str, Any]]:
+    """Enumerate A--B coordination polyhedra in a periodic structure.
+
+    Two levels of A/B identity are supported via the ``level`` argument:
+
+    * ``level="atom"`` (default, fully backward compatible) — for every
+      atom whose chemical symbol equals ``central``, find the surrounding
+      atoms whose symbol equals ``ligand`` (PBC-aware via ASE), then run
+      :func:`detect_coordination_number` on that ordered shell. The function
+      strictly considers **only** A--B distances: atoms of any other element
+      (including other A atoms that happen to fall inside the candidate
+      hull) are never added to the shell. This is the explicit bypass for
+      the gap+enclosure expansion described in the docstring of
+      :func:`detect_coordination_number`.
+
+    * ``level="molecule"`` — for every CrystalMolecule whose heavy-atom
+      composition matches the ``central`` moiety string, find the
+      surrounding CrystalMolecules whose heavy composition matches the
+      ``ligand`` moiety string, using molecule centroids (or centres of
+      mass, or heavy-atom centroids) under periodic boundary conditions.
+      Internally this is the same gap+enclosure algorithm operating on
+      centroid--centroid distances instead of atom--atom distances, which
+      is the natural picture for hybrid molecular crystals such as the
+      ABX3 / ABX4 / A2BX5 hybrid perovskites where ``A`` is an organic
+      cation (e.g. ``"C2 H10 N2"``) and ``B`` is a polyatomic anion
+      (e.g. ``"Cl O4"``).
+
+    The three radial knobs (``cutoff``, ``search_cutoff``, ``hard_cutoff``)
+    carry **different meanings on the two levels** by design; see the
+    "Radial knobs" subsection below for the rationale.
+
+    Parameters
+    ----------
+    structure
+        For ``level="atom"``: ``MolecularCrystal``, any object with a
+        ``to_ase()`` method, or an ``ase.Atoms`` directly.
+        For ``level="molecule"``: must be a ``MolecularCrystal``-like
+        object exposing ``.molecules`` and ``.lattice``. Build one via
+        :func:`molcrys_kit.io.cif.read_mol_crystal`.
+    central, ligand
+        For ``level="atom"``: chemical symbols (e.g. ``"N"``, ``"Cl"``).
+        For ``level="molecule"``: single-fragment moiety strings as in
+        the CIF ``_chemical_formula_moiety`` syntax (e.g. ``"N H4"``,
+        ``"Cl O4"``, ``"C2 H10 N2"``). Charge and multiplier tokens are
+        accepted but ignored; only the heavy-atom multiset is used for
+        matching, so ``"Cl O4"`` and ``"Cl O4 1-"`` are equivalent.
+    level
+        Either ``"atom"`` (default) or ``"molecule"``.
+    center_kind
+        How to compute molecule centres for ``level="molecule"``. One of
+        ``"centroid"`` (unweighted mean of all atoms; matches
+        ``CrystalMolecule.get_centroid``), ``"com"`` (mass-weighted), or
+        ``"heavy_centroid"`` (unweighted mean of non-H atoms). Ignored
+        when ``level="atom"``.
+    cutoff
+        See "Radial knobs" below; meaning depends on ``level``.
+    search_cutoff
+        See "Radial knobs" below; meaning depends on ``level``.
+    hard_cutoff
+        See "Radial knobs" below; ``level="molecule"`` only — passing it
+        with ``level="atom"`` raises ``ValueError``.
+    enforce_enclosure
+        Forwarded to :func:`detect_coordination_number`. Set ``False`` to
+        get the gap-only CN without expanding to wrap the central atom.
+        Has no effect on the chosen CN in cutoff mode.
+    centroid_offset_frac, fallback_max
+        Forwarded to :func:`detect_coordination_number`.
+    score_shape
+        When true, also score each shell against the ideal-polyhedra
+        catalogue using :func:`angular_rmsd_vs_ideals`. Adds a
+        ``best_match`` field per result.
+    central_indices
+        Optional iterable of indices restricting the search to a subset
+        of central atoms (``level="atom"``) or central molecules
+        (``level="molecule"``).
+
+    Radial knobs
+    ------------
+    The three radius arguments split responsibility cleanly between
+    "where do we look for candidates?" and "which neighbours count as
+    the shell?". They are wired differently across the two levels so
+    that the most natural reading of ``cutoff=`` matches the level's
+    most common use-case:
+
+    * ``level="atom"``: ``cutoff`` is the **historical hard radial
+      cutoff** (passed straight to :func:`detect_coordination_number` as
+      ``cutoff=``); ``search_cutoff`` is the candidate radius for the
+      ASE neighbour list. Atom-level callers writing
+      ``find_polyhedra(atoms, "Pb", "I", cutoff=3)`` expect "octahedral
+      Pb--I within 3 Å", which is the hard-cap semantics, so this stays
+      unchanged for full backward compatibility. Passing ``hard_cutoff``
+      on atom level raises ``ValueError`` because it would duplicate
+      ``cutoff`` and dilute the asymmetry between the two levels.
+
+    * ``level="molecule"``: ``cutoff`` is the **candidate search
+      radius**; the CN is then chosen by the gap+enclosure heuristic in
+      :func:`detect_coordination_number`. ``search_cutoff`` is a
+      non-deprecated synonym of ``cutoff`` for callers who prefer the
+      more self-documenting name (passing both raises ``ValueError``).
+      Use ``hard_cutoff`` to opt back into the historical "fill the
+      ball" behaviour (forwarded to :func:`detect_coordination_number`
+      as ``cutoff=``). If ``hard_cutoff`` is larger than the current
+      search radius, the search radius is automatically bumped to
+      ``hard_cutoff`` so the requested hard sphere is not silently
+      truncated by candidate collection. The molecule-level default
+      (:data:`DEFAULT_MOLECULAR_SEARCH_CUTOFF`) is set generously so the
+      first packing-shell is captured without forcing callers to pick a
+      radius.
+
+      Worked example on a DAP-4 Pa-3 perovskite cell:
+
+      >>> find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+      ...                cutoff=8.0)              # gap+enclosure
+      # -> CN=6 octahedron (the NaCl-like first shell stops here)
+      >>> find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+      ...                hard_cutoff=8.0)         # historical fill mode
+      # -> CN=12 cuboctahedron (the full perovskite A--X12 cage)
+
+    Returns
+    -------
+    list of dict
+        One entry per A atom (or A molecule). Always contains the
+        :func:`detect_coordination_number` outputs
+        (``coordination_number``, ``mode``, ``primary_gap_cn``,
+        ``enclosed``, ``enclosure_expanded``, ``cutoff``, ``gap_index``,
+        ``gap_value``) plus ``search_cutoff`` and ``level``.
+
+        Atom level (``level="atom"``) additionally exposes:
+
+        * ``center_index``: index in the source ``Atoms`` object
+        * ``center_symbol``: ``central``
+        * ``center_position``: Cartesian position (length-3 list)
+        * ``shell_indices``: ligand atom indices, ordered by distance
+        * ``shell_offsets``: PBC image offsets for each shell atom
+        * ``shell_coords``: Cartesian positions with PBC offset applied
+        * ``shell_distances``: A--B distances, ascending
+        * ``best_match`` (only when ``score_shape=True``)
+
+        Molecule level (``level="molecule"``) additionally exposes:
+
+        * ``center_molecule_index``: index into ``structure.molecules``
+        * ``center_formula``: Hill-ish formula of the central molecule
+        * ``center_kind``: the ``center_kind`` actually used
+        * ``shell_molecule_indices``: indices into ``structure.molecules``
+        * ``shell_formula``: Hill-ish formula of the ligand species
+        * ``shell_offsets``: lattice translation vectors in Å, one per
+          shell entry (these are *Cartesian translations*, not integer
+          ``(na, nb, nc)`` images, because the molecule list does not
+          carry per-atom image bookkeeping)
+        * ``shell_coords``: translated Cartesian centroids
+        * ``shell_distances``: A--B centroid distances, ascending
+        * ``hard_cutoff``: ``None`` in gap+enclosure mode, or the float
+          value passed when the historical hard-cap mode was opted into.
+          Downstream code should prefer this field over ``cutoff`` to
+          inspect "was a hard cap applied?", since the molecule-level
+          ``record["cutoff"]`` echoes what
+          :func:`detect_coordination_number` received (i.e. the value of
+          ``hard_cutoff``), which is the opposite of the kwarg
+          ``cutoff=`` semantics on this level.
+        * ``best_match`` (only when ``score_shape=True``)
+    """
+    if level == "atom":
+        if hard_cutoff is not None:
+            raise ValueError(
+                "hard_cutoff is only meaningful when level='molecule', where "
+                "cutoff= now means the search radius. On level='atom', "
+                "cutoff= already is the hard radial cap; pass cutoff= "
+                "instead of hard_cutoff."
+            )
+        return _find_polyhedra_atom_level(
+            structure,
+            central,
+            ligand,
+            cutoff=cutoff,
+            search_cutoff=search_cutoff,
+            enforce_enclosure=enforce_enclosure,
+            centroid_offset_frac=centroid_offset_frac,
+            fallback_max=fallback_max,
+            score_shape=score_shape,
+            central_indices=central_indices,
+        )
+    if level == "molecule":
+        return _find_polyhedra_molecule_level(
+            structure,
+            central,
+            ligand,
+            center_kind=center_kind,
+            cutoff=cutoff,
+            search_cutoff=search_cutoff,
+            hard_cutoff=hard_cutoff,
+            enforce_enclosure=enforce_enclosure,
+            centroid_offset_frac=centroid_offset_frac,
+            fallback_max=fallback_max,
+            score_shape=score_shape,
+            central_indices=central_indices,
+        )
+    raise ValueError(f"level must be 'atom' or 'molecule', got {level!r}.")
+
+
 __all__ = [
     "DEFAULT_CENTROID_OFFSET_FRAC",
+    "DEFAULT_MOLECULAR_SEARCH_CUTOFF",
     "DEFAULT_POLYHEDRON_SEARCH_CUTOFF",
     "angular_rmsd_vs_ideals",
     "compute_angular_signature",

@@ -131,3 +131,71 @@ issues = check_valence_completeness(crystal, info)
 for issue in issues:
     print(issue)
 ```
+
+---
+
+## Coordination Polyhedra Analysis
+
+`molcrys_kit.analysis.packing_shell.find_polyhedra` is the single entry point
+for first-shell A--B coordination analysis.  It must dispatch on the
+``level`` argument:
+
+* ``level="atom"`` (default, backward compatible) — match by chemical symbol
+  on a flat `ase.Atoms`.  Use for purely atomic ionic crystals
+  (Pb--I, Cs--Cl, M--X in inorganic perovskites).
+* ``level="molecule"`` — match by single-fragment moiety string
+  (`"N H4"`, `"Cl O4"`, `"C2 H10 N2"`, etc.) against each molecule's
+  heavy-atom signature on a ``MolecularCrystal``; the search runs on
+  molecule centroids with a configurable ``center_kind``
+  (``"centroid"`` / ``"com"`` / ``"heavy_centroid"``).  Use for hybrid
+  molecular crystals (ABX3 / ABX4 / A2BX5 hybrid perovskites).
+
+Do **not** introduce a separate `find_molecular_polyhedra` (or any sibling
+function) for the molecule case: that would create an asymmetric API
+surface where users have to choose between two near-identical signatures.
+All future entry points for new "what counts as a unit" semantics should
+extend the same ``level=...`` enum.
+
+The two paths share `detect_coordination_number` for the gap+enclosure CN
+selection; they only differ in (a) how the central / ligand identity is
+established and (b) how PBC images are enumerated (ASE neighbour list for
+atom level, lattice-translation grid for molecule level).  Keep both
+paths' return schemas distinct (`center_index` / `shell_indices` for atom
+level; `center_molecule_index` / `shell_molecule_indices` /
+`center_formula` / `shell_formula` for molecule level) so callers can
+tell what kind of result they are handling.
+
+### Radial cutoffs at atom vs. molecule level
+
+The three radius kwargs (`cutoff`, `search_cutoff`, `hard_cutoff`) carry
+*different meanings on the two levels by design*.  Atom-level users
+historically wrote `find_polyhedra(atoms, "Pb", "I", cutoff=3)` to mean
+"the Pb--I shell within 3 Å"; molecule-level callers using a perovskite
+A--X12 query under the same semantics would unwittingly inflate their CN
+to "every X within the 8 Å ball", which is rarely what they want.  The
+split is:
+
+* `level="atom"`: `cutoff` is the **hard radial cap** (forwarded to
+  `detect_coordination_number` as `cutoff=`).  `search_cutoff` is the
+  candidate radius for the ASE neighbour list.  `hard_cutoff` is not
+  accepted here — passing it raises `ValueError` and the error message
+  points users at `cutoff`.
+* `level="molecule"`: `cutoff` is the **candidate search radius** that
+  feeds `detect_coordination_number`'s gap+enclosure heuristic.
+  `search_cutoff` is a non-deprecated synonym of `cutoff` (passing
+  both raises `ValueError` because the resolution would be ambiguous).
+  `hard_cutoff`, when set, is forwarded to `detect_coordination_number`
+  as `cutoff=` and restores the historical "fill the ball" behaviour
+  (`mode="cutoff"`).  If `hard_cutoff` is larger than the current search
+  radius, bump the search radius to `hard_cutoff` automatically so the
+  requested hard sphere cannot be silently truncated during candidate
+  collection.
+
+The record fields echo the kwargs faithfully:
+`record["search_cutoff"]` always holds the search radius actually used;
+`record["hard_cutoff"]` echoes the `hard_cutoff` kwarg (and is `None`
+in pure gap+enclosure mode); `record["cutoff"]` echoes what
+`detect_coordination_number` received — i.e. the hard cap value, or
+`None` when no hard cap was applied.  Downstream code that wants to
+inspect "was a hard cap applied?" should prefer `record["hard_cutoff"]`
+over `record["cutoff"]` on the molecule level.

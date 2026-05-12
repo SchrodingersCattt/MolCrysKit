@@ -6,6 +6,7 @@ from .formula_moiety import Fragment, heavy_signature, match_molecule_to_fragmen
 from .charge import MolChargeResult, assign_mol_formal_charges, compute_topo_signature
 from .packing_shell import (
     DEFAULT_CENTROID_OFFSET_FRAC,
+    DEFAULT_MOLECULAR_SEARCH_CUTOFF,
     DEFAULT_POLYHEDRON_SEARCH_CUTOFF,
     angular_rmsd_vs_ideals,
     compute_angular_signature,
@@ -23,6 +24,7 @@ __all__ = [
     "Fragment",
     "MolChargeResult",
     "DEFAULT_CENTROID_OFFSET_FRAC",
+    "DEFAULT_MOLECULAR_SEARCH_CUTOFF",
     "DEFAULT_POLYHEDRON_SEARCH_CUTOFF",
     "angular_rmsd_vs_ideals",
     "assign_mol_formal_charges",
