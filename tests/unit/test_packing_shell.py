@@ -490,24 +490,85 @@ def test_find_polyhedra_molecule_level_moiety_string_matches_full_fragments():
                       6.0 * np.sqrt(3) / 2, atol=1e-6)
 
 
-def test_find_polyhedra_molecule_level_dap4_nh4_octahedral_cage():
-    """Sanity check on the real DAP-4 perovskite CIF.  The NH4 sublattice
-    sits on the A2 site of a Pa-3 perovskite framework with ClO4 on the
-    B site, so the cleanest NH4 cages should be CN=6 octahedra at ~3.6 Å.
+def test_find_polyhedra_molecule_level_dap4_nh4_octahedral_nearest_shell():
+    """Sanity check on the real DAP-4 perovskite CIF.  NH4+ occupies the
+    A2 site of the Pa-3 perovskite framework; the *nearest* ClO4 shell
+    (cutoff=5 Å keeps only first-shell distances ~3.6 Å) is the NaCl-like
+    octahedral cage of CN=6.  All 8 NH4 sites must resolve cleanly.
+
+    Before the diagonal-image fix this returned a fragmented CN
+    histogram (e.g. ``{6:4, 5:2, 4:1, 3:1}``) because the lattice
+    translation enumerator silently dropped face- and body-diagonal
+    images (``|t| in (max(lengths), sqrt(3)·max(lengths))``).
     """
     from molcrys_kit.io.cif import read_mol_crystal
     crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
     polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
                            cutoff=5.0, score_shape=True)
-    assert len(polys) == 8  # eight NH4 per Pa-3 cell
-    octahedral = [r for r in polys if r["coordination_number"] == 6]
-    assert len(octahedral) >= 4, (
-        "at least half of NH4 sites should resolve to a CN=6 cage of ClO4"
-    )
-    for record in octahedral:
+    assert len(polys) == 8
+    for record in polys:
+        assert record["coordination_number"] == 6
         assert record["best_match"]["name"] == "octahedron"
-        # NH4..ClO4 first-shell centroid distance ~3.6 Å in DAP-4
         assert 3.4 <= float(np.mean(record["shell_distances"])) <= 3.8
+
+
+def test_find_polyhedra_molecule_level_dap4_nh4_cuboctahedron_extended_shell():
+    """At the perovskite A--X12 cuboctahedron cutoff (~8 Å), NH4 sees
+    all 12 ClO4 anions on the surrounding cuboctahedron vertices: 6
+    near-corner ClO4 at ~3.6 Å plus 6 farther ClO4 at ~7.9 Å.
+    """
+    from molcrys_kit.io.cif import read_mol_crystal
+    crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule",
+                           cutoff=8.0, score_shape=True)
+    assert len(polys) == 8
+    for record in polys:
+        assert record["coordination_number"] == 12
+        assert record["best_match"]["name"] == "cuboctahedron"
+
+
+def test_find_polyhedra_molecule_level_dap4_clo4_square_planar():
+    """Reverse query at cutoff=8 Å: every ClO4 anion is surrounded by 4
+    NH4+ cations in a square-planar arrangement (the four corners of the
+    A2 cage face that the ClO4 sits on). The cutoff=5 Å view truncates
+    the cage to the two nearest NH4 (dimer).
+    """
+    from molcrys_kit.io.cif import read_mol_crystal
+    crys = read_mol_crystal(str(_CIF_DIR / "DAP-4.cif"))
+    polys = find_polyhedra(crys, "Cl O4", "N H4", level="molecule",
+                           cutoff=8.0, score_shape=True)
+    assert len(polys) == 24
+    for record in polys:
+        assert record["coordination_number"] == 4
+        assert record["best_match"]["name"] == "square_planar"
+
+
+def test_find_polyhedra_molecule_level_diagonal_image_neighbour():
+    """Regression: for a cubic cell of side `a`, the body-diagonal image
+    is at |t| = a*sqrt(3); a face-diagonal image is at |t| = a*sqrt(2).
+    Either is BIGGER than max(|a|, |b|, |c|) = a. An earlier draft used
+    `search_cutoff + max(lengths)` as the translation-enumeration bound
+    and silently dropped these images, returning CN=0 for centroid pairs
+    whose true min-image distance was below `cutoff` but required a
+    diagonal translation. The bound must instead be derived from the
+    actual centroid extent.
+    """
+    a = 10.0
+    cell = np.eye(3) * a
+    # B sits near the (a, a, 0) face-diagonal corner of the home cell;
+    # its (-1, -1, 0) image is 0.71 Å from A.
+    a_mol = Atoms(symbols=["N"], positions=[[0.0, 0.0, 0.0]],
+                  cell=cell, pbc=True)
+    b_mol = Atoms(symbols=["Cl"], positions=[[a - 0.5, a - 0.5, 0.0]],
+                  cell=cell, pbc=True)
+    crys = MolecularCrystal(lattice=cell, molecules=[a_mol, b_mol])
+    polys = find_polyhedra(crys, "N", "Cl", level="molecule", cutoff=3.0)
+    assert len(polys) == 1
+    record = polys[0]
+    assert record["coordination_number"] == 1
+    assert np.isclose(record["shell_distances"][0], np.sqrt(0.5), atol=1e-6)
+    # The required image is the (-1, -1, 0) one
+    assert np.allclose(record["shell_offsets"][0], [-a, -a, 0.0], atol=1e-6)
 
 
 def test_find_polyhedra_molecule_level_dap4_dap_cation_cn12():

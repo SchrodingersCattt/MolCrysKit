@@ -466,35 +466,37 @@ def _molecule_centre(molecule, kind: str) -> np.ndarray:
     )
 
 
-def _lattice_translations(lattice: np.ndarray, search_cutoff: float) -> np.ndarray:
-    """Enumerate lattice translations whose Cartesian length is within
-    ``search_cutoff + d_max`` of the origin, where ``d_max`` is the
-    longest lattice vector.
+def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarray:
+    """Enumerate every lattice translation whose Cartesian length is
+    ``<= search_radius``.
 
-    The conservative bound guarantees that for any pair of centroids
-    inside the home cell, every image at most ``search_cutoff`` away is
-    represented exactly once. Higher-order images that cannot reach the
-    home cell within ``search_cutoff`` are pruned.
+    Uses each axis's family-of-planes perpendicular spacing
+    (``V / |b × c|`` and cyclic permutations) as the per-axis enumeration
+    bound. That is the strictest envelope that still captures every
+    in-radius translation for an arbitrary triclinic lattice, including
+    elongated and oblique cells where ``max(|a|, |b|, |c|)`` would
+    silently miss diagonal images (``|t| = sqrt(2)·a`` for a cubic cell,
+    etc.). Returns the translations as Cartesian Å vectors.
     """
     lattice = np.asarray(lattice, dtype=float)
     if lattice.shape != (3, 3):
         raise ValueError(f"lattice must be a 3x3 matrix, got shape {lattice.shape}.")
-    lengths = np.linalg.norm(lattice, axis=1)
-    if not np.all(lengths > 0):
-        raise ValueError("lattice vectors must be non-zero.")
-    # Be generous on each axis (centroids may sit near the cell faces)
-    n_a, n_b, n_c = (
-        int(np.ceil(search_cutoff / lengths[0])) + 1,
-        int(np.ceil(search_cutoff / lengths[1])) + 1,
-        int(np.ceil(search_cutoff / lengths[2])) + 1,
-    )
-    bound = float(search_cutoff) + float(np.max(lengths))
+    a, b, c = lattice[0], lattice[1], lattice[2]
+    volume = abs(float(np.dot(a, np.cross(b, c))))
+    if volume <= 0:
+        raise ValueError("lattice vectors must be linearly independent.")
+    d_a = volume / float(np.linalg.norm(np.cross(b, c)))
+    d_b = volume / float(np.linalg.norm(np.cross(c, a)))
+    d_c = volume / float(np.linalg.norm(np.cross(a, b)))
+    n_a = int(np.ceil(search_radius / d_a))
+    n_b = int(np.ceil(search_radius / d_b))
+    n_c = int(np.ceil(search_radius / d_c))
     translations: List[np.ndarray] = []
     for ia in range(-n_a, n_a + 1):
         for ib in range(-n_b, n_b + 1):
             for ic in range(-n_c, n_c + 1):
-                t = ia * lattice[0] + ib * lattice[1] + ic * lattice[2]
-                if np.linalg.norm(t) <= bound:
+                t = ia * a + ib * b + ic * c
+                if np.linalg.norm(t) <= search_radius:
                     translations.append(t)
     return np.asarray(translations, dtype=float)
 
@@ -693,7 +695,22 @@ def _find_polyhedra_molecule_level(
     if not central_mols:
         return []
 
-    translations = _lattice_translations(np.asarray(lattice, dtype=float), search_cutoff)
+    # The translation set must cover every t such that
+    # |c_ligand + t - c_central| <= search_cutoff for any (central, ligand)
+    # pair. The triangle inequality bounds |t| <= search_cutoff +
+    # |c_ligand - c_central|, so we enumerate to the worst-case pair
+    # distance (diagonal of the axis-aligned bounding box of all centres).
+    # Without this, centroids near opposite cell corners or in
+    # unwrapped molecule reconstructions would silently miss
+    # diagonal-image neighbours.
+    if len(centres) > 1:
+        centroid_extent = float(np.linalg.norm(np.ptp(centres, axis=0)))
+    else:
+        centroid_extent = 0.0
+    translations = _lattice_translations(
+        np.asarray(lattice, dtype=float),
+        float(search_cutoff) + centroid_extent,
+    )
 
     results: List[Dict[str, Any]] = []
     homo_pair = central_sig == ligand_sig
