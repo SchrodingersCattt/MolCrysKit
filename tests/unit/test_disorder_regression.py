@@ -37,6 +37,7 @@ from __future__ import annotations
 import os
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Mapping
 
 import numpy as np
@@ -317,6 +318,21 @@ def _element_totals(crystal) -> dict[str, int]:
     return dict(totals)
 
 
+@lru_cache(maxsize=None)
+def _solve_cached(
+    path: str,
+    method: str,
+    generate_count: int,
+    random_seed: int | None,
+):
+    return generate_ordered_replicas_from_disordered_sites(
+        path,
+        generate_count=generate_count,
+        method=method,
+        random_seed=random_seed,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -329,9 +345,7 @@ def _resolve(path: str):
     orphan atoms (degree 0 for elements that don't normally exist as
     isolated species).
     """
-    [crystal] = generate_ordered_replicas_from_disordered_sites(
-        path, generate_count=1, method="optimal"
-    )
+    crystal = _solve_cached(path, "optimal", 1, None)[0]
     n_atoms = crystal.get_total_nodes()
 
     defects = 0
@@ -426,7 +440,7 @@ def test_disorder_regression(case: CifCase, cif_data_dir: str):
 
 
 _MODE_PARAMS = [
-    pytest.param("random", 2, id="random"),
+    pytest.param("random", 3, id="random"),
     pytest.param("enumerate", 4, id="enumerate"),
 ]
 
@@ -445,12 +459,7 @@ def test_disorder_replica_zero_matches_optimal(
     cif_path = os.path.join(cif_data_dir, case.cif)
     assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
 
-    crystals = generate_ordered_replicas_from_disordered_sites(
-        cif_path,
-        generate_count=n_replicas,
-        method=method,
-        random_seed=42,
-    )
+    crystals = _solve_cached(cif_path, method, n_replicas, 42)
     assert crystals, f"{case.name}: {method} returned no replicas"
 
     _assert_matches_optimal(case, crystals[0], f"{case.name} {method}#0")
@@ -468,12 +477,7 @@ def test_disorder_enumerate_all_replicas_match_optimal(
     cif_path = os.path.join(cif_data_dir, case.cif)
     assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
 
-    crystals = generate_ordered_replicas_from_disordered_sites(
-        cif_path,
-        generate_count=4,
-        method="enumerate",
-        random_seed=42,
-    )
+    crystals = _solve_cached(cif_path, "enumerate", 4, 42)
     assert crystals, f"{case.name}: enumerate returned no replicas"
 
     for idx, crystal in enumerate(crystals):
@@ -494,12 +498,7 @@ def test_disorder_random_replica_chemistry_validity(
     cif_path = os.path.join(cif_data_dir, case.cif)
     assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
 
-    crystals = generate_ordered_replicas_from_disordered_sites(
-        cif_path,
-        generate_count=3,
-        method="random",
-        random_seed=42,
-    )
+    crystals = _solve_cached(cif_path, "random", 3, 42)
     assert len(crystals) >= 2, f"{case.name}: random returned too few replicas"
 
     for idx, crystal in enumerate(crystals[1:], start=1):

@@ -1106,11 +1106,16 @@ class DisorderSolver:
         self, independent_set: List[int], threshold: float = 0.65
     ) -> bool:
         atoms = list(independent_set)
-        for i, atom_a in enumerate(atoms):
-            for atom_b in atoms[i + 1:]:
-                if self._minimum_image_distance(atom_a, atom_b) < threshold:
-                    return True
-        return False
+        if len(atoms) < 2:
+            return False
+
+        frac = self.info.frac_coords[atoms]
+        diff = frac[:, None, :] - frac[None, :, :]
+        diff = diff - np.round(diff)
+        cart = np.einsum("ijk,kl->ijl", diff, self.lattice)
+        distances = np.linalg.norm(cart, axis=2)
+        pair_mask = np.triu(np.ones(distances.shape, dtype=bool), k=1)
+        return bool(np.any(distances[pair_mask] < threshold))
 
     def _apply_sp_completion(self, independent_set: List[int]) -> List[int]:
         """
