@@ -1,0 +1,2845 @@
+####################################################################### 
+# 
+# This file contains crystal structure data downloaded from the 
+# Cambridge Structural Database (CSD) hosted by the Cambridge 
+# Crystallographic Data Centre (CCDC).
+# 
+# Full information about CCDC data access policies and citation 
+# guidelines are available at http://www.ccdc.cam.ac.uk/access/V1 
+# 
+# Audit and citation data items may have been added by the CCDC. 
+# Please retain this information to preserve the provenance of 
+# this file and to allow appropriate attribution of the data. 
+# 
+#######################################################################
+
+data_1
+_audit_block_doi                 10.5517/ccdc.csd.cc2k7lbr
+_database_code_depnum_ccdc_archive 'CCDC 2360784'
+loop_
+_audit_author_name
+_audit_author_address
+'Chenxi Yu'
+;Sun Yat Sen University
+China
+;
+_audit_update_record             
+;
+2024-06-05 deposited with the CCDC.	2026-03-31 downloaded from the CCDC.
+;
+_audit_creation_date             2024-05-22
+_audit_creation_method           
+;
+Olex2 1.2
+(compiled 2018.05.29 svn.r3508 for OlexSys, GUI svn.r5506)
+;
+_shelx_SHELXL_version_number     2014/7
+_chemical_name_common            ?
+_chemical_name_systematic        ?
+_chemical_formula_moiety         '1.5(Cl2 O6), 1(C6 H14 N2), 0.02(H192 N48)'
+_chemical_formula_sum            'C6 H18 Cl3 N3 O9'
+_chemical_formula_weight         382.64
+_chemical_melting_point          ?
+loop_
+_atom_type_symbol
+_atom_type_description
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+C C 0.0033 0.0016 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+H H 0.0000 0.0000 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+Cl Cl 0.1484 0.1585 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+N N 0.0061 0.0033 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+O O 0.0106 0.0060 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+
+_shelx_space_group_comment       
+;
+The symmetry employed for this shelxl refinement is uniquely defined
+by the following loop, which should always be used as a source of
+symmetry information in preference to the above space-group names.
+They are only intended as comments.
+;
+_space_group_crystal_system      cubic
+_space_group_IT_number           221
+_space_group_name_H-M_alt        'P m -3 m'
+_space_group_name_Hall           '-P 4 2 3'
+loop_
+_space_group_symop_operation_xyz
+'x, y, z'
+'-x, -y, z'
+'-x, y, -z'
+'x, -y, -z'
+'z, x, y'
+'z, -x, -y'
+'-z, -x, y'
+'-z, x, -y'
+'y, z, x'
+'-y, z, -x'
+'y, -z, -x'
+'-y, -z, x'
+'y, x, -z'
+'-y, -x, -z'
+'y, -x, z'
+'-y, x, z'
+'x, z, -y'
+'-x, z, y'
+'-x, -z, -y'
+'x, -z, y'
+'z, y, -x'
+'z, -y, x'
+'-z, y, x'
+'-z, -y, -x'
+'-x, -y, -z'
+'x, y, -z'
+'x, -y, z'
+'-x, y, z'
+'-z, -x, -y'
+'-z, x, y'
+'z, x, -y'
+'z, -x, y'
+'-y, -z, -x'
+'y, -z, x'
+'-y, z, x'
+'y, z, -x'
+'-y, -x, z'
+'y, x, z'
+'-y, x, -z'
+'y, -x, -z'
+'-x, -z, y'
+'x, -z, -y'
+'x, z, y'
+'-x, z, -y'
+'-z, -y, x'
+'-z, y, -x'
+'z, -y, -x'
+'z, y, x'
+
+_cell_length_a                   6.98630(10)
+_cell_length_b                   6.98630(10)
+_cell_length_c                   6.98630(10)
+_cell_angle_alpha                90
+_cell_angle_beta                 90
+_cell_angle_gamma                90
+_cell_volume                     340.990(15)
+_cell_formula_units_Z            0.99984
+_cell_measurement_reflns_used    1170
+_cell_measurement_temperature    80.00
+_cell_measurement_theta_max      47.51
+_cell_measurement_theta_min      5.51
+_shelx_estimated_absorpt_T_max   ?
+_shelx_estimated_absorpt_T_min   ?
+_exptl_absorpt_coefficient_mu    0.723
+_exptl_absorpt_correction_T_max  0.7516
+_exptl_absorpt_correction_T_min  0.5853
+_exptl_absorpt_correction_type   none
+_exptl_absorpt_process_details   
+;
+SADABS-2016/2 (Bruker,2016/2) was used for absorption correction.
+wR2(int) was 0.1576 before and 0.0609 after correction.
+The Ratio of minimum to maximum transmission is 0.7787.
+The \l/2 correction factor is Not present.
+;
+_exptl_absorpt_special_details   ?
+_exptl_crystal_colour            colourless
+_exptl_crystal_colour_primary    colourless
+_exptl_crystal_density_diffrn    1.863
+_exptl_crystal_density_meas      .
+_exptl_crystal_density_method    ?
+_exptl_crystal_description       BLOCK
+_exptl_crystal_F_000             198
+_exptl_crystal_size_max          0.12
+_exptl_crystal_size_mid          0.08
+_exptl_crystal_size_min          0.06
+_exptl_transmission_factor_max   ?
+_exptl_transmission_factor_min   ?
+_diffrn_reflns_av_R_equivalents  0.0454
+_diffrn_reflns_av_unetI/netI     0.0251
+_diffrn_reflns_Laue_measured_fraction_full 1.000
+_diffrn_reflns_Laue_measured_fraction_max 1.000
+_diffrn_reflns_limit_h_max       8
+_diffrn_reflns_limit_h_min       -7
+_diffrn_reflns_limit_k_max       8
+_diffrn_reflns_limit_k_min       -5
+_diffrn_reflns_limit_l_max       7
+_diffrn_reflns_limit_l_min       -8
+_diffrn_reflns_number            2173
+_diffrn_reflns_point_group_measured_fraction_full 1.000
+_diffrn_reflns_point_group_measured_fraction_max 1.000
+_diffrn_reflns_theta_full        25.242
+_diffrn_reflns_theta_max         27.062
+_diffrn_reflns_theta_min         2.916
+_diffrn_ambient_temperature      80.0
+_diffrn_detector_area_resol_mean ?
+_diffrn_measured_fraction_theta_full 1.000
+_diffrn_measured_fraction_theta_max 1.000
+_diffrn_measurement_device_type  'CCD area detector'
+_diffrn_measurement_method       'phi and omega scans'
+_diffrn_radiation_monochromator  graphite
+_diffrn_radiation_type           MoK\a
+_diffrn_radiation_wavelength     0.71073
+_diffrn_source                   ?
+_reflns_Friedel_coverage         0.000
+_reflns_Friedel_fraction_full    .
+_reflns_Friedel_fraction_max     .
+_reflns_number_gt                90
+_reflns_number_total             105
+_reflns_special_details          
+;
+ Reflections were merged by SHELXL according to the crystal
+ class for the calculation of statistics and refinement.
+ 
+ _reflns_Friedel_fraction is defined as the number of unique
+ Friedel pairs measured divided by the number that would be
+ possible theoretically, ignoring centric projections and
+ systematic absences.
+;
+_reflns_threshold_expression     'I > 2\s(I)'
+_computing_cell_refinement       'SAINT V8.38A (?, 2016)'
+_computing_data_collection       ?
+_computing_data_reduction        'SAINT V8.38A (?, 2016)'
+_computing_molecular_graphics    'Olex2 (Dolomanov et al., 2009)'
+_computing_publication_material  'Olex2 (Dolomanov et al., 2009)'
+_computing_structure_refinement  'ShelXL (Sheldrick, 2015)'
+_computing_structure_solution    'SHELXT 2014/5 (Sheldrick, 2014)'
+_refine_diff_density_max         0.606
+_refine_diff_density_min         -0.656
+_refine_diff_density_rms         0.095
+_refine_ls_extinction_coef       .
+_refine_ls_extinction_method     none
+_refine_ls_goodness_of_fit_ref   1.080
+_refine_ls_hydrogen_treatment    constr
+_refine_ls_matrix_type           full
+_refine_ls_number_parameters     61
+_refine_ls_number_reflns         105
+_refine_ls_number_restraints     247
+_refine_ls_R_factor_all          0.0994
+_refine_ls_R_factor_gt           0.0922
+_refine_ls_restrained_S_all      0.449
+_refine_ls_shift/su_max          0.000
+_refine_ls_shift/su_mean         0.000
+_refine_ls_structure_factor_coef Fsqd
+_refine_ls_weighting_details     
+'w=1/[\s^2^(Fo^2^)+(0.2000P)^2^+1.5000P] where P=(Fo^2^+2Fc^2^)/3'
+_refine_ls_weighting_scheme      calc
+_refine_ls_wR_factor_gt          0.2594
+_refine_ls_wR_factor_ref         0.2708
+_refine_special_details          ?
+_olex2_refinement_description    
+;
+1. Fixed Uiso
+ At 1.2 times of:
+  All C(H,H) groups, All N(H) groups, All N(H,H,H,H) groups
+2. Restrained distances
+ N1-C5 = N1-C3 = N2-C2
+ 1.48 with sigma of 0.02
+ C5-C6
+ 1.55 with sigma of 0.02
+ O2-O3 = O1-O3 = O1-O2
+ 2.488 with sigma of 0.02
+ N2-C4
+ 1.49 with sigma of 0.02
+ C1-C2 = C3-C4
+ 1.56 with sigma of 0.02
+ Cl1-O2 = Cl1-O3 = Cl1-O1
+ 1.49 with sigma of 0.02
+ N1-C6 = N1-C2
+ 2.48 with sigma of 0.04
+ N1-C4 = C5-N2 = N2-C1 = N2-C3
+ 2.49 with sigma of 0.04
+ O2-O1 \\sim O3-O1 \\sim O3-O2
+ with sigma of 0.02
+ N1-C5 \\sim N1-C1 \\sim N1-C3 \\sim N2-C6 \\sim N2-C2 \\sim N2-C4
+ with sigma of 0.02
+ C5-C6 \\sim C1-C2 \\sim C3-C4
+ with sigma of 0.02
+ C5-C1 \\sim C1-C3 \\sim C5-C3 \\sim C6-C2 \\sim C6-C4 \\sim C2-C4
+ with sigma of 0.02
+ C5-C2 \\sim C6-C1 \\sim C2-C3 \\sim C1-C4 \\sim C5-C4 \\sim C6-C3
+ with sigma of 0.02
+3. Uiso/Uaniso restraints and constraints
+Cl1 \\sim O1 \\sim O2 \\sim O3: within 2A with sigma of 0.04 and sigma for
+terminal atoms of 0.08
+Uanis(N1) \\sim Ueq, Uanis(C5) \\sim Ueq, Uanis(N2) \\sim Ueq, Uanis(C6) \\sim
+Ueq, Uanis(C1) \\sim Ueq, Uanis(C2) \\sim Ueq, Uanis(C3) \\sim Ueq, Uanis(C4)
+\\sim Ueq: with sigma of 0.1 and sigma for terminal atoms of 0.2
+Uanis(O1) \\sim Ueq, Uanis(Cl1) \\sim Ueq, Uanis(O2) \\sim Ueq, Uanis(O3) \\sim
+Ueq: with sigma of 0.01 and sigma for terminal atoms of 0.02
+Uanis(N1) \\sim Ueq, Uanis(C1) \\sim Ueq, Uanis(C3) \\sim Ueq, Uanis(C5) \\sim
+Ueq, Uanis(C2) \\sim Ueq, Uanis(C4) \\sim Ueq, Uanis(C6) \\sim Ueq, Uanis(N2)
+\\sim Ueq, Uanis(N3) \\sim Ueq: with sigma of 0.1 and sigma for terminal atoms
+of 0.2
+Uanis(N3) \\sim Ueq, Uanis(C3) \\sim Ueq, Uanis(N1) \\sim Ueq, Uanis(C1) \\sim
+Ueq, Uanis(C5) \\sim Ueq, Uanis(C2) \\sim Ueq, Uanis(C4) \\sim Ueq, Uanis(C6)
+\\sim Ueq, Uanis(N2) \\sim Ueq: with sigma of 0.01 and sigma for terminal atoms
+of 0.02
+Uanis(N2) = Uanis(N1) = Uanis(C1) = Uanis(C3) = Uanis(C5) = Uanis(C2) =
+Uanis(C4) = Uanis(C6) = Uanis(N3)
+4. Rigid body (RIGU) restrains
+ Cl1, O1, O2, O3
+ with sigma for 1-2 distances of 0.01 and sigma for 1-3 distances of 0.02
+ N1, N2, C1, C2, C3, C4, C5, C6
+ with sigma for 1-2 distances of 0.01 and sigma for 1-3 distances of 0.02
+5. Others
+ Fixed Sof: Cl1(0.0625) O1(0.0625) O2(0.0625) O3(0.0625) N1(0.02083)
+ H1(0.02083) N2(0.02083) H2(0.02083) C1(0.02083) H1A(0.02083) H1B(0.02083)
+ C2(0.02083) H2A(0.02083) H2B(0.02083) C3(0.02083) H3A(0.02083) H3B(0.02083)
+ C4(0.02083) H4A(0.02083) H4B(0.02083) C5(0.02083) H5A(0.02083) H5B(0.02083)
+ C6(0.02083) H6A(0.02083) H6B(0.02083) H3D(0.02083) H3C(0.02083) H3E(0.02083)
+ H3F(0.02083)
+6.a Everything fixed:
+ C2, C3
+6.b Riding coordinates:
+ N3(H3D,H3C,H3E,H3F)
+6.c Ternary CH refined with riding coordinates:
+ N1(H1), N2(H2)
+6.d Secondary CH2 refined with riding coordinates:
+ C1(H1A,H1B), C2(H2A,H2B), C3(H3A,H3B), C4(H4A,H4B), C5(H5A,H5B), C6(H6A,H6B)
+;
+_atom_sites_solution_hydrogens   mixed
+_atom_sites_solution_primary     ?
+_atom_sites_solution_secondary   ?
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_adp_type
+_atom_site_occupancy
+_atom_site_site_symmetry_order
+_atom_site_calc_flag
+_atom_site_refinement_flags_posn
+_atom_site_refinement_flags_adp
+_atom_site_refinement_flags_occupancy
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+Cl1 Cl 0.000(7) 0.531(3) 1.018(10) 0.078(10) Uani 0.0625 1 d DS TU P A -1
+O1 O -0.135(7) 0.691(6) 1.041(10) 0.09(2) Uani 0.0625 1 d D U . A -1
+O2 O 0.204(6) 0.586(8) 1.024(17) 0.07(2) Uani 0.0625 1 d D U . A -1
+O3 O -0.049(10) 0.393(8) 0.864(9) 0.07(2) Uani 0.0625 1 d D U . A -1
+N1 N 0.402(10) 0.427(3) 0.632(4) 0.064(6) Uani 0.0208 1 d D U . B -1
+H1 H 0.3238 0.3533 0.7264 0.077 Uiso 0.0208 1 calc R . . B -1
+N2 N 0.598(4) 0.613(8) 0.393(4) 0.064(6) Uani 0.0208 1 d D U . B -1
+H2 H 0.6766 0.6869 0.2981 0.077 Uiso 0.0208 1 calc R . . B -1
+C1 C 0.302(7) 0.427(7) 0.445(4) 0.064(6) Uani 0.0208 1 d D U . B -1
+H1A H 0.1743 0.4882 0.4587 0.077 Uiso 0.0208 1 calc R . . B -1
+H1B H 0.2826 0.2940 0.4006 0.077 Uiso 0.0208 1 calc R . . B -1
+C2 C 0.4248 0.5403 0.2966 0.064 Uani 0.0208 1 d D U . B -1
+H2A H 0.4611 0.4552 0.1893 0.077 Uiso 0.0208 1 calc R . . B -1
+H2B H 0.3497 0.6485 0.2441 0.077 Uiso 0.0208 1 calc R . . B -1
+C3 C 0.4239 0.6260 0.7011 0.064 Uani 0.0208 1 d D U . B -1
+H3A H 0.4895 0.6262 0.8267 0.077 Uiso 0.0208 1 calc R . . B -1
+H3B H 0.2965 0.6859 0.7173 0.077 Uiso 0.0208 1 calc R . . B -1
+C4 C 0.544(7) 0.742(6) 0.552(4) 0.064(6) Uani 0.0208 1 d D U . B -1
+H4A H 0.4676 0.8505 0.5027 0.077 Uiso 0.0208 1 calc R . . B -1
+H4B H 0.6604 0.7939 0.6142 0.077 Uiso 0.0208 1 calc R . . B -1
+C5 C 0.591(12) 0.336(8) 0.612(4) 0.064(6) Uani 0.0208 1 d D U . B -1
+H5A H 0.5761 0.2025 0.5666 0.077 Uiso 0.0208 1 calc R . . B -1
+H5B H 0.6565 0.3326 0.7379 0.077 Uiso 0.0208 1 calc R . . B -1
+C6 C 0.714(6) 0.452(13) 0.466(5) 0.064(6) Uani 0.0208 1 d D U . B -1
+H6A H 0.8306 0.5014 0.5300 0.077 Uiso 0.0208 1 calc R . . B -1
+H6B H 0.7537 0.3683 0.3592 0.077 Uiso 0.0208 1 calc R . . B -1
+N3 N 0.0000 1.0000 1.0000 0.064(6) Uani 1 48 d S TU P . .
+H3D H -0.0002 1.0177 0.8710 0.077 Uiso 0.0208 1 d RS T P C -2
+H3C H -0.1205 1.0170 1.0464 0.077 Uiso 0.0208 1 d R . . C -2
+H3E H 0.0805 1.0861 1.0555 0.077 Uiso 0.0208 1 d R . . C -2
+H3F H 0.0412 0.8765 1.0277 0.077 Uiso 0.0208 1 d R . . C -2
+
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_23
+_atom_site_aniso_U_13
+_atom_site_aniso_U_12
+Cl1 0.074(15) 0.086(15) 0.074(15) 0.003(12) -0.004(13) -0.001(13)
+O1 0.10(3) 0.09(3) 0.09(4) 0.01(2) -0.01(2) 0.02(2)
+O2 0.06(2) 0.07(2) 0.06(3) 0.00(2) 0.00(2) 0.000(17)
+O3 0.06(3) 0.07(3) 0.07(3) -0.01(2) 0.00(2) -0.010(19)
+N1 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+N2 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+C1 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+C2 0.063 0.064 0.065 0.002 0.002 -0.001
+C3 0.063 0.064 0.065 0.002 0.002 -0.001
+C4 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+C5 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+C6 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+N3 0.063(8) 0.064(8) 0.065(8) 0.002(6) 0.002(6) -0.001(6)
+
+_geom_special_details            
+;
+ All esds (except the esd in the dihedral angle between two l.s. planes)
+ are estimated using the full covariance matrix.  The cell esds are taken
+ into account individually in the estimation of esds in distances, angles
+ and torsion angles; correlations between esds in cell parameters are only
+ used when they are defined by crystal symmetry.  An approximate (isotropic)
+ treatment of cell esds is used for estimating esds involving l.s. planes.
+;
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+Cl1 O1 1.47(3) . ?
+Cl1 O2 1.48(3) . ?
+Cl1 O3 1.48(3) . ?
+N1 H1 1.0000 . ?
+N1 C1 1.48(2) . ?
+N1 C3 1.479(18) . ?
+N1 C5 1.478(19) . ?
+N2 H2 1.0000 . ?
+N2 C2 1.478(18) . ?
+N2 C4 1.482(19) . ?
+N2 C6 1.48(2) . ?
+C1 H1A 0.9900 . ?
+C1 H1B 0.9900 . ?
+C1 C2 1.56(2) . ?
+C2 H2A 0.9900 . ?
+C2 H2B 0.9900 . ?
+C3 H3A 0.9900 . ?
+C3 H3B 0.9900 . ?
+C3 C4 1.56(2) . ?
+C4 H4A 0.9900 . ?
+C4 H4B 0.9900 . ?
+C5 H5A 0.9900 . ?
+C5 H5B 0.9900 . ?
+C5 C6 1.56(2) . ?
+C6 H6A 0.9900 . ?
+C6 H6B 0.9900 . ?
+N3 H3D 0.9100 . ?
+N3 H3C 0.9100 . ?
+N3 H3E 0.9100 . ?
+N3 H3F 0.9300 . ?
+
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle_publ_flag
+O1 Cl1 O2 115(2) . . ?
+O1 Cl1 O3 115(3) . . ?
+O2 Cl1 O3 114(3) . . ?
+C1 N1 H1 109.0 . . ?
+C3 N1 H1 109.0 . . ?
+C3 N1 C1 109.8(18) . . ?
+C5 N1 H1 109.0 . . ?
+C5 N1 C1 110.0(19) . . ?
+C5 N1 C3 110.0(19) . . ?
+C2 N2 H2 109.0 . . ?
+C2 N2 C4 109.9(17) . . ?
+C4 N2 H2 109.0 . . ?
+C6 N2 H2 109.0 . . ?
+C6 N2 C2 110.1(19) . . ?
+C6 N2 C4 109.9(19) . . ?
+N1 C1 H1A 109.9 . . ?
+N1 C1 H1B 109.9 . . ?
+N1 C1 C2 109.0(17) . . ?
+H1A C1 H1B 108.3 . . ?
+C2 C1 H1A 109.9 . . ?
+C2 C1 H1B 109.9 . . ?
+N2 C2 C1 108.9(15) . . ?
+N2 C2 H2A 109.9 . . ?
+N2 C2 H2B 109.9 . . ?
+C1 C2 H2A 109.9 . . ?
+C1 C2 H2B 109.9 . . ?
+H2A C2 H2B 108.3 . . ?
+N1 C3 H3A 109.9 . . ?
+N1 C3 H3B 109.9 . . ?
+N1 C3 C4 109.0(15) . . ?
+H3A C3 H3B 108.3 . . ?
+C4 C3 H3A 109.9 . . ?
+C4 C3 H3B 109.9 . . ?
+N2 C4 C3 108.9(17) . . ?
+N2 C4 H4A 109.9 . . ?
+N2 C4 H4B 109.9 . . ?
+C3 C4 H4A 109.9 . . ?
+C3 C4 H4B 109.9 . . ?
+H4A C4 H4B 108.3 . . ?
+N1 C5 H5A 109.8 . . ?
+N1 C5 H5B 109.8 . . ?
+N1 C5 C6 109.2(16) . . ?
+H5A C5 H5B 108.3 . . ?
+C6 C5 H5A 109.8 . . ?
+C6 C5 H5B 109.8 . . ?
+N2 C6 C5 108.9(16) . . ?
+N2 C6 H6A 109.9 . . ?
+N2 C6 H6B 109.9 . . ?
+C5 C6 H6A 109.9 . . ?
+C5 C6 H6B 109.9 . . ?
+H6A C6 H6B 108.3 . . ?
+H3D N3 H3C 109.5 . . ?
+H3D N3 H3E 109.5 . . ?
+H3D N3 H3F 109.5 . . ?
+H3C N3 H3E 109.5 . . ?
+H3C N3 H3F 109.5 . . ?
+H3E N3 H3F 109.5 . . ?
+
+loop_
+_geom_torsion_atom_site_label_1
+_geom_torsion_atom_site_label_2
+_geom_torsion_atom_site_label_3
+_geom_torsion_atom_site_label_4
+_geom_torsion
+_geom_torsion_site_symmetry_1
+_geom_torsion_site_symmetry_2
+_geom_torsion_site_symmetry_3
+_geom_torsion_site_symmetry_4
+_geom_torsion_publ_flag
+N1 C1 C2 N2 -1(2) . . . . ?
+N1 C3 C4 N2 -1(2) . . . . ?
+N1 C5 C6 N2 -1(2) . . . . ?
+C1 N1 C3 C4 -60(3) . . . . ?
+C1 N1 C5 C6 61(2) . . . . ?
+C2 N2 C4 C3 61(2) . . . . ?
+C2 N2 C6 C5 -60(2) . . . . ?
+C3 N1 C1 C2 61(2) . . . . ?
+C3 N1 C5 C6 -60(3) . . . . ?
+C4 N2 C2 C1 -60(3) . . . . ?
+C4 N2 C6 C5 61(2) . . . . ?
+C5 N1 C1 C2 -60(3) . . . . ?
+C5 N1 C3 C4 61(2) . . . . ?
+C6 N2 C2 C1 61(2) . . . . ?
+C6 N2 C4 C3 -60(3) . . . . ?
+
+_shelx_res_file                  
+;
+    1.res created by SHELXL-2014/7
+
+TITL 1_a.res in Pm-3m
+REM Old TITL 1 in Pm-3m #221
+REM SHELXT solution in Pm-3m
+REM R1 0.373, Rweak 0.417, Alpha 0.055, Orientation as input
+REM Formula found by SHELXT: C2 Cl1
+CELL 0.71073 6.9863 6.9863 6.9863 90 90 90
+ZERR 0.99984 0.0001 0.0001 0.0001 0 0 0
+LATT 1
+SYMM -X,-Y,+Z
+SYMM -X,+Y,-Z
+SYMM +X,-Y,-Z
+SYMM +Z,+X,+Y
+SYMM +Z,-X,-Y
+SYMM -Z,-X,+Y
+SYMM -Z,+X,-Y
+SYMM +Y,+Z,+X
+SYMM -Y,+Z,-X
+SYMM +Y,-Z,-X
+SYMM -Y,-Z,+X
+SYMM +Y,+X,-Z
+SYMM -Y,-X,-Z
+SYMM +Y,-X,+Z
+SYMM -Y,+X,+Z
+SYMM +X,+Z,-Y
+SYMM -X,+Z,+Y
+SYMM -X,-Z,-Y
+SYMM +X,-Z,+Y
+SYMM +Z,+Y,-X
+SYMM +Z,-Y,+X
+SYMM -Z,+Y,+X
+SYMM -Z,-Y,-X
+SFAC C H Cl N O
+UNIT 6 18 3 3 9
+DFIX 1.48 N1 C5 N1 C3 N2 C2
+DFIX 1.55 C5 C6
+DFIX 2.488 O2 O3 O1 O3 O1 O2
+DFIX 1.49 N2 C4
+DFIX 1.56 C1 C2 C3 C4
+DFIX 1.49 Cl1 O2 Cl1 O3 Cl1 O1
+SADI O2 O1 O3 O1 O3 O2
+SADI N1 C5 N1 C1 N1 C3 N2 C6 N2 C2 N2 C4
+SADI C5 C6 C1 C2 C3 C4
+SADI C5 C1 C1 C3 C5 C3 C6 C2 C6 C4 C2 C4
+SADI C5 C2 C6 C1 C2 C3 C1 C4 C5 C4 C6 C3
+DANG 2.48 N1 C6 N1 C2
+DANG 2.49 N1 C4 C5 N2 N2 C1 N2 C3
+SIMU Cl1 > O3
+RIGU 0.01 0.02 Cl1 > O3
+RIGU 0.01 0.02 N1 > C6
+ISOR N1 C5 N2 C6 C1 C2 C3 C4
+ISOR 0.01 0.02 O1 Cl1 O2 O3
+ISOR N1 C1 C3 C5 C2 C4 C6 N2 N3
+ISOR 0.01 0.02 N3 C3 N1 C1 C5 C2 C4 C6 N2
+EADP N2 N1 C1 C3 C5 C2 C4 C6 N3
+
+L.S. 50 0 0
+PLAN  1
+TEMP -193.15
+CONF
+BOND $H
+list 4
+MORE -1
+fmap 2 53
+acta
+REM <olex2.extras>
+REM <HklSrc "%.\\1.hkl">
+REM </olex2.extras>
+
+WGHT    0.200000    1.500000
+FVAR       1.66070
+PART -1
+CL1   3   -0.000120    0.530842    1.018184    10.06250    0.07415    0.08630 =
+         0.07364    0.00344   -0.00439   -0.00114
+O1    5   -0.135490    0.690621    1.040542    10.06250    0.09569    0.08532 =
+         0.08638    0.00864   -0.00980    0.01692
+O2    5    0.203900    0.586401    1.023517    10.06250    0.06384    0.07291 =
+         0.06239    0.00020    0.00411   -0.00004
+O3    5   -0.049075    0.393162    0.864294    10.06250    0.06165    0.07371 =
+         0.06952   -0.00994   -0.00238   -0.01023
+
+N1    4    0.401633    0.427252    0.631760    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  13
+H1    2    0.323817    0.353279    0.726422    10.02083   -1.20000
+AFIX   0
+N2    4    0.598489    0.613201    0.392750    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  13
+H2    2    0.676563    0.686932    0.298112    10.02083   -1.20000
+AFIX   0
+C1    1    0.301532    0.427224    0.445164    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  23
+H1A   2    0.174325    0.488185    0.458676    10.02083   -1.20000
+H1B   2    0.282554    0.294038    0.400644    10.02083   -1.20000
+AFIX   1
+C2    1    0.424750    0.540320    0.296600    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  23
+H2A   2    0.461126    0.455165    0.189334    10.02083   -1.20000
+H2B   2    0.349731    0.648469    0.244098    10.02083   -1.20000
+AFIX   1
+C3    1    0.423850    0.626010    0.701090    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  23
+H3A   2    0.489480    0.626214    0.826681    10.02083   -1.20000
+H3B   2    0.296467    0.685926    0.717348    10.02083   -1.20000
+AFIX   0
+C4    1    0.543997    0.741874    0.552266    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  23
+H4A   2    0.467650    0.850479    0.502704    10.02083   -1.20000
+H4B   2    0.660363    0.793863    0.614206    10.02083   -1.20000
+AFIX   0
+C5    1    0.591367    0.335829    0.612108    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  23
+H5A   2    0.576051    0.202519    0.566564    10.02083   -1.20000
+H5B   2    0.656478    0.332599    0.737929    10.02083   -1.20000
+AFIX   0
+C6    1    0.713928    0.452052    0.466363    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+AFIX  23
+H6A   2    0.830567    0.501371    0.529954    10.02083   -1.20000
+H6B   2    0.753695    0.368301    0.359195    10.02083   -1.20000
+AFIX   0
+
+PART 0
+N3    4    0.000000    1.000000    1.000000    10.02083    0.06349    0.06388 =
+         0.06514    0.00238    0.00202   -0.00114
+PART -2
+AFIX   3
+H3D   2   -0.000230    1.017720    0.870960    10.02083   -1.20000
+H3C   2   -0.120520    1.017030    1.046370    10.02083   -1.20000
+H3E   2    0.080450    1.086100    1.055510    10.02083   -1.20000
+H3F   2    0.041190    0.876500    1.027750    10.02083   -1.20000
+AFIX   0
+HKLF 4
+
+REM  1_a.res in Pm-3m
+REM R1 =  0.0922 for      90 Fo > 4sig(Fo)  and  0.0994 for all     105 data
+REM     61 parameters refined using    247 restraints
+
+END
+
+WGHT      0.2000      0.0000
+
+REM Highest difference peak  0.606,  deepest hole -0.656,  1-sigma level  0.095
+Q1    1   0.7363  0.5000  0.5000  10.12500  0.05    0.61
+;
+_shelx_res_checksum              62951
+_shelx_hkl_file                  
+;
+  -1   0   0  120.19    6.10
+   0   0  -1  123.49    6.10
+   0   0   1  119.19    6.10
+   1   0   0  122.49    6.10
+  -1   0   0  107.49    6.00
+  -1   0   0  121.79    7.90
+   0  -1   0  125.69    7.60
+   0   1   0  113.39    9.80
+   1   0   0  111.49    8.40
+   0   1   0  107.09    6.00
+  -1   0   0  128.59    6.60
+   0   0  -1  121.89    6.40
+   0   0   1  125.09    6.50
+   0   0   1  122.79    6.70
+   1   0   0  128.39    6.70
+   0   0   1  105.39    8.80
+   0  -1   0  116.19   11.50
+  -1   0   0  113.59    9.50
+  -1   0  -1  115.09    6.00
+  -1  -1   0  103.29    6.10
+   0  -1  -1  104.09    5.20
+   0   1  -1  100.49    5.30
+   1   0  -1   95.29    5.20
+   1   0  -1  103.09    5.20
+   1   0   1   99.29    5.40
+   1   1   0   99.69    5.20
+  -1   0  -1   88.39    5.30
+  -1   1   0   97.89    5.20
+  -1   0  -1   96.99    5.30
+  -1   0   1   97.29    5.30
+  -1   0   1  104.49    5.40
+  -1   1   0  102.79    5.20
+  -1  -1   0  108.39    8.70
+  -1   0  -1  113.19    8.80
+  -1  -1   0   96.59    5.30
+   0  -1  -1   96.59    8.60
+   0  -1   1  102.89    6.50
+   0   1  -1   99.99    7.30
+   1  -1   0  100.69    6.20
+   1   0   1   81.59    8.10
+  -1   0   1  109.99    6.00
+  -1  -1   0  110.89    5.30
+  -1   0   1  110.09    5.20
+   0  -1   1  105.79    5.30
+   0   1  -1  105.99    5.10
+  -1   0   1  116.19   10.60
+   0  -1  -1   92.39    9.80
+   0  -1   1   95.39   14.50
+  -1   0   1  100.59    7.10
+  -1   0  -1   87.29    5.40
+   0  -1   1   96.39    5.30
+   0   1  -1  102.19    5.30
+   0   1   1  104.49    5.20
+   1   0   1  111.29    5.30
+   1   1   0  108.49    5.30
+   1   0   1  108.59    6.20
+  -1  -1   0  105.09   12.60
+  -1   0  -1   95.09    8.90
+   1   0  -1  102.59    6.20
+   1   1   0  108.99    5.70
+  -1  -1  -1 9816.12  487.75
+  -1  -1   1 9642.14  490.55
+  -2   0   0 9992.20  487.15
+   0  -2   0 9999.00  487.05
+   0  -2   0 9917.01  493.15
+   0   2   0 8937.31  488.95
+  -2   0   0 9800.22  490.15
+   0  -1   2  704.33   35.40
+   2   0  -1  681.13   35.90
+   2   0   1  668.93   35.80
+   1   0   2  682.93   34.50
+  -1  -2   0  719.53   35.20
+  -1   0  -2  684.63   38.60
+  -2   0   1  694.83   35.40
+  -2   0  -1  695.23   35.50
+  -1  -2   0  715.33   39.20
+   0  -1  -2  716.03   39.40
+  -2  -1   0  620.94   39.80
+  -2   1   0  724.63   35.90
+   1   0  -2  681.03   36.00
+   2  -1   0  708.43   34.50
+   0  -1  -2  659.33   35.10
+   0  -1  -2  666.03   35.40
+  -2   0   1  711.43   41.40
+  -1  -2   0  677.23   44.20
+   0  -1   2  701.63   44.80
+   1  -2   0  701.03   44.10
+  -2  -1   0  664.33   41.80
+   0  -2   1  691.83   45.90
+  -2   0  -1  677.03   40.60
+  -1   0   2  698.13   36.80
+   0  -2  -1  688.33   38.90
+   0  -2   1  688.83   36.30
+   2  -1   0  704.73   35.40
+   2   1   0  698.63   35.70
+   0  -1   2  685.33   34.50
+   2   0  -1  640.84   34.60
+   0  -1   2  685.13   36.20
+  -2  -1   0  658.13   35.80
+  -1   0  -2  680.23   35.40
+  -1   0   2  696.73   35.10
+  -1   0   2  709.43   35.50
+  -2   0  -1  641.24   38.40
+   1   0   2  673.33   35.50
+  -2   0   1  685.53   37.30
+   1  -2   1  327.97   28.70
+  -1  -1   2  346.07   28.10
+  -1  -2  -1  333.17   16.30
+  -1   2  -1  315.07   16.30
+   1   1  -2  313.67   16.30
+  -1   1  -2  315.87   16.30
+  -2  -1  -1  321.87   16.40
+   2   1   1  322.97   17.50
+  -1  -1   2  330.77   16.40
+  -2   1   1  313.37   16.30
+  -1  -2   1  304.17   16.30
+  -1  -2   1  333.77   16.50
+  -1  -1  -2  324.17   16.40
+  -2  -1  -1  324.97   16.60
+  -1  -1  -2  335.67   16.50
+  -1  -1   2  331.47   16.30
+  -1   1  -2  345.47   16.50
+   1  -2   1  325.07   16.30
+   1  -1   2  312.27   16.50
+   1   1  -2  351.16   16.40
+   2  -1   1  316.87   16.60
+   2   1  -1  312.07   16.40
+   2   1   1  325.77   16.40
+  -1  -2  -1  333.67   16.90
+  -1  -2   1  310.87   17.80
+  -2  -1  -1  327.77   22.60
+  -2  -1   1  337.17   21.40
+  -2   1   1  328.17   18.30
+  -1  -2  -1  320.07   22.70
+  -1  -2   1  320.87   20.60
+  -1  -1  -2  316.47   22.90
+  -1  -1   2  334.37   19.20
+  -1   1  -2  320.67   19.90
+  -1   1   2  325.17   16.30
+  -1   1   2  324.57   16.40
+   1  -2   1  324.17   16.30
+   1  -1  -2  312.37   16.30
+   1  -1   2  330.17   16.40
+   1   1  -2  322.07   16.40
+  -2   1  -1  310.97   16.30
+  -2   1   1  309.87   16.20
+  -1   2  -1  318.87   16.40
+  -1   2   1  305.27   16.10
+   1  -1   2  319.37   27.90
+   1   1   2  310.97   16.30
+   1   2   1  326.07   16.20
+   2  -1  -1  329.97   16.40
+   2  -1   1  306.57   16.40
+   2   1   1  308.77   16.40
+   1  -2  -1  352.36   20.70
+   1   2   1  294.47   16.20
+   2   1  -1  293.37   16.30
+  -2  -1   1  329.17   18.00
+  -2   1  -1  326.77   16.30
+  -2  -1  -1  321.47   17.80
+  -2  -1   1  322.77   26.70
+  -2   1   1  339.97   23.50
+  -1  -2   1  315.67   28.80
+  -1  -1   2  332.57   18.20
+   1  -1  -2  324.37   16.90
+   1  -1  -2  331.87   17.40
+   1  -1   2  328.37   17.60
+   2  -1  -1  323.07   17.30
+   2  -1   1  333.27   17.70
+   2   1  -1  329.37   18.00
+  -2  -1  -1  328.17   24.60
+   1   2  -1  321.27   16.30
+  -2  -1  -1  305.77   16.10
+  -2   0  -2 1195.78   64.69
+   2  -2   0 1314.47   63.89
+   0  -2  -2 1192.98   63.59
+   0  -2  -2 1280.57   63.59
+   0  -2   2 1181.48   63.49
+   2  -2   0 1272.57   63.49
+  -2   0  -2 1280.37   69.19
+   0  -2  -2 1312.47   69.69
+   0  -2   2 1269.37   65.49
+  -2   0   2 1263.47   64.09
+  -2   0   2 1307.57   64.59
+   2   0  -2 1264.37   65.39
+   2   0   2 1298.07   65.19
+  -2  -2   0 1289.97   65.19
+  -2  -2   0 1267.57   70.69
+   0  -2   2 1328.87   78.19
+  -2  -2   0 1278.57   74.59
+  -2  -2   1 1038.60   54.39
+  -1  -2  -2 1103.09   55.39
+   2   1  -2 1078.39   56.19
+   2  -2   1 1053.19   54.29
+  -2  -1   2 1087.59   59.29
+   1  -2  -2 1074.49   54.19
+  -1  -2   2 1098.59   56.59
+  -2  -2  -1 1113.49   61.79
+  -2  -2   1 1125.59   60.29
+  -2  -1  -2 1089.59   61.39
+  -2  -1   2 1086.89   58.09
+  -1  -2  -2 1126.19   62.29
+  -1  -2   2 1103.89   57.69
+   1  -2  -2 1063.99   59.19
+   1  -2   2 1114.99   55.49
+   2  -2  -1 1105.69   54.49
+   2  -2   1 1145.09   55.29
+   2  -1   2 1009.90   54.29
+   2  -1   2 1068.79   55.99
+  -2  -1   2 1090.29   65.99
+  -1  -2   2 1132.59   69.19
+   1  -2   2 1071.09   67.39
+  -2  -1   2 1028.40   54.29
+   2  -1  -2 1071.89   55.79
+  -2  -2   1 1112.29   56.49
+  -2  -1  -2 1075.99   55.99
+  -2  -2  -1 1103.79   55.99
+  -2  -2   1 1102.79   67.89
+  -1  -2   2 1030.30   54.29
+   1  -2   2 1039.10   54.29
+   2  -2  -1 1051.89   54.19
+   1  -2  -2 1110.89   54.09
+  -2  -2   2  252.37   20.20
+  -2   2  -2  265.07   14.20
+  -2  -2  -2  267.87   16.20
+   2  -2  -2  289.37   15.30
+  -2  -2  -2  266.67   27.20
+  -2  -2   2  281.77   21.50
+   2   2  -2  263.97   14.20
+  -2  -2   2  262.87   37.60
+   2  -2   2  258.37   34.80
+  -2  -2  -2  273.57   14.20
+   2   2  -2  280.67   14.10
+  -2  -2   2  258.37   14.40
+  -2  -2   2  287.67   14.50
+  -2   2  -2  293.17   14.10
+  -2   2   2  269.87   13.90
+  -2   2   2  271.27   13.90
+   2  -2   2  257.77   14.30
+   2   2   2  285.47   14.20
+  -2  -2  -2  278.17   14.50
+  -2  -2   2  297.27   14.10
+   2  -2  -2  272.77   13.90
+   2  -2   2  260.77   14.40
+   2   2  -2  290.97   14.20
+   2  -2   2  287.97   16.10
+  -3   0   0 1238.18   67.79
+  -3   0   0 1226.78   64.49
+   0   0   3 1284.97   64.39
+   0   0   3 1262.77   64.69
+   3   0   0 1217.68   65.19
+  -3   0   0 1283.27   72.09
+   0  -3   0 1292.17   81.99
+   0   0  -3 1309.17   68.99
+  -3   1   0   32.50    2.00
+  -1   0   3   30.40    2.10
+   0  -3  -1   30.20    1.60
+   0  -3   1   27.30    1.90
+   1   0  -3   32.60    2.10
+   1   0   3   32.10    2.10
+   3  -1   0   31.30    2.30
+   3   1   0   29.90    2.40
+   0   3   1   28.60    1.80
+  -3  -1   0   43.20   14.30
+  -3   1   0   35.50   11.90
+   0  -3   1   41.30   20.50
+  -3   0  -1   28.90    1.80
+  -1   3   0   29.50    1.80
+   1   3   0   25.70    1.70
+  -3   0   1   33.60    3.70
+   0  -1   3   31.50    3.80
+   0  -1  -3   31.90    2.20
+   0   3  -1   27.00    2.00
+   0   3   1   29.70    1.60
+  -3   0   1   32.90    8.00
+  -1  -3   0   31.70   11.60
+   0  -1  -3   38.20   10.20
+   0   1  -3   30.90    2.10
+   0   3  -1   29.80    2.00
+  -3   0  -1   31.20    2.10
+  -3  -1   0   35.20   10.70
+   3   0   1   29.30    2.30
+   0  -3  -1   17.60   11.60
+   0   1   3   28.40    1.90
+   1  -3   0   27.80    1.70
+  -1   3   0   32.10    1.90
+   1   3   0   29.80    1.90
+   1   0  -3   31.00    1.80
+   3  -1   0   30.70    2.30
+   3   1   0   30.50    2.40
+  -3  -1   0   31.50    1.90
+  -1   0  -3   32.20    2.50
+   0  -3   1   29.30    1.90
+   0  -3   1   32.80    1.70
+  -1   0  -3   30.00    2.10
+  -1   0  -3   27.60    3.50
+  -1   0   3   30.80    4.70
+  -1   0   3   41.00    4.20
+   1   0  -3   33.10    4.80
+   1   0   3   27.00    5.60
+   1   0   3   28.70    4.00
+   3  -1   0   30.90    4.10
+   3   1   0   36.60    4.60
+  -1   0  -3   30.10   11.30
+  -3   0  -1   34.90   10.30
+  -3  -1   0   33.60    2.20
+  -3   0  -1   44.60   13.80
+  -3   0   1   25.70   14.50
+  -1  -3   0   36.80   18.10
+   1  -3   0    7.90   17.90
+   0   1  -3   30.70    2.30
+   0   1  -3   29.80    1.80
+   3   0  -1   33.90    2.10
+   3   0   1   29.60    2.50
+  -3  -1   0   26.30    4.30
+  -3   1   0   30.90    1.80
+  -3   0  -1   33.20    1.90
+  -3   0   1   32.30    1.80
+  -1  -3   0   34.10    2.20
+   3   0   1   29.70    4.30
+  -3   0   1   31.90    2.10
+  -3   0  -1   29.60    3.60
+   0  -1   3   36.10    5.10
+  -1  -3   0   29.10    3.20
+   0  -1  -3   27.70    3.40
+   3   0  -1   28.80    2.50
+   0  -1   3   28.20    2.20
+  -1  -3   0   31.20    2.00
+   0  -1  -3   32.40    2.10
+   3   1  -1  175.48   11.30
+   3  -1  -1  152.58    9.10
+   3  -1   1  166.18    9.10
+  -3  -1  -1  167.88    8.90
+   3  -1   1  160.18   11.00
+  -1  -1   3  183.48   11.60
+  -1  -1   3  157.98    8.90
+   3   1  -1  167.48    9.20
+   1   3   1  154.18    8.70
+   3   1  -1  169.88    8.80
+   3  -1  -1  166.48    8.70
+   3  -1   1  179.58    9.30
+  -1   1   3  182.68    8.80
+  -1   1  -3  170.78    9.10
+  -1   3   1  159.58    8.50
+   1  -1   3  171.88    9.10
+   1   1  -3  144.79    8.90
+   1   1   3  168.38    8.80
+  -3   1  -1  171.88    8.50
+  -1  -3  -1  169.68    8.60
+  -1  -3   1  173.18    8.60
+  -1  -1   3  171.48   10.40
+  -3  -1  -1  167.28   11.00
+   1  -1  -3  162.68   11.00
+  -3  -1  -1  145.99   19.60
+  -3  -1   1  164.48   17.50
+  -1  -3  -1  176.68   21.30
+  -1  -3   1  167.38   17.00
+  -1  -1  -3  201.68   26.30
+  -1   1  -3  196.48   18.90
+   1  -1  -3  171.88   18.60
+   1  -1  -3  173.08    8.90
+  -3  -1  -1  161.88    8.50
+  -1   1  -3  176.38    8.90
+   1   1  -3  167.58    8.70
+   1   3  -1  163.88    8.80
+   1  -3   1  167.38    8.70
+   3   1   1  174.18    9.00
+  -1  -3  -1  165.38    9.30
+  -1  -3   1  182.08   10.90
+   3   1  -1  176.98    9.10
+  -1  -3  -1  170.48    8.70
+  -1  -3   1  167.38    8.90
+  -1  -1  -3  170.88    8.90
+   3   1   1  184.98   11.30
+   1  -3   1  177.48    8.50
+   1  -1   3  177.68   10.70
+   3  -1  -1  170.48   10.90
+  -1   3  -1  169.88    8.80
+  -1   3   1  155.18    8.60
+  -3   1  -1  169.08    8.70
+  -3   1   1  165.18    8.60
+  -1   3  -1  160.98    8.80
+  -3  -1  -1  164.18    9.00
+  -3  -1   1  141.69    8.90
+  -3   1  -1  169.38    8.80
+  -3   1   1  169.48    8.80
+  -3  -1  -1  167.78   25.20
+  -3  -1   1  161.28   24.80
+  -3   1   1  176.78   22.70
+  -1  -3   1  158.18   27.60
+   1  -3   1  166.78   29.40
+  -1  -1  -3  165.08   10.40
+   1   1  -3  178.48    9.00
+   1   1  -3  172.98    8.70
+  -1   1  -3  169.38    8.70
+  -3  -1   1  183.78   11.10
+  -3   1  -1  173.48    9.30
+  -3  -1   1  171.08    8.70
+  -1  -1  -3  183.38    9.10
+   2   0   3  206.58   11.10
+  -2  -3   0  190.88   14.40
+   3   0  -2  207.88   10.70
+  -3   2   0  221.28   10.70
+  -3  -2   0  213.78   14.30
+  -2   0  -3  212.88   12.60
+   0  -3   2  214.68   10.70
+  -3   0  -2  191.98   10.70
+  -3   0   2  225.28   11.00
+  -2  -3   0  181.58   32.70
+  -3   0   2  214.78   11.00
+  -3   0   2  224.38   12.20
+  -3   0   2  222.28   17.30
+  -2  -3   0  237.88   24.80
+   0  -2  -3  209.78   24.30
+   3   2   0  206.58   11.10
+  -2   3   0  211.58   10.70
+  -3  -2   0  213.78   32.60
+  -2   0   3  224.38   11.20
+   0  -2   3  207.18   12.80
+   0  -2   3  204.28   14.20
+   3   0  -2  214.18   13.90
+   3   0   2  194.38   13.20
+   0   2   3  214.48   10.70
+   0   2  -3  219.58   10.90
+   0   2   3  182.88   10.50
+   2   3   0  200.58   10.80
+  -3   0  -2  208.18   11.20
+  -2  -3   0  195.28   11.00
+   0   2  -3  202.08   10.60
+  -2   0  -3  199.48   11.00
+  -2   0  -3  221.18   11.40
+   2  -3   0  220.28   10.50
+   3   0  -2  205.78   10.80
+   3   0   2  211.58   11.20
+   3   0   2  210.08   11.40
+   0  -3  -2  202.78   10.60
+   0  -3   2  214.28   11.00
+   0  -2  -3  219.68   10.90
+   0  -2  -3  198.88   12.10
+   0  -2  -3  198.68   12.90
+   3   2   0  213.08   10.90
+   0   3  -2  207.88   10.90
+  -2   0   3  223.78   11.80
+  -2   0   3  225.28   12.20
+   2   0  -3  217.18   14.00
+   2   0   3  222.98   13.30
+   3  -2   0  206.88   12.80
+   3   2   0  221.88   12.20
+  -3  -2   0  208.08   11.10
+  -3   2   0  217.88   10.80
+  -2   0  -3  184.18   11.00
+  -3  -2   0  223.68   10.80
+  -3   0  -2  207.88   12.60
+  -3  -2   0  211.58   21.80
+   2  -3   0  300.47   37.30
+   2   0   3  216.28   11.00
+   3  -2   0  194.48   11.00
+   3   2   0  213.08   10.80
+  -3   0  -2  214.88   11.00
+   0   3   2  191.18   10.60
+   2   0  -3  205.08   10.60
+  -2   0   3  208.08   11.00
+  -2   0  -3  238.58   23.90
+   0  -3  -2  209.18   24.30
+  -3   0   2  203.78   11.70
+   0   2  -3  214.58   10.90
+   0  -3   2  216.98   35.80
+   0  -2   3  194.68   11.10
+  -2  -3   0  211.98   11.00
+  -3  -1  -2   20.50    2.20
+  -2   3   1   19.90    1.30
+   3   1  -2   14.00    4.10
+   3  -2  -1   20.80    1.30
+  -3  -2   1   17.80   11.10
+   1   3   2   20.00    1.20
+  -1  -3   2   20.60    1.40
+   1   2  -3   18.70    1.50
+  -3   1   2   17.20    7.40
+  -2  -3  -1   -4.10   16.40
+   2  -1  -3   19.00    1.30
+  -3  -2   1   12.90   17.70
+  -3   1   2   19.90    1.60
+  -3  -2   1   19.40    1.40
+   3  -1   2   17.20    4.00
+  -2   1  -3   19.30    1.30
+  -1  -3   2   21.60    2.10
+   1   2  -3   18.30    1.30
+   1   3   2   17.90    1.40
+   1  -2   3   18.00    2.20
+  -2  -1   3   12.30    8.20
+  -2  -3  -1   21.50    1.70
+  -1   3  -2   19.80    1.40
+  -2  -1   3   20.20    1.90
+  -1  -2  -3   18.20    1.60
+  -2   1  -3   20.90    1.70
+  -1  -3   2   26.70    5.10
+  -1   2   3   20.90    1.30
+  -1   2   3   21.30    1.40
+   3  -2  -1   18.10    3.40
+  -3  -1  -2   19.50    3.60
+   3   2   1   19.90    1.80
+  -3  -2   1   17.20    4.30
+   2   1   3   18.80    1.80
+  -1  -2  -3   21.20    3.50
+   2   3  -1   18.40    1.60
+  -2  -1   3   22.80    4.30
+   3  -1   2   20.00    2.40
+   1  -2   3   21.70    3.80
+   3   1  -2   22.80    1.70
+  -2   1  -3   22.00    2.00
+  -3   1   2   19.70    1.50
+  -1   3  -2   19.90    1.60
+   2  -3   1  -19.40   20.10
+  -2  -1   3   20.80    2.10
+  -1   3  -2   22.00    2.00
+   2   1   3   19.60    3.10
+   2  -3   1   22.20    2.90
+   3  -1   2   20.70    2.20
+  -3  -1  -2   19.70    1.20
+  -2  -3  -1   20.50    1.90
+  -1  -2  -3   18.60   18.70
+  -1  -2  -3   20.40    1.80
+  -1  -3   2    5.90   21.20
+  -2   1  -3   18.20    1.90
+   1  -2   3   19.50    1.90
+   1   2  -3   18.40    1.70
+  -2  -3  -1   20.10    3.90
+   2  -3   1   17.00    1.70
+   2  -1  -3   28.60    4.80
+  -3   2  -1   21.10    1.50
+  -3  -2   1   19.30    1.90
+  -3   2  -1   21.30    1.40
+  -2  -1   3   18.90    3.30
+   3   1  -2   17.00    1.50
+  -3  -1  -2   14.70   12.70
+  -3  -1  -2   19.60    1.80
+  -1   2  -3   20.80    1.60
+  -3  -1   2   19.00    1.40
+  -3  -1   2   17.30    1.80
+  -3  -2  -1   21.80    2.00
+   3  -1  -2   14.20    3.80
+   3   2  -1   17.10    1.80
+   3  -1  -2   18.60    1.40
+  -3   1  -2   23.70    1.70
+   3   1   2   18.90    1.70
+  -2  -3   1   13.50    4.10
+  -1   2  -3   19.80    1.60
+  -1  -2   3   17.60    4.60
+   2   3   1   19.40    1.50
+  -2  -3   1   14.60   23.10
+   2  -1   3   19.10    4.20
+  -3   2   1   19.60    1.40
+  -3   2   1   19.60    1.30
+  -1   2  -3   19.60    1.20
+  -3  -1   2   13.50   19.30
+  -1  -3  -2   21.70    1.50
+  -1  -2   3   20.00    2.20
+   1  -3   2   18.00    1.80
+   2   1  -3   19.80    1.40
+  -3  -1   2   17.90    1.90
+   2   1  -3   19.10    1.40
+  -2  -3   1   18.10    1.80
+   3  -2   1   21.10    2.20
+   2  -1   3   18.60    2.30
+  -2  -1  -3   19.10    1.60
+  -3  -1   2   21.10    4.20
+   1   3  -2   18.90    1.60
+  -2  -1  -3    8.40   15.20
+  -3  -2  -1   20.20    4.50
+  -3   1  -2   19.50    1.50
+  -2   3  -1   18.20    1.50
+   3  -1  -2   19.10    1.30
+  -2  -1  -3   16.90    3.50
+   1  -2  -3   17.00    2.80
+   1  -3   2    2.70   26.30
+  -3   2   1   20.10    1.30
+  -2   3  -1   20.40    1.30
+  -1  -3  -2   21.70    1.50
+  -1  -3  -2   21.90   16.70
+  -2   1   3   19.10    1.50
+  -3  -2  -1   17.00    1.70
+   3   2  -1   20.60    1.60
+  -2  -3   1   19.70    1.40
+  -1  -2   3   25.20    8.90
+   2  -1   3   19.50    2.00
+   1  -2  -3   19.70    1.60
+  -2   1   3   19.40    1.70
+   1   2   3   18.20    1.50
+   2   3   1   18.70    1.50
+   1  -2  -3   25.80    3.90
+   3   1   2   19.30    2.00
+   3  -2   1   22.00    3.90
+  -2  -1  -3   20.10    2.20
+  -3  -2  -1   24.60   15.10
+   3   2  -1   31.50    6.00
+   3   1   2   27.90    4.40
+  -1  -3  -2   20.90    3.00
+  -3  -1   2   14.10    9.90
+  -2  -1  -3   14.10    1.70
+   1  -2  -3   19.10   12.20
+  -2  -3   1   15.70   13.80
+  -3  -2  -2  226.78   15.40
+   2  -2   3  230.28   12.60
+  -2   2  -3  240.28   11.80
+  -2  -3   2  180.78   35.10
+  -3  -2  -2  234.98   12.40
+   3   2  -2  229.18   12.20
+  -3   2   2  229.58   12.10
+   2  -2  -3  212.98   26.10
+  -2  -2   3  230.98   20.80
+   2  -3   2  231.78   12.60
+   2   3   2  233.08   12.20
+   2   3  -2  239.88   12.20
+  -3  -2   2  160.28   34.40
+  -2  -2   3  224.58   16.20
+  -3  -2   2  222.88   15.90
+   2  -2  -3  242.68   12.00
+   2   2  -3  240.98   12.20
+  -2  -3   2  243.48   12.10
+  -2  -2  -3  248.98   12.80
+  -2  -2   3  241.88   12.20
+  -2   2  -3  236.88   11.80
+   2   3   2  235.48   12.10
+  -2  -3  -2  247.08   15.20
+  -2  -3   2  222.58   16.10
+  -2  -2  -3  243.08   15.00
+   3  -2  -2  259.17   16.20
+   3  -2   2  240.38   15.90
+  -2  -3  -2  231.58   12.60
+  -3   2  -2  243.78   12.20
+  -2   2  -3  236.28   12.50
+  -2   3  -2  238.88   12.30
+  -3  -2   2  231.38   12.10
+  -2  -2  -3  235.98   12.40
+  -2  -2   3  222.08   12.70
+  -2  -2   3  250.97   12.80
+  -2   2  -3  238.78   12.30
+  -2   2   3  236.58   12.00
+  -2   2   3  236.48   12.10
+  -2   3  -2  244.98   12.10
+  -3  -2  -2  236.48   12.80
+  -3  -2   2  206.38   12.60
+  -3  -2   2  234.28   12.60
+  -3   2  -2  238.08   12.20
+  -3   2   2  217.68   12.00
+  -3  -2  -2  231.68   29.50
+  -2  -3  -2  232.38   12.30
+  -2  -3   2  241.18   12.60
+   2  -3  -2  240.38   12.40
+   2  -3  -2  243.98   12.70
+   2  -3   2  251.97   14.60
+   2  -2  -3  261.77   18.50
+   2  -2   3  226.08   15.10
+  -2  -3  -2  250.97   31.60
+  -2  -3   2  198.28   23.50
+  -2  -2  -3  243.38   32.50
+  -3  -2   2  193.28   23.50
+   2   2   3  245.98   12.30
+   3  -2   2  234.08   12.80
+  -3  -3   0   77.29    4.60
+  -3   0  -3   77.79    4.50
+  -3   0   3   75.29    4.60
+   0   3  -3   74.69    4.30
+   3   0  -3   76.79    4.00
+   3   0  -3   72.09    4.20
+  -3   3   0   77.69    4.10
+  -3   0  -3   74.39    4.90
+   3   0   3   81.49    8.10
+  -3   0   3   73.79    4.50
+   3   0  -3   81.29    9.30
+   0  -3   3   77.59    7.40
+   0  -3   3   65.59    8.60
+   3  -3   0   71.49    6.50
+  -3  -3   0   71.19   32.40
+   3   3   0   76.59    4.30
+   0  -3  -3   67.19    6.90
+  -3   3   0   74.39    3.90
+   0   3  -3   75.79    4.30
+  -3   0   3   55.39   12.10
+  -3   0   3   75.89    5.00
+  -3   0   3   71.19    5.50
+   0  -3  -3   50.69   23.50
+  -3   0  -3   72.59    6.90
+   0  -3  -3   73.69    6.10
+  -3   0  -3   72.29    4.20
+   3  -3   0   72.09    4.30
+   3   0   3   72.19    4.60
+  -3  -3   0   77.09    4.20
+  -3  -3   0   81.19   19.00
+  -1   3  -3  220.88   10.70
+  -3   1   3  217.88   10.80
+  -3   1   3  184.68   10.60
+   3  -3   1  208.18   13.50
+   3   3   1  195.08   10.80
+  -3  -1   3  228.88   11.20
+  -3   1  -3  220.98   10.90
+  -3  -3   1  186.38   27.80
+  -3  -1  -3  120.79   23.70
+  -3  -1   3  192.78   20.90
+  -3   3   1  217.18   10.40
+  -1   3  -3  191.58   10.90
+  -3  -3  -1  188.58   10.90
+   3  -3  -1  195.38   12.60
+  -3  -3  -1  179.18   28.40
+  -3  -1  -3  199.28   10.40
+  -3   1  -3  213.08   10.70
+  -3   3  -1  219.08   10.60
+  -1  -3   3  193.68   15.40
+  -3   3  -1  214.58   10.50
+  -3  -1   3  196.88   14.20
+  -1  -3  -3  204.88   13.20
+   3  -3  -1  210.68   10.40
+   3  -3   1  215.48   11.20
+   3  -1  -3  169.18   11.00
+   3  -1   3  216.08   11.40
+   3   1  -3  196.28   10.60
+   1   3  -3  195.18   10.70
+   1   3   3  200.98   10.40
+   3   1  -3  210.68   10.60
+  -3  -3   1  202.78   11.00
+  -3  -1  -3  176.58   10.80
+  -3  -3   1  194.58   10.50
+  -3  -1  -3  202.78   11.40
+  -3   1  -3  190.78   10.80
+  -3   1  -3  192.28   10.40
+  -1  -3  -3  215.88   10.90
+  -1  -3   3  211.18   10.60
+   1  -3   3  186.68   11.00
+  -3  -3  -1  215.68   14.70
+  -3  -3   1  198.68   15.00
+  -3  -1  -3  184.78   13.50
+  -3  -1   3  220.88   13.00
+  -3  -3   1  246.58   53.09
+   1  -3   3  226.88   13.70
+  -3  -3  -1  205.38   11.10
+   3  -1  -3  195.38   14.90
+   3   3  -1  205.48   10.70
+   3   3   1  214.38   10.70
+   3   1   3  195.18   12.80
+   3   1   3  233.78   16.80
+   3  -1   3  204.88   14.80
+   3   1  -3  211.38   15.60
+  -3  -3   2   89.59    4.80
+  -3  -3  -2   82.29    5.50
+   3  -3   2   81.19   38.30
+  -2  -3   3   82.09    4.90
+   3   2  -3   78.89    5.10
+   3  -3  -2   87.69    4.60
+  -3  -3   2   59.99   16.60
+  -3  -2  -3   53.59   32.20
+  -3  -2   3   86.69   25.60
+   2  -3  -3   93.99    9.00
+   2  -3   3   67.29    8.50
+  -3  -3   2   84.69    5.40
+  -3  -2  -3   88.39    5.20
+  -3  -2   3   89.59    5.50
+  -3   2  -3   86.59    5.00
+  -3   2   3   88.49    4.70
+  -3  -2  -3   84.39    5.80
+   2  -3   3   78.09    5.40
+  -2   3  -3   90.49    5.20
+   3  -3   2   93.39    6.60
+   3  -2  -3   89.59    4.70
+   3   3   2   81.39    5.00
+  -3  -2  -3   76.89    9.30
+  -3  -2   3   85.79   10.40
+   2   3  -3   86.79    4.90
+   3  -2   3   99.09   10.50
+   3   3  -2   89.89    5.00
+  -3  -3  -2   25.20   44.30
+  -3   2  -3   95.09    5.00
+  -3   3  -2   85.69    4.80
+  -3  -3   2   89.49   33.40
+  -2  -3   3   90.29    5.60
+  -2   3  -3   87.29    5.50
+   2   3   3   81.69    4.80
+  -3  -3  -2   84.89   10.40
+  -2  -3  -3   77.09    5.40
+   3   2  -3   89.09    4.90
+  -2  -3  -3   84.79    9.50
+  -2  -3   3   60.39   10.60
+  -3   3  -2   90.29    4.80
+   3   2  -3   71.89    5.10
+   3  -3  -2   91.69    8.90
+   3  -3   2   80.79    9.90
+   3  -2  -3   87.59   10.10
+  -3   2   3   82.99    4.70
+  -3  -2   3   88.49    4.80
+  -3  -3   3  262.87   24.00
+  -3   3  -3  330.37   16.20
+  -3  -3  -3  325.47   22.80
+   3   3  -3  315.47   16.20
+   3  -3   3  297.07   17.00
+   3  -3  -3  328.97   22.80
+  -3  -3   3  330.17   17.00
+  -3  -3  -3  292.17   17.10
+   3  -3   3  280.57   22.80
+  -3  -3   3  323.17   16.20
+   0   0   4  468.75   25.70
+   4   0   0  461.65   24.30
+   0   0  -4  485.45   24.10
+  -4   0   0  463.65   25.30
+   0   4   0  457.65   23.40
+   4   0   0  471.95   27.20
+   4   0   0  414.86   24.20
+   0  -4   0  526.15   61.29
+   0  -4   0  484.75   23.60
+  -4   0   0  489.15   23.50
+   0   4   0  450.25   23.60
+   0   0  -4  476.35   23.90
+  -4   0   0  473.45   23.50
+   0   0  -4  462.85   23.60
+   0   0  -4  445.66   36.20
+  -4   0   0  469.65   23.90
+   0   0   4  466.25   23.90
+   4  -1   0   34.20    2.90
+   0   1  -4   32.00   25.20
+   0  -1   4   35.80    5.10
+  -4   0  -1   32.40    2.40
+  -4   0   1   33.90    2.30
+   4   0   1   33.40    3.00
+  -1  -4   0   31.20    2.10
+   0  -1  -4   37.60    3.60
+   0   1  -4   30.90    2.70
+   1   0  -4   34.00    2.60
+  -4   0  -1   32.70    1.90
+  -4  -1   0   23.50   15.20
+  -1   0  -4   16.50   17.00
+   1   0  -4   21.30   14.80
+  -4   1   0   35.80    2.20
+  -1   0  -4   32.20    2.40
+  -1   0   4   29.10    2.50
+   0  -4   1   27.20    3.10
+   1   0  -4   36.60    2.50
+   4   1   0   35.30    4.00
+  -4   0  -1   33.20    2.00
+  -1   0   4   22.80    5.20
+  -1   0   4   28.40    3.90
+   1   0   4   37.00    4.90
+   0   1  -4   31.20    2.20
+   4   1   0   25.70    5.30
+  -4   0   1   33.50   18.10
+  -4   0   1   28.70    3.90
+  -1  -4   0   24.00    4.10
+   0   4  -1   32.30    2.20
+   0   4   1   32.50    2.00
+  -4   1   0   33.80    1.90
+   0  -4   1   16.90   35.10
+  -4  -1   0   30.20    2.00
+  -1   0  -4   31.20    2.90
+   0  -4   1   34.10    2.20
+   0  -4   1   34.30    1.90
+  -4  -1   0   30.80    8.60
+   1   0   4   32.10    2.60
+   1  -4   0   -6.20   31.20
+   4   0   1   37.30    6.10
+   0  -1  -4   17.20   13.80
+  -1   4   0   33.00    1.90
+   0   4  -1   33.20    2.10
+   1   0  -4   32.20    2.10
+  -1   4   0   31.50    2.10
+   1   4   0   31.70    2.10
+  -4   1   0   12.50   17.00
+   0  -1  -4   32.10    2.40
+  -1  -4   0   -7.30   31.10
+  -4  -1   0   34.10    2.50
+   4   0   1   29.30    3.60
+   4   0  -1   26.70    6.30
+  -4   0  -1   35.30   18.50
+   0   1  -4   33.90    2.40
+   4   0  -1   26.50    5.60
+   1   4   0   30.10    1.80
+   1   0   4   36.40    5.40
+   4  -1   0   32.30    5.90
+  -4  -1   0    5.60   21.80
+  -4  -1   1  113.69    6.60
+  -1  -4   1  110.39    9.80
+   1   4  -1  122.89    6.80
+   1   4   1  122.29    6.70
+   1  -4   1  146.79    7.40
+  -1   4  -1  126.39    6.70
+  -1  -1  -4  120.89    9.20
+  -1  -1   4  123.69    9.50
+  -1  -1  -4  127.69    7.00
+   1  -4   1  134.09    6.40
+  -1   1   4  119.69    6.80
+   1  -1  -4  123.19   26.40
+   1  -1   4  127.59   10.40
+  -4  -1  -1   74.29   22.00
+  -4  -1  -1  124.59    6.40
+  -4   1  -1  124.19    6.50
+   4  -1  -1  109.09    7.10
+  -1   4  -1  122.69    6.60
+  -1   4   1  119.49    6.40
+   4  -1   1  126.79    7.60
+   4   1   1  131.69   10.90
+   1  -1  -4  127.09    7.00
+  -4  -1  -1  126.99    6.70
+   1  -1   4  118.19   11.00
+   4  -1  -1  121.39   11.00
+   4  -1   1  107.89   10.60
+   4   1  -1  124.39   10.90
+   4   1   1  132.59    7.20
+   1   1   4  127.49    6.90
+   1   1  -4  118.39    6.70
+  -4  -1   1  169.48   27.70
+  -4   1   1  110.69   25.00
+  -1  -4   1   35.20   38.40
+   1  -4   1  130.79   40.90
+   4   1  -1  126.69    7.30
+   1   1  -4  140.19    7.10
+   4   1  -1  131.29    6.80
+   1  -1  -4  129.29    7.00
+   1   1  -4  125.19    7.10
+  -4   1   1  127.19    6.50
+  -1  -4  -1  126.89    8.10
+  -1  -1   4  121.19   10.70
+  -4   1   1  127.59    6.80
+  -4   1  -1  125.99    6.80
+  -4  -1  -1  123.09    7.00
+  -4  -1   1  128.79    7.10
+  -1   1  -4  132.99    7.00
+  -4  -1  -1  143.49   21.70
+  -4  -1   1   82.29   16.90
+  -1  -1  -4  114.89   23.20
+  -1  -4  -1  125.99    6.60
+  -1  -4   1  138.49    6.60
+  -1   1  -4  113.59    6.60
+  -4  -1   1  111.89   10.00
+  -1   1  -4  125.89    7.30
+   4   2   0  421.76   21.00
+  -4   0   2  377.76   29.70
+   0   4  -2  380.86   21.00
+  -2  -4   0  427.56   59.29
+  -4   0  -2  409.76   21.10
+   2   0  -4  395.76   20.80
+   4  -2   0  424.76   21.60
+   0  -2  -4  411.76   21.30
+   0   2  -4  426.26   21.10
+   0   2  -4  401.46   20.70
+   2   4   0  407.66   21.00
+   2  -4   0  481.65   59.99
+  -2   0  -4  378.06   21.10
+   0  -2   4  404.66   25.70
+   4   0   2  413.36   21.50
+   0  -4   2  345.37   54.09
+   0   2   4  410.46   20.80
+   2   0  -4  420.26   28.70
+   2   0   4  449.36   27.00
+   4  -2   0  376.16   24.50
+  -2   0  -4  420.36   21.20
+  -4  -2   0  423.66   20.90
+  -2   0  -4  421.46   21.60
+  -4   0  -2  377.36   23.00
+  -4   0   2  409.26   21.50
+  -4   0   2  423.76   21.80
+  -2  -4   0  396.66   28.10
+  -4  -2   0  302.37   47.10
+  -4   2   0  447.56   21.00
+  -2   0  -4  392.16   23.30
+  -4  -2   0  405.66   36.10
+  -4   0   2  435.96   21.20
+   0   4   2  381.56   20.70
+   2  -4   0  433.26   20.50
+   4   0  -2  391.96   21.10
+  -4   0  -2  421.66   20.70
+  -4  -2   0  392.66   25.60
+   4   0  -2  363.56   25.10
+   0  -2  -4  403.86   23.30
+   0  -2   4  405.86   24.10
+  -2   4   0  412.96   20.70
+   4   0  -2  423.06   20.80
+  -4  -2   0  415.66   21.30
+   0  -4   2  444.16   20.80
+   4   0   2  411.56   24.90
+  -4   0  -2  397.26   20.80
+  -2   0   4  420.16   21.30
+  -4   2   0  423.96   20.90
+   0  -2  -4  389.66   39.90
+  -2  -1   4  100.99   10.20
+  -4  -2   1   98.69    5.30
+   2   4  -1   95.99    5.40
+  -2   1  -4  101.19    6.00
+   4   1  -2   99.39    5.40
+  -4  -2   1   89.09   19.50
+   1   4   2   97.39    5.20
+   2  -1  -4   60.99   19.30
+  -4  -2   1   57.39   37.90
+  -1  -4   2   55.19   44.30
+  -1   2   4   90.99    5.40
+  -2  -4  -1  135.69   27.90
+  -1  -2  -4   83.29    8.90
+  -1  -2  -4  104.39    6.00
+   2  -4   1   99.59    7.30
+  -4   2  -1  101.69    5.20
+   2  -4   1   93.79   48.20
+  -2   1  -4   94.29    5.90
+  -2  -1   4  106.19    6.10
+  -4  -1  -2   82.99    5.60
+  -1  -4   2   91.39   11.20
+   2  -1  -4   95.39   11.40
+  -1   2   4  101.29    5.20
+  -1  -2  -4   90.59   27.80
+  -4  -1  -2   95.29    5.00
+   1   2  -4   87.29    6.00
+  -2   1  -4  101.99    5.60
+  -2   4   1  101.99    5.10
+   2  -1  -4   91.39    5.20
+  -2  -4  -1   85.99    5.60
+  -4  -1  -2   96.49    9.20
+  -1   4  -2   92.79    5.50
+  -2  -4  -1  111.39    9.70
+   4  -2  -1   93.49   10.30
+  -2   1  -4   89.69    5.20
+   4  -1   2   92.29    6.20
+   1   2  -4   94.79    5.20
+  -4   2  -1  104.59    5.40
+   4   2   1  103.89    7.50
+   1  -2   4  107.19   10.10
+  -1   4  -2  100.39    5.50
+   4  -1   2  101.99   11.40
+  -4  -2   1   87.09   10.60
+  -4  -2   1   97.49    5.80
+   2  -4   1   95.79    5.60
+   4   1  -2  103.29   11.50
+   4   1  -2   90.69    5.90
+   1  -2   4   87.29   10.60
+   1   2  -4  101.19    5.40
+  -2  -1   4  103.39    8.80
+  -4   1   2   95.09    5.40
+  -1  -4   2  100.89    5.20
+  -4  -1  -2  101.59    5.70
+  -2  -4   1   92.09    5.20
+  -1  -4  -2  100.49    5.30
+   1  -4   2   94.39    5.70
+  -4  -1   2   97.79    5.80
+  -1  -4  -2   92.69    7.60
+  -2  -1  -4   96.89    5.70
+  -2  -1  -4   95.29    6.20
+  -4   2   1   98.19    5.30
+   2  -1   4   67.29    9.60
+   1   2   4   97.79    5.40
+  -4   1  -2  101.19    5.20
+  -4  -1   2   59.29   25.50
+  -4  -2  -1   57.69   22.00
+  -2  -1  -4   86.59    5.40
+   4  -2   1   76.49    9.70
+  -4  -2  -1  102.29    7.10
+  -4  -2  -1  114.79    6.00
+  -4  -1   2   88.89    9.80
+  -1  -2   4  102.29   11.70
+  -1   2  -4  104.59    5.50
+   4  -2   1   95.79    6.30
+  -1  -2   4  102.99    9.70
+  -2  -1  -4   63.89   25.50
+   1  -2  -4  112.29    8.60
+  -2  -1  -4   98.69    9.10
+  -4   2   1   97.79    5.50
+  -4  -1   2  100.89   16.40
+  -1   2  -4   91.99    5.60
+   4   2  -1   92.59    5.70
+   1  -2  -4   86.29   21.00
+  -2  -4   1  102.59   43.70
+   2   1  -4   95.99    5.20
+   2   1  -4   85.59    5.20
+  -4  -1   2   94.89    5.20
+  -4   1  -2  101.49    5.10
+  -2  -4   1   93.19   10.80
+   2   1  -4   99.49    5.90
+   2   4   1   89.29    5.30
+  -2   4  -1   96.39    5.20
+  -4  -2  -1   97.69   10.50
+  -4   1  -2  100.39    5.60
+   4  -1  -2   95.39    5.40
+   4  -1  -2   80.89   10.20
+  -4   2   1   97.09    5.10
+  -2   1   4   96.59    5.60
+   4   1   2  112.69   14.90
+  -1   2  -4   96.69    5.10
+   2  -1   4   93.39   10.60
+   1  -4   2   39.10   42.10
+   4   1   2   96.59    5.70
+   1  -2  -4  113.89   11.00
+   4   2  -1   82.89   10.00
+   1   4  -2  101.59    5.50
+  -2   1   4   97.79    5.50
+  -2  -4  -2  386.06   21.70
+   2  -4   2  392.56   20.90
+  -2  -2   4  382.46   24.00
+   4  -2   2  370.16   25.90
+  -4  -2  -2  376.16   21.10
+   2  -2  -4  373.66   41.80
+  -4  -2   2  413.96   21.10
+  -4   2  -2  426.16   20.60
+  -2  -2  -4  376.46   24.30
+  -2  -2  -4  365.56   20.20
+  -2   2  -4  414.26   20.90
+   4  -2  -2  400.26   20.50
+   4  -2   2  375.16   22.70
+   4  -2  -2  373.86   25.70
+  -2  -4  -2  398.56   25.10
+  -4  -2   2  400.56   20.40
+   2  -2  -4  392.06   20.40
+   2   2  -4  399.76   20.80
+  -4  -2  -2  390.06   25.20
+  -2   2  -4  393.86   20.10
+   2  -4   2  396.86   23.80
+  -2   2  -4  425.36   20.70
+  -2   2   4  417.46   20.30
+  -2   2   4  434.26   20.40
+   2  -2  -4  389.66   25.90
+   2  -2   4  409.96   25.80
+   2   4  -2  419.56   20.60
+  -2   4  -2  437.16   20.50
+  -4  -2  -2  417.56   20.90
+  -2  -4   2  404.36   20.40
+  -4   2  -2  426.26   20.40
+   4   2  -2  409.46   20.50
+   2   4   2  415.96   20.50
+  -2  -4  -2  330.07   47.00
+  -4   2   2  421.06   20.40
+  -4  -2   2  332.47   28.00
+  -4   2   2  369.06   20.30
+  -2  -2   4  405.96   21.20
+   2   2  -4  426.56   20.50
+  -2  -4   2  384.06   26.50
+  -2   2  -4  346.37   20.30
+   0  -4  -3    1.20    4.10
+   4  -3   0   10.30    6.90
+   0  -3  -4    0.10    1.10
+   3  -4   0    1.70    1.00
+  -3   0  -4    1.10    0.90
+   0   4  -3    0.90    0.90
+   0   3  -4    0.60    0.90
+  -4  -3   0   -0.40    0.90
+  -3   0  -4   -1.00    1.80
+   4   0   3   -3.60    6.90
+  -4   0  -3    0.90    0.50
+  -3   4   0    0.60    0.50
+   4   0  -3    0.80    0.80
+  -4   0  -3    0.30    1.00
+  -4   0   3    0.90    1.00
+  -3   0   4    1.40    1.00
+   3   4   0    0.60    0.80
+   4   0  -3    1.00    0.70
+  -4   3   0    0.70    0.50
+  -4   0  -3    0.50    1.20
+  -4   0  -3    6.70    5.00
+  -3  -4   0   -4.40    7.60
+   0  -3  -4   -0.40    4.70
+   3   0  -4    2.50    9.20
+   4  -3   0    0.80    1.50
+   0   3   4    1.30    0.40
+   0   3   4    1.20    0.50
+  -3  -4   0    1.30    0.80
+  -4   3   0    1.20    0.50
+  -3   0  -4    1.10    1.30
+  -3   0  -4   -1.60    4.80
+   4   0   3   -0.10    1.30
+   0  -3   4    4.70    6.80
+   0  -3   4   10.00    8.80
+   4   0  -3    0.50    8.80
+   3   0  -4    0.20    0.70
+   3   0   4   17.70    6.70
+   3   0   4    0.70    7.70
+  -4  -3   0    7.90    7.80
+   4   3   0    1.70    1.00
+   0  -4   3    7.50    8.10
+   0   4  -3    0.30    1.20
+  -3  -1   4   -4.10    7.30
+  -4  -1  -3    1.30    0.50
+  -1  -3  -4    0.70    1.40
+   1  -3   4    8.50    8.10
+   4  -1   3    1.50    1.60
+   4   1  -3    2.50    1.40
+   3  -1  -4    9.90    9.30
+  -4   3  -1    1.40    0.60
+  -1  -4   3   -0.10    0.80
+  -4  -1  -3    1.90    1.40
+   3  -1  -4   -0.30    1.00
+  -4  -1  -3    0.80    6.00
+  -3  -4  -1    1.50    1.30
+   1  -4  -3    6.10    4.40
+   4  -3  -1    0.60    1.00
+   1  -3   4    0.40    9.30
+   3  -4   1    1.00    5.70
+  -4   3  -1    0.50    0.60
+  -3   4   1    1.00    0.50
+   4   3   1    1.70    0.90
+  -4  -3   1    8.00    8.50
+  -1  -4   3   -6.40    9.20
+  -4  -3   1    0.40    0.90
+   3   4  -1    1.90    0.90
+   1   3  -4   -0.20    0.90
+   1   4   3    0.30    0.60
+  -3   1  -4    0.00    0.60
+  -3   1  -4    0.80    0.90
+  -4  -1  -3    0.90    2.10
+  -3  -1   4    2.70    1.50
+   4  -3  -1    0.80    6.90
+   4   1  -3    0.40    0.70
+   4  -1   3    0.40    9.10
+   4   1  -3   11.10    9.70
+  -1  -3  -4   -0.10    5.80
+  -1   4  -3    1.60    1.20
+  -4   1   3    0.00    0.70
+  -3   1  -4   -0.30    1.00
+   1  -4  -3   -0.70    3.40
+   4   3  -1    1.50    1.00
+  -4   3   1    0.40    0.40
+  -3   4  -1    1.00    0.70
+   1   3   4    0.90    0.70
+  -3  -4   1    0.80    0.80
+   3  -1   4    0.30    1.30
+  -4  -1   3    2.00    1.30
+   1   4  -3    0.30    0.90
+  -4  -3  -1   -3.30    7.90
+   4  -3   1   -2.40    7.10
+  -4   1  -3    0.90    0.60
+   1   3   4    1.10    0.70
+  -1  -3   4   -1.40    9.10
+   4  -1  -3    4.30    8.70
+  -3   1   4    0.50    0.80
+   1  -4   3   -4.40    5.60
+  -4   3   1    1.10    0.50
+  -3  -1  -4    0.80    0.60
+  -3  -1  -4   -1.00    6.20
+  -1   3  -4    1.40    1.30
+  -4   1  -3   -0.20    0.70
+   4  -3   1    0.50    1.80
+   3   1  -4   -0.20    0.70
+   3   1  -4    0.90    0.70
+   4  -1  -3    1.40    1.20
+   1  -3  -4   -0.80    7.40
+  -1  -4  -3    1.10    1.20
+  -4   3   1    0.90    0.40
+   1  -4   3    0.50    1.30
+  -1  -3   4    1.40    6.70
+   3  -1   4   -2.20    8.60
+  -4  -1   3    6.70    7.10
+  -4   1  -3   -0.70    1.50
+   3   4   1    3.70    1.00
+  -3  -1  -4    1.40    1.60
+   3   1  -4    0.20    1.60
+  -3  -1  -4    1.20    2.20
+  -1   3  -4    1.20    1.00
+  -4  -3  -1    0.20    1.00
+  -3  -4   1    7.50    9.30
+   4   3   2   29.10    2.20
+   3   4  -2   26.10    2.20
+   2   3  -4   24.30    2.20
+  -3   2  -4   28.00    2.40
+  -4   2   3   27.00    1.90
+   4  -2   3   27.30    3.40
+  -4   3  -2   30.90    2.10
+   3  -4   2   32.60    9.30
+  -4  -3   2   23.80    2.40
+  -3   2  -4   25.80    2.40
+  -2   4  -3   30.60    2.40
+   4  -2   3   27.10   13.60
+   3  -2  -4   42.80   12.30
+  -2   4  -3   27.40    2.00
+  -4  -3   2   14.60   11.20
+  -4  -2  -3   17.50    8.60
+  -4  -2  -3   20.10    3.20
+  -4   3  -2   20.30    1.90
+  -2  -4   3   37.80   12.80
+   4  -3  -2   19.70   11.10
+   2  -3   4   41.20   12.50
+   2   4   3   27.40    2.10
+  -2  -4   3   28.00    2.50
+   4   2  -3   27.10    2.10
+  -2  -3  -4   22.70    3.30
+  -3  -2   4   24.70    3.10
+  -3  -4  -2   23.40    3.10
+   2  -4  -3   30.60    7.90
+  -2   3  -4   21.40    2.60
+   3  -2   4   24.10    3.10
+   3   4   2   26.70    2.10
+   2   4  -3   28.90    2.20
+  -4   2  -3   26.70    2.00
+  -3  -4   2   31.60   13.10
+  -2  -3   4   24.20   12.90
+  -3  -4   2   24.80    2.30
+   2  -4   3   17.10    9.10
+  -3  -2  -4   26.00    3.80
+  -3   4  -2   27.00    1.70
+  -2   3  -4   25.90    2.20
+   4  -2  -3    9.70   12.30
+   3   2  -4   26.80    2.10
+  -4   2  -3   27.10    2.30
+   4  -3   2   32.50    4.50
+   3  -4  -2   35.90    7.90
+  -4  -2   3   24.00    2.90
+  -2  -3   4   16.30    9.60
+   3  -2   4   16.10   12.20
+  -2  -4  -3   24.10    3.20
+  -4  -3  -2   32.50   10.60
+   4   3  -2   23.30    2.20
+  -3  -2  -4   36.60    9.90
+  -3   2   4   26.10    1.90
+  -3   4  -2   28.40    2.00
+   2  -3  -4   24.50   12.30
+  -3  -3  -4   11.60    5.00
+   3  -3   4    8.40    3.20
+   4   3  -3   12.30    1.60
+  -3   3  -4   12.40    1.70
+  -3  -4   3    2.40    2.10
+  -4   3  -3    5.80    1.10
+   3   3  -4    8.20    1.50
+   3   4  -3   11.30    1.70
+   3   4   3    8.60    1.40
+  -4   3  -3   10.90    1.40
+  -3  -3   4   56.49   33.90
+  -3   4  -3    7.80    1.30
+   3  -3   4   34.10   20.40
+  -3   3  -4   11.30    1.70
+  -3   4  -3    6.20    1.10
+   3  -4  -3  -13.30   20.60
+  -3  -4   3    6.40   18.60
+  -4   0   4  224.98   12.20
+   4   4   0  239.08   12.00
+  -4   0  -4  238.08   12.40
+  -4   0  -4  240.88   11.60
+  -4   0  -4  183.28   19.70
+   0  -4   4  198.38   22.20
+   0  -4   4  144.79   22.30
+   4   0  -4  171.28   25.20
+   4   0   4  249.97   28.20
+  -4  -4   0  211.48   11.90
+   0  -4  -4  214.98   12.30
+  -4   4   0  227.48   11.50
+  -1  -4   4  -23.70   16.90
+   1  -4   4    4.80   14.10
+   4  -4   1  -17.30   18.70
+  -4  -4   1  -14.90   15.90
+  -4  -1  -4    2.30   11.30
+   1   4  -4   -0.30    1.00
+   4   1  -4    0.20    0.90
+   4   4  -1    0.20    1.00
+   4   4   1    0.90    1.00
+  -4   4  -1    0.20    0.70
+  -4   4   1    0.20    0.60
+  -4  -1   4   -1.70    1.50
+  -4   1  -4   -1.00    1.40
+  -4   1   4   -0.30    1.00
+  -4   1  -4    0.70    0.80
+  -4  -4   1    0.40    1.50
+  -4   1  -4   -0.30    0.90
+  -1  -4  -4   -0.10    2.60
+   4   1  -4    0.60    2.80
+  -4  -1  -4    0.00    0.60
+  -1   4  -4    0.70    1.40
+  -1  -4   4   19.90   13.10
+   4  -1  -4   -7.50   19.60
+  -4  -4   2  165.48   41.50
+  -4   2  -4  212.78   11.00
+  -4   4  -2  201.78   10.80
+  -2   4  -4  217.68   11.30
+  -4   2   4  199.78   10.80
+  -4   4  -2  203.68   10.50
+   2   4  -4  191.28   11.00
+  -4  -2   4  203.98   11.80
+   4   4   2  213.68   11.10
+  -2   4  -4  192.98   10.90
+   4   4  -2  213.88   11.10
+  -4   2  -4  198.38   11.20
+   4   3  -4   12.80    1.70
+   3   4   4    9.30    1.50
+  -4   3  -4   16.30    1.90
+  -4   4  -3   11.20    1.40
+  -3   4  -4   12.50    1.80
+   4   4   3    8.60    2.30
+  -4   3  -4    7.30    2.10
+   3   4  -4   15.20    2.20
+   4   4  -3   11.60    1.80
+  -4   4  -4   38.10    2.70
+   4   4  -4   33.50    2.80
+   4   4   4   33.40    2.80
+  -4   4  -4   31.80    3.10
+   0  -5   0  489.75   23.40
+   0  -5   0  457.85   23.30
+   0   0  -5  438.36   24.30
+   0   0  -5  439.96   23.50
+   5   0   0  439.76   26.00
+  -5   0   0  474.55   23.40
+   0   5   0  409.56   23.30
+  -5   0   0  461.55   25.40
+   0   0  -5  485.55   24.00
+   0   5   0  515.95   23.80
+   5   0   0  457.95   30.40
+  -5   0   0  479.25   23.90
+  -1   0  -5    5.00    1.50
+  -5   0   1   -0.60    3.70
+   0  -1   5    2.00    8.00
+  -5  -1   0    4.20    0.90
+  -5   0  -1   -3.80    5.40
+   5  -1   0    5.30    2.10
+  -1   0  -5    5.20    2.10
+  -5  -1   0    3.10    6.80
+   5   1   0    6.80    1.90
+   0   5   1    6.10    0.90
+  -1   5   0    5.80    1.00
+   5   0  -1    8.60    9.40
+   5   0   1  -10.50    8.60
+   0   5  -1    6.10    1.10
+   0  -5   1    5.70    0.80
+  -5   1   0    4.60    1.10
+  -5  -1   0    6.80    1.70
+  -5   0  -1    6.90    1.50
+  -5   0   1    5.40    1.20
+   0   1  -5    4.40    1.30
+   5  -1   0    7.50    9.10
+   1   5   0    5.90    1.10
+  -5   0  -1    4.60    0.60
+  -1  -5   0    5.60    0.90
+   0  -1  -5    7.80    1.90
+   1   0   5    3.40    5.20
+  -1   0  -5    5.60    1.50
+   1   0  -5    7.80    1.70
+   1   0  -5    4.00    0.90
+   1   0   5    3.40    6.30
+   0   1  -5    6.40    2.10
+  -5   1   0    4.30    0.70
+   0   5  -1    6.00    0.80
+   0   1  -5    5.10    0.90
+   1   0  -5    3.80    2.00
+  -1   5   0    5.40    0.70
+   0  -1  -5    4.20    1.00
+   5   0   1    0.30    1.80
+   5  -1  -1  143.89    9.30
+  -1  -5   1  153.18    8.10
+   1  -1  -5  146.29    9.10
+   1  -1  -5  153.38    8.30
+   1   5  -1  150.88    7.90
+  -5   1  -1  152.68    8.40
+  -5   1  -1  154.48    8.00
+   1   5   1  151.38    8.20
+  -5  -1   1  172.18   15.30
+  -1  -1  -5  130.69   13.50
+  -1   5   1  147.59    7.80
+   1  -1   5  140.19   15.60
+   5  -1  -1  153.18   18.90
+   5   1  -1  144.19    9.20
+   5   1   1  156.98    9.00
+  -1   1   5  151.48    8.70
+  -5  -1  -1  172.38    8.60
+   1   1  -5  149.49    9.10
+   5   1  -1  160.28   17.10
+  -1   5  -1  155.78    8.10
+   5   1  -1  164.68    8.30
+  -5  -1   1  154.08    8.70
+   5  -1   1  162.28   11.70
+  -5  -1  -1  127.49   14.30
+  -1   5  -1  155.28    8.20
+  -1  -1  -5  146.79    9.40
+  -1   1  -5  159.28   10.80
+  -1   1  -5  142.09    8.10
+   1  -5   1  157.98    8.00
+   5  -1   1  120.49   15.50
+  -5   1   1  161.38    8.40
+  -1   1  -5  158.38    8.60
+   1   1  -5  137.69    8.10
+  -1  -1   5  154.08   15.90
+  -5  -1  -1  159.18    8.70
+   1   1  -5  161.18    8.70
+   1   5  -1  172.28    8.40
+   0   5   2   78.29    4.50
+   0   2  -5   85.49    5.20
+   0  -5   2   87.79    4.80
+  -5   0  -2   84.79    5.20
+  -5  -2   0   95.59    5.60
+  -5   2   0   85.69    4.80
+   2   0  -5   78.79    6.10
+   5   0  -2   65.79   15.40
+   0   5  -2   88.39    4.90
+  -5   0   2   87.79    5.20
+   0   5  -2   88.69    4.90
+  -5   0  -2   84.79    4.50
+  -2   5   0   88.39    4.50
+   0  -2  -5   57.09   12.40
+  -2   0   5   85.19    5.40
+  -5  -2   0  102.69    5.90
+  -2   0  -5   82.69    6.80
+  -2   0  -5   71.29    4.80
+  -5   2   0   83.49    4.60
+  -5  -2   0   55.09   11.60
+   2   0   5   99.09   11.80
+   0   2  -5   77.19    4.60
+   2   0  -5   73.49    4.80
+  -2   0  -5   84.99    5.40
+  -2  -5   0   88.99    5.10
+   0  -2  -5   74.99    6.50
+   2   5   0   90.79    4.90
+   5   2   0   78.79    5.20
+   5   2   0   87.59    5.00
+  -5   0  -2   67.39    9.30
+  -2   0  -5   80.69    5.20
+   5  -2   0   75.59    6.40
+  -1  -2  -5   -0.10    2.30
+   5   1  -2    1.00    2.10
+  -1   2   5    1.10    0.90
+  -1  -2  -5    8.10    8.50
+  -2  -1   5   12.10    9.80
+  -5  -1  -2    1.40    1.50
+  -2  -1   5   -0.40    1.50
+  -5   2  -1    0.50    0.70
+   5  -1   2   -0.80    2.30
+  -2   1  -5    0.20    0.80
+   1   2  -5   -0.50    0.80
+   5   2   1    0.90    1.00
+   2   5  -1   -0.40    0.80
+  -5  -1  -2    4.40    8.70
+  -5  -2   1    1.00   10.40
+   5   1  -2    0.30    0.90
+  -5  -1  -2    0.50    0.50
+  -5  -2   1    0.30    1.40
+  -2   1  -5    0.80    1.30
+  -5   2  -1    0.20    0.50
+  -5   1   2    0.00    0.80
+   5  -2  -1   10.80   12.60
+   2  -1  -5    0.50    1.00
+  -2   5   1   -0.20    0.40
+   1  -2   5  -10.30   15.00
+  -2  -5  -1    2.30    1.70
+   5  -2  -1    1.00    3.90
+  -1  -5   2   -0.20    0.90
+  -2   1  -5   -0.60    1.50
+  -1   5  -2    0.40    0.80
+   5  -1   2   22.00   13.90
+  -5  -2  -1   -0.50    1.70
+  -5   1  -2    0.10    0.50
+  -1   2  -5    1.20    1.30
+  -2  -5   1    1.30    0.90
+   1   5  -2    0.70    1.00
+   5  -1  -2    0.50    0.90
+  -2  -1  -5    0.20    1.10
+  -1  -5  -2   -0.10    1.50
+  -2   5  -1    0.30    0.60
+  -2   1   5   -1.50    0.90
+  -2  -1  -5  -14.10    8.40
+  -5   2   1    0.50    0.70
+   2   5   1    0.40    0.90
+  -1  -2   5   -5.90   12.20
+   1   5  -2   -1.00    0.90
+   2   1  -5   -0.20    0.90
+   5  -2   1   -1.00    2.70
+   5   1   2    0.80    1.90
+  -5  -1   2    2.20    1.60
+   2  -1   5    8.50   13.40
+  -1   2  -5   -0.20    0.60
+   5   2  -1    0.80    1.00
+  -2  -1  -5   -3.10    3.00
+  -5   2   1    0.60    0.50
+   1  -2  -5   -0.60    1.70
+   5  -1  -2    8.50   13.90
+  -5   1  -2    1.00    1.00
+   5  -2  -2   13.80   20.60
+  -5  -2  -2    9.50   12.80
+  -2   2   5   27.80    2.20
+   5   2  -2   19.10    3.30
+  -5  -2   2   27.30    3.30
+   2  -5   2   17.70   12.00
+  -2  -5  -2   24.40    4.80
+   2   5  -2   28.10    2.30
+  -2   2  -5   22.00    2.70
+  -5   2   2   21.10    1.90
+   5  -2   2   26.60   18.70
+   2   5   2   26.40    2.10
+  -2   5  -2   24.60    1.90
+   2   5  -2   20.80    2.20
+  -2  -2  -5   29.30    4.70
+   5  -2   2   27.70    6.50
+   5   2  -2   28.30    2.20
+  -5   2  -2   27.80    1.90
+  -2   2  -5   22.60    2.50
+  -2  -2   5   31.70    4.00
+  -2  -5   2   22.20    2.50
+   2  -2   5   20.00   20.30
+   5   0   3    4.20    3.80
+  -5   0  -3    3.50    0.70
+   5   3   0    4.20    1.30
+  -5   0  -3    6.20    1.80
+   0  -5  -3    3.80    1.90
+  -3   0   5    1.80    2.40
+  -3   5   0    2.90    0.70
+   5   0  -3    1.10    3.00
+  -5   3   0    2.90    0.80
+  -5   0  -3   -6.80   12.00
+  -5   3   0    5.50    0.90
+  -3   0  -5    6.10    1.30
+   0   5  -3    4.40    1.30
+   3   0   5   14.90   15.60
+   3   0  -5    3.70    1.40
+   3   5   0    3.70    1.10
+  -3   0  -5    3.60    1.60
+  -5   0   3    3.10    1.60
+   0   3   5    4.00    0.70
+  -5  -3   0    0.10   16.50
+   5   0  -3    5.20    1.10
+   0   5  -3    2.90    1.10
+  -5   3  -1  153.28    8.00
+  -3  -1   5  151.38    9.10
+   1  -3   5  122.09   27.00
+  -3   1  -5  146.69    8.40
+  -3   5   1  150.08    7.80
+  -5  -1  -3  144.99    7.80
+   3   5  -1  151.48    8.30
+  -3   1  -5  150.08    8.80
+  -5  -3   1  146.09   25.90
+  -1   5  -3  150.88    8.30
+   5   3   1  155.98    8.40
+   5   1  -3  157.48    8.20
+  -5   3  -1  151.68    8.10
+  -5   1  -3  142.09    8.80
+  -5   3   1  149.09    7.90
+  -3  -1  -5  148.89    8.10
+  -5   3   1  148.59    7.80
+  -3  -1  -5   84.29   17.90
+  -3   1   5  149.79    8.50
+  -3   5  -1  155.58    7.90
+  -1   3  -5  155.28    8.50
+  -5  -3  -1  112.19   23.10
+  -5   1  -3  153.08    8.00
+   5   3  -1  156.38    8.40
+  -1   3  -5  143.59    8.80
+  -5  -1   3  137.19    8.80
+  -5   3   1  150.38    7.80
+   3   5   1  156.28    8.30
+   5  -1  -3   83.29   26.60
+   1   5  -3  154.68    8.30
+  -3   2  -5    0.30    1.50
+   3   5  -2   -0.90    0.90
+  -5   2   3   -0.40    0.90
+   5   2  -3   -0.90    0.90
+  -3  -2   5   -0.50    2.70
+   2   3  -5    1.20    1.10
+  -5   3  -2    0.90    1.00
+  -3   2  -5    1.00    1.10
+  -2   5  -3    0.00    0.90
+   2   5   3    0.20    0.90
+   5   3   2    0.40    1.10
+  -5   3  -2   -0.20    0.60
+   3   5   2    1.50    1.00
+  -3   5  -2   -0.90    0.70
+  -5  -2   3   -1.20    2.30
+   3   2  -5    1.90    1.00
+  -5   2  -3    0.70    1.10
+  -2   3  -5   -1.50    1.20
+   2   5  -3    1.00    1.00
+  -2   3  -5    1.90    1.50
+   5   3  -2   -1.70    1.00
+  -5   2  -3    0.30    0.70
+  -3   2   5    1.40    1.00
+   3   5   3  101.79    6.20
+  -3   3  -5   75.49    5.40
+   5   3  -3   79.49    5.10
+  -3   5  -3   87.49    5.00
+   3   5  -3   88.19    5.20
+  -5   3  -3   84.79    4.90
+  -5   3  -3   79.49    5.20
+   3   3   5   78.19    4.90
+   5   3   3   88.89    5.20
+  -4   0   5    7.00    2.00
+   5   4   0    2.90    1.20
+  -5   4   0    4.80    0.90
+   4   5   0    3.10    1.30
+  -5   0   4    6.00    1.90
+   0   4  -5    4.60    1.80
+  -5   0  -4    5.30    0.90
+  -4   5   0    5.30    1.10
+  -4   0  -5    3.90    1.00
+  -1   5  -4    2.90    1.40
+  -5   4  -1    2.40    0.70
+   4   5  -1    1.90    1.10
+  -4  -1   5   -0.20    1.90
+  -4   1  -5    2.60    1.60
+  -4   5   1    1.90    0.70
+  -5   1   4    0.40    1.20
+   5   4   1    1.60    1.10
+  -4   1  -5    5.10    2.40
+   5   4  -1    1.20    1.10
+   1   5  -4    0.00    1.10
+  -4   1   5    2.60    1.60
+   1   5  -4    2.80    1.90
+  -5  -1   4   -0.20    2.30
+  -4   5  -1    2.70    0.80
+  -1   4  -5    0.90    1.60
+  -5   1  -4    2.20    1.90
+   4   5   1    4.30    1.30
+  -5   4   1    2.80    0.70
+  -5   1  -4    1.50    1.20
+   5   2  -4    5.00    1.60
+  -5   4  -2    9.50    1.20
+   5   4   2    8.10    1.70
+  -5   2   4    5.50    1.30
+   2   4  -5    6.10    1.30
+  -5   4  -2   11.60    1.30
+   4   5  -2    7.80    1.60
+  -4   2  -5    6.40    2.20
+  -4   2  -5    5.40    1.20
+  -2   5  -4    6.30    1.50
+  -2   4  -5    9.80    1.90
+   4   2  -5    5.60    1.40
+  -4   5  -2    8.10    1.10
+  -2   4  -5    9.40    1.90
+  -5   2  -4    8.10    1.20
+  -4   2   5    7.90    1.50
+  -5   2  -4    5.40    1.70
+   4   5   2    7.70    1.50
+   5   4  -2    9.60    1.70
+   2   5  -4    9.70    1.60
+   4   5  -3    6.40    1.40
+   3   4  -5    5.30    1.40
+   4   3   5    5.80    1.40
+  -4   3  -5    8.60    2.30
+   5   4   3    6.40    1.50
+  -5   4  -3    6.90    1.10
+   5   3  -4    6.50    1.30
+  -5   4  -3    6.60    1.40
+  -3   5  -4    8.20    1.40
+  -4   3  -5    6.50    1.30
+   5   3   4    4.60    1.30
+   5   4  -3    7.00    1.50
+  -5   3  -4    7.50    1.30
+   3   5  -4    8.40    1.60
+   4   3  -5    3.90    1.20
+  -4   5  -3   10.70    1.40
+  -3   4  -5    8.10    1.50
+   4   5   3    7.60    1.50
+  -5   3  -4    3.20    1.80
+  -3   4  -5    4.90    1.70
+   4   5   4    9.00    2.60
+  -4   5  -4    9.40    1.50
+   4   4  -5   12.30    2.30
+   4   5  -4   10.60    1.90
+  -5   4  -4    9.00    1.40
+  -4   4  -5   12.40    1.60
+   5   4  -4    8.80    1.90
+  -5   5   0   17.40    1.50
+  -5   0   5   12.00    2.90
+  -5   0  -5   17.30    1.60
+   0   5  -5   13.60    2.20
+   5   5   0   17.40    2.20
+   1   5  -5   25.40    3.10
+  -5   1  -5   27.20    2.10
+  -5   5  -1   28.60    2.10
+  -1   5  -5   27.00    2.90
+   5   5  -1   31.00    2.70
+   5   5   1   28.90    2.60
+  -5   5  -2    0.80    0.70
+  -2   5  -5    0.30    1.10
+  -5   2  -5    0.30    0.80
+   5   5  -2    0.60    1.00
+   5   5   2    0.30    1.10
+   5   5  -3    5.10    1.50
+   5   3   5    2.50    1.20
+  -3   5  -5    4.10    1.20
+   3   5  -5    6.60    1.50
+  -5   3  -5    4.70    1.10
+  -5   5  -3    9.00    1.20
+   5   5   3    4.20    1.30
+  -5   4  -5    0.90    0.90
+  -5   5  -4    1.30    0.80
+  -4   5  -5    4.30    1.10
+   5   5   4   -2.10    2.80
+   5   4  -5    2.90    1.60
+   5   4   5    0.60    1.70
+   4   5  -5    2.00    1.30
+   5   5  -4    3.50    1.30
+  -5   5  -5   -1.80    0.70
+   5   5  -5   -2.10    2.60
+  -6   0   0   69.79    4.70
+   0   6   0   63.29    3.90
+   0   6   1   30.40    2.20
+   0   6  -1   30.60    2.40
+  -6   0  -1   33.50    2.00
+  -6   1   0   26.10    2.70
+  -1   0   6   29.60    3.70
+   1   6   0   32.60    2.50
+  -6   0  -1   28.70    3.10
+  -6  -1   0   31.40    3.30
+   6   0  -1   30.90    2.40
+  -6   0   1   29.10    2.90
+   1   6  -1   74.39    4.60
+  -6   1  -1   83.69    4.30
+  -1   6  -1   76.79    4.20
+  -6   1  -1   77.29    5.00
+  -6  -1  -1   75.39    5.50
+  -1  -1   6   74.29    6.10
+  -6  -1   1   78.39    5.40
+   1   6   1   73.19    4.50
+   6   1  -1   78.49    4.70
+  -6   1   1   71.89    4.80
+  -1   1   6   70.99    5.20
+  -6   0  -2   77.39    4.30
+  -2   6   0   78.39    4.30
+   2   6   0   83.59    4.90
+   6   0  -2   81.69    4.70
+  -2   0  -6   73.69    5.20
+  -6   0  -2   82.49    5.50
+   0   2  -6   71.49    5.50
+  -6   2   0   77.59    4.50
+  -6   0   2   77.09    5.30
+   0   6  -2   83.79    4.50
+   0   2   6   83.29    5.20
+  -6   2   0   76.49    4.80
+  -2   0   6   67.09    5.50
+  -6   1   2    6.10    1.80
+   2   6  -1    3.50    1.20
+   6   2   1    8.00    1.60
+   6   1  -2    5.10    1.30
+  -6   2  -1    7.90    1.90
+  -1   6  -2    6.60    1.00
+  -6   2  -1    6.90    1.00
+  -2  -1   6    2.90    2.60
+  -6   1  -2    4.20    1.60
+  -1   2  -6    4.10    2.10
+  -2  -1  -6    6.30    1.50
+  -2   6  -1    7.00    0.90
+  -2   1   6    0.30    2.60
+   1   6  -2    5.50    1.30
+   6   2  -1   12.30    2.70
+   2   6   1    5.60    1.40
+  -6  -1   2    7.10    2.20
+  -2   2  -6   90.89    8.60
+  -2   2   6   78.99    4.90
+  -6   2  -2   81.29    5.30
+  -6   2   2   84.19    5.00
+  -2   6  -2   82.09    4.70
+   2   6  -2   82.49    5.10
+  -6   2  -2   86.89    4.70
+   6   2  -2   80.99    5.00
+  -2   2  -6   78.89    5.50
+  -6   3   0    4.30    0.80
+   6   3   0    7.90    1.60
+  -6   3   0    3.00    1.10
+  -3   6   0    6.40    0.90
+  -6   0  -3    3.80    0.70
+  -6   0   3    4.70    1.80
+  -3   0  -6    7.40    1.40
+  -3   0   6    4.60    2.40
+   0   6  -3    6.30    1.30
+   3   6   0    8.60    1.60
+  -3   1  -6    2.40    1.20
+  -6   3  -1    9.10    1.10
+  -6   1   3    5.30    1.80
+   6   1  -3    6.60    1.80
+   6   3   1    8.30    1.60
+   3   6  -1    5.00    1.30
+  -6   3  -1    3.50    1.20
+  -1   6  -3    4.70    1.20
+  -3  -1   6    7.70    2.50
+   1   6  -3    4.70    1.30
+  -6   1  -3    1.50    1.80
+  -3  -1  -6    3.80    1.70
+   3   6   1    6.60    1.40
+  -3   6  -1    6.60    0.90
+  -6   1  -3    5.30    0.90
+   6   3  -1    5.10    1.40
+  -3   1   6    3.00    1.70
+  -1   3  -6    4.20    2.10
+  -6   3   1    5.70    1.10
+  -1   3  -6    3.00    1.80
+   1   6  -3    1.10    1.30
+  -6  -1   3    8.50    3.00
+   1   3   6    4.50    1.60
+   6   2  -3    3.40    1.30
+  -6   3  -2    2.60    0.80
+  -6   3  -2    0.50    1.30
+  -2   6  -3    4.50    1.10
+   3   6  -2    2.10    1.10
+  -3   2  -6    2.40    1.20
+   6   3   2    8.60    1.60
+  -3   2  -6    2.50    2.60
+  -6   2   3    1.20    1.30
+  -3   6  -2    3.80    0.90
+  -6   2  -3    2.80    0.80
+   6   3  -2    4.00    1.40
+  -3   2   6    2.60    1.40
+   2   6  -3    2.60    1.20
+  -2   3  -6    2.70    1.50
+   3   6   2    4.50    1.30
+  -2   3  -6    3.40    1.80
+  -6   2  -3    3.00    1.70
+   6   3  -3    1.60    1.10
+   6   3   3    1.90    1.10
+   3   6  -3    1.20    1.10
+  -3   6  -3    3.30    0.90
+  -6   3  -3    3.80    0.90
+   3   6   3    1.70    1.40
+  -3   3  -6    3.40    1.30
+  -6   4   0   33.60    2.20
+   0   4  -6   32.50    3.30
+   6   4   0   33.10    2.70
+  -6   0  -4   29.20    2.10
+   0   6  -4   30.80    2.70
+  -6   0   4   28.20    4.90
+   4   6   0   31.20    2.70
+  -4   6   0   30.90    2.10
+  -4   0  -6   29.40    2.30
+  -4   0   6   29.20    4.10
+  -6   4  -1    1.10    0.70
+  -4  -1   6    1.60    3.80
+   6   4   1    2.30    1.30
+  -1   6  -4    1.60    1.20
+   4   6  -1    1.60    1.30
+  -4   1  -6    1.90    0.90
+  -6   1   4    1.20    2.10
+  -6  -1   4    2.90    3.20
+   1   6  -4    3.50    1.60
+  -1   4  -6    2.50    1.40
+  -4   6  -1    2.90    0.80
+  -6   1  -4    1.80    0.80
+   6   4  -1    1.60    1.20
+  -4   1   6    0.80    2.30
+   4   6   1    0.10    1.10
+   6   4   2   23.00    2.40
+  -4   2  -6   20.60    2.10
+   4   6  -2   23.40    2.30
+  -6   4  -2   23.40    1.80
+  -2   6  -4   20.40    2.00
+  -2   4  -6   17.30    2.30
+  -4   6  -2   22.10    1.70
+   6   4  -2   20.30    2.30
+   4   6   2   20.90    2.30
+  -6   2  -4   18.00    1.70
+   2   6  -4   19.40    2.20
+  -3   6  -4    3.30    1.00
+   6   3  -4    2.00    1.40
+  -6   4  -3    1.40    0.80
+   6   4   3    1.80    1.30
+  -4   3  -6    1.30    1.00
+   4   6  -3    1.40    1.10
+  -4   6  -3    1.60    0.90
+   6   3   4    1.90    1.20
+   3   6  -4    0.90    1.10
+  -6   3  -4    0.90    0.80
+   4   6   3    0.00    1.50
+   6   4  -3    2.60    1.10
+  -3   4  -6    2.30    1.10
+   4   6  -4    2.50    1.10
+   6   4   4    2.50    2.20
+   6   4  -4    2.30    2.20
+  -4   6  -4    1.40    0.90
+  -6   4  -4    2.30    0.80
+  -4   4  -6    1.10    0.90
+   6   5   0    5.20    1.40
+   0   6  -5    4.60    1.50
+   0   5  -6    7.10    1.80
+   5   6   0    3.10    1.20
+  -6   5  -1    3.70    0.80
+   6   5   1    3.60    1.40
+  -1   6  -5    2.60    1.30
+   5   6  -1    1.50    1.20
+  -5   1  -6    2.80    1.00
+   1   5  -6    4.80    1.70
+   1   6  -5    2.30    1.60
+  -1   5  -6    1.90    1.30
+  -5   6  -1    3.80    0.80
+   6   5  -1    2.90    1.30
+   5   6   1    1.90    1.10
+  -6   1  -5    3.30    0.90
+  -5   2  -6    3.70    1.00
+  -2   6  -5    7.40    1.30
+   2   5  -6    8.40    2.10
+   5   6  -2    5.90    1.40
+   6   5   2    6.10    1.50
+  -6   5  -2    7.50    1.10
+  -6   2  -5    4.00    0.90
+   5   6   2    4.10    1.50
+   6   5  -2    2.80    1.40
+   2   6  -5    5.60    3.30
+  -2   5  -6    5.40    1.30
+  -5   6  -2    4.40    0.90
+   5   6  -3    2.40    1.40
+  -5   3  -6    1.30    1.40
+  -3   6  -5    1.60    1.30
+  -6   5  -3    3.50    0.90
+   6   5   3    1.20    1.40
+   3   5  -6   -1.20    1.90
+   6   3   5    4.20    1.50
+  -3   5  -6    4.10    1.30
+  -6   3  -5    4.30    1.50
+  -5   6  -3    1.70    0.90
+   6   5  -3    2.90    1.40
+   5   6   3    2.80    1.60
+   6   5   4    0.90    2.20
+   5   6  -4    1.40    1.30
+  -4   6  -5    2.40    0.90
+  -6   5  -4    2.20    0.80
+  -5   4  -6    1.00    0.90
+  -6   4  -5    0.70    0.70
+  -4   5  -6    1.30    0.90
+  -5   6  -4    0.90    0.80
+   6   5  -4    1.10    1.50
+   6   6   0    4.10    1.20
+   0   6  -6    6.30    1.80
+   6   6  -1   -0.10    1.20
+  -1   6  -6    0.70    1.20
+   1   6  -6   -0.60    1.70
+   6   6   1   -0.10    1.00
+   6   2   6    1.60    1.70
+  -6   2  -6    3.10    1.20
+  -6   6  -2    3.90    0.90
+  -2   6  -6    3.20    1.10
+   6   6   2    3.60    1.70
+   6   6  -2    1.40    1.20
+   7   0   0   97.69    5.70
+  -7   0   0   82.09    7.00
+  -7   0   1    4.90    2.10
+  -7   1   0    6.40    2.20
+   7   0  -1    7.20    1.60
+   1   7   0    7.40    1.40
+   0   1   7    7.40    3.10
+   7   1   0    5.40    1.30
+  -7   0  -1    6.00    2.70
+  -1   0  -7    6.30    2.00
+  -1   0   7    5.90    2.90
+  -7   1  -1    1.70    2.00
+   7   1  -1    4.00    1.40
+   1   7   1    7.60    1.40
+  -7   1   1    5.60    2.10
+   7  -1  -1    8.10    1.60
+   1   7  -1    6.90    1.40
+  -1  -1   7    2.20    3.70
+  -1   1   7    8.10    2.80
+   7   1   1    7.60    1.70
+  -1  -1  -7    6.80    2.00
+  -1   1  -7    2.30    1.70
+  -2   0  -7   23.00    2.70
+  -2   0   7   14.90    4.00
+  -7   2   0   25.90    2.80
+   7   2   0   25.50    2.50
+   2   7   0   24.70    2.20
+   0   2   7   18.60    3.10
+   2   7  -1    0.00    1.10
+   7   2   1    1.20    1.30
+   7   1  -2    2.40    1.30
+  -7   2  -1    0.70    0.60
+  -2   1  -7    1.70    1.50
+   7   2  -1    1.90    1.30
+   1   7  -2    0.80    1.00
+  -1   2  -7    0.10    1.40
+   2   7   1    2.10    1.20
+  -7   1  -2    1.50    0.60
+   7   2   2    8.40    1.70
+  -7   2  -2    4.30    0.90
+  -2   7  -2    5.60    1.20
+   7   2  -2   11.10    2.70
+   2   7  -2    7.40    2.00
+  -2   2  -7    8.10    2.10
+  -3   0  -7    0.40    1.20
+   3   7   0   -1.00    1.30
+   0   3  -7   -0.60    1.60
+   7   3   1   14.70    2.20
+  -3   1  -7   10.80    1.70
+  -7   3  -1   11.40    1.30
+   3   7  -1    7.70    1.50
+  -7   1  -3   12.80    1.20
+   3   7   1   11.10    1.70
+  -3   7  -1   11.00    1.40
+   7   3  -1   11.80    1.80
+  -1   3  -7   13.20    2.40
+  -3   2  -7    0.60    1.10
+  -2   7  -3    1.20    0.90
+   7   3   2    0.60    1.10
+  -7   3  -2   -0.40    0.60
+   3   7  -2   -0.10    1.00
+   3   7   2    2.50    2.00
+   7   2   3    0.80    1.00
+  -7   2  -3   -0.30    0.60
+   2   7  -3    0.40    1.10
+  -3   7  -2   -0.30    0.70
+  -2   3  -7   -0.60    1.10
+   7   3  -2    0.30    1.20
+  -3   3  -7    6.20    1.40
+   7   3   3    5.00    1.40
+  -7   3  -3    5.10    0.90
+  -3   7  -3    4.30    1.80
+   3   7  -3    2.60    1.10
+   0   4  -7    4.50    1.90
+   4   7   0    5.60    1.40
+   7   4   0    6.30    1.50
+  -7   4  -1    1.40    0.70
+   7   4   1    1.30    1.20
+   4   7  -1    1.30    1.30
+  -4   1  -7    2.70    1.60
+   1   4  -7   -1.60    1.30
+  -7   1  -4    2.00    1.00
+   7   4  -1    0.30    1.10
+   4   7   1    0.70    1.30
+  -1   4  -7    1.20    1.60
+   4   7  -2    6.20    1.40
+  -2   7  -4    3.70    1.20
+   7   4   2    4.50    1.50
+  -7   4  -2    3.40    0.80
+  -4   2  -7    6.00    1.90
+   7   2   4    4.10    1.30
+  -2   4  -7    1.70    1.10
+   7   4  -2    3.40    2.10
+  -4   7  -2    4.10    0.90
+  -7   2  -4    2.50    0.80
+   4   7   2    3.90    2.20
+  -7   4  -3    0.20    0.70
+  -4   3  -7    1.00    0.90
+   7   4   3   -1.00    1.20
+   4   7  -3    1.20    1.20
+  -3   7  -4    2.30    1.70
+   3   7  -4    1.20    1.10
+  -3   4  -7   -0.80    0.90
+   7   3   4    1.20    1.40
+  -4   7  -3    0.30    1.20
+  -7   3  -4    1.40    0.70
+   7   4  -3    1.20    2.20
+   0   5  -7    1.10    1.40
+   5   7   0    0.00    1.30
+   7   5   0    1.40    1.20
+   1   5  -7    3.90    1.60
+   7   5   1    1.80    1.20
+   5   7  -1    2.00    1.20
+  -1   5  -7    1.00    1.20
+   7   5  -1    1.80    1.20
+   5   7   1    4.50    1.80
+   2   5  -7    1.70    2.10
+  -7   5  -2   -0.10    0.60
+  -2   7  -5    1.60    1.70
+   7   5   2    0.70    1.60
+   5   7  -2   -0.20    1.30
+   7   2   5   -3.50    2.30
+  -2   5  -7    0.70    1.10
+  -5   7  -2    0.10    1.00
+   8   0   0    1.80    1.40
+   0   0  -8    1.90    1.90
+   0  -1  -8   -0.10    3.60
+   8   0   1    3.50    1.40
+   8   1   0    2.20    1.40
+   8  -1   0   -0.20    2.10
+   0   1  -8    0.50    1.70
+  -1   0  -8    1.90    1.90
+  -1   1  -8    1.70    1.60
+   8  -1   1    1.70    1.40
+   8   1  -1    2.70    2.30
+   8   1   1    1.90    1.30
+   0   2  -8    2.50    1.80
+   2   8   0   10.10    1.80
+   8   2   0    8.30    1.60
+  -2   1  -8    0.10    1.60
+   8   2   1   -2.30    1.20
+   2   8  -1   -0.60    1.30
+   8   2  -1   -0.80    1.50
+   8   1   2   -0.20    1.10
+  -1   2  -8    0.80    1.50
+   8   2   2    9.70    1.80
+  -2   2  -8    5.90    1.40
+   3   8   0    1.80    1.50
+   0   3  -8    0.00    1.50
+   8   3   0   -0.70    1.20
+   3   8  -1    1.40    1.20
+   1   3  -8   -1.10    1.50
+   8   3   1    0.90    1.20
+   8   3  -1    0.80    1.40
+  -1   3  -8    0.80    1.40
+   8   1   3   -0.70    1.20
+  -3   2  -8   -0.10    1.30
+   8   3   2    0.30    1.30
+   3   8  -2   -0.90    1.20
+  -2   3  -8    0.50    1.30
+   8   3  -2   -0.70    3.10
+   8   2   3   -0.30    1.30
+   4   8   0    3.10    1.80
+   8   4   0    3.20    1.40
+   0   4  -8    1.60    1.60
+   0   0   0    0.00    0.00
+
+_computing_structure_solution     'SHELXT 2014/5 (Sheldrick, 2014)'
+;
+_shelx_hkl_checksum              24770
+_olex2_submission_special_instructions 'No special instructions were received'

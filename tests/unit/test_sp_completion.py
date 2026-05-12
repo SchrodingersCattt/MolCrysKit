@@ -12,7 +12,7 @@ from molcrys_kit.analysis.disorder.process import (
 from molcrys_kit.io.cif import scan_cif_disorder
 
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
+CIF_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
 
 
 def _formula(symbols: list[str]) -> str:
@@ -20,8 +20,9 @@ def _formula(symbols: list[str]) -> str:
     return "".join(f"{element}{counts[element]}" for element in sorted(counts))
 
 
-def test_368k_records_sp_completion_without_symmetry_clash():
-    cif = EXAMPLES_DIR / "368K.cif"
+def test_phenethylammonium_sp_records_completion_without_symmetry_clash():
+    cif = CIF_DATA_DIR / "phenethylammonium_sp_p21m.cif"
+    assert cif.exists(), f"missing CIF fixture: {cif}"
     info = scan_cif_disorder(str(cif))
     lattice = CifParser(str(cif)).parse_structures()[0].lattice.matrix
 
@@ -42,8 +43,9 @@ def test_368k_records_sp_completion_without_symmetry_clash():
     assert symmetry_clashes == 0
 
 
-def test_368k_sp_completion_resolves_complete_cations():
-    cif = EXAMPLES_DIR / "368K.cif"
+def test_phenethylammonium_sp_completion_resolves_complete_cations():
+    cif = CIF_DATA_DIR / "phenethylammonium_sp_p21m.cif"
+    assert cif.exists(), f"missing CIF fixture: {cif}"
     [crystal] = generate_ordered_replicas_from_disordered_sites(
         str(cif), generate_count=1, method="optimal"
     )

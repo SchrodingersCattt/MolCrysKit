@@ -1,0 +1,128 @@
+####################################################################### 
+# 
+# This file contains crystal structure data downloaded from the 
+# Cambridge Structural Database (CSD) hosted by the Cambridge 
+# Crystallographic Data Centre (CCDC).
+# 
+# Full information about CCDC data access policies and citation 
+# guidelines are available at http://www.ccdc.cam.ac.uk/access/V1 
+# 
+# Audit and citation data items may have been added by the CCDC. 
+# Please retain this information to preserve the provenance of 
+# this file and to allow appropriate attribution of the data. 
+# 
+#######################################################################
+
+data_GICVUJ03
+#This CIF has been generated from an entry in the Cambridge Structural Database
+_database_code_depnum_ccdc_archive 'CCDC 1167402'
+_database_code_CSD               GICVUJ03
+loop_
+_citation_id
+_citation_doi
+_citation_year
+1 10.1135/cccc19941624 1994
+_audit_creation_method           'Created from the CSD'
+_audit_update_record             
+;
+2026-05-05 downloaded from the CCDC.
+;
+_database_code_NBS               640826
+_chemical_name_common            Nicergoline
+_chemical_formula_moiety         'C24 H26 Br1 N3 O3'
+_chemical_name_systematic        
+10\a-Methoxy-1,6-dimethylergoline-8\b-methanol-5'-bromonicotinate
+_chemical_properties_biological  
+'an alpha-adrenolytic vasodilator, stimulates cerebral and peripheral metabolism'
+_diffrn_ambient_temperature      295
+_exptl_crystal_density_diffrn    1.453
+#These two values have been output from a single CSD field.
+_refine_ls_R_factor_gt           0.07
+_refine_ls_wR_factor_gt          0.07
+_diffrn_radiation_probe          x-ray
+_symmetry_cell_setting           triclinic
+_symmetry_space_group_name_H-M   'P 1'
+_symmetry_Int_Tables_number      1
+_space_group_name_Hall           'P 1'
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 x,y,z
+_cell_length_a                   7.729(7)
+_cell_length_b                   8.695(4)
+_cell_length_c                   17.030(8)
+_cell_angle_alpha                100.90(4)
+_cell_angle_beta                 98.67(5)
+_cell_angle_gamma                93.04(5)
+_cell_volume                     1107.06
+_cell_formula_units_Z            2
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Br1 Br 0.1469(3) 0.1840(2) 0.7216(1)
+O1 O 0.047(1) -0.1715(8) 1.0127(5)
+O2 O 0.107(1) -0.280(1) 0.8899(6)
+O3 O 0.0120(8) -0.3725(8) 1.2855(4)
+N1 N -0.304(1) -0.8893(9) 1.3212(6)
+N2 N -0.275(1) -0.3194(9) 1.1732(5)
+N3 N 0.028(2) 0.264(1) 0.9490(7)
+C1 C -0.401(1) -0.759(1) 1.3175(9)
+C2 C -0.308(1) -0.647(1) 1.2895(7)
+C3 C -0.352(1) -0.497(1) 1.2641(6)
+C4 C -0.252(1) -0.474(1) 1.1935(6)
+C5 C -0.201(1) -0.302(1) 1.1008(6)
+C6 C -0.003(1) -0.320(1) 1.1138(6)
+C7 C 0.028(2) -0.472(1) 1.1422(7)
+C8 C -0.051(1) -0.4919(9) 1.2140(5)
+C9 C -0.026(1) -0.654(1) 1.2333(7)
+C10 C 0.113(1) -0.748(1) 1.2199(7)
+C11 C 0.117(2) -0.896(1) 1.2428(8)
+C12 C -0.013(1) -0.963(1) 1.2765(8)
+C13 C -0.154(1) -0.866(1) 1.2913(7)
+C14 C -0.157(1) -0.717(1) 1.2712(6)
+C15 C -0.355(2) -1.024(1) 1.3549(7)
+C16 C -0.470(1) -0.292(2) 1.159(1)
+C17 C 0.063(2) -0.320(1) 1.0383(6)
+C18 C 0.077(2) -0.169(1) 0.9389(6)
+C19 C 0.066(2) -0.009(1) 0.9171(6)
+C20 C 0.033(2) 0.124(1) 0.9713(7)
+C21 C 0.068(2) 0.273(2) 0.8754(8)
+C22 C 0.112(2) 0.151(1) 0.8204(6)
+C23 C 0.106(2) 0.009(1) 0.8433(7)
+C24 C 0.192(1) -0.361(1) 1.3227(7)
+Br2 Br 0.4844(3) 0.1072(3) 0.0838(1)
+O4 O 0.662(1) 0.4443(9) -0.2016(5)
+O5 O 0.555(1) 0.561(1) -0.0917(6)
+O6 O 0.4745(8) 0.6602(8) -0.4730(4)
+N4 N 0.217(1) 1.181(1) -0.5115(6)
+N5 N 0.261(1) 0.6150(9) -0.3590(5)
+N6 N 0.584(2) 0.007(1) -0.1507(7)
+C25 C 0.102(1) 1.051(1) -0.5105(8)
+C26 C 0.197(1) 0.944(1) -0.4751(7)
+C27 C 0.149(1) 0.793(1) -0.4503(6)
+C28 C 0.293(1) 0.768(1) -0.3809(6)
+C29 C 0.378(1) 0.603(1) -0.2845(6)
+C30 C 0.569(1) 0.603(1) -0.3012(6)
+C31 C 0.605(1) 0.754(1) -0.3306(5)
+C32 C 0.484(1) 0.7806(9) -0.4010(5)
+C33 C 0.518(1) 0.944(1) -0.4179(6)
+C34 C 0.680(1) 1.034(1) -0.4028(7)
+C35 C 0.694(1) 1.181(1) -0.4269(8)
+C36 C 0.550(1) 1.242(1) -0.4636(7)
+C37 C 0.378(1) 1.153(1) -0.4811(8)
+C38 C 0.371(1) 1.006(1) -0.4577(6)
+C39 C 0.167(2) 1.317(1) -0.5443(8)
+C40 C 0.068(1) 0.590(1) -0.3490(9)
+C41 C 0.690(1) 0.590(1) -0.2283(7)
+C42 C 0.593(2) 0.446(1) -0.1350(6)
+C43 C 0.577(2) 0.287(1) -0.1115(7)
+C44 C 0.597(2) 0.152(1) -0.1676(9)
+C45 C 0.557(2) 0.001(1) -0.0753(6)
+C46 C 0.535(2) 0.129(1) -0.0174(5)
+C47 C 0.539(2) 0.275(1) -0.0363(7)
+C48 C 0.623(2) 0.655(2) -0.5170(8)
+
+#END

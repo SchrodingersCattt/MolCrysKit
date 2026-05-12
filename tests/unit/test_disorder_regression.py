@@ -1,7 +1,7 @@
 """
 Regression tests for the disorder-resolution pipeline.
 
-Each CIF in `examples/` that the team has manually validated gets a
+Each CIF in `tests/data/cif/` that the team has manually validated gets a
 parametrised entry below.  Two checks are enforced per case:
 
 1. The total atom count after resolution matches the expected
@@ -33,8 +33,8 @@ from molcrys_kit.analysis.disorder.process import (
 )
 
 
-EXAMPLES_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "examples")
+CIF_DATA_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "data", "cif")
 )
 
 
@@ -91,7 +91,7 @@ class CifCase:
 CASES: list[CifCase] = [
     # --- locked baseline (currently green on main) ---
     CifCase("NatComm-1", "NatComm-1.cif", 60),
-    CifCase("PAP-HM4", "PAP-HM4.cif", 176),
+    CifCase("ammonium-sp-explicit-hm4", "ammonium_sp_explicit_hm4.cif", 176),
     CifCase("DAP-4", "DAP-4.cif", 336),
     CifCase("DAC-4", "DAC-4.cif", 39),
     CifCase("anhydrousCaffeine", "anhydrousCaffeine_CGD_2007_7_1406.cif", 480),
@@ -102,10 +102,10 @@ CASES: list[CifCase] = [
     CifCase("MAF-4", "MAF-4.cif", 369),
     CifCase("DAN-2", "DAN-2.cif", 35),
     CifCase("PAP-H4", "PAP-H4.cif", 656),
-    # 368K: 4-fluorophenethylammonium bromide.  The cation is encoded as
+    # 4-fluorophenethylammonium bromide.  The cation is encoded as
     # PART -1 on a mirror plane; SP-completion keeps both half-images,
     # snaps overlapping atoms, and removes/refits ghost hydrogens.
-    CifCase("368K", "368K.cif", 88),  # 4 isolated Br- counter-ions are fine
+    CifCase("phenethylammonium-sp-p21m", "phenethylammonium_sp_p21m.cif", 88),
     CifCase("DAI-X1", "DAI-X1.cif", 112),
     # ZIF-8: 40 orphan O atoms are solvent waters whose H atoms are not
     # refined in the CIF (labels O1S/O2S/O3S, where -S is SHELXL's
@@ -177,21 +177,19 @@ def _case_id(case: CifCase) -> str:
 
 
 @pytest.fixture(scope="module")
-def examples_dir() -> str:
-    if not os.path.isdir(EXAMPLES_DIR):
-        pytest.skip(f"examples directory not found: {EXAMPLES_DIR}")
-    return EXAMPLES_DIR
+def cif_data_dir() -> str:
+    assert os.path.isdir(CIF_DATA_DIR), f"CIF data directory not found: {CIF_DATA_DIR}"
+    return CIF_DATA_DIR
 
 
 @pytest.mark.parametrize("case", CASES, ids=_case_id)
-def test_disorder_regression(case: CifCase, examples_dir: str):
+def test_disorder_regression(case: CifCase, cif_data_dir: str):
     """Atom-count + over-coordination regression for a single CIF."""
     if case.xfail_reason:
         pytest.xfail(case.xfail_reason)
 
-    cif_path = os.path.join(examples_dir, case.cif)
-    if not os.path.exists(cif_path):
-        pytest.skip(f"missing CIF: {case.cif}")
+    cif_path = os.path.join(cif_data_dir, case.cif)
+    assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
 
     _, n_atoms, defects, formulas = _resolve(cif_path)
 
@@ -211,16 +209,15 @@ def test_disorder_regression(case: CifCase, examples_dir: str):
 # ---------------------------------------------------------------------------
 
 
-def test_natcomm1_topology(examples_dir: str):
+def test_natcomm1_topology(cif_data_dir: str):
     """NatComm-1 should resolve into 2 organic cations + 1 Cd-thiocyanate cluster.
 
     The earlier expectation of "6 separate SCN units" was wrong: SCN groups
     bridge Cd centres, so the Cd-thiocyanate framework is one connected
     cluster (Cd2(SCN)6 -> formula C6Cd2N6S6 in this representation).
     """
-    cif = os.path.join(examples_dir, "NatComm-1.cif")
-    if not os.path.exists(cif):
-        pytest.skip("NatComm-1.cif not found")
+    cif = os.path.join(cif_data_dir, "NatComm-1.cif")
+    assert os.path.exists(cif), "NatComm-1.cif fixture not found"
 
     _, n_atoms, _, formulas = _resolve(cif)
     assert n_atoms == 60
@@ -230,10 +227,9 @@ def test_natcomm1_topology(examples_dir: str):
     )
 
 
-def test_paphm4_topology(examples_dir: str):
-    cif = os.path.join(examples_dir, "PAP-HM4.cif")
-    if not os.path.exists(cif):
-        pytest.skip("PAP-HM4.cif not found")
+def test_ammonium_sp_explicit_hm4_topology(cif_data_dir: str):
+    cif = os.path.join(cif_data_dir, "ammonium_sp_explicit_hm4.cif")
+    assert os.path.exists(cif), "ammonium_sp_explicit_hm4.cif fixture not found"
 
     _, n_atoms, _, formulas = _resolve(cif)
     assert n_atoms == 176
@@ -242,10 +238,9 @@ def test_paphm4_topology(examples_dir: str):
     assert formulas.get("C6H16N2", 0) == 4
 
 
-def test_dap4_topology(examples_dir: str):
-    cif = os.path.join(examples_dir, "DAP-4.cif")
-    if not os.path.exists(cif):
-        pytest.skip("DAP-4.cif not found")
+def test_dap4_topology(cif_data_dir: str):
+    cif = os.path.join(cif_data_dir, "DAP-4.cif")
+    assert os.path.exists(cif), "DAP-4.cif fixture not found"
 
     _, n_atoms, _, formulas = _resolve(cif)
     assert n_atoms == 336
@@ -257,7 +252,7 @@ def test_dap4_topology(examples_dir: str):
     )
 
 
-def test_dai4_topology(examples_dir: str):
+def test_dai4_topology(cif_data_dir: str):
     """DAI-4: both implicit-tagged (N1) and explicit-tagged (N4) NH4+ sites
     must resolve to H4N1.
 
@@ -265,9 +260,8 @@ def test_dai4_topology(examples_dir: str):
     the greedy loop picked 3× H1D (same asym_id) for N1, producing NH3
     instead of NH4+.
     """
-    cif = os.path.join(examples_dir, "DAI-4.cif")
-    if not os.path.exists(cif):
-        pytest.skip("DAI-4.cif not found")
+    cif = os.path.join(cif_data_dir, "DAI-4.cif")
+    assert os.path.exists(cif), "DAI-4.cif fixture not found"
 
     _, n_atoms, _, formulas = _resolve(cif)
     assert n_atoms == 336, f"Expected 336 atoms, got {n_atoms}"
@@ -285,7 +279,7 @@ def test_dai4_topology(examples_dir: str):
     )
 
 
-def test_dap7_topology(examples_dir: str):
+def test_dap7_topology(cif_data_dir: str):
     """DAP-7: diaminopropane/hydrazinium salt.
 
     Checks the chemically correct stoichiometry: 6 perchlorate anions, 2
@@ -293,9 +287,8 @@ def test_dap7_topology(examples_dir: str):
     hydrazinium cations (H5N2 each, with one of the two 0.5-occupancy
     H1C protons surviving per cation).
     """
-    cif = os.path.join(examples_dir, "DAP-7.cif")
-    if not os.path.exists(cif):
-        pytest.skip("DAP-7.cif not found")
+    cif = os.path.join(cif_data_dir, "DAP-7.cif")
+    assert os.path.exists(cif), "DAP-7.cif fixture not found"
 
     _, n_atoms, _, formulas = _resolve(cif)
     assert n_atoms == 88, f"Expected 88 atoms, got {n_atoms}"
@@ -311,7 +304,7 @@ def test_dap7_topology(examples_dir: str):
     )
 
 
-def test_dap7_no_unphysical_proton_split(examples_dir: str):
+def test_dap7_no_unphysical_proton_split(cif_data_dir: str):
     """DAP-7: every enumerated/random replica must give 2 × H5N2+.
 
     The two hydrazinium cations are independent decision components, each
@@ -322,9 +315,8 @@ def test_dap7_no_unphysical_proton_split(examples_dir: str):
     enumerated alternative and every random sample and refuse anything
     that is not exactly H5N2 × 2.
     """
-    cif = os.path.join(examples_dir, "DAP-7.cif")
-    if not os.path.exists(cif):
-        pytest.skip("DAP-7.cif not found")
+    cif = os.path.join(cif_data_dir, "DAP-7.cif")
+    assert os.path.exists(cif), "DAP-7.cif fixture not found"
 
     forbidden = {"H4N2", "N2H4", "H6N2", "N2H6"}
     expected_hydrazinium = 2

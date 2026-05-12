@@ -16,16 +16,15 @@ from molcrys_kit.io.output import write_cif
 
 
 def example_cif_path():
-    # Resolve project root from this file location
     project_root = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     )
-    return os.path.join(project_root, "examples", "Acetaminophen_HXACAN.cif")
+    return os.path.join(project_root, "tests", "data", "cif", "Acetaminophen_HXACAN.cif")
 
 
 def load_example_crystal():
     path = example_cif_path()
-    assert os.path.exists(path), f"Missing example CIF at {path}"
+    assert os.path.exists(path), f"Missing CIF fixture at {path}"
     return read_mol_crystal(path)
 
 

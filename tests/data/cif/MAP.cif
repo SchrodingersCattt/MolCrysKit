@@ -1,0 +1,94 @@
+
+#######################################################################
+#
+#                 Cambridge Crystallographic Data Centre
+#                                CCDC
+#
+#######################################################################
+#
+# If this CIF has been generated from an entry in the Cambridge
+# Structural Database, then it will include bibliographic, chemical,
+# crystal, experimental, refinement or atomic coordinate data resulting
+# from the CCDC's data processing and validation procedures.
+#
+#######################################################################
+
+data_CSD_CIF_MEAPER
+_audit_creation_date 1971-12-31
+_audit_creation_method CSD-ConQuest-V1
+_database_code_CSD MEAPER
+_database_code_depnum_ccdc_archive 'CCDC 1210526'
+_chemical_formula_sum 'C1 H6 Cl1 N1 O4'
+_chemical_formula_moiety
+;
+C1 H6 N1 1+,Cl1 O4 1-
+;
+_journal_coeditor_code "IUCr A06113"
+_journal_coden_Cambridge 107
+_journal_volume 24
+_journal_year 1968
+_journal_page_first 499
+_journal_name_full 'Acta Crystallogr.,Sect.B:Struct.Crystallogr.Cryst.Chem. '
+loop_
+_publ_author_name
+"P.F.Zanazzi"
+_chemical_name_systematic
+;
+Monomethylammonium perchlorate
+;
+_cell_volume   1024.637
+_exptl_crystal_density_diffrn 1.71
+_diffrn_ambient_temperature ?
+_diffrn_special_details
+;
+The study was carried out at room temperature,in the range 283-303K
+
+;
+#These two values have been output from a single CSD field.
+_refine_ls_R_factor_gt 0.09
+_refine_ls_wR_factor_gt 0.09
+_symmetry_cell_setting monoclinic
+_symmetry_space_group_name_H-M 'P 21/n'
+_symmetry_Int_Tables_number 14
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 x,y,z
+2 1/2-x,1/2+y,1/2-z
+3 -x,-y,-z
+4 -1/2+x,-1/2-y,-1/2+z
+_cell_length_a 10.59(1)
+_cell_length_b 7.67(1)
+_cell_length_c 12.87(1)
+_cell_angle_alpha 90
+_cell_angle_beta 101.43(25)
+_cell_angle_gamma 90
+_cell_formula_units_Z 8
+loop_
+_atom_type_symbol
+_atom_type_radius_bond
+C 0.68
+Cl 0.99
+N 0.68
+O 0.68
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Cl1 Cl 0.38180 -0.31050 0.15030
+O1 O 0.38660 -0.19140 0.24030
+O2 O 0.35390 -0.20840 0.05330
+O3 O 0.28470 -0.43970 0.14930
+O4 O 0.50230 -0.38900 0.15560
+Cl2 Cl -0.45310 0.30370 0.39110
+O5 O -0.42360 0.19110 0.48440
+O6 O -0.57220 0.38590 0.39100
+O7 O -0.46170 0.18640 0.30140
+O8 O -0.35840 0.42650 0.39060
+C1 C 0.10160 -0.29250 0.44100
+N1 N 0.18830 -0.33370 0.36150
+C2 C -0.22560 0.35470 0.17660
+N2 N -0.12850 0.32800 0.10680
+#END

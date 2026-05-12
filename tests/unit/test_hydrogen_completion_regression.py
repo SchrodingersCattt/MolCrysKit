@@ -1,8 +1,8 @@
 """
-Regression tests for add_hydrogens against real CIF structures from examples/.
+Regression tests for add_hydrogens against real CIF structures from tests/data/cif/.
 
 Each test:
-1. Reads a real CIF from the examples/ directory.
+1. Reads a real CIF from the tests/data/cif/ directory.
 2. Calls add_hydrogens with target_elements appropriate for that structure.
 3. Asserts that every molecule in the hydrogenated crystal has the chemical
    formula matching the CIF's _chemical_formula_moiety field (Hill notation).
@@ -19,13 +19,14 @@ import os
 import pytest
 import warnings
 
-# Locate examples/ relative to this file regardless of working directory
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_EXAMPLES = os.path.join(_REPO_ROOT, "examples")
+_CIF_DATA = os.path.join(_REPO_ROOT, "tests", "data", "cif")
 
 
 def _cif(name):
-    return os.path.join(_EXAMPLES, name)
+    path = os.path.join(_CIF_DATA, name)
+    assert os.path.exists(path), f"missing CIF fixture: {path}"
+    return path
 
 
 def _hydrogenate(cif_path, target_elements, **kwargs):
@@ -56,8 +57,6 @@ def _hydrogenate(cif_path, target_elements, **kwargs):
 def test_gicvuj03_formula_per_molecule(mol_idx):
     """Each of the two nicergoline molecules must have formula C24H26BrN3O3."""
     path = _cif("GICVUJ03.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=["C", "N", "O"])
     formula, n_atoms = results[mol_idx]
@@ -72,8 +71,6 @@ def test_gicvuj03_formula_per_molecule(mol_idx):
 def test_gicvuj03_total_nodes():
     """Total atom count across the unit cell must be 114 (2 × 57)."""
     path = _cif("GICVUJ03.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -98,8 +95,6 @@ def test_gicvuj03_total_nodes():
 def test_isatin_formula():
     """Isatin: each molecule must be C8H5NO2 (5 H = 4 aromatic CH + 1 NH)."""
     path = _cif("ISATIN.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=["C", "N", "O"])
     for i, (formula, _) in enumerate(results):
@@ -117,8 +112,6 @@ def test_isatin_formula():
 def test_acetaminophen_no_extra_h():
     """Acetaminophen CIF already has H; add_hydrogens must leave count unchanged."""
     path = _cif("Acetaminophen_HXACAN.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=["C", "N", "O"])
     for i, (formula, _) in enumerate(results):
@@ -135,8 +128,6 @@ def test_acetaminophen_no_extra_h():
 def test_dacmor_formula():
     """DACMOR: each molecule must be C21H23NO5."""
     path = _cif("DACMOR.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=["C", "N", "O"])
     for i, (formula, _) in enumerate(results):
@@ -154,8 +145,6 @@ def test_dacmor_formula():
 def test_petn_formula():
     """PETN (all-sp3): each molecule must be C5H8N4O12 (H on C only)."""
     path = _cif("PETN_PERYTN10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=["C"])
     for i, (formula, _) in enumerate(results):
@@ -176,8 +165,6 @@ def test_petn_formula():
 def test_brcrim10_mesylate_formula():
     """BRCRIM10: methanesulfonate fragments must be CH3O3S."""
     path = _cif("BRCRIM10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=None)
     mesylates = [(formula, n_atoms) for formula, n_atoms in results if formula == "CH3O3S"]
@@ -190,8 +177,6 @@ def test_brcrim10_mesylate_formula():
 def test_brcrim10_isopropanol_formula():
     """BRCRIM10: isopropanol fragments must be C3H8O."""
     path = _cif("BRCRIM10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=None)
     isopropanols = [
@@ -206,8 +191,6 @@ def test_brcrim10_isopropanol_formula():
 def test_brcrim10_cation_formula():
     """BRCRIM10: bromocriptine cations must be C32H41BrN5O5."""
     path = _cif("BRCRIM10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=None)
     cations = [
@@ -223,8 +206,6 @@ def test_brcrim10_cation_formula():
 def test_brcrim10_total_nodes():
     """BRCRIM10: total atom count must match all corrected fragments."""
     path = _cif("BRCRIM10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -240,8 +221,6 @@ def test_brcrim10_total_nodes():
 def test_brcrim10_formula_moiety_path():
     """BRCRIM10 should still converge to the moiety formulas via the moiety path."""
     path = _cif("BRCRIM10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     from molcrys_kit.io import read_mol_crystal
     from molcrys_kit.operations import add_hydrogens
@@ -260,8 +239,6 @@ def test_brcrim10_formula_moiety_path():
 def test_brcrim10_use_formula_moiety_false_keeps_heuristic_path():
     """Opting out of formula moiety keeps the heuristic-only BRCRIM10 result."""
     path = _cif("BRCRIM10.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=None, use_formula_moiety=False)
 
@@ -273,8 +250,6 @@ def test_brcrim10_use_formula_moiety_false_keeps_heuristic_path():
 def test_map_methylammonium_perchlorate_formula():
     """MAP: moiety should enforce CH6N+ and ClO4- without perchlorate O-H."""
     path = _cif("MAP.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=None)
 
@@ -285,8 +260,6 @@ def test_map_methylammonium_perchlorate_formula():
 def test_suxrua_ammonium_perchlorate_formula():
     """SUXRUA has unknown moiety; heuristics should infer NH4+ and ClO4-."""
     path = _cif("SUXRUA.cif")
-    if not os.path.exists(path):
-        pytest.skip(f"CIF not found: {path}")
 
     results = _hydrogenate(path, target_elements=None)
 

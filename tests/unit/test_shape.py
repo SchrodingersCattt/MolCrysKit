@@ -190,9 +190,9 @@ def test_search_mode_evaluates_greedy_for_k4():
     )
 
 
-def test_optional_example_cifs_are_available_for_manual_regression():
-    examples_dir = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "examples")
+def test_optional_cif_fixtures_are_available_for_manual_regression():
+    cif_data_dir = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "cif")
     )
     required = [
         "DAP-4.cif",
@@ -201,8 +201,8 @@ def test_optional_example_cifs_are_available_for_manual_regression():
         "298K-MPEP.cif",
         "298k-HPEP.cif",
     ]
-    missing = [name for name in required if not os.path.exists(os.path.join(examples_dir, name))]
+    missing = [name for name in required if not os.path.exists(os.path.join(cif_data_dir, name))]
     if missing:
-        pytest.skip(f"optional MIX example CIFs are not installed: {missing}")
+        pytest.skip(f"optional MIX CIF fixtures are not installed: {missing}")
     for name in required:
-        assert os.path.getsize(os.path.join(examples_dir, name)) > 0
+        assert os.path.getsize(os.path.join(cif_data_dir, name)) > 0

@@ -1,0 +1,4450 @@
+####################################################################### 
+# 
+# This file contains crystal structure data downloaded from the 
+# Cambridge Structural Database (CSD) hosted by the Cambridge 
+# Crystallographic Data Centre (CCDC).
+# 
+# Full information about CCDC data access policies and citation 
+# guidelines are available at http://www.ccdc.cam.ac.uk/access/V1 
+# 
+# Audit and citation data items may have been added by the CCDC. 
+# Please retain this information to preserve the provenance of 
+# this file and to allow appropriate attribution of the data. 
+# 
+#######################################################################
+
+data_1_329K
+_audit_block_doi                 10.5517/ccdc.csd.cc2f6695
+_database_code_depnum_ccdc_archive 'CCDC 2240286'
+loop_
+_citation_id
+_citation_doi
+_citation_year
+1 10.1021/jacs.3c01530 2023
+2 10.1021/jacs.3c01530 2023
+loop_
+_audit_author_name
+_audit_author_address
+'Wei-Jian Xu'
+;University of Aveiro
+Portugal
+;
+_audit_update_record             
+;
+2023-02-06 deposited with the CCDC.	2026-01-03 downloaded from the CCDC.
+;
+_audit_creation_date             2022-09-13
+_audit_creation_method           
+;
+Olex2 1.2
+(compiled 2018.05.29 svn.r3508 for OlexSys, GUI svn.r5506)
+;
+_shelx_SHELXL_version_number     2014/7
+_chemical_name_common            ?
+_chemical_name_systematic        ?
+_chemical_formula_moiety         'C5 Fe N6 O, C2 H8 N, C5 H12 N'
+_chemical_formula_sum            'C12 H20 Fe N8 O'
+_chemical_formula_weight         348.21
+_chemical_melting_point          ?
+loop_
+_atom_type_symbol
+_atom_type_description
+_atom_type_scat_dispersion_real
+_atom_type_scat_dispersion_imag
+_atom_type_scat_source
+C C 0.0033 0.0016 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+H H 0.0000 0.0000 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+Fe Fe 0.3463 0.8444 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+N N 0.0061 0.0033 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+O O 0.0106 0.0060 'International Tables Vol C Tables 4.2.6.8 and 6.1.1.4'
+
+_shelx_space_group_comment       
+;
+The symmetry employed for this shelxl refinement is uniquely defined
+by the following loop, which should always be used as a source of
+symmetry information in preference to the above space-group names.
+They are only intended as comments.
+;
+_space_group_crystal_system      monoclinic
+_space_group_IT_number           11
+_space_group_name_H-M_alt        'P 1 21/m 1'
+_space_group_name_Hall           '-P 2yb'
+loop_
+_space_group_symop_operation_xyz
+'x, y, z'
+'-x, y+1/2, -z'
+'-x, -y, -z'
+'x, -y-1/2, z'
+
+_cell_length_a                   8.8300(13)
+_cell_length_b                   9.2390(12)
+_cell_length_c                   11.3402(18)
+_cell_angle_alpha                90
+_cell_angle_beta                 108.870(5)
+_cell_angle_gamma                90
+_cell_volume                     875.4(2)
+_cell_formula_units_Z            2
+_cell_measurement_reflns_used    4225
+_cell_measurement_temperature    329(2)
+_cell_measurement_theta_max      29.45
+_cell_measurement_theta_min      3.29
+_shelx_estimated_absorpt_T_max   0.838
+_shelx_estimated_absorpt_T_min   0.792
+_exptl_absorpt_coefficient_mu    0.875
+_exptl_absorpt_correction_T_max  0.7459
+_exptl_absorpt_correction_T_min  0.6177
+_exptl_absorpt_correction_type   none
+_exptl_absorpt_process_details   
+;
+SADABS-2016/2 (Bruker,2016/2) was used for absorption correction.
+wR2(int) was 0.0640 before and 0.0543 after correction.
+The Ratio of minimum to maximum transmission is 0.8281.
+The \l/2 correction factor is Not present.
+;
+_exptl_absorpt_special_details   ?
+_exptl_crystal_colour            'clear orangish orange'
+_exptl_crystal_colour_lustre     clear
+_exptl_crystal_colour_modifier   orangish
+_exptl_crystal_colour_primary    orange
+_exptl_crystal_density_diffrn    1.321
+_exptl_crystal_density_meas      .
+_exptl_crystal_density_method    ?
+_exptl_crystal_description       block
+_exptl_crystal_F_000             364
+_exptl_crystal_preparation       ?
+_exptl_crystal_size_max          0.28
+_exptl_crystal_size_mid          0.25
+_exptl_crystal_size_min          0.21
+_exptl_transmission_factor_max   ?
+_exptl_transmission_factor_min   ?
+_diffrn_reflns_av_R_equivalents  ?
+_diffrn_reflns_av_unetI/netI     0.0405
+_diffrn_reflns_Laue_measured_fraction_full 0.982
+_diffrn_reflns_Laue_measured_fraction_max 0.987
+_diffrn_reflns_limit_h_max       12
+_diffrn_reflns_limit_h_min       -12
+_diffrn_reflns_limit_k_max       12
+_diffrn_reflns_limit_k_min       -12
+_diffrn_reflns_limit_l_max       15
+_diffrn_reflns_limit_l_min       -8
+_diffrn_reflns_number            2592
+_diffrn_reflns_point_group_measured_fraction_full 0.982
+_diffrn_reflns_point_group_measured_fraction_max 0.987
+_diffrn_reflns_theta_full        25.242
+_diffrn_reflns_theta_max         29.713
+_diffrn_reflns_theta_min         3.287
+_diffrn_ambient_temperature      329.0
+_diffrn_detector_area_resol_mean ?
+_diffrn_measured_fraction_theta_full 0.982
+_diffrn_measured_fraction_theta_max 0.987
+_diffrn_measurement_device_type  'CCD area detector'
+_diffrn_measurement_method       'phi and omega scans'
+_diffrn_radiation_monochromator  graphite
+_diffrn_radiation_type           MoK\a
+_diffrn_radiation_wavelength     0.71073
+_diffrn_source                   ?
+_reflns_Friedel_coverage         0.000
+_reflns_Friedel_fraction_full    .
+_reflns_Friedel_fraction_max     .
+_reflns_number_gt                1773
+_reflns_number_total             2592
+_reflns_special_details          
+;
+ _reflns_Friedel_fraction is defined as the number of unique
+ Friedel pairs measured divided by the number that would be
+ possible theoretically, ignoring centric projections and
+ systematic absences.
+;
+_reflns_threshold_expression     'I > 2\s(I)'
+_computing_cell_refinement       ?
+_computing_data_collection       ?
+_computing_data_reduction        ?
+_computing_molecular_graphics    'Olex2 (Dolomanov et al., 2009)'
+_computing_publication_material  'Olex2 (Dolomanov et al., 2009)'
+_computing_structure_refinement  'ShelXL (Sheldrick, 2015)'
+_computing_structure_solution    'ShelXT (Sheldrick, 2015)'
+_refine_diff_density_max         0.806
+_refine_diff_density_min         -0.400
+_refine_diff_density_rms         0.069
+_refine_ls_extinction_coef       .
+_refine_ls_extinction_method     none
+_refine_ls_goodness_of_fit_ref   1.051
+_refine_ls_hydrogen_treatment    constr
+_refine_ls_matrix_type           full
+_refine_ls_number_parameters     133
+_refine_ls_number_reflns         2592
+_refine_ls_number_restraints     23
+_refine_ls_R_factor_all          0.1021
+_refine_ls_R_factor_gt           0.0630
+_refine_ls_restrained_S_all      1.047
+_refine_ls_shift/su_max          0.001
+_refine_ls_shift/su_mean         0.000
+_refine_ls_structure_factor_coef Fsqd
+_refine_ls_weighting_details     
+'w=1/[\s^2^(Fo^2^)+(0.1192P)^2^+0.3783P] where P=(Fo^2^+2Fc^2^)/3'
+_refine_ls_weighting_scheme      calc
+_refine_ls_wR_factor_gt          0.1685
+_refine_ls_wR_factor_ref         0.2093
+_refine_special_details          
+;
+ Refined as a 2-component twin.
+;
+_olex2_refinement_description    
+;
+1. Twinned data refinement
+ Scales: 0.946(5)
+ 0.054(5)
+2. Fixed Uiso
+ At 1.2 times of:
+  All C(H,H) groups, All N(H,H) groups
+ At 1.5 times of:
+  All C(H,H,H,H,H,H,H,H,H) groups
+3. Restrained distances
+ C8A-C7A = C8A-C9A = C10A-C9A
+ 1.511 with sigma of 0.002
+ C6A-C7A = C8A-C7A = C8A-C9A = C10A-C9A
+ 1.511 with sigma of 0.002
+ C7A-C6A = C8A-C7A = C8A-C9A = C10A-C9A
+ 1.511 with sigma of 0.002
+ N6A-C10A = N6A-C6A
+ 1.481 with sigma of 0.02
+ N6A-C6A = N6A-C10A
+ 1.481 with sigma of 0.002
+ C9A-C7A
+ 2.476 with sigma of 0.002
+ C10A-C7A
+ 2.89 with sigma of 0.02
+ C7B-C8B
+ 1.511 with sigma of 0.002
+ C7B-C6B = C10B-C9B = C8B-C9B
+ 1.511 with sigma of 0.002
+ N6B-C10B = N6B-C6B
+ 1.481 with sigma of 0.002
+4. Uiso/Uaniso restraints and constraints
+Uanis(C8A) = Uanis(C7A) = Uanis(C6A) = Uanis(C9A) = Uanis(N6A) = Uanis(C10A) =
+Uanis(C6B) = Uanis(C7B) = Uanis(C10B) = Uanis(N6B) = Uanis(C9B) = Uanis(C8B)
+Uanis(N5C) = Uanis(N5A) = Uanis(N5B)
+5. Others
+ Fixed Sof: H5BF(0.15) H5BE(0.15) H5BD(0.15) H5CG(0.1) H5CH(0.1) H5CI(0.1)
+ H5AA(0.25) H5AC(0.25) H5AB(0.25) H4BF(0.15) H4BD(0.15) H4BE(0.15) H4CI(0.1)
+ H4CG(0.1) H4CH(0.1) H4AC(0.25) H4AA(0.25) H4AB(0.25) C7A(0.25) H7AA(0.25)
+ H7AB(0.25) C9A(0.25) H9AA(0.25) H9AB(0.25) C10A(0.25) H10A(0.25) H10B(0.25)
+ C8A(0.25) H8AA(0.25) H8AB(0.25) C6A(0.25) H6AA(0.25) H6AB(0.25) C6B(0.25)
+ H6BA(0.25) H6BB(0.25) C7B(0.25) H7BA(0.25) H7BB(0.25) C8B(0.25) H8BA(0.25)
+ H8BB(0.25) C9B(0.25) H9BA(0.25) H9BB(0.25) C10B(0.25) H10C(0.25) H10D(0.25)
+ N6B(0.25) H6BC(0.25) H6BD(0.25) N6A(0.25) H6AC(0.25) H6AD(0.25) N5B(0.125)
+ H5BA(0.125) H5BB(0.125) N5A(0.25) H5AD(0.25) H5AE(0.25) N5C(0.125) H5CA(0.125)
+ H5CB(0.125)
+6.a Riding coordinates:
+ C5(H5BF,H5BE,H5BD), C5(H5CG,H5CH,H5CI), C5(H5AA,H5AC,H5AB), C4(H4BF,H4BD,
+ H4BE), C4(H4CI,H4CG,H4CH), C4(H4AC,H4AA,H4AB)
+6.b Secondary CH2 refined with riding coordinates:
+ C7A(H7AA,H7AB), C9A(H9AA,H9AB), C10A(H10A,H10B), C8A(H8AA,H8AB), C6A(H6AA,
+ H6AB), C6B(H6BA,H6BB), C7B(H7BA,H7BB), C8B(H8BA,H8BB), C9B(H9BA,H9BB),
+ C10B(H10C,H10D), N6B(H6BC,H6BD), N6A(H6AC,H6AD), N5B(H5BA,H5BB), N5A(H5AD,
+ H5AE), N5C(H5CA,H5CB)
+;
+_atom_sites_solution_hydrogens   mixed
+_atom_sites_solution_primary     dual
+_atom_sites_solution_secondary   ?
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_U_iso_or_equiv
+_atom_site_adp_type
+_atom_site_occupancy
+_atom_site_site_symmetry_order
+_atom_site_calc_flag
+_atom_site_refinement_flags_posn
+_atom_site_refinement_flags_adp
+_atom_site_refinement_flags_occupancy
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+Fe1 Fe 0.56668(7) 0.2500 0.65383(6) 0.0510(3) Uani 1 2 d S T P . .
+N4 N 0.4998(6) 0.2500 0.5011(4) 0.0624(10) Uani 1 2 d S T P . .
+O1 O 0.4538(8) 0.2500 0.3950(5) 0.1081(18) Uani 1 2 d S T P . .
+C1 C 0.7238(5) 0.3986(4) 0.6636(4) 0.0669(9) Uani 1 1 d . . . . .
+C5 C 0.1055(9) 0.7500 0.7503(7) 0.0891(18) Uani 1 2 d S T P . .
+H5BF H 0.0790 0.6862 0.8076 0.134 Uiso 0.15 1 d R . . A 1
+H5BE H 0.1206 0.8463 0.7839 0.134 Uiso 0.15 1 d R . . A 1
+H5BD H 0.2023 0.7175 0.7376 0.134 Uiso 0.15 1 d R . . A 1
+H5CG H 0.2011 0.7806 0.8141 0.134 Uiso 0.1 1 d R . . B 2
+H5CH H 0.0777 0.6541 0.7686 0.134 Uiso 0.1 1 d R . . B 2
+H5CI H 0.0197 0.8153 0.7473 0.134 Uiso 0.1 1 d R . . B 2
+H5AA H 0.1954 0.8104 0.7541 0.134 Uiso 0.25 1 d R . . C -1
+H5AC H 0.0180 0.8092 0.7545 0.134 Uiso 0.25 1 d R . . C -1
+H5AB H 0.1349 0.6837 0.8192 0.134 Uiso 0.25 1 d R . . C -1
+C2 C 0.6465(9) 0.2500 0.8322(6) 0.0871(18) Uani 1 2 d S T P . .
+C3 C 0.4187(5) 0.1024(5) 0.6702(5) 0.0780(11) Uani 1 1 d . . . . .
+N1 N 0.8156(6) 0.4853(6) 0.6687(5) 0.1136(16) Uani 1 1 d . . . . .
+N2 N 0.6927(14) 0.2500 0.9364(7) 0.164(4) Uani 1 2 d S T P . .
+N3 N 0.3309(7) 0.0193(7) 0.6799(7) 0.138(2) Uani 1 1 d . . . . .
+C4 C 0.0096(11) 0.7500 0.5227(8) 0.105(2) Uani 1 2 d S T P . .
+H4BF H -0.0843 0.7799 0.4568 0.157 Uiso 0.15 1 d R . . D 1
+H4BD H 0.0394 0.6543 0.5058 0.157 Uiso 0.15 1 d R . . D 1
+H4BE H 0.0957 0.8158 0.5280 0.157 Uiso 0.15 1 d R . . D 1
+H4CI H -0.0881 0.7242 0.5374 0.157 Uiso 0.1 1 d R . . E 2
+H4CG H 0.0316 0.6811 0.4670 0.157 Uiso 0.1 1 d R . . E 2
+H4CH H -0.0011 0.8448 0.4862 0.157 Uiso 0.1 1 d R . . E 2
+H4AC H -0.0810 0.8092 0.5194 0.157 Uiso 0.25 1 d R . . F -1
+H4AA H 0.0964 0.8105 0.5191 0.157 Uiso 0.25 1 d R . . F -1
+H4AB H -0.0190 0.6844 0.4533 0.157 Uiso 0.25 1 d R . . F -1
+C7A C 0.1240(18) 0.3657(16) 0.943(2) 0.130(3) Uani 0.25 1 d D . . G -2
+H7AA H 0.0554 0.4271 0.8781 0.156 Uiso 0.25 1 calc R . . G -2
+H7AB H 0.1014 0.3816 1.0202 0.156 Uiso 0.25 1 calc R . . G -2
+C9A C 0.402(2) 0.3049(17) 1.071(3) 0.130(3) Uani 0.25 1 d D . . G -2
+H9AA H 0.4023 0.3565 1.1453 0.156 Uiso 0.25 1 calc R . . G -2
+H9AB H 0.5107 0.3040 1.0687 0.156 Uiso 0.25 1 calc R . . G -2
+N5B N -0.020(2) 0.7500 0.6358(18) 0.064(2) Uani 0.25 2 d S T P H 1
+H5BA H -0.0803 0.6727 0.6359 0.077 Uiso 0.125 1 calc R . . H 1
+H5BB H -0.0803 0.8273 0.6359 0.077 Uiso 0.125 1 calc R . . H 1
+N5A N 0.0560(13) 0.6688(12) 0.6341(13) 0.064(2) Uani 0.25 1 d . . . H -1
+H5AD H 0.1365 0.6112 0.6333 0.077 Uiso 0.25 1 calc R . . H -1
+H5AE H -0.0255 0.6121 0.6340 0.077 Uiso 0.25 1 calc R . . H -1
+C10A C 0.351(2) 0.151(2) 1.081(3) 0.130(3) Uani 0.25 1 d D . . G -2
+H10A H 0.4030 0.0872 1.0375 0.156 Uiso 0.25 1 calc R . . G -2
+H10B H 0.3847 0.1222 1.1676 0.156 Uiso 0.25 1 calc R . . G -2
+C8A C 0.299(2) 0.388(3) 0.959(2) 0.130(3) Uani 0.25 1 d D . . G -2
+H8AA H 0.3207 0.3554 0.8845 0.156 Uiso 0.25 1 calc R . . G -2
+H8AB H 0.3245 0.4904 0.9696 0.156 Uiso 0.25 1 calc R . . G -2
+N5C N 0.134(2) 0.7500 0.6351(19) 0.064(2) Uani 0.25 2 d S T P H 2
+H5CA H 0.1936 0.8273 0.6347 0.077 Uiso 0.125 1 calc R . . H 2
+H5CB H 0.1936 0.6727 0.6347 0.077 Uiso 0.125 1 calc R . . H 2
+C6A C 0.108(4) 0.2080(16) 0.9056(18) 0.130(3) Uani 0.25 1 d D . . G -2
+H6AA H -0.0028 0.1818 0.8648 0.156 Uiso 0.25 1 calc R . . G -2
+H6AB H 0.1693 0.1861 0.8504 0.156 Uiso 0.25 1 calc R . . G -2
+C6B C 0.155(4) 0.147(2) 0.877(3) 0.130(3) Uani 0.25 1 d D . . I -1
+H6BA H 0.0521 0.1157 0.8819 0.156 Uiso 0.25 1 calc R . . I -1
+H6BB H 0.1720 0.0974 0.8072 0.156 Uiso 0.25 1 calc R . . I -1
+C7B C 0.148(4) 0.3075(18) 0.853(3) 0.130(3) Uani 0.25 1 d D . . I -1
+H7BA H 0.0359 0.3338 0.8193 0.156 Uiso 0.25 1 calc R . . I -1
+H7BB H 0.1939 0.3237 0.7868 0.156 Uiso 0.25 1 calc R . . I -1
+C8B C 0.226(4) 0.414(2) 0.955(3) 0.130(3) Uani 0.25 1 d D . . I -1
+H8BA H 0.1528 0.4407 0.9993 0.156 Uiso 0.25 1 calc R . . I -1
+H8BB H 0.2566 0.5012 0.9207 0.156 Uiso 0.25 1 calc R . . I -1
+C9B C 0.373(3) 0.342(3) 1.044(3) 0.130(3) Uani 0.25 1 d D . . I -1
+H9BA H 0.4275 0.4071 1.1110 0.156 Uiso 0.25 1 calc R . . I -1
+H9BB H 0.4468 0.3150 0.9997 0.156 Uiso 0.25 1 calc R . . I -1
+C10B C 0.316(3) 0.2088(19) 1.094(2) 0.130(3) Uani 0.25 1 d D . . I -1
+H10C H 0.3976 0.1737 1.1680 0.156 Uiso 0.25 1 calc R . . I -1
+H10D H 0.2199 0.2303 1.1150 0.156 Uiso 0.25 1 calc R . . I -1
+N6B N 0.281(3) 0.100(2) 0.9929(18) 0.130(3) Uani 0.25 1 d D . . I -1
+H6BC H 0.2504 0.0179 1.0195 0.156 Uiso 0.25 1 calc R . . I -1
+H6BD H 0.3705 0.0818 0.9754 0.156 Uiso 0.25 1 calc R . . I -1
+N6A N 0.175(2) 0.132(2) 1.0266(19) 0.130(3) Uani 0.25 1 d D . . G -2
+H6AC H 0.1287 0.1667 1.0798 0.156 Uiso 0.25 1 calc R . . G -2
+H6AD H 0.1522 0.0385 1.0158 0.156 Uiso 0.25 1 calc R . . G -2
+
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_23
+_atom_site_aniso_U_13
+_atom_site_aniso_U_12
+Fe1 0.0476(4) 0.0463(4) 0.0612(5) 0.000 0.0207(3) 0.000
+N4 0.068(2) 0.0495(19) 0.065(3) 0.000 0.015(2) 0.000
+O1 0.150(5) 0.096(4) 0.063(3) 0.000 0.013(3) 0.000
+C1 0.0615(19) 0.0597(19) 0.080(2) -0.0030(17) 0.0235(18) -0.0115(16)
+C5 0.093(5) 0.073(4) 0.102(5) 0.000 0.032(4) 0.000
+C2 0.095(5) 0.097(5) 0.067(4) 0.000 0.023(3) 0.000
+C3 0.065(2) 0.072(2) 0.102(3) 0.010(2) 0.034(2) -0.0099(18)
+N1 0.102(3) 0.094(3) 0.146(4) -0.008(3) 0.041(3) -0.043(3)
+N2 0.207(10) 0.207(11) 0.062(4) 0.000 0.023(5) 0.000
+N3 0.108(4) 0.118(4) 0.196(6) 0.031(4) 0.063(4) -0.038(3)
+C4 0.101(5) 0.107(6) 0.106(6) 0.000 0.035(5) 0.000
+C7A 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C9A 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+N5B 0.054(5) 0.042(4) 0.103(7) 0.000 0.035(5) 0.000
+N5A 0.054(5) 0.042(4) 0.103(7) 0.000 0.035(5) 0.000
+C10A 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C8A 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+N5C 0.054(5) 0.042(4) 0.103(7) 0.000 0.035(5) 0.000
+C6A 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C6B 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C7B 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C8B 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C9B 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+C10B 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+N6B 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+N6A 0.137(6) 0.078(5) 0.135(7) 0.019(4) -0.013(5) 0.009(5)
+
+_geom_special_details            
+;
+ All esds (except the esd in the dihedral angle between two l.s. planes)
+ are estimated using the full covariance matrix.  The cell esds are taken
+ into account individually in the estimation of esds in distances, angles
+ and torsion angles; correlations between esds in cell parameters are only
+ used when they are defined by crystal symmetry.  An approximate (isotropic)
+ treatment of cell esds is used for estimating esds involving l.s. planes.
+;
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_site_symmetry_2
+_geom_bond_publ_flag
+Fe1 N4 1.639(5) . ?
+Fe1 C1 1.929(4) 4_565 ?
+Fe1 C1 1.929(4) . ?
+Fe1 C2 1.915(7) . ?
+Fe1 C3 1.938(4) 4_565 ?
+Fe1 C3 1.938(4) . ?
+N4 O1 1.139(7) . ?
+C1 N1 1.128(5) . ?
+C5 N5B 1.41(2) . ?
+C5 N5A 1.456(14) . ?
+C5 N5C 1.407(19) . ?
+C2 N2 1.118(10) . ?
+C3 N3 1.122(6) . ?
+C4 N5B 1.391(19) . ?
+C4 N5A 1.411(14) . ?
+C4 N5C 1.39(2) . ?
+C7A C8A 1.5110(12) . ?
+C7A C6A 1.5110(15) . ?
+C9A C10A 1.5111(12) . ?
+C9A C8A 1.5110(12) . ?
+N5B N5A 1.013(15) . ?
+C10A N6A 1.481(2) . ?
+C6A N6A 1.482(2) . ?
+C6B C7B 1.510(2) . ?
+C6B N6B 1.482(2) . ?
+C7B C8B 1.511(2) . ?
+C8B C9B 1.511(2) . ?
+C9B C10B 1.512(2) . ?
+C10B N6B 1.481(2) . ?
+
+loop_
+_geom_angle_atom_site_label_1
+_geom_angle_atom_site_label_2
+_geom_angle_atom_site_label_3
+_geom_angle
+_geom_angle_site_symmetry_1
+_geom_angle_site_symmetry_3
+_geom_angle_publ_flag
+N4 Fe1 C1 93.88(17) . 4_565 ?
+N4 Fe1 C1 93.88(17) . . ?
+N4 Fe1 C2 179.5(3) . . ?
+N4 Fe1 C3 94.45(19) . 4_565 ?
+N4 Fe1 C3 94.44(19) . . ?
+C1 Fe1 C1 90.7(2) . 4_565 ?
+C1 Fe1 C3 171.65(18) . . ?
+C1 Fe1 C3 89.33(19) . 4_565 ?
+C1 Fe1 C3 171.65(18) 4_565 4_565 ?
+C1 Fe1 C3 89.33(19) 4_565 . ?
+C2 Fe1 C1 85.8(2) . 4_565 ?
+C2 Fe1 C1 85.8(2) . . ?
+C2 Fe1 C3 85.9(2) . . ?
+C2 Fe1 C3 85.9(2) . 4_565 ?
+C3 Fe1 C3 89.4(3) . 4_565 ?
+O1 N4 Fe1 179.8(5) . . ?
+N1 C1 Fe1 179.6(5) . . ?
+N5B C5 N5A 41.4(6) . . ?
+N2 C2 Fe1 179.8(9) . . ?
+N3 C3 Fe1 178.5(5) . . ?
+N5B C4 N5A 42.4(7) . . ?
+C8A C7A C6A 99(2) . . ?
+C8A C9A C10A 115.5(17) . . ?
+C4 N5B C5 121.5(13) . . ?
+N5A N5B C5 71.8(13) . . ?
+N5A N5B C4 69.9(12) . . ?
+C4 N5A C5 116.8(8) . . ?
+N5B N5A C5 66.9(13) . . ?
+N5B N5A C4 67.7(13) . . ?
+N6A C10A C9A 112.0(14) . . ?
+C9A C8A C7A 110.03(16) . . ?
+C4 N5C C5 122.0(13) . . ?
+N6A C6A C7A 102.8(15) . . ?
+N6B C6B C7B 115(2) . . ?
+C6B C7B C8B 121(2) . . ?
+C7B C8B C9B 108(2) . . ?
+C8B C9B C10B 107(2) . . ?
+N6B C10B C9B 106(2) . . ?
+C10B N6B C6B 113(2) . . ?
+C10A N6A C6A 112(2) . . ?
+
+_shelx_res_file                  
+;
+    twin329k.res created by SHELXL-2014/7
+
+TITL 329k_a.res in P2(1)/m
+REM Old TITL 329K in P2(1)
+REM SHELXT solution in P2(1)/m
+REM R1 0.173, Rweak 0.013, Alpha 0.040, Orientation as input
+REM Formula found by SHELXT: C8B O6 Fe
+CELL 0.71073 8.83 9.239 11.3402 90 108.87 90
+ZERR 2 0.0013 0.0012 0.0018 0 0.005 0
+LATT 1
+SYMM -X,0.5+Y,-Z
+SFAC C H Fe N O
+UNIT 24 40 2 16 2
+DFIX 1.511 0.002 C8A C7A C8A C9A C10A C9A
+DFIX 1.511 0.002 C6A C7A C8A C7A C8A C9A C10A C9A
+DFIX 1.511 0.002 C7A C6A C8A C7A C8A C9A C10A C9A
+DFIX 1.481 N6A C10A N6A C6A
+DFIX 1.481 0.002 N6A C6A N6A C10A
+DFIX 2.476 0.002 C9A C7A
+DFIX 2.89 C10A C7A
+DFIX 1.511 0.002 C7B C8B
+DFIX 1.511 0.002 C7B C6B C10B C9B C8B C9B
+DFIX 1.481 0.002 N6B C10B N6B C6B
+EADP C8A C7A C6A C9A N6A C10A C6B C7B C10B N6B C9B C8B
+EADP N5C N5A N5B
+
+L.S. 20
+PLAN  5
+SIZE 0.21 0.25 0.28
+TEMP 55.85
+LIST 4
+fmap 2
+acta
+OMIT 0 0 1
+REM <olex2.extras>
+REM <HklSrc "%.\\twin329K.hkl">
+REM </olex2.extras>
+
+WGHT    0.119200    0.378300
+BASF   0.05422
+FVAR      31.94469
+FE1   3    0.566678    0.250000    0.653826    10.50000    0.04761    0.04634 =
+         0.06125    0.00000    0.02066    0.00000
+N4    4    0.499775    0.250000    0.501123    10.50000    0.06802    0.04947 =
+         0.06518    0.00000    0.01522    0.00000
+O1    5    0.453789    0.250000    0.395008    10.50000    0.14957    0.09628 =
+         0.06321    0.00000    0.01314    0.00000
+C1    1    0.723751    0.398551    0.663635    11.00000    0.06153    0.05972 =
+         0.08004   -0.00302    0.02354   -0.01147
+C5    1    0.105516    0.750000    0.750325    10.50000    0.09267    0.07290 =
+         0.10172    0.00000    0.03161    0.00000
+PART 1
+AFIX   3
+H5BF  2    0.078986    0.686200    0.807555    10.15000   -1.50000
+H5BE  2    0.120606    0.846280    0.783944    10.15000   -1.50000
+H5BD  2    0.202326    0.717510    0.737615    10.15000   -1.50000
+AFIX   3
+PART 0
+PART 2
+H5CG  2    0.201136    0.780640    0.814145    10.10000   -1.50000
+H5CH  2    0.077666    0.654100    0.768645    10.10000   -1.50000
+H5CI  2    0.019716    0.815270    0.747275    10.10000   -1.50000
+AFIX   3
+PART 0
+PART -1
+H5AA  2    0.195386    0.810440    0.754085    10.25000   -1.50000
+H5AC  2    0.018006    0.809190    0.754455    10.25000   -1.50000
+H5AB  2    0.134856    0.683710    0.819215    10.25000   -1.50000
+AFIX   0
+
+PART 0
+C2    1    0.646543    0.250000    0.832224    10.50000    0.09517    0.09710 =
+         0.06695    0.00000    0.02324    0.00000
+C3    1    0.418727    0.102411    0.670214    11.00000    0.06515    0.07153 =
+         0.10236    0.01034    0.03428   -0.00993
+N1    4    0.815570    0.485255    0.668677    11.00000    0.10186    0.09439 =
+         0.14554   -0.00758    0.04148   -0.04298
+N2    4    0.692733    0.250000    0.936390    10.50000    0.20736    0.20697 =
+         0.06232    0.00000    0.02293    0.00000
+N3    4    0.330902    0.019281    0.679912    11.00000    0.10801    0.11774 =
+         0.19647    0.03074    0.06251   -0.03769
+
+C4    1    0.009607    0.750000    0.522721    10.50000    0.10136    0.10737 =
+         0.10605    0.00000    0.03517    0.00000
+PART 1
+AFIX   3
+H4BF  2   -0.084293    0.779950    0.456841    10.15000   -1.50000
+H4BD  2    0.039387    0.654250    0.505761    10.15000   -1.50000
+H4BE  2    0.095697    0.815800    0.528031    10.15000   -1.50000
+AFIX   3
+PART 0
+PART 2
+H4CI  2   -0.088083    0.724150    0.537401    10.10000   -1.50000
+H4CG  2    0.031567    0.681090    0.467021    10.10000   -1.50000
+H4CH  2   -0.001063    0.844760    0.486201    10.10000   -1.50000
+AFIX   3
+PART 0
+PART -1
+H4AC  2   -0.081003    0.809230    0.519441    10.25000   -1.50000
+H4AA  2    0.096377    0.810480    0.519061    10.25000   -1.50000
+H4AB  2   -0.019003    0.684440    0.453311    10.25000   -1.50000
+AFIX   0
+
+PART 0
+PART -2
+C7A   1    0.123971    0.365674    0.942942    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H7AA  2    0.055393    0.427055    0.878105    10.25000   -1.20000
+H7AB  2    0.101447    0.381649    1.020165    10.25000   -1.20000
+AFIX   0
+C9A   1    0.401735    0.304935    1.070682    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H9AA  2    0.402275    0.356490    1.145330    10.25000   -1.20000
+H9AB  2    0.510722    0.303980    1.068674    10.25000   -1.20000
+AFIX   0
+
+PART 0
+PART 1
+N5B   4   -0.020207    0.750000    0.635849    10.12500    0.05448    0.04243 =
+         0.10266    0.00000    0.03540    0.00000
+AFIX  23
+H5BA  2   -0.080329    0.672701    0.635911    10.12500   -1.20000
+H5BB  2   -0.080329    0.827299    0.635911    10.12500   -1.20000
+AFIX   0
+PART 0
+PART -1
+N5A   4    0.056040    0.668773    0.634097    10.25000    0.05448    0.04243 =
+         0.10266    0.00000    0.03540    0.00000
+AFIX  23
+H5AD  2    0.136527    0.611217    0.633300    10.25000   -1.20000
+H5AE  2   -0.025543    0.612129    0.633961    10.25000   -1.20000
+AFIX   0
+
+PART 0
+PART -2
+C10A  1    0.350590    0.150567    1.080591    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H10A  2    0.402967    0.087250    1.037512    10.25000   -1.20000
+H10B  2    0.384681    0.122162    1.167598    10.25000   -1.20000
+AFIX   0
+C8A   1    0.298923    0.388166    0.958669    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H8AA  2    0.320680    0.355358    0.884493    10.25000   -1.20000
+H8AB  2    0.324547    0.490418    0.969599    10.25000   -1.20000
+AFIX   0
+
+PART 0
+PART 2
+N5C   4    0.133634    0.750000    0.635114    10.12500    0.05448    0.04243 =
+         0.10266    0.00000    0.03540    0.00000
+AFIX  23
+H5CA  2    0.193637    0.827268    0.634666    10.12500   -1.20000
+H5CB  2    0.193636    0.672732    0.634666    10.12500   -1.20000
+AFIX   0
+
+PART 0
+PART -2
+C6A   1    0.108234    0.207991    0.905568    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H6AA  2   -0.002827    0.181757    0.864810    10.25000   -1.20000
+H6AB  2    0.169269    0.186150    0.850387    10.25000   -1.20000
+AFIX   0
+PART 0
+PART -1
+C6B   1    0.155059    0.146636    0.877450    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H6BA  2    0.052056    0.115727    0.881887    10.25000   -1.20000
+H6BB  2    0.172025    0.097367    0.807231    10.25000   -1.20000
+AFIX   0
+C7B   1    0.148141    0.307548    0.852712    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H7BA  2    0.035938    0.333750    0.819326    10.25000   -1.20000
+H7BB  2    0.193928    0.323726    0.786753    10.25000   -1.20000
+AFIX   0
+C8B   1    0.226405    0.414144    0.955386    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H8BA  2    0.152770    0.440661    0.999343    10.25000   -1.20000
+H8BB  2    0.256609    0.501206    0.920682    10.25000   -1.20000
+AFIX   0
+C9B   1    0.373062    0.341941    1.043512    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H9BA  2    0.427549    0.407091    1.110969    10.25000   -1.20000
+H9BB  2    0.446778    0.315044    0.999735    10.25000   -1.20000
+AFIX   0
+C10B  1    0.315632    0.208810    1.093958    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H10C  2    0.397617    0.173689    1.167979    10.25000   -1.20000
+H10D  2    0.219947    0.230333    1.115013    10.25000   -1.20000
+AFIX   0
+N6B   4    0.281048    0.099882    0.992856    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H6BC  2    0.250409    0.017852    1.019541    10.25000   -1.20000
+H6BD  2    0.370463    0.081778    0.975354    10.25000   -1.20000
+AFIX   0
+PART 0
+PART -2
+N6A   4    0.175004    0.132378    1.026561    10.25000    0.13675    0.07801 =
+         0.13514    0.01912   -0.01272    0.00920
+AFIX  23
+H6AC  2    0.128716    0.166703    1.079821    10.25000   -1.20000
+H6AD  2    0.152152    0.038491    1.015801    10.25000   -1.20000
+AFIX   0
+HKLF 5
+
+REM  329k_a.res in P2(1)/m
+REM R1 =  0.0630 for    1773 Fo > 4sig(Fo)  and  0.1021 for all    2592 data
+REM    133 parameters refined using     23 restraints
+
+END
+
+WGHT      0.1196      0.3786
+
+REM Highest difference peak  0.806,  deepest hole -0.400,  1-sigma level  0.069
+Q1    1   0.7309  0.2500  0.6593  10.50000  0.05    0.81
+Q2    1   0.3967  0.2500  0.6445  10.50000  0.05    0.72
+Q3    1   0.2580  0.1497  1.0813  11.00000  0.05    0.43
+Q4    1   0.0800  0.2500  0.9595  10.50000  0.05    0.33
+Q5    1   0.1076  0.2500  0.8636  10.50000  0.05    0.29
+;
+_shelx_res_checksum              4732
+_shelx_hkl_file                  
+;
+   2   0   0   96800    2830   1
+   3   0   0   13680    1390   1
+  -4   0   3   62490    2610  -2
+   4   0   0   62490    2610   1
+  -5   0   4   61970    2820  -2
+   5   0   0   61970    2820   1
+  -6   0   5  138530    4110  -2
+   6   0   0  138530    4110   1
+  -7   0   6  287820    6080  -2
+   7   0   0  287820    6080   1
+   8   0   0  106310    5690   1
+   9   0   0   21980    3060   1
+  10   0   0    -520    2770   1
+ -11   0   9    -360    3110  -2
+  11   0   0    -360    3110   1
+  -1  -1   1   58100     910  -2
+   1   1   0   58100     910   1
+   2   1   0  299640    3580   1
+   3   1   0  241710    3230   1
+  -4  -1   3  121910    2490  -2
+   4   1   0  121910    2490   1
+  -5  -1   4  309510    5130  -2
+   5   1   0  309510    5130   1
+  -6  -1   5  130300    2840  -2
+   6   1   0  130300    2840   1
+  -7  -1   6    5400    1490  -2
+   7   1   0    5400    1490   1
+   8   1   0    2680    1560   1
+   9   1   0    7720    1870   1
+  10   1   0    7830    2290   1
+ -11  -1   9   10470    2330  -2
+  11   1   0   10470    2330   1
+   3   2   0   86290    1610   1
+  -4  -2   3     940     930  -2
+   4   2   0     940     930   1
+  -5  -2   4   24480    1290  -2
+   5   2   0   24480    1290   1
+  -6  -2   5  222110    3450  -2
+   6   2   0  222110    3450   1
+  -7  -2   6  135030    2790  -2
+   7   2   0  135030    2790   1
+   8   2   0   25230    1690   1
+   9   2   0   27600    1970   1
+ -10  -2   8    7480    2180  -2
+  10   2   0    7480    2180   1
+ -11  -2   9    -210    2750  -2
+  11   2   0    -210    2750   1
+   3   3   0 1205520   13120   1
+  -4  -3   3  457200    4840  -2
+   4   3   0  457200    4840   1
+  -5  -3   4  199150    3150  -2
+   5   3   0  199150    3150   1
+  -6  -3   5   66350    1950  -2
+   6   3   0   66350    1950   1
+  -7  -3   6    3010    1160  -2
+   7   3   0    3010    1160   1
+   8   3   0    -630    1300   1
+   9   3   0   19280    1610   1
+ -10  -3   8   33500    3020  -2
+  10   3   0   33500    3020   1
+ -11  -3   9   10440    2710  -2
+  11   3   0   10440    2710   1
+  -1  -4   1  914630   11760  -2
+   1   4   0  914630   11760   1
+  -2  -4   2  955670    8530  -2
+   2   4   0  955670    8530   1
+   3   4   0  125530    1830   1
+  -4  -4   3    7550     950  -2
+   4   4   0    7550     950   1
+  -5  -4   4   71040    2160  -2
+   5   4   0   71040    2160   1
+  -6  -4   5    3140    1440  -2
+   6   4   0    3140    1440   1
+  -7  -4   6   29230    2090  -2
+   7   4   0   29230    2090   1
+   8   4   0   53930    2730   1
+   9   4   0   42550    2790   1
+ -10  -4   8     680    2570  -2
+  10   4   0     680    2570   1
+ -11  -4   9   -3050    3050  -2
+  11   4   0   -3050    3050   1
+  -1  -5   1  470160    8740  -2
+   1   5   0  470160    8740   1
+  -2  -5   2  161670    1870  -2
+   2   5   0  161670    1870   1
+   3   5   0  570870    5310   1
+  -4  -5   3  409460    4430  -2
+   4   5   0  409460    4430   1
+  -5  -5   4   41500    1590  -2
+   5   5   0   41500    1590   1
+  -6  -5   5   64070    2180  -2
+   6   5   0   64070    2180   1
+  -7  -5   6   -1520    1520  -2
+   7   5   0   -1520    1520   1
+   8   5   0     550    1930   1
+   9   5   0    2740    2050   1
+ -10  -5   8    3910    2480  -2
+  10   5   0    3910    2480   1
+   0  -6   0 1308800   16610  -2
+   0   6   0 1308800   16610   1
+  -1  -6   1  800570    6850  -2
+   1   6   0  800570    6850   1
+  -2  -6   2  406970    3880  -2
+   2   6   0  406970    3880   1
+   3   6   0   21510    1040   1
+  -4  -6   3   16370    1120  -2
+   4   6   0   16370    1120   1
+  -5  -6   4    2760    1180  -2
+   5   6   0    2760    1180   1
+  -6  -6   5  110460    2600  -2
+   6   6   0  110460    2600   1
+  -7  -6   6  143180    3110  -2
+   7   6   0  143180    3110   1
+   8   6   0   14780    1770   1
+   9   6   0    7580    2180   1
+ -10  -6   8      20    2400  -2
+  10   6   0      20    2400   1
+  -1  -7   1  117650    2580  -2
+   1   7   0  117650    2580   1
+  -2  -7   2  154010    2500  -2
+   2   7   0  154010    2500   1
+   3   7   0   79420    1940   1
+  -4  -7   3   36880    1510  -2
+   4   7   0   36880    1510   1
+  -5  -7   4   55640    1780  -2
+   5   7   0   55640    1780   1
+  -6  -7   5   69310    2260  -2
+   6   7   0   69310    2260   1
+  -7  -7   6    -290    1380  -2
+   7   7   0    -290    1380   1
+  -8  -7   7   -1230    1510  -2
+   8   7   0   -1230    1510   1
+   9   7   0    -180    1850   1
+   0  -8   0  754260   11010  -2
+   0   8   0  754260   11010   1
+  -1  -8   1  237280    4270  -2
+   1   8   0  237280    4270   1
+  -2  -8   2   70960    1600  -2
+   2   8   0   70960    1600   1
+   3   8   0   21400    1290   1
+  -4  -8   3     -30     920  -2
+   4   8   0     -30     920   1
+  -5  -8   4   19600    1270  -2
+   5   8   0   19600    1270   1
+  -6  -8   5   15430    1710  -2
+   6   8   0   15430    1710   1
+  -7  -8   6   20630    1720  -2
+   7   8   0   20630    1720   1
+  -8  -8   7   13550    2220  -2
+   8   8   0   13550    2220   1
+   9   8   0    6980    3040   1
+  -1  -9   1   27450    1380  -2
+   1   9   0   27450    1380   1
+  -2  -9   2   26780     950  -2
+   2   9   0   26780     950   1
+   3   9   0   90650    2800   1
+  -4  -9   3   93210    2570  -2
+   4   9   0   93210    2570   1
+  -5  -9   4   22290    1220  -2
+   5   9   0   22290    1220   1
+  -6  -9   5    5800    1570  -2
+   6   9   0    5800    1570   1
+  -7  -9   6    -610    1390  -2
+   7   9   0    -610    1390   1
+  -8  -9   7     -20    2030  -2
+   8   9   0     -20    2030   1
+   0 -10   0   60780    2760  -2
+   0  10   0   60780    2760   1
+  -1 -10   1   38580    1960  -2
+   1  10   0   38580    1960   1
+  -2 -10   2   77690    2680  -2
+   2  10   0   77690    2680   1
+   3  10   0   10810    1260   1
+  -4 -10   3     550    1120  -2
+   4  10   0     550    1120   1
+  -5 -10   4    1220    1410  -2
+   5  10   0    1220    1410   1
+  -6 -10   5    2020     990  -2
+   6  10   0    2020     990   1
+  -7 -10   6    6520    1540  -2
+   7  10   0    6520    1540   1
+  -1 -11   1    6430     820  -2
+   1  11   0    6430     820   1
+  -2 -11   2   15370    1770  -2
+   2  11   0   15370    1770   1
+   3  11   0   38250    4630   1
+  -4 -11   3   18970    2540  -2
+   4  11   0   18970    2540   1
+  -5 -11   4    8130    1280  -2
+   5  11   0    8130    1280   1
+  -6 -11   5     -20    2400  -2
+   6  11   0     -20    2400   1
+   0 -12   0   57390   16930  -2
+   0  12   0   57390   16930   1
+  -1 -12   1   17120    4500  -2
+   1  12   0   17120    4500   1
+  -2 -12   2    5150    4080  -2
+   2  12   0    5150    4080   1
+   3  12   0     -30    1430   1
+  -4 -12   3     360    2770  -2
+   4  12   0     360    2770   1
+  11   0  -8    2900    3040  -2
+ -11   0   1    2900    3040   1
+  10   0  -7    3880    4020  -2
+ -10   0   1    3880    4020   1
+  -9   0   1   25640    2940   1
+   8   0  -6  115010    3870  -2
+  -8   0   1  115010    3870   1
+   7   0  -5   32100    3810  -2
+  -7   0   1   32100    3810   1
+   6   0  -4   14970    3200  -2
+  -6   0   1   14970    3200   1
+   5   0  -3  186080    8690  -2
+  -5   0   1  186080    8690   1
+  -3   0   1  197430    3490   1
+   1   0   1   36820    1350   1
+   2   0   1  545940    8680   1
+   3   0   1  191260    4620   1
+   4   0   1  129880    3460   1
+  -5   0   5  658960   11680  -2
+   5   0   1  658960   11680   1
+  -6   0   6  146740    4800  -2
+   6   0   1  146740    4800   1
+  -7   0   7  141920    4950  -2
+   7   0   1  141920    4950   1
+   8   0   1   16630    2800   1
+   9   0   1   -1640    2650   1
+  10   0   1     470    3290   1
+ -11   0  10   -3460    3460  -2
+  11   0   1   -3460    3460   1
+  11  -1  -8      90    2050  -2
+ -11   1   1      90    2050   1
+  10  -1  -7   -1820    1820  -2
+ -10   1   1   -1820    1820   1
+  -9   1   1    4230    1750   1
+   8  -1  -6   45290    2440  -2
+  -8   1   1   45290    2440   1
+   7  -1  -5  220010    3460  -2
+  -7   1   1  220010    3460   1
+   6  -1  -4  454950    5170  -2
+  -6   1   1  454950    5170   1
+   5  -1  -3  444990    5350  -2
+  -5   1   1  444990    5350   1
+   4  -1  -2  320330    3560  -2
+  -4   1   1  320330    3560   1
+  -3   1   1  286090    3090   1
+   2  -1  -1    8050     680  -2
+  -2   1   1    8050     680   1
+   1  -1   0  219730    2020  -2
+  -1   1   1  219730    2020   1
+   2   1   1    7730     780   1
+   3   1   1  350180    4360   1
+   4   1   1   49000    1660   1
+  -5  -1   5    4110    1310  -2
+   5   1   1    4110    1310   1
+  -6  -1   6   34990    1990  -2
+   6   1   1   34990    1990   1
+  -7  -1   7  148690    3960  -2
+   7   1   1  148690    3960   1
+   8   1   1   85790    2930   1
+   9   1   1   33230    2840   1
+  10   1   1   14740    2500   1
+ -11  -1  10    3570    3050  -2
+  11   1   1    3570    3050   1
+  11  -2  -8   18030    2860  -2
+ -11   2   1   18030    2860   1
+  10  -2  -7   37620    2000  -2
+ -10   2   1   37620    2000   1
+  -9   2   1   31390    1900   1
+   8  -2  -6   17440    1510  -2
+  -8   2   1   17440    1510   1
+   7  -2  -5   15720    1440  -2
+  -7   2   1   15720    1440   1
+   6  -2  -4    5440    1090  -2
+  -6   2   1    5440    1090   1
+   5  -2  -3  150630    4090  -2
+  -5   2   1  150630    4090   1
+   4  -2  -2  799460    7320  -2
+  -4   2   1  799460    7320   1
+   0  -2   1  227950    2210  -2
+   0   2   1  227950    2210   1
+  -1  -2   2   27290     860  -2
+   1   2   1   27290     860   1
+   2   2   1  503930    5430   1
+   3   2   1  198890    2730   1
+   4   2   1     710     930   1
+  -5  -2   5  314590    4270  -2
+   5   2   1  314590    4270   1
+  -6  -2   6  188460    3430  -2
+   6   2   1  188460    3430   1
+  -7  -2   7  102050    2900  -2
+   7   2   1  102050    2900   1
+   8   2   1    3210    1790   1
+   9   2   1   -1720    1720   1
+  10   2   1    4140    2030   1
+ -11  -2  10   10630    2990  -2
+  11   2   1   10630    2990   1
+  11  -3  -8    9170    3350  -2
+ -11   3   1    9170    3350   1
+  10  -3  -7    -430    2170  -2
+ -10   3   1    -430    2170   1
+  -9   3   1    3990    2080   1
+   8  -3  -6   37580    2070  -2
+  -8   3   1   37580    2070   1
+   7  -3  -5   23100    1810  -2
+  -7   3   1   23100    1810   1
+   6  -3  -4  150960    2910  -2
+  -6   3   1  150960    2910   1
+   5  -3  -3  487390    5590  -2
+  -5   3   1  487390    5590   1
+   4  -3  -2  461710    5120  -2
+  -4   3   1  461710    5120   1
+  -3   3   1  461090    4460   1
+   2  -3  -1   65870    1670  -2
+  -2   3   1   65870    1670   1
+   0  -3   1  143110    1770  -2
+   0   3   1  143110    1770   1
+  -1  -3   2   92480    2340  -2
+   1   3   1   92480    2340   1
+   2   3   1  719680    7500   1
+   3   3   1  745680    8990   1
+   4   3   1  119490    2580   1
+  -5  -3   5    2230    1210  -2
+   5   3   1    2230    1210   1
+  -6  -3   6   12640    1540  -2
+   6   3   1   12640    1540   1
+  -7  -3   7    9470    1610  -2
+   7   3   1    9470    1610   1
+   8   3   1   36090    2170   1
+   9   3   1   45360    2470   1
+  10   3   1   25320    2310   1
+ -11  -3  10    9010    3660  -2
+  11   3   1    9010    3660   1
+  11  -4  -8    6390    2850  -2
+ -11   4   1    6390    2850   1
+  10  -4  -7   25090    2540  -2
+ -10   4   1   25090    2540   1
+  -9   4   1   61400    3150   1
+   8  -4  -6   46060    2330  -2
+  -8   4   1   46060    2330   1
+   7  -4  -5    -980    1430  -2
+  -7   4   1    -980    1430   1
+   6  -4  -4    7620    1410  -2
+  -6   4   1    7620    1410   1
+   5  -4  -3  115290    2990  -2
+  -5   4   1  115290    2990   1
+   4  -4  -2 1285370   12220  -2
+  -4   4   1 1285370   12220   1
+   2  -4  -1 1319770   17790  -2
+  -2   4   1 1319770   17790   1
+   1  -4   0  926590   14550  -2
+  -1   4   1  926590   14550   1
+  -1  -4   2   25210    1110  -2
+   1   4   1   25210    1110   1
+   2   4   1     250     660   1
+   3   4   1  149310    2280   1
+   4   4   1  610390    6550   1
+  -5  -4   5  312970    4190  -2
+   5   4   1  312970    4190   1
+  -6  -4   6    5180    1360  -2
+   6   4   1    5180    1360   1
+  -7  -4   7   56670    2230  -2
+   7   4   1   56670    2230   1
+   8   4   1   -1520    1520   1
+   9   4   1    3820    2550   1
+  10   4   1    1870    2580   1
+  10  -5  -7    -500    2110  -2
+ -10   5   1    -500    2110   1
+  -9   5   1   -1900    1900   1
+   8  -5  -6   44790    2630  -2
+  -8   5   1   44790    2630   1
+   7  -5  -5   64370    2580  -2
+  -7   5   1   64370    2580   1
+   6  -5  -4  110730    2500  -2
+  -6   5   1  110730    2500   1
+   5  -5  -3  173760    4070  -2
+  -5   5   1  173760    4070   1
+   4  -5  -2  236910    2910  -2
+  -4   5   1  236910    2910   1
+  -3   5   1   82240    1620   1
+   2  -5  -1    4880     670  -2
+  -2   5   1    4880     670   1
+   1  -5   0  644410    7450  -2
+  -1   5   1  644410    7450   1
+   0  -5   1  682790    5660  -2
+   0   5   1  682790    5660   1
+  -1  -5   2  336860    3220  -2
+   1   5   1  336860    3220   1
+  -2  -5   3  107320    1950  -2
+   2   5   1  107320    1950   1
+   3   5   1   65440    1490   1
+  -4  -5   4   64890    1870  -2
+   4   5   1   64890    1870   1
+  -5  -5   5    3750    1200  -2
+   5   5   1    3750    1200   1
+  -6  -5   6     250    1170  -2
+   6   5   1     250    1170   1
+  -7  -5   7   30590    2140  -2
+   7   5   1   30590    2140   1
+   8   5   1   57840    2850   1
+   9   5   1   13500    2420   1
+  10   5   1    5550    3270   1
+  10  -6  -7    -560    2550  -2
+ -10   6   1    -560    2550   1
+  -9   6   1    6340    2140   1
+   8  -6  -6   11910    1610  -2
+  -8   6   1   11910    1610   1
+   7  -6  -5   23720    1620  -2
+  -7   6   1   23720    1620   1
+   6  -6  -4    3130    1250  -2
+  -6   6   1    3130    1250   1
+   5  -6  -3   56460    1790  -2
+  -5   6   1   56460    1790   1
+   4  -6  -2   67160    1830  -2
+  -4   6   1   67160    1830   1
+  -3   6   1  353440    3790   1
+   2  -6  -1 1185950   10280  -2
+  -2   6   1 1185950   10280   1
+   1  -6   0  717260    8650  -2
+  -1   6   1  717260    8650   1
+   0  -6   1  455670    4090  -2
+   0   6   1  455670    4090   1
+  -1  -6   2   60820    1440  -2
+   1   6   1   60820    1440   1
+  -2  -6   3    -390     750  -2
+   2   6   1    -390     750   1
+   3   6   1   39300    1240   1
+  -4  -6   4   18580    1160  -2
+   4   6   1   18580    1160   1
+  -5  -6   5  109250    2260  -2
+   5   6   1  109250    2260   1
+  -6  -6   6  101650    2520  -2
+   6   6   1  101650    2520   1
+  -7  -6   7   68230    2380  -2
+   7   6   1   68230    2380   1
+   8   6   1     460    1890   1
+   9   6   1   -2140    2140   1
+  10   6   1    -930    4050   1
+  -9   7   1   -1970    1970   1
+   8  -7  -6   18260    2100  -2
+  -8   7   1   18260    2100   1
+   7  -7  -5   46460    1940  -2
+  -7   7   1   46460    1940   1
+   6  -7  -4  244020    3920  -2
+  -6   7   1  244020    3920   1
+   5  -7  -3  134020    2860  -2
+  -5   7   1  134020    2860   1
+   4  -7  -2   12920    1060  -2
+  -4   7   1   12920    1060   1
+  -3   7   1    2430     930   1
+   2  -7  -1    4220     630  -2
+  -2   7   1    4220     630   1
+   1  -7   0  186720    2980  -2
+  -1   7   1  186720    2980   1
+   0  -7   1  284170    3150  -2
+   0   7   1  284170    3150   1
+  -1  -7   2  519700    5710  -2
+   1   7   1  519700    5710   1
+  -2  -7   3  130450    1980  -2
+   2   7   1  130450    1980   1
+   3   7   1     910     900   1
+  -4  -7   4   20400    1190  -2
+   4   7   1   20400    1190   1
+  -5  -7   5   -1030    1300  -2
+   5   7   1   -1030    1300   1
+  -6  -7   6   17310    1690  -2
+   6   7   1   17310    1690   1
+  -7  -7   7   23340    1870  -2
+   7   7   1   23340    1870   1
+   8   7   1   15830    2600   1
+   9   7   1    3440    1920   1
+  -9   8   1    4030    1730   1
+   8  -8  -6    5620    1550  -2
+  -8   8   1    5620    1550   1
+   7  -8  -5   -1720    1720  -2
+  -7   8   1   -1720    1720   1
+   6  -8  -4   -1340    1340  -2
+  -6   8   1   -1340    1340   1
+   5  -8  -3   35250    1370  -2
+  -5   8   1   35250    1370   1
+   4  -8  -2  107670    2780  -2
+  -4   8   1  107670    2780   1
+  -3   8   1   83930    1990   1
+   2  -8  -1  209830    4450  -2
+  -2   8   1  209830    4450   1
+   1  -8   0  260520    4160  -2
+  -1   8   1  260520    4160   1
+   0  -8   1  191520    3740  -2
+   0   8   1  191520    3740   1
+  -1  -8   2   11140    1030  -2
+   1   8   1   11140    1030   1
+  -2  -8   3    -930     930  -2
+   2   8   1    -930     930   1
+   3   8   1    4540     980   1
+  -4  -8   4   50370    1680  -2
+   4   8   1   50370    1680   1
+  -5  -8   5   94440    2480  -2
+   5   8   1   94440    2480   1
+  -6  -8   6   19840    1710  -2
+   6   8   1   19840    1710   1
+  -7  -8   7   19980    1920  -2
+   7   8   1   19980    1920   1
+   8   8   1    1490    1620   1
+   8  -9  -6   11300    2390  -2
+  -8   9   1   11300    2390   1
+   7  -9  -5   12940    1630  -2
+  -7   9   1   12940    1630   1
+   6  -9  -4   15000    1700  -2
+  -6   9   1   15000    1700   1
+   5  -9  -3   33460    1590  -2
+  -5   9   1   33460    1590   1
+   4  -9  -2   47920    1930  -2
+  -4   9   1   47920    1930   1
+  -3   9   1    9930    1780   1
+   2  -9  -1     400    1380  -2
+  -2   9   1     400    1380   1
+   1  -9   0   40730    2290  -2
+  -1   9   1   40730    2290   1
+   0  -9   1   47150    2140  -2
+   0   9   1   47150    2140   1
+  -1  -9   2   83550    2080  -2
+   1   9   1   83550    2080   1
+  -2  -9   3   40200    1360  -2
+   2   9   1   40200    1360   1
+   3   9   1   46130    1760   1
+  -4  -9   4   19260    1370  -2
+   4   9   1   19260    1370   1
+  -5  -9   5    1580    1140  -2
+   5   9   1    1580    1140   1
+  -6  -9   6     -40    1090  -2
+   6   9   1     -40    1090   1
+  -7  -9   7    1090    1690  -2
+   7   9   1    1090    1690   1
+   8   9   1    5960    6030   1
+   7 -10  -5   -1340    1340  -2
+  -7  10   1   -1340    1340   1
+   6 -10  -4    2270    1900  -2
+  -6  10   1    2270    1900   1
+   5 -10  -3    4550    1170  -2
+  -5  10   1    4550    1170   1
+   4 -10  -2   45320    3560  -2
+  -4  10   1   45320    3560   1
+  -3  10   1   96800    5460   1
+   2 -10  -1  132350    8590  -2
+  -2  10   1  132350    8590   1
+   1 -10   0   26950    1650  -2
+  -1  10   1   26950    1650   1
+   0 -10   1   29700    1570  -2
+   0  10   1   29700    1570   1
+  -1 -10   2    3930    1430  -2
+   1  10   1    3930    1430   1
+  -2 -10   3    2240     860  -2
+   2  10   1    2240     860   1
+   3  10   1   20070    1230   1
+  -4 -10   4   19770    1560  -2
+   4  10   1   19770    1560   1
+  -5 -10   5   10980    1260  -2
+   5  10   1   10980    1260   1
+  -6 -10   6    1690    1010  -2
+   6  10   1    1690    1010   1
+  -7 -10   7    3610    2210  -2
+   7  10   1    3610    2210   1
+   6 -11  -4   12730    3090  -2
+  -6  11   1   12730    3090   1
+   5 -11  -3   10140    2170  -2
+  -5  11   1   10140    2170   1
+   4 -11  -2    3320    2710  -2
+  -4  11   1    3320    2710   1
+  -3  11   1    6070    1830   1
+   2 -11  -1   -1520    1520  -2
+  -2  11   1   -1520    1520   1
+   1 -11   0   16120    1390  -2
+  -1  11   1   16120    1390   1
+   0 -11   1    2420    1150  -2
+   0  11   1    2420    1150   1
+  -1 -11   2   32060    2600  -2
+   1  11   1   32060    2600   1
+  -2 -11   3   28560    1190  -2
+   2  11   1   28560    1190   1
+   3  11   1   19600    1330   1
+  -4 -11   4    3810    1000  -2
+   4  11   1    3810    1000   1
+  -5 -11   5       0    1670  -2
+   5  11   1       0    1670   1
+   4 -12  -2    8560    2750  -2
+  -4  12   1    8560    2750   1
+  -3  12   1   10750    2490   1
+   2 -12  -1   28940    1950  -2
+  -2  12   1   28940    1950   1
+   1 -12   0   10830    4240  -2
+  -1  12   1   10830    4240   1
+   0 -12   1   15410    4260  -2
+   0  12   1   15410    4260   1
+  -1 -12   2    9210    5150  -2
+   1  12   1    9210    5150   1
+  -2 -12   3   -3780    3780  -2
+   2  12   1   -3780    3780   1
+   3  12   1   -1780    2800   1
+  12   0  -8   22790    5590  -2
+ -12   0   2   22790    5590   1
+  11   0  -7    5530    2880  -2
+ -11   0   2    5530    2880   1
+  10   0  -6    -230    2690  -2
+ -10   0   2    -230    2690   1
+  -9   0   2     970    2330   1
+   8   0  -5    7610    2030  -2
+  -8   0   2    7610    2030   1
+   7   0  -4  129580    3670  -2
+  -7   0   2  129580    3670   1
+   6   0  -3  713030   11170  -2
+  -6   0   2  713030   11170   1
+   5   0  -2 1259880   16340  -2
+  -5   0   2 1259880   16340   1
+  -3   0   2   91170    1880   1
+  -2   0   2  227040    2870   1
+  -1   0   2   73890    1420   1
+   0   0   2   76710    1570  -2
+   0   0   2   76710    1570   1
+   2   0   2  520890    8500   1
+   3   0   2  226260    4640   1
+   4   0   2  372390    8440   1
+  -5   0   6  228340    8080  -2
+   5   0   2  228340    8080   1
+  -6   0   7   34500    2940  -2
+   6   0   2   34500    2940   1
+  -7   0   8   14300    2790  -2
+   7   0   2   14300    2790   1
+   8   0   2   49940    3800   1
+   9   0   2   17350    4230   1
+  10   0   2    7260    3580   1
+ -11   0  11    6600    3830  -2
+  11   0   2    6600    3830   1
+  12  -1  -8   -4200    4470  -2
+ -12   1   2   -4200    4470   1
+  11  -1  -7    2400    2150  -2
+ -11   1   2    2400    2150   1
+  10  -1  -6    9580    2150  -2
+ -10   1   2    9580    2150   1
+  -9   1   2   45420    2120   1
+   8  -1  -5  126320    2720  -2
+  -8   1   2  126320    2720   1
+   7  -1  -4  354710    5060  -2
+  -7   1   2  354710    5060   1
+   6  -1  -3  217340    2920  -2
+  -6   1   2  217340    2920   1
+   5  -1  -2   90510    1730  -2
+  -5   1   2   90510    1730   1
+   4  -1  -1   53210    1270  -2
+  -4   1   2   53210    1270   1
+  -3   1   2  616290    5240   1
+  -2   1   2  140890    1500   1
+   0  -1   2  376980    5020  -2
+   0   1   2  376980    5020   1
+   1   1   2  548470   10030   1
+   2   1   2   49700    1580   1
+   3   1   2   95950    2070   1
+   4   1   2   57130    1960   1
+  -5  -1   6  235530    3940  -2
+   5   1   2  235530    3940   1
+  -6  -1   7  370720    8670  -2
+   6   1   2  370720    8670   1
+  -7  -1   8  125690    3450  -2
+   7   1   2  125690    3450   1
+   8   1   2   59980    2970   1
+   9   1   2    7810    2300   1
+  10   1   2    3710    2490   1
+ -11  -1  11   -3690    4950  -2
+  11   1   2   -3690    4950   1
+  11  -2  -7   14350    2640  -2
+ -11   2   2   14350    2640   1
+  10  -2  -6   15380    1540  -2
+ -10   2   2   15380    1540   1
+  -9   2   2    2060    1390   1
+   8  -2  -5    4560    1230  -2
+  -8   2   2    4560    1230   1
+   7  -2  -4   83540    2080  -2
+  -7   2   2   83540    2080   1
+   6  -2  -3  815370    8200  -2
+  -6   2   2  815370    8200   1
+   5  -2  -2  701360    8650  -2
+  -5   2   2  701360    8650   1
+   4  -2  -1 1036080    9770  -2
+  -4   2   2 1036080    9770   1
+  -3   2   2 1395840   42650   1
+   1  -2   1   11920     610  -2
+  -1   2   2   11920     610   1
+   0  -2   2  821250   25480  -2
+   0   2   2  821250   25480   1
+   1   2   2   16240    1130   1
+   2   2   2  860420   10130   1
+   3   2   2 1437480   31110   1
+   4   2   2  192230    3220   1
+  -5  -2   6  217280    3760  -2
+   5   2   2  217280    3760   1
+  -6  -2   7    7370    1620  -2
+   6   2   2    7370    1620   1
+  -7  -2   8    5060    1690  -2
+   7   2   2    5060    1690   1
+   8   2   2   11050    2130   1
+   9   2   2   20650    2530   1
+  10   2   2   30420    2940   1
+  11  -3  -7    1270    2550  -2
+ -11   3   2    1270    2550   1
+  10  -3  -6   33990    2700  -2
+ -10   3   2   33990    2700   1
+  -9   3   2   90520    3610   1
+   8  -3  -5   60040    2240  -2
+  -8   3   2   60040    2240   1
+   7  -3  -4   51620    2060  -2
+  -7   3   2   51620    2060   1
+   6  -3  -3   82510    2250  -2
+  -6   3   2   82510    2250   1
+   5  -3  -2   36210    1560  -2
+  -5   3   2   36210    1560   1
+   4  -3  -1   59810    1660  -2
+  -4   3   2   59810    1660   1
+  -3   3   2 1606360   49240   1
+   2  -3   0 1210420   37390  -2
+  -2   3   2 1210420   37390   1
+   1  -3   1  157200    2080  -2
+  -1   3   2  157200    2080   1
+   0  -3   2  173630    2040  -2
+   0   3   2  173630    2040   1
+  -1  -3   3  319370    3340  -2
+   1   3   2  319370    3340   1
+   2   3   2   34510    1120   1
+   3   3   2  124710    2380   1
+   4   3   2  140590    2790   1
+  -5  -3   6  176230    3390  -2
+   5   3   2  176230    3390   1
+  -6  -3   7  124010    3220  -2
+   6   3   2  124010    3220   1
+  -7  -3   8   28840    2200  -2
+   7   3   2   28840    2200   1
+   8   3   2   44350    2560   1
+   9   3   2    7170    2290   1
+  10   3   2      90    2260   1
+  11  -4  -7    8510    2600  -2
+ -11   4   2    8510    2600   1
+  10  -4  -6    7980    2070  -2
+ -10   4   2    7980    2070   1
+  -9   4   2    4700    1820   1
+   8  -4  -5    5440    1550  -2
+  -8   4   2    5440    1550   1
+   7  -4  -4   35270    1940  -2
+  -7   4   2   35270    1940   1
+   6  -4  -3   65480    2060  -2
+  -6   4   2   65480    2060   1
+   5  -4  -2  717980    8620  -2
+  -5   4   2  717980    8620   1
+  -3   4   2 1001340    8400   1
+   2  -4   0  525100    4430  -2
+  -2   4   2  525100    4430   1
+   1  -4   1   32020    1160  -2
+  -1   4   2   32020    1160   1
+   0  -4   2  224630    2490  -2
+   0   4   2  224630    2490   1
+  -1  -4   3   27550     950  -2
+   1   4   2   27550     950   1
+   2   4   2   23370     960   1
+   3   4   2  819420    8890   1
+   4   4   2  352140    4530   1
+  -5  -4   6  171340    3660  -2
+   5   4   2  171340    3660   1
+  -6  -4   7    1250    1490  -2
+   6   4   2    1250    1490   1
+  -7  -4   8    -140    1610  -2
+   7   4   2    -140    1610   1
+   8   4   2   15200    2040   1
+   9   4   2   39620    3050   1
+  10   4   2   17350    2910   1
+  11  -5  -7    1820    1990  -2
+ -11   5   2    1820    1990   1
+  10  -5  -6   10280    2040  -2
+ -10   5   2   10280    2040   1
+  -9   5   2   29360    2640   1
+   8  -5  -5  111950    2950  -2
+  -8   5   2  111950    2950   1
+   7  -5  -4  116310    2410  -2
+  -7   5   2  116310    2410   1
+   6  -5  -3   24600    1240  -2
+  -6   5   2   24600    1240   1
+   5  -5  -2    -640     710  -2
+  -5   5   2    -640     710   1
+   4  -5  -1   37290    1260  -2
+  -4   5   2   37290    1260   1
+  -3   5   2  433140    4270   1
+   2  -5   0  140560    1880  -2
+  -2   5   2  140560    1880   1
+   1  -5   1  231690    3000  -2
+  -1   5   2  231690    3000   1
+   0  -5   2  366010    4000  -2
+   0   5   2  366010    4000   1
+  -1  -5   3  104210    1620  -2
+   1   5   2  104210    1620   1
+   2   5   2   57430    1770   1
+   3   5   2    1750    1000   1
+   4   5   2   92720    2420   1
+  -5  -5   6   60250    2060  -2
+   5   5   2   60250    2060   1
+  -6  -5   7   96380    2670  -2
+   6   5   2   96380    2670   1
+  -7  -5   8   54640    2330  -2
+   7   5   2   54640    2330   1
+   8   5   2   34030    2240   1
+   9   5   2    3920    2310   1
+  10   5   2    -100    2480   1
+  10  -6  -6   -2470    2470  -2
+ -10   6   2   -2470    2470   1
+  -9   6   2   -2070    2070   1
+   8  -6  -5   -1330    1800  -2
+  -8   6   2   -1330    1800   1
+   7  -6  -4   72200    2710  -2
+  -7   6   2   72200    2710   1
+   6  -6  -3  255160    3960  -2
+  -6   6   2  255160    3960   1
+   5  -6  -2  261860    3790  -2
+  -5   6   2  261860    3790   1
+   4  -6  -1  168570    3420  -2
+  -4   6   2  168570    3420   1
+  -3   6   2  245650    3270   1
+   2  -6   0  230180    3280  -2
+  -2   6   2  230180    3280   1
+   1  -6   1   17650    1120  -2
+  -1   6   2   17650    1120   1
+   0  -6   2   14970    1050  -2
+   0   6   2   14970    1050   1
+  -1  -6   3  166240    2190  -2
+   1   6   2  166240    2190   1
+   2   6   2  347180    4300   1
+   3   6   2  128310    2180   1
+   4   6   2    1430    1040   1
+  -5  -6   6  109470    2510  -2
+   5   6   2  109470    2510   1
+  -6  -6   7     -20    1320  -2
+   6   6   2     -20    1320   1
+  -7  -6   8    5150    1490  -2
+   7   6   2    5150    1490   1
+   8   6   2    8460    2120   1
+   9   6   2    7270    2620   1
+  10  -7  -6    6100    4200  -2
+ -10   7   2    6100    4200   1
+  -9   7   2    8670    2100   1
+   8  -7  -5   25470    2210  -2
+  -8   7   2   25470    2210   1
+   7  -7  -4   56090    2380  -2
+  -7   7   2   56090    2380   1
+   6  -7  -3   66410    2320  -2
+  -6   7   2   66410    2320   1
+   5  -7  -2     660    1180  -2
+  -5   7   2     660    1180   1
+   4  -7  -1    2870    1000  -2
+  -4   7   2    2870    1000   1
+  -3   7   2   27830    1820   1
+   2  -7   0  144350    3160  -2
+  -2   7   2  144350    3160   1
+   1  -7   1  467920    6240  -2
+  -1   7   2  467920    6240   1
+   0  -7   2  223330    3490  -2
+   0   7   2  223330    3490   1
+  -1  -7   3   54820    1630  -2
+   1   7   2   54820    1630   1
+   2   7   2   25590    1180   1
+   3   7   2    1830     960   1
+   4   7   2    -100    1020   1
+  -5  -7   6   41970    1770  -2
+   5   7   2   41970    1770   1
+  -6  -7   7  143450    3490  -2
+   6   7   2  143450    3490   1
+  -7  -7   8   39930    2350  -2
+   7   7   2   39930    2350   1
+   8   7   2   15280    2310   1
+   9   7   2    2270    1910   1
+  -9   8   2     -80    1740   1
+   8  -8  -5     -90    1530  -2
+  -8   8   2     -90    1530   1
+   7  -8  -4   21760    1980  -2
+  -7   8   2   21760    1980   1
+   6  -8  -3   60630    2360  -2
+  -6   8   2   60630    2360   1
+   5  -8  -2  193310    3910  -2
+  -5   8   2  193310    3910   1
+   4  -8  -1  171100    3290  -2
+  -4   8   2  171100    3290   1
+  -3   8   2   72020    3180   1
+   2  -8   0   39270    1860  -2
+  -2   8   2   39270    1860   1
+   1  -8   1    7560    1530  -2
+  -1   8   2    7560    1530   1
+   0  -8   2   23090    1710  -2
+   0   8   2   23090    1710   1
+  -1  -8   3   65930    2260  -2
+   1   8   2   65930    2260   1
+   2   8   2   41460    1570   1
+   3   8   2   45170    1540   1
+   4   8   2   36300    1490   1
+  -5  -8   6   38350    1790  -2
+   5   8   2   38350    1790   1
+  -6  -8   7    1530    1690  -2
+   6   8   2    1530    1690   1
+  -7  -8   8    2630    1880  -2
+   7   8   2    2630    1880   1
+   8   8   2    1480    1800   1
+   8  -9  -5   17080    2330  -2
+  -8   9   2   17080    2330   1
+   7  -9  -4    8490    1510  -2
+  -7   9   2    8490    1510   1
+   6  -9  -3    4730    1410  -2
+  -6   9   2    4730    1410   1
+   5  -9  -2    2320    1600  -2
+  -5   9   2    2320    1600   1
+   4  -9  -1    8610    1850  -2
+  -4   9   2    8610    1850   1
+  -3   9   2   65530    2710   1
+   2  -9   0   35380    2010  -2
+  -2   9   2   35380    2010   1
+   1  -9   1   80330    2600  -2
+  -1   9   2   80330    2600   1
+   0  -9   2   57840    2220  -2
+   0   9   2   57840    2220   1
+  -1  -9   3   28230    1510  -2
+   1   9   2   28230    1510   1
+  -2  -9   4    8550    1320  -2
+   2   9   2    8550    1320   1
+   3   9   2    1680    1230   1
+  -4  -9   5   14900    1380  -2
+   4   9   2   14900    1380   1
+  -5  -9   6   14140    1500  -2
+   5   9   2   14140    1500   1
+  -6  -9   7   12990    1910  -2
+   6   9   2   12990    1910   1
+  -7  -9   8    5760    3880  -2
+   7   9   2    5760    3880   1
+   7 -10  -4    1050    1390  -2
+  -7  10   2    1050    1390   1
+   6 -10  -3   16840    2050  -2
+  -6  10   2   16840    2050   1
+   5 -10  -2   23850    2080  -2
+  -5  10   2   23850    2080   1
+   4 -10  -1   67070    2800  -2
+  -4  10   2   67070    2800   1
+  -3  10   2   76780    3720   1
+   2 -10   0   31980    1890  -2
+  -2  10   2   31980    1890   1
+   1 -10   1    1990    1640  -2
+  -1  10   2    1990    1640   1
+   0 -10   2    1660    1470  -2
+   0  10   2    1660    1470   1
+  -1 -10   3    1110    1340  -2
+   1  10   2    1110    1340   1
+  -2 -10   4   37080    1420  -2
+   2  10   2   37080    1420   1
+   3  10   2   50130    1950   1
+  -4 -10   5   20550    1540  -2
+   4  10   2   20550    1540   1
+  -5 -10   6    3780    1370  -2
+   5  10   2    3780    1370   1
+  -6 -10   7    -530    1290  -2
+   6  10   2    -530    1290   1
+   6 -11  -3    2200    3410  -2
+  -6  11   2    2200    3410   1
+   5 -11  -2   -3070    3070  -2
+  -5  11   2   -3070    3070   1
+   4 -11  -1   -1770    1770  -2
+  -4  11   2   -1770    1770   1
+  -3  11   2   18580    2420   1
+   2 -11   0   23510    2110  -2
+  -2  11   2   23510    2110   1
+   1 -11   1   30460    1870  -2
+  -1  11   2   30460    1870   1
+   0 -11   2    7070    2050  -2
+   0  11   2    7070    2050   1
+  -1 -11   3   15060    1390  -2
+   1  11   2   15060    1390   1
+  -2 -11   4    1910     950  -2
+   2  11   2    1910     950   1
+   3  11   2     980    1390   1
+  -4 -11   5     750    2240  -2
+   4  11   2     750    2240   1
+  -5 -11   6    2450    1780  -2
+   5  11   2    2450    1780   1
+   4 -12  -1    9850    5370  -2
+  -4  12   2    9850    5370   1
+  -3  12   2    1950    2810   1
+   2 -12   0    1880    1820  -2
+  -2  12   2    1880    1820   1
+   1 -12   1   -1570    1570  -2
+  -1  12   2   -1570    1570   1
+   0 -12   2    1250    1350  -2
+   0  12   2    1250    1350   1
+  -1 -12   3    4340    2130  -2
+   1  12   2    4340    2130   1
+  -2 -12   4    5310    2010  -2
+   2  12   2    5310    2010   1
+   3  12   2    8730    2660   1
+  12   0  -7     550    2870  -2
+ -12   0   3     550    2870   1
+  11   0  -6   -2590    2590  -2
+ -11   0   3   -2590    2590   1
+  10   0  -5    1860    2820  -2
+ -10   0   3    1860    2820   1
+  -9   0   3   20180    2640   1
+   8   0  -4  316310    6490  -2
+  -8   0   3  316310    6490   1
+   7   0  -3  553530    8290  -2
+  -7   0   3  553530    8290   1
+   6   0  -2  721170    9940  -2
+  -6   0   3  721170    9940   1
+   5   0  -1  499930    7150  -2
+  -5   0   3  499930    7150   1
+   4   0   0  213240    3370  -2
+  -4   0   3  213240    3370   1
+  -3   0   3  151610    2370   1
+   2   0   3  431790    8690   1
+   3   0   3  167300    5670   1
+   4   0   3    2720    1710   1
+  -5   0   7   40120    2820  -2
+   5   0   3   40120    2820   1
+  -6   0   8  169720    5230  -2
+   6   0   3  169720    5230   1
+   7   0   3  163860    6060   1
+   8   0   3   91280    5540   1
+   9   0   3   23760    5790   1
+  10   0   3    5930    4880   1
+  12  -1  -7    8970    2570  -2
+ -12   1   3    8970    2570   1
+  11  -1  -6   26230    3960  -2
+ -11   1   3   26230    3960   1
+  10  -1  -5   16050    2140  -2
+ -10   1   3   16050    2140   1
+  -9   1   3   40650    1870   1
+   8  -1  -4   31360    1600  -2
+  -8   1   3   31360    1600   1
+   7  -1  -3    3640    1200  -2
+  -7   1   3    3640    1200   1
+   6  -1  -2  137940    2310  -2
+  -6   1   3  137940    2310   1
+   5  -1  -1  612960    5990  -2
+  -5   1   3  612960    5990   1
+   4  -1   0  288540    2790  -2
+  -4   1   3  288540    2790   1
+  -3   1   3  461430    3810   1
+  -2   1   3    9600     610   1
+  -1   1   3   19370    3090   1
+   0  -1   3   25210     970  -2
+   0   1   3   25210     970   1
+   1   1   3  541430    5870   1
+   2   1   3  241820    3420   1
+   3   1   3   80770    2200   1
+   4   1   3  411170    5550   1
+  -5  -1   7  136340    3320  -2
+   5   1   3  136340    3320   1
+  -6  -1   8  186730    4210  -2
+   6   1   3  186730    4210   1
+   7   1   3   21200    2100   1
+   8   1   3     700    2230   1
+   9   1   3   -2370    2370   1
+  10   1   3   -2090    4080   1
+  12  -2  -7   -3350    3350  -2
+ -12   2   3   -3350    3350   1
+  11  -2  -6   -1430    2210  -2
+ -11   2   3   -1430    2210   1
+  10  -2  -5   14330    2150  -2
+ -10   2   3   14330    2150   1
+  -9   2   3   27930    1640   1
+   8  -2  -4   85820    2260  -2
+  -8   2   3   85820    2260   1
+   7  -2  -3  282020    3700  -2
+  -7   2   3  282020    3700   1
+   6  -2  -2  929250    8760  -2
+  -6   2   3  929250    8760   1
+   5  -2  -1  350830    3930  -2
+  -5   2   3  350830    3930   1
+   4  -2   0  162880    2030  -2
+  -4   2   3  162880    2030   1
+  -3   2   3    3940     660   1
+  -2   2   3  540240    4530   1
+  -1   2   3   85560    1600   1
+   0  -2   3  263900    3480  -2
+   0   2   3  263900    3480   1
+   1   2   3 1567280   47360   1
+   2   2   3 1491370   32180   1
+   3   2   3  172980    3190   1
+   4   2   3    3650    1330   1
+  -5  -2   7   10710    1680  -2
+   5   2   3   10710    1680   1
+  -6  -2   8  143090    3810  -2
+   6   2   3  143090    3810   1
+   7   2   3   84840    2990   1
+   8   2   3   38330    2700   1
+   9   2   3   25740    3310   1
+  10   2   3    6710    4850   1
+  11  -3  -6   24850    2760  -2
+ -11   3   3   24850    2760   1
+  10  -3  -5   53730    2770  -2
+ -10   3   3   53730    2770   1
+  -9   3   3   75830    2780   1
+   8  -3  -4   13750    1660  -2
+  -8   3   3   13750    1660   1
+   7  -3  -3    1270    1230  -2
+  -7   3   3    1270    1230   1
+   6  -3  -2   55730    2340  -2
+  -6   3   3   55730    2340   1
+   5  -3  -1  410220    4700  -2
+  -5   3   3  410220    4700   1
+   4  -3   0  532910    5130  -2
+  -4   3   3  532910    5130   1
+  -3   3   3  961160    7770   1
+  -2   3   3  624240    5860   1
+   1  -3   2  238960    4460  -2
+  -1   3   3  238960    4460   1
+   0  -3   3   48040    1730  -2
+   0   3   3   48040    1730   1
+   1   3   3  175880    2710   1
+   2   3   3  462150    5290   1
+   3   3   3  526320    6500   1
+   4   3   3  635510    7820   1
+  -5  -3   7  139590    3290  -2
+   5   3   3  139590    3290   1
+  -6  -3   8   95200    3050  -2
+   6   3   3   95200    3050   1
+   7   3   3    9020    2090   1
+   8   3   3   -2040    2040   1
+   9   3   3    2900    2590   1
+  10   3   3   15130    3180   1
+  11  -4  -6    1740    2070  -2
+ -11   4   3    1740    2070   1
+  10  -4  -5    5930    1790  -2
+ -10   4   3    5930    1790   1
+  -9   4   3   51330    2830   1
+   8  -4  -4  134790    4120  -2
+  -8   4   3  134790    4120   1
+   7  -4  -3   96570    2620  -2
+  -7   4   3   96570    2620   1
+   6  -4  -2  104410    2460  -2
+  -6   4   3  104410    2460   1
+   5  -4  -1  288210    3860  -2
+  -5   4   3  288210    3860   1
+   4  -4   0  174870    2390  -2
+  -4   4   3  174870    2390   1
+  -3   4   3     700     590   1
+  -2   4   3   27940     740   1
+   1  -4   2   24940    1020  -2
+  -1   4   3   24940    1020   1
+   0  -4   3  222710    2780  -2
+   0   4   3  222710    2780   1
+  -1  -4   4  578930    6390  -2
+   1   4   3  578930    6390   1
+   2   4   3  170790    2600   1
+   3   4   3  240600    3320   1
+   4   4   3    5610    1270   1
+  -5  -4   7   27620    1890  -2
+   5   4   3   27620    1890   1
+  -6  -4   8    6890    1730  -2
+   6   4   3    6890    1730   1
+  -7  -4   9   27400    2530  -2
+   7   4   3   27400    2530   1
+   8   4   3   42950    2940   1
+   9   4   3   26870    2940   1
+  10   4   3    1180    2670   1
+  11  -5  -6    8150    2630  -2
+ -11   5   3    8150    2630   1
+  10  -5  -5   10020    2580  -2
+ -10   5   3   10020    2580   1
+  -9   5   3   25750    2380   1
+   8  -5  -4   23260    2040  -2
+  -8   5   3   23260    2040   1
+   7  -5  -3     340    1420  -2
+  -7   5   3     340    1420   1
+   6  -5  -2   14760    1420  -2
+  -6   5   3   14760    1420   1
+   5  -5  -1  104360    2220  -2
+  -5   5   3  104360    2220   1
+   4  -5   0  419450    3930  -2
+  -4   5   3  419450    3930   1
+  -3   5   3  356810    3490   1
+   2  -5   1  158760    2600  -2
+  -2   5   3  158760    2600   1
+   1  -5   2  114880    2150  -2
+  -1   5   3  114880    2150   1
+   0  -5   3   39370    1140  -2
+   0   5   3   39370    1140   1
+  -1  -5   4   22530    1700  -2
+   1   5   3   22530    1700   1
+   2   5   3  108570    2050   1
+   3   5   3  243890    3210   1
+   4   5   3  291790    4400   1
+  -5  -5   7   74350    2450  -2
+   5   5   3   74350    2450   1
+  -6  -5   8   91740    2970  -2
+   6   5   3   91740    2970   1
+  -7  -5   9    2820    1720  -2
+   7   5   3    2820    1720   1
+   8   5   3   -2000    2080   1
+   9   5   3     -50    2330   1
+  10  -6  -5    2470    2420  -2
+ -10   6   3    2470    2420   1
+  -9   6   3    6480    2130   1
+   8  -6  -4   45450    2530  -2
+  -8   6   3   45450    2530   1
+   7  -6  -3  286950    5520  -2
+  -7   6   3  286950    5520   1
+   6  -6  -2  303070    4350  -2
+  -6   6   3  303070    4350   1
+   5  -6  -1   90790    2190  -2
+  -5   6   3   90790    2190   1
+   4  -6   0   16930    1070  -2
+  -4   6   3   16930    1070   1
+  -3   6   3    5740    1080   1
+   2  -6   1   62360    2000  -2
+  -2   6   3   62360    2000   1
+   1  -6   2  198950    3180  -2
+  -1   6   3  198950    3180   1
+   0  -6   3  293910    3950  -2
+   0   6   3  293910    3950   1
+  -1  -6   4  343880    4090  -2
+   1   6   3  343880    4090   1
+   2   6   3   64630    1770   1
+   3   6   3   73950    1900   1
+   4   6   3    4620    1180   1
+  -5  -6   7    1690    1340  -2
+   5   6   3    1690    1340   1
+  -6  -6   8   56000    2180  -2
+   6   6   3   56000    2180   1
+  -7  -6   9   77910    3630  -2
+   7   6   3   77910    3630   1
+   8   6   3   15190    2200   1
+   9   6   3    4300    2390   1
+  10  -7  -5    2290    2290  -2
+ -10   7   3    2290    2290   1
+  -9   7   3    5410    2050   1
+   8  -7  -4    3120    1680  -2
+  -8   7   3    3120    1680   1
+   7  -7  -3    -690    1430  -2
+  -7   7   3    -690    1430   1
+   6  -7  -2   45940    1900  -2
+  -6   7   3   45940    1900   1
+   5  -7  -1  106640    3800  -2
+  -5   7   3  106640    3800   1
+   4  -7   0   27840    1330  -2
+  -4   7   3   27840    1330   1
+  -3   7   3   36500    1980   1
+   2  -7   1  125410    2680  -2
+  -2   7   3  125410    2680   1
+   1  -7   2   52260    1850  -2
+  -1   7   3   52260    1850   1
+   0  -7   3   31600    1240  -2
+   0   7   3   31600    1240   1
+  -1  -7   4    5260    1230  -2
+   1   7   3    5260    1230   1
+   2   7   3   90540    2090   1
+   3   7   3   35610    1560   1
+   4   7   3   48660    1720   1
+  -5  -7   7   56500    2180  -2
+   5   7   3   56500    2180   1
+  -6  -7   8   63100    2410  -2
+   6   7   3   63100    2410   1
+  -7  -7   9     810    1250  -2
+   7   7   3     810    1250   1
+   8   7   3    1190    2420   1
+  -9   8   3    6900    2840   1
+   8  -8  -4   27690    2200  -2
+  -8   8   3   27690    2200   1
+   7  -8  -3   41490    1660  -2
+  -7   8   3   41490    1660   1
+   6  -8  -2   58090    1510  -2
+  -6   8   3   58090    1510   1
+   5  -8  -1   85390    2510  -2
+  -5   8   3   85390    2510   1
+   4  -8   0   21780    1950  -2
+  -4   8   3   21780    1950   1
+  -3   8   3   -1200    1650   1
+   2  -8   1    1790    1430  -2
+  -2   8   3    1790    1430   1
+   1  -8   2   63360    2400  -2
+  -1   8   3   63360    2400   1
+   0  -8   3  255120    4320  -2
+   0   8   3  255120    4320   1
+  -1  -8   4  119970    2760  -2
+   1   8   3  119970    2760   1
+   2   8   3   15670    1250   1
+   3   8   3   32960    1680   1
+   4   8   3    -260    1220   1
+  -5  -8   7    7550    1480  -2
+   5   8   3    7550    1480   1
+  -6  -8   8   14790    1760  -2
+   6   8   3   14790    1760   1
+  -7  -8   9   16250    2090  -2
+   7   8   3   16250    2090   1
+   8   8   3    5780    2680   1
+   8  -9  -4    2490    1130  -2
+  -8   9   3    2490    1130   1
+   7  -9  -3   -1310    1820  -2
+  -7   9   3   -1310    1820   1
+   6  -9  -2    2670    1400  -2
+  -6   9   3    2670    1400   1
+   5  -9  -1   29160    2150  -2
+  -5   9   3   29160    2150   1
+   4  -9   0   85390    3830  -2
+  -4   9   3   85390    3830   1
+  -3   9   3   94210    3240   1
+   2  -9   1   40380    2370  -2
+  -2   9   3   40380    2370   1
+   1  -9   2   20710    1750  -2
+  -1   9   3   20710    1750   1
+   0  -9   3    3940    1640  -2
+   0   9   3    3940    1640   1
+  -1  -9   4     430    1090  -2
+   1   9   3     430    1090   1
+   2   9   3    9770    1400   1
+   3   9   3   36270    1440   1
+   4   9   3   71330    2370   1
+  -5  -9   7   22040    1940  -2
+   5   9   3   22040    1940   1
+  -6  -9   8    7610    1800  -2
+   6   9   3    7610    1800   1
+  -7  -9   9   -1030    1420  -2
+   7   9   3   -1030    1420   1
+   7 -10  -3   10230    2200  -2
+  -7  10   3   10230    2200   1
+   6 -10  -2   21160    2910  -2
+  -6  10   3   21160    2910   1
+   5 -10  -1   14830    2450  -2
+  -5  10   3   14830    2450   1
+   4 -10   0    8640    1940  -2
+  -4  10   3    8640    1940   1
+  -3  10   3     860    1750   1
+   2 -10   1   17160    1810  -2
+  -2  10   3   17160    1810   1
+   1 -10   2    3420    1910  -2
+  -1  10   3    3420    1910   1
+   0 -10   3    4960    1700  -2
+   0  10   3    4960    1700   1
+  -1 -10   4   18700    1840  -2
+   1  10   3   18700    1840   1
+   2  10   3   36880    1520   1
+   3  10   3   11210    1870   1
+   4  10   3    1930    1030   1
+  -5 -10   7    2230    1330  -2
+   5  10   3    2230    1330   1
+  -6 -10   8    -370    1870  -2
+   6  10   3    -370    1870   1
+   6 -11  -2    -640    2770  -2
+  -6  11   3    -640    2770   1
+   5 -11  -1    2120    3180  -2
+  -5  11   3    2120    3180   1
+   4 -11   0    9030    2040  -2
+  -4  11   3    9030    2040   1
+  -3  11   3   34690    2810   1
+   2 -11   1   17140    2250  -2
+  -2  11   3   17140    2250   1
+   1 -11   2   11520    1980  -2
+  -1  11   3   11520    1980   1
+   0 -11   3    -680    1810  -2
+   0  11   3    -680    1810   1
+  -1 -11   4    -950    1530  -2
+   1  11   3    -950    1530   1
+   2  11   3    6220    1500   1
+   3  11   3   14120    1830   1
+   4  11   3    8890    1770   1
+   4 -12   0   -4680    4680  -2
+  -4  12   3   -4680    4680   1
+  -3  12   3     140    3430   1
+   2 -12   1   -1630    1630  -2
+  -2  12   3   -1630    1630   1
+   1 -12   2    4670    2040  -2
+  -1  12   3    4670    2040   1
+   0 -12   3   15960    1750  -2
+   0  12   3   15960    1750   1
+  -1 -12   4    4840    1940  -2
+   1  12   3    4840    1940   1
+   2  12   3    3000    1560   1
+  12   0  -6   12100    4060  -2
+ -12   0   4   12100    4060   1
+  11   0  -5    8520    2870  -2
+ -11   0   4    8520    2870   1
+  10   0  -4   20720    2980  -2
+ -10   0   4   20720    2980   1
+  -9   0   4   48990    3260   1
+   8   0  -3  265290    6150  -2
+  -8   0   4  265290    6150   1
+   7   0  -2  171390    3960  -2
+  -7   0   4  171390    3960   1
+   6   0  -1   76450    2700  -2
+  -6   0   4   76450    2700   1
+   5   0   0    6590    1210  -2
+  -5   0   4    6590    1210   1
+  -4   0   4  174190    2810   1
+  -3   0   4   10500     990   1
+  -2   0   4    4420    1010   1
+   1   0   4   89600    3560   1
+   2   0   4   24290    2910   1
+   3   0   4     150    1960   1
+   4   0   4  242940    7170   1
+   5   0   4  265280    9010   1
+  -6   0   9  158080    6200  -2
+   6   0   4  158080    6200   1
+   7   0   4   79380    5030   1
+   8   0   4   11160    4580   1
+   9   0   4     780    4300   1
+  10   0   4    1160    5380   1
+  12  -1  -6   12750    2910  -2
+ -12   1   4   12750    2910   1
+  11  -1  -5   17210    2470  -2
+ -11   1   4   17210    2470   1
+  10  -1  -4    1100    1610  -2
+ -10   1   4    1100    1610   1
+  -9   1   4     940    1350   1
+   8  -1  -3   38240    1670  -2
+  -8   1   4   38240    1670   1
+   7  -1  -2  337360    4820  -2
+  -7   1   4  337360    4820   1
+   6  -1  -1  478940    4870  -2
+  -6   1   4  478940    4870   1
+   5  -1   0  318370    3220  -2
+  -5   1   4  318370    3220   1
+  -4   1   4   90720    1380   1
+  -3   1   4   15470     710   1
+  -2   1   4  116040    1640   1
+  -1   1   4  328770    5020   1
+   1   1   4  814150    9100   1
+   2   1   4  785310    8450   1
+   3   1   4  164380    3020   1
+   4   1   4  152940    3570   1
+   5   1   4   38560    2470   1
+  -6  -1   9   18760    2030  -2
+   6   1   4   18760    2030   1
+   7   1   4   38340    2720   1
+   8   1   4   22610    3110   1
+   9   1   4    8340    3230   1
+  10   1   4    3200    3880   1
+  12  -2  -6     810    2690  -2
+ -12   2   4     810    2690   1
+  11  -2  -5   15970    2450  -2
+ -11   2   4   15970    2450   1
+  10  -2  -4   91230    3430  -2
+ -10   2   4   91230    3430   1
+  -9   2   4   72170    2610   1
+   8  -2  -3  100400    2690  -2
+  -8   2   4  100400    2690   1
+   7  -2  -2   97550    2200  -2
+  -7   2   4   97550    2200   1
+   6  -2  -1   27700    1240  -2
+  -6   2   4   27700    1240   1
+   5  -2   0    1210     830  -2
+  -5   2   4    1210     830   1
+  -4   2   4    -190     680   1
+  -3   2   4  460850    3820   1
+  -1   2   4 1682260   50870   1
+   0  -2   4  509170    5660  -2
+   0   2   4  509170    5660   1
+   1   2   4  125170    2860   1
+   2   2   4  139940    2430   1
+   3   2   4  121970    2710   1
+   4   2   4  111000    2730   1
+   5   2   4  195410    3990   1
+  -6  -2   9  154580    4220  -2
+   6   2   4  154580    4220   1
+   7   2   4   54210    3160   1
+   8   2   4    6780    2570   1
+   9   2   4    2300    3310   1
+  10   2   4    2360    3790   1
+  11  -3  -5    9830    2240  -2
+ -11   3   4    9830    2240   1
+  10  -3  -4    6390    1850  -2
+ -10   3   4    6390    1850   1
+  -9   3   4    5050    1590   1
+   8  -3  -3   20510    1500  -2
+  -8   3   4   20510    1500   1
+   7  -3  -2   32330    1550  -2
+  -7   3   4   32330    1550   1
+   6  -3  -1  157310    2820  -2
+  -6   3   4  157310    2820   1
+   5  -3   0  332980    4210  -2
+  -5   3   4  332980    4210   1
+  -4   3   4  379960    3740   1
+  -3   3   4  150300    1960   1
+  -2   3   4    6340     750   1
+  -1   3   4  254260    3390   1
+   0  -3   4    8550     750  -2
+   0   3   4    8550     750   1
+   1   3   4   70500    3700   1
+   2   3   4  986760   11980   1
+   3   3   4  396510    5090   1
+   4   3   4  177010    4250   1
+  -5  -3   8    9360    1860  -2
+   5   3   4    9360    1860   1
+  -6  -3   9    2350    1780  -2
+   6   3   4    2350    1780   1
+   7   3   4     170    2060   1
+   8   3   4   11470    3260   1
+   9   3   4   19190    3480   1
+  11  -4  -5    9560    3220  -2
+ -11   4   4    9560    3220   1
+  10  -4  -4   44640    3340  -2
+ -10   4   4   44640    3340   1
+  -9   4   4  121340    3810   1
+   8  -4  -3  144660    3470  -2
+  -8   4   4  144660    3470   1
+   7  -4  -2   40010    2010  -2
+  -7   4   4   40010    2010   1
+   6  -4  -1   12360    1380  -2
+  -6   4   4   12360    1380   1
+   5  -4   0    7730    1090  -2
+  -5   4   4    7730    1090   1
+  -4   4   4  317890    3110   1
+  -3   4   4  455440    4610   1
+  -2   4   4   71880    1650   1
+   1  -4   3  634680    5750  -2
+  -1   4   4  634680    5750   1
+   0  -4   4  347590    4110  -2
+   0   4   4  347590    4110   1
+   1   4   4  122290    2460   1
+   2   4   4     350    1160   1
+   3   4   4   83190    1940   1
+   4   4   4  299920    4310   1
+  -5  -4   8  191240    3710  -2
+   5   4   4  191240    3710   1
+  -6  -4   9   51200    2650  -2
+   6   4   4   51200    2650   1
+   7   4   4   26230    2660   1
+   8   4   4   10390    2670   1
+   9   4   4   -1250    2920   1
+  11  -5  -5    8210    2900  -2
+ -11   5   4    8210    2900   1
+  10  -5  -4   -2230    2230  -2
+ -10   5   4   -2230    2230   1
+  -9   5   4   -1900    1900   1
+   8  -5  -3   32480    2290  -2
+  -8   5   4   32480    2290   1
+   7  -5  -2   96220    2540  -2
+  -7   5   4   96220    2540   1
+   6  -5  -1  118450    2570  -2
+  -6   5   4  118450    2570   1
+   5  -5   0   88810    1960  -2
+  -5   5   4   88810    1960   1
+   4  -5   1  206810    2330  -2
+  -4   5   4  206810    2330   1
+  -3   5   4   34010    1370   1
+  -2   5   4   17320    1330   1
+   1  -5   3   48540    1500  -2
+  -1   5   4   48540    1500   1
+   0  -5   4  462860    5410  -2
+   0   5   4  462860    5410   1
+   1   5   4  326680    5350   1
+   2   5   4  258380    5340   1
+   3   5   4   92360    2510   1
+   4   5   4   92870    2560   1
+  -5  -5   8    1790    1410  -2
+   5   5   4    1790    1410   1
+  -6  -5   9    -640    1600  -2
+   6   5   4    -640    1600   1
+   7   5   4   10210    2840   1
+   8   5   4   11130    2310   1
+   9   5   4    5230    2550   1
+  10  -6  -4   16580    2570  -2
+ -10   6   4   16580    2570   1
+  -9   6   4   15420    2160   1
+   8  -6  -3   36390    2230  -2
+  -8   6   4   36390    2230   1
+   7  -6  -2   86310    2490  -2
+  -7   6   4   86310    2490   1
+   6  -6  -1   11090    1270  -2
+  -6   6   4   11090    1270   1
+   5  -6   0    1550    1010  -2
+  -5   6   4    1550    1010   1
+   4  -6   1     430     830  -2
+  -4   6   4     430     830   1
+  -3   6   4   63660    2030   1
+  -2   6   4  261670    4240   1
+   1  -6   3  349800    4680  -2
+  -1   6   4  349800    4680   1
+   0  -6   4   76440    1690  -2
+   0   6   4   76440    1690   1
+  -1  -6   5  148980    3070  -2
+   1   6   4  148980    3070   1
+   2   6   4    1730    1270   1
+   3   6   4   26070    1600   1
+   4   6   4   15220    1320   1
+  -5  -6   8   82260    2910  -2
+   5   6   4   82260    2910   1
+  -6  -6   9   98080    2910  -2
+   6   6   4   98080    2910   1
+   7   6   4   40890    2660   1
+   8   6   4    2010    1800   1
+  10  -7  -4    1240    2260  -2
+ -10   7   4    1240    2260   1
+  -9   7   4    1960    2060   1
+   8  -7  -3    7500    1630  -2
+  -8   7   4    7500    1630   1
+   7  -7  -2   56210    2080  -2
+  -7   7   4   56210    2080   1
+   6  -7  -1  232280    4490  -2
+  -6   7   4  232280    4490   1
+   5  -7   0  102900    2130  -2
+  -5   7   4  102900    2130   1
+   4  -7   1   40140    2180  -2
+  -4   7   4   40140    2180   1
+  -3   7   4    2600    1370   1
+  -2   7   4    3540    1300   1
+   1  -7   3   26720    1760  -2
+  -1   7   4   26720    1760   1
+   0  -7   4  222450    3490  -2
+   0   7   4  222450    3490   1
+  -1  -7   5  284810    4180  -2
+   1   7   4  284810    4180   1
+   2   7   4  131080    5150   1
+   3   7   4   16600    1490   1
+   4   7   4   33740    1810   1
+  -5  -7   8    2390    1850  -2
+   5   7   4    2390    1850   1
+  -6  -7   9    3210    1490  -2
+   6   7   4    3210    1490   1
+   7   7   4    8500    1870   1
+   8   7   4    1460    1540   1
+  -9   8   4   16980    2710   1
+   8  -8  -3   18240    1680  -2
+  -8   8   4   18240    1680   1
+   7  -8  -2   16410    1210  -2
+  -7   8   4   16410    1210   1
+   6  -8  -1    1730    1420  -2
+  -6   8   4    1730    1420   1
+   5  -8   0    2270    1420  -2
+  -5   8   4    2270    1420   1
+   4  -8   1   23030    2100  -2
+  -4   8   4   23030    2100   1
+  -3   8   4   15150    1530   1
+  -2   8   4   33420    1860   1
+   1  -8   3  132290    3040  -2
+  -1   8   4  132290    3040   1
+   0  -8   4   70440    2460  -2
+   0   8   4   70440    2460   1
+  -1  -8   5   26760    1690  -2
+   1   8   4   26760    1690   1
+   2   8   4    -270    1180   1
+   3   8   4    1880    1370   1
+   4   8   4   27060    1650   1
+  -5  -8   8   55490    2350  -2
+   5   8   4   55490    2350   1
+  -6  -8   9   26560    2820  -2
+   6   8   4   26560    2820   1
+  -7  -8  10   13010    2700  -2
+   7   8   4   13010    2700   1
+   8  -9  -3    4350    1530  -2
+  -8   9   4    4350    1530   1
+   7  -9  -2   11100    2180  -2
+  -7   9   4   11100    2180   1
+   6  -9  -1   19710    2210  -2
+  -6   9   4   19710    2210   1
+   5  -9   0   31850    2360  -2
+  -5   9   4   31850    2360   1
+   4  -9   1   68950    3020  -2
+  -4   9   4   68950    3020   1
+  -3   9   4   14570    1750   1
+   2  -9   2    1090    1500  -2
+  -2   9   4    1090    1500   1
+   1  -9   3    3810    1560  -2
+  -1   9   4    3810    1560   1
+   0  -9   4   25950    1900  -2
+   0   9   4   25950    1900   1
+  -1  -9   5   34890    1920  -2
+   1   9   4   34890    1920   1
+   2   9   4   52100    2320   1
+   3   9   4   47520    2260   1
+   4   9   4   24390    2390   1
+  -5  -9   8    3490    1440  -2
+   5   9   4    3490    1440   1
+  -6  -9   9    -560    1490  -2
+   6   9   4    -560    1490   1
+   7 -10  -2    1500    2850  -2
+  -7  10   4    1500    2850   1
+   6 -10  -1   -2300    2370  -2
+  -6  10   4   -2300    2370   1
+   5 -10   0    2650    2280  -2
+  -5  10   4    2650    2280   1
+   4 -10   1    9360    2020  -2
+  -4  10   4    9360    2020   1
+  -3  10   4   38890    2500   1
+   2 -10   2   47340    2320  -2
+  -2  10   4   47340    2320   1
+   1 -10   3   16690    2170  -2
+  -1  10   4   16690    2170   1
+   0 -10   4   14060    2170  -2
+   0  10   4   14060    2170   1
+  -1 -10   5    2610    2190  -2
+   1  10   4    2610    2190   1
+   2  10   4    1970    1430   1
+   3  10   4   14170    2640   1
+   4  10   4    9340    1780   1
+  -5 -10   8   13670    2750  -2
+   5  10   4   13670    2750   1
+   6 -11  -1    4190    4770  -2
+  -6  11   4    4190    4770   1
+   5 -11   0   11020    2330  -2
+  -5  11   4   11020    2330   1
+   4 -11   1    7350    2130  -2
+  -4  11   4    7350    2130   1
+  -3  11   4    4840    2200   1
+   2 -11   2    -500    1770  -2
+  -2  11   4    -500    1770   1
+   1 -11   3    1540    1820  -2
+  -1  11   4    1540    1820   1
+   0 -11   4     520    2420  -2
+   0  11   4     520    2420   1
+  -1 -11   5   10270    2840  -2
+   1  11   4   10270    2840   1
+   2  11   4   23550    2550   1
+   3  11   4   13270    2200   1
+   4  11   4    4450    1970   1
+  -3  12   4    1060    3090   1
+   2 -12   2    2270    3320  -2
+  -2  12   4    2270    3320   1
+   1 -12   3    9270    1910  -2
+  -1  12   4    9270    1910   1
+   0 -12   4    9730    2000  -2
+   0  12   4    9730    2000   1
+  -1 -12   5     370    1670  -2
+   1  12   4     370    1670   1
+  12   0  -5   41470    4690  -2
+ -12   0   5   41470    4690   1
+  11   0  -4    8220    3670  -2
+ -11   0   5    8220    3670   1
+  10   0  -3   18510    2820  -2
+ -10   0   5   18510    2820   1
+  -9   0   5    9520    2110   1
+   8   0  -2    1400    1970  -2
+  -8   0   5    1400    1970   1
+   7   0  -1   40270    2300  -2
+  -7   0   5   40270    2300   1
+   6   0   0  121150    2990  -2
+  -6   0   5  121150    2990   1
+   5   0   1  449310    7270  -2
+  -5   0   5  449310    7270   1
+  -4   0   5  410740    5270   1
+  -3   0   5  288050    4240   1
+  -2   0   5  121070    2810   1
+  -1   0   5  135830    3260   1
+   0   0   5  752410   10860  -2
+   0   0   5  752410   10860   1
+   1   0   5  502500    8800   1
+   2   0   5   52290    2700   1
+   3   0   5  112340    3570   1
+   4   0   5  143900    4330   1
+   5   0   5  164080    6200   1
+  -6   0  10   47690    4230  -2
+   6   0   5   47690    4230   1
+   7   0   5     760    3270   1
+   8   0   5     -10    3550   1
+   9   0   5    3150    6840   1
+  12  -1  -5   -2030    3370  -2
+ -12   1   5   -2030    3370   1
+  11  -1  -4    4510    3030  -2
+ -11   1   5    4510    3030   1
+  10  -1  -3    2590    1700  -2
+ -10   1   5    2590    1700   1
+  -9   1   5   44040    1950   1
+   8  -1  -2  117530    2650  -2
+  -8   1   5  117530    2650   1
+   7  -1  -1  266260    3460  -2
+  -7   1   5  266260    3460   1
+   6  -1   0  208750    2690  -2
+  -6   1   5  208750    2690   1
+   5  -1   1   51220    1250  -2
+  -5   1   5   51220    1250   1
+  -4   1   5   15550     820   1
+  -3   1   5   65240    1410   1
+  -2   1   5  463860    4500   1
+  -1   1   5  923350    9290   1
+   0  -1   5 1798630   54040  -2
+   0   1   5 1798630   54040   1
+   1   1   5  630460    7920   1
+   2   1   5  111590    2380   1
+   3   1   5   27950    1510   1
+   4   1   5   55570    2320   1
+   5   1   5  104750    3230   1
+  -6  -1  10   90080    3380  -2
+   6   1   5   90080    3380   1
+   7   1   5   57340    3670   1
+   8   1   5   10950    2910   1
+   9   1   5    1580    3440   1
+  12  -2  -5   12860    4170  -2
+ -12   2   5   12860    4170   1
+  11  -2  -4   25320    2460  -2
+ -11   2   5   25320    2460   1
+  10  -2  -3   56220    3330  -2
+ -10   2   5   56220    3330   1
+  -9   2   5   18000    1940   1
+   8  -2  -2    2890    1230  -2
+  -8   2   5    2890    1230   1
+   7  -2  -1   11260    1320  -2
+  -7   2   5   11260    1320   1
+   6  -2   0  170510    2460  -2
+  -6   2   5  170510    2460   1
+   5  -2   1  257160    2900  -2
+  -5   2   5  257160    2900   1
+  -4   2   5   95720    1600   1
+  -3   2   5  991290    8880   1
+  -2   2   5  364100    3740   1
+  -1   2   5   28520    1420   1
+   0  -2   5    5960     870  -2
+   0   2   5    5960     870   1
+   1   2   5   11810    1250   1
+   2   2   5  454600    5750   1
+   3   2   5  488860    6430   1
+   4   2   5  172660    3690   1
+   5   2   5  127360    3750   1
+  -6  -2  10   29220    2470  -2
+   6   2   5   29220    2470   1
+   7   2   5   -2300    2300   1
+   8   2   5   -2710    2710   1
+   9   2   5    6210    3370   1
+  11  -3  -4    1520    2780  -2
+ -11   3   5    1520    2780   1
+  10  -3  -3   37600    2900  -2
+ -10   3   5   37600    2900   1
+  -9   3   5   92660    3330   1
+   8  -3  -2   79280    2820  -2
+  -8   3   5   79280    2820   1
+   7  -3  -1   39690    1900  -2
+  -7   3   5   39690    1900   1
+   6  -3   0   80890    2030  -2
+  -6   3   5   80890    2030   1
+   5  -3   1   14280     980  -2
+  -5   3   5   14280     980   1
+  -4   3   5    1670     810   1
+  -3   3   5  299190    3590   1
+  -2   3   5  783930    7060   1
+  -1   3   5  193260    2980   1
+   0  -3   5  389050    4430  -2
+   0   3   5  389050    4430   1
+   1   3   5  251170    3890   1
+   2   3   5   74180    2350   1
+   3   3   5    2290    1460   1
+   4   3   5   65870    3100   1
+   5   3   5   60220    2990   1
+  -6  -3  10   32320    2540  -2
+   6   3   5   32320    2540   1
+   7   3   5   17570    2620   1
+   8   3   5    5670    4490   1
+   9   3   5    7690    3610   1
+  11  -4  -4   13360    3160  -2
+ -11   4   5   13360    3160   1
+  10  -4  -3   31460    3110  -2
+ -10   4   5   31460    3110   1
+  -9   4   5   20680    2400   1
+   8  -4  -2    3400    1630  -2
+  -8   4   5    3400    1630   1
+   7  -4  -1   -1460    1460  -2
+  -7   4   5   -1460    1460   1
+   6  -4   0    1510    1130  -2
+  -6   4   5    1510    1130   1
+   5  -4   1  231860    2770  -2
+  -5   4   5  231860    2770   1
+  -4   4   5  576570    5370   1
+  -3   4   5  739920    7890   1
+  -2   4   5  119800    1980   1
+  -1   4   5  114120    2480   1
+   0  -4   5   21400     970  -2
+   0   4   5   21400     970   1
+   1   4   5   48930    1830   1
+   2   4   5  100510    3190   1
+   3   4   5  376220    5840   1
+   4   4   5  242630    4300   1
+   5   4   5   70060    3220   1
+  -6  -4  10   12650    2640  -2
+   6   4   5   12650    2640   1
+   7   4   5    2870    3250   1
+   8   4   5    1460    3050   1
+   9   4   5    4190    3590   1
+  11  -5  -4   -2620    2620  -2
+ -11   5   5   -2620    2620   1
+  10  -5  -3    4550    2280  -2
+ -10   5   5    4550    2280   1
+  -9   5   5   25270    2320   1
+   8  -5  -2  126230    3800  -2
+  -8   5   5  126230    3800   1
+   7  -5  -1   95430    2290  -2
+  -7   5   5   95430    2290   1
+   6  -5   0   82870    2150  -2
+  -6   5   5   82870    2150   1
+   5  -5   1    4800     840  -2
+  -5   5   5    4800     840   1
+  -4   5   5    1850     880   1
+  -3   5   5  106440    1880   1
+  -2   5   5  195040    2630   1
+  -1   5   5  277350    3130   1
+   0  -5   5  397470    5230  -2
+   0   5   5  397470    5230   1
+   1   5   5  110630    2800   1
+   2   5   5   93780    2890   1
+   3   5   5     850    1650   1
+   4   5   5   16660    2040   1
+   5   5   5   16050    2240   1
+  -6  -5  10   30570    2670  -2
+   6   5   5   30570    2670   1
+   7   5   5   23320    2930   1
+   8   5   5    9180    2430   1
+  10  -6  -3    7730    2180  -2
+ -10   6   5    7730    2180   1
+  -9   6   5    6260    1760   1
+   8  -6  -2   -1380    1380  -2
+  -8   6   5   -1380    1380   1
+   7  -6  -1   14600    1370  -2
+  -7   6   5   14600    1370   1
+   6  -6   0   90770    2150  -2
+  -6   6   5   90770    2150   1
+   5  -6   1   82090    1560  -2
+  -5   6   5   82090    1560   1
+  -4   6   5    9040     890   1
+  -3   6   5  145010    3230   1
+  -2   6   5   59910    2650   1
+   1  -6   4   97860    2210  -2
+  -1   6   5   97860    2210   1
+   0  -6   5    1420     880  -2
+   0   6   5    1420     880   1
+   1   6   5  142180    3950   1
+   2   6   5  177470    3670   1
+   3   6   5   94130    3050   1
+   4   6   5   36690    2390   1
+  -5  -6   9   45310    2710  -2
+   5   6   5   45310    2710   1
+  -6  -6  10   17980    2470  -2
+   6   6   5   17980    2470   1
+   7   6   5    1220    2320   1
+   8   6   5   -1330    2040   1
+  10  -7  -3    5890    2740  -2
+ -10   7   5    5890    2740   1
+  -9   7   5   11350    2180   1
+   8  -7  -2   27750    2280  -2
+  -8   7   5   27750    2280   1
+   7  -7  -1   39600    2130  -2
+  -7   7   5   39600    2130   1
+   6  -7   0   90990    3220  -2
+  -6   7   5   90990    3220   1
+   5  -7   1    3210    1180  -2
+  -5   7   5    3210    1180   1
+  -4   7   5    2520    1620   1
+  -3   7   5    2020    1330   1
+  -2   7   5   94960    3590   1
+   1  -7   4  260510    4290  -2
+  -1   7   5  260510    4290   1
+   0  -7   5  225830    3880  -2
+   0   7   5  225830    3880   1
+  -1  -7   6   72660    2040  -2
+   1   7   5   72660    2040   1
+   2   7   5   35860    2100   1
+   3   7   5   -1370    1370   1
+   4   7   5   -1920    1920   1
+  -5  -7   9   12090    2300  -2
+   5   7   5   12090    2300   1
+  -6  -7  10   32710    2930  -2
+   6   7   5   32710    2930   1
+   7   7   5   11710    2920   1
+  -9   8   5    3100    1820   1
+   8  -8  -2   -1360    1360  -2
+  -8   8   5   -1360    1360   1
+   7  -8  -1    1370     830  -2
+  -7   8   5    1370     830   1
+   6  -8   0   19740    2120  -2
+  -6   8   5   19740    2120   1
+   5  -8   1   81630    2780  -2
+  -5   8   5   81630    2780   1
+  -4   8   5   55210    3190   1
+  -3   8   5   57520    2240   1
+  -2   8   5   15570    1570   1
+   1  -8   4   21730    1730  -2
+  -1   8   5   21730    1730   1
+   0  -8   5    6930    1290  -2
+   0   8   5    6930    1290   1
+  -1  -8   6   43180    2340  -2
+   1   8   5   43180    2340   1
+   2   8   5   26030    2060   1
+   3   8   5   46430    2080   1
+   4   8   5   45980    2320   1
+  -5  -8   9   24760    2380  -2
+   5   8   5   24760    2380   1
+  -6  -8  10    1020    1940  -2
+   6   8   5    1020    1940   1
+   7   8   5   -1840    2500   1
+   8  -9  -2   14850    2150  -2
+  -8   9   5   14850    2150   1
+   7  -9  -1    9580    2330  -2
+  -7   9   5    9580    2330   1
+   6  -9   0   13860    2700  -2
+  -6   9   5   13860    2700   1
+   5  -9   1    1220    1820  -2
+  -5   9   5    1220    1820   1
+   4  -9   2      70    1850  -2
+  -4   9   5      70    1850   1
+  -3   9   5   17230    2070   1
+  -2   9   5   20250    2130   1
+   1  -9   4   38730    2060  -2
+  -1   9   5   38730    2060   1
+   0  -9   5   64780    2810  -2
+   0   9   5   64780    2810   1
+  -1  -9   6   30210    1840  -2
+   1   9   5   30210    1840   1
+   2   9   5    9000    1800   1
+   3   9   5    2400    1460   1
+   4   9   5    3980    2060   1
+  -5  -9   9     800    1320  -2
+   5   9   5     800    1320   1
+  -6  -9  10    2390    3530  -2
+   6   9   5    2390    3530   1
+   7 -10  -1    2000    3070  -2
+  -7  10   5    2000    3070   1
+   6 -10   0     290    2460  -2
+  -6  10   5     290    2460   1
+   5 -10   1    5710    2030  -2
+  -5  10   5    5710    2030   1
+   4 -10   2   22610    2390  -2
+  -4  10   5   22610    2390   1
+  -3  10   5   48530    2380   1
+  -2  10   5   18330    2070   1
+   1 -10   4   -1790    1790  -2
+  -1  10   5   -1790    1790   1
+   0 -10   5    -330    1590  -2
+   0  10   5    -330    1590   1
+  -1 -10   6    1820    2130  -2
+   1  10   5    1820    2130   1
+   2  10   5   21130    2050   1
+   3  10   5   43290    3710   1
+   4  10   5   15760    2720   1
+  -5 -10   9   20580    4700  -2
+   5  10   5   20580    4700   1
+   6 -11   0   -1150    4260  -2
+  -6  11   5   -1150    4260   1
+   5 -11   1    -370    2870  -2
+  -5  11   5    -370    2870   1
+   4 -11   2     990    2000  -2
+  -4  11   5     990    2000   1
+  -3  11   5    1450    2030   1
+  -2  11   5   14050    2130   1
+   1 -11   4   11790    2090  -2
+  -1  11   5   11790    2090   1
+   0 -11   5    8480    2140  -2
+   0  11   5    8480    2140   1
+  -1 -11   6   13380    2170  -2
+   1  11   5   13380    2170   1
+   2  11   5    5850    1920   1
+   3  11   5   -1820    1820   1
+  -3  12   5    2340    2930   1
+  -2  12   5     660    2790   1
+   1 -12   4   -2620    2650  -2
+  -1  12   5   -2620    2650   1
+   0 -12   5    -190    2270  -2
+   0  12   5    -190    2270   1
+  12   0  -4   12870    3880  -2
+ -12   0   6   12870    3880   1
+  11   0  -3   -1820    2850  -2
+ -11   0   6   -1820    2850   1
+  10   0  -2    2640    2480  -2
+ -10   0   6    2640    2480   1
+  -9   0   6    2030    2540   1
+   8   0  -1   87680    3430  -2
+  -8   0   6   87680    3430   1
+   7   0   0  282060    5210  -2
+  -7   0   6  282060    5210   1
+   6   0   1  189830    3380  -2
+  -6   0   6  189830    3380   1
+   5   0   2  399310    5810  -2
+  -5   0   6  399310    5810   1
+  -4   0   6   68930    2270   1
+  -3   0   6   86480    2470   1
+  -2   0   6   57030    2140   1
+  -1   0   6  275570    5680   1
+   0   0   6 1922090   41760  -2
+   0   0   6 1922090   41760   1
+   1   0   6  885320   18390   1
+   2   0   6  317690    6650   1
+   3   0   6  147070    4120   1
+   4   0   6   83280    3910   1
+   5   0   6   -1440    1900   1
+  -6   0  11    4590    3050  -2
+   6   0   6    4590    3050   1
+   7   0   6   13990    5500   1
+   8   0   6   10030    6900   1
+   9   0   6    4100    5110   1
+  12  -1  -4    7810    3570  -2
+ -12   1   6    7810    3570   1
+  11  -1  -3   24360    2220  -2
+ -11   1   6   24360    2220   1
+  10  -1  -2   16330    1960  -2
+ -10   1   6   16330    1960   1
+  -9   1   6   43230    2030   1
+   8  -1  -1   44240    1860  -2
+  -8   1   6   44240    1860   1
+   7  -1   0    9960    1140  -2
+  -7   1   6    9960    1140   1
+   6  -1   1   14640    1160  -2
+  -6   1   6   14640    1160   1
+   5  -1   2  157210    2120  -2
+  -5   1   6  157210    2120   1
+  -4   1   6  299960    3440   1
+  -3   1   6  205240    2460   1
+  -2   1   6  523980    5580   1
+  -1   1   6  477950    5770   1
+   0  -1   6   24900    1310  -2
+   0   1   6   24900    1310   1
+   1   1   6   12280    1350   1
+   2   1   6  219770    3500   1
+   3   1   6  166420    3120   1
+   4   1   6   63560    2260   1
+   5   1   6   83080    4760   1
+  -6  -1  11   36380    2470  -2
+   6   1   6   36380    2470   1
+   7   1   6    5100    2920   1
+   8   1   6    -650    3220   1
+   9   1   6   -3240    3760   1
+  12  -2  -4    4940    2310  -2
+ -12   2   6    4940    2310   1
+  11  -2  -3    1660    2200  -2
+ -11   2   6    1660    2200   1
+  10  -2  -2    2090    1800  -2
+ -10   2   6    2090    1800   1
+  -9   2   6    8110    1780   1
+   8  -2  -1   10260    1490  -2
+  -8   2   6   10260    1490   1
+   7  -2   0  125940    2310  -2
+  -7   2   6  125940    2310   1
+   6  -2   1  227020    2910  -2
+  -6   2   6  227020    2910   1
+   5  -2   2  315580    3290  -2
+  -5   2   6  315580    3290   1
+  -4   2   6   84210    1810   1
+  -3   2   6   35810    1330   1
+  -2   2   6  264640    3250   1
+  -1   2   6   93020    2060   1
+   0  -2   6   63260    1750  -2
+   0   2   6   63260    1750   1
+   1   2   6  522750    6330   1
+   2   2   6  497380    7030   1
+   3   2   6  110360    2820   1
+   4   2   6   51260    2220   1
+   5   2   6    1560    1630   1
+  -6  -2  11   -1970    1970  -2
+   6   2   6   -1970    1970   1
+   7   2   6    3320    3140   1
+   8   2   6    1920    3500   1
+   9   2   6   10290    4180   1
+  11  -3  -3   31490    3170  -2
+ -11   3   6   31490    3170   1
+  10  -3  -2   67080    3410  -2
+ -10   3   6   67080    3410   1
+  -9   3   6   76670    3320   1
+   8  -3  -1   36400    2180  -2
+  -8   3   6   36400    2180   1
+   7  -3   0     920    1200  -2
+  -7   3   6     920    1200   1
+   6  -3   1    1000    1020  -2
+  -6   3   6    1000    1020   1
+   5  -3   2   93980    1990  -2
+  -5   3   6   93980    1990   1
+  -4   3   6  426840    4410   1
+  -3   3   6  574260    5580   1
+  -2   3   6  731970    6570   1
+  -1   3   6  199680    3250   1
+   0  -3   6   53440    1970  -2
+   0   3   6   53440    1970   1
+   1   3   6     610    1270   1
+   2   3   6  135120    3340   1
+   3   3   6  251900    5230   1
+   4   3   6  168170    5370   1
+   5   3   6   76980    3270   1
+  -6  -3  11   14300    1900  -2
+   6   3   6   14300    1900   1
+   7   3   6    8090    2670   1
+   8   3   6    9450    3900   1
+  11  -4  -3    3630    3220  -2
+ -11   4   6    3630    3220   1
+  10  -4  -2   -2000    2100  -2
+ -10   4   6   -2000    2100   1
+  -9   4   6   15910    2090   1
+   8  -4  -1   44300    2230  -2
+  -8   4   6   44300    2230   1
+   7  -4   0   44400    1690  -2
+  -7   4   6   44400    1690   1
+   6  -4   1    9360    1160  -2
+  -6   4   6    9360    1160   1
+   5  -4   2  233310    2980  -2
+  -5   4   6  233310    2980   1
+  -4   4   6   45090    1390   1
+  -3   4   6   14270    1180   1
+  -2   4   6   15210    1080   1
+  -1   4   6   64710    2160   1
+   0  -4   6  249320    3820  -2
+   0   4   6  249320    3820   1
+   1   4   6  267230    4590   1
+   2   4   6  194350    4540   1
+   3   4   6   95310    3180   1
+   4   4   6    9390    1950   1
+   5   4   6    1330    2390   1
+  -6  -4  11   -1580    2260  -2
+   6   4   6   -1580    2260   1
+   7   4   6   -1050    1050   1
+   8   4   6    4930    3740   1
+  11  -5  -3   12900    3000  -2
+ -11   5   6   12900    3000   1
+  10  -5  -2   16600    2310  -2
+ -10   5   6   16600    2310   1
+  -9   5   6   18040    2050   1
+   8  -5  -1   34320    1940  -2
+  -8   5   6   34320    1940   1
+   7  -5   0    -410    1300  -2
+  -7   5   6    -410    1300   1
+   6  -5   1    1000    1080  -2
+  -6   5   6    1000    1080   1
+   5  -5   2   17490    1200  -2
+  -5   5   6   17490    1200   1
+  -4   5   6  205590    3370   1
+  -3   5   6  229250    3350   1
+  -2   5   6  240820    3160   1
+  -1   5   6  109530    2310   1
+   0  -5   6   82120    3240  -2
+   0   5   6   82120    3240   1
+   1   5   6    1230    1460   1
+   2   5   6   45250    2490   1
+   3   5   6   74000    3840   1
+   4   5   6   75210    3310   1
+   5   5   6   42380    2820   1
+  -6  -5  11   21670    4030  -2
+   6   5   6   21670    4030   1
+   7   5   6    7430    2780   1
+   8   5   6    -520    2630   1
+  10  -6  -2   -1810    1810  -2
+ -10   6   6   -1810    1810   1
+  -9   6   6   -1690    1690   1
+   8  -6  -1    6930    1500  -2
+  -8   6   6    6930    1500   1
+   7  -6   0  149770    2760  -2
+  -7   6   6  149770    2760   1
+   6  -6   1  112350    2620  -2
+  -6   6   6  112350    2620   1
+   5  -6   2  114800    2970  -2
+  -5   6   6  114800    2970   1
+  -4   6   6    4180     810   1
+  -3   6   6   22050    1080   1
+  -2   6   6   19970     930   1
+  -1   6   6  166720    2260   1
+   0  -6   6  229130    3410  -2
+   0   6   6  229130    3410   1
+   1   6   6  207400    3980   1
+   2   6   6  116590    3290   1
+   3   6   6   30030    2010   1
+   4   6   6   13140    2210   1
+   5   6   6     800    2950   1
+  -6  -6  11    2650    2510  -2
+   6   6   6    2650    2510   1
+   7   6   6    1410    2490   1
+  10  -7  -2   10430    2390  -2
+ -10   7   6   10430    2390   1
+  -9   7   6    2540    1720   1
+   8  -7  -1   13880    1770  -2
+  -8   7   6   13880    1770   1
+   7  -7   0     980    1170  -2
+  -7   7   6     980    1170   1
+   6  -7   1    7250    1200  -2
+  -6   7   6    7250    1200   1
+   5  -7   2   38880    2110  -2
+  -5   7   6   38880    2110   1
+  -4   7   6   19760    2200   1
+  -3   7   6   27290    2020   1
+  -2   7   6   99400    2940   1
+   1  -7   5   62170    2410  -2
+  -1   7   6   62170    2410   1
+   0  -7   6   47710    1220  -2
+   0   7   6   47710    1220   1
+   1   7   6    1210    1550   1
+   2   7   6   21740    1800   1
+   3   7   6    7530    1790   1
+   4   7   6   15380    2370   1
+  -5  -7  10   24760    3070  -2
+   5   7   6   24760    3070   1
+  -6  -7  11   17310    3960  -2
+   6   7   6   17310    3960   1
+   7   7   6    3140    2180   1
+  -9   8   6     260    1600   1
+   8  -8  -1    7080    1880  -2
+  -8   8   6    7080    1880   1
+   7  -8   0   20220    2370  -2
+  -7   8   6   20220    2370   1
+   6  -8   1   15650    2730  -2
+  -6   8   6   15650    2730   1
+   5  -8   2   63130    3050  -2
+  -5   8   6   63130    3050   1
+  -4   8   6   12190    2080   1
+  -3   8   6    6400    1670   1
+  -2   8   6    -800    1520   1
+   1  -8   5   43720    2360  -2
+  -1   8   6   43720    2360   1
+   0  -8   6  128200    2990  -2
+   0   8   6  128200    2990   1
+  -1  -8   7   92670    4470  -2
+   1   8   6   92670    4470   1
+   2   8   6   38880    3760   1
+   3   8   6   15870    1800   1
+   4   8   6    4310    2300   1
+  -5  -8  10   -1340    1710  -2
+   5   8   6   -1340    1710   1
+  -6  -8  11   -1560    1560  -2
+   6   8   6   -1560    1560   1
+   8  -9  -1    4890    2960  -2
+  -8   9   6    4890    2960   1
+   7  -9   0   -2540    2540  -2
+  -7   9   6   -2540    2540   1
+   6  -9   1   -2480    2480  -2
+  -6   9   6   -2480    2480   1
+   5  -9   2    9490    1820  -2
+  -5   9   6    9490    1820   1
+  -4   9   6   48990    3100   1
+  -3   9   6   58190    2750   1
+  -2   9   6   50300    2640   1
+   1  -9   5   25770    2260  -2
+  -1   9   6   25770    2260   1
+   0  -9   6    4560    1660  -2
+   0   9   6    4560    1660   1
+  -1  -9   7     700    1900  -2
+   1   9   6     700    1900   1
+   2   9   6   -1850    2200   1
+   3   9   6   10700    1800   1
+   4   9   6   17270    2960   1
+  -5  -9  10    6260    2300  -2
+   5   9   6    6260    2300   1
+   7 -10   0    4670    3210  -2
+  -7  10   6    4670    3210   1
+   6 -10   1    2210    2790  -2
+  -6  10   6    2210    2790   1
+   5 -10   2    9980    2550  -2
+  -5  10   6    9980    2550   1
+  -4  10   6    4560    2150   1
+  -3  10   6     450    1780   1
+  -2  10   6    4120    2000   1
+   1 -10   5   10990    2190  -2
+  -1  10   6   10990    2190   1
+   0 -10   6    4770    2130  -2
+   0  10   6    4770    2130   1
+  -1 -10   7   15770    2360  -2
+   1  10   6   15770    2360   1
+   2  10   6   34810    2870   1
+   3  10   6    9710    2460   1
+   4  10   6    3470    2710   1
+   5 -11   2   -2280    2280  -2
+  -5  11   6   -2280    2280   1
+  -4  11   6    7850    2850   1
+  -3  11   6   14220    2070   1
+  -2  11   6   17510    2320   1
+   1 -11   5    9720    2260  -2
+  -1  11   6    9720    2260   1
+   0 -11   6   -1920    1920  -2
+   0  11   6   -1920    1920   1
+  -1 -11   7   -1950    2280  -2
+   1  11   6   -1950    2280   1
+   2  11   6     510    1550   1
+  12   0  -3    -530    3060  -2
+ -12   0   7    -530    3060   1
+  11   0  -2    1120    4480  -2
+ -11   0   7    1120    4480   1
+  10   0  -1    3770    2830  -2
+ -10   0   7    3770    2830   1
+  -9   0   7   24110    2380   1
+  -8   0   7   99450    3040   1
+   7   0   1  163910    4140  -2
+  -7   0   7  163910    4140   1
+   6   0   2   57230    2220  -2
+  -6   0   7   57230    2220   1
+   5   0   3    6170    1550  -2
+  -5   0   7    6170    1550   1
+  -4   0   7  110670    3380   1
+  -3   0   7   28940    1780   1
+  -2   0   7  136350    3430   1
+  -1   0   7  792200   13290   1
+   0   0   7  976510   16040  -2
+   0   0   7  976510   16040   1
+   1   0   7   75000    3850   1
+   2   0   7   89370    4890   1
+   3   0   7    -600    1970   1
+   4   0   7    1930    1960   1
+   5   0   7   12380    2500   1
+  -6   0  12   28320    4340  -2
+   6   0   7   28320    4340   1
+   7   0   7   15880    6200   1
+   8   0   7   15300   10500   1
+  12  -1  -3    9720    3280  -2
+ -12   1   7    9720    3280   1
+  11  -1  -2   18150    2650  -2
+ -11   1   7   18150    2650   1
+  10  -1  -1    5060    1830  -2
+ -10   1   7    5060    1830   1
+  -9   1   7    3180    1770   1
+  -8   1   7    6690    1280   1
+   7  -1   1  113020    2340  -2
+  -7   1   7  113020    2340   1
+   6  -1   2  339260    3680  -2
+  -6   1   7  339260    3680   1
+   5  -1   3  220670    3140  -2
+  -5   1   7  220670    3140   1
+  -4   1   7  286180    3610   1
+  -3   1   7  131230    2290   1
+  -2   1   7   30500    1440   1
+  -1   1   7   28260    1560   1
+   0  -1   7  610470    7860  -2
+   0   1   7  610470    7860   1
+   1   1   7  561310    7970   1
+   2   1   7  113130    2680   1
+   3   1   7   80600    2400   1
+   4   1   7   46240    2500   1
+   5   1   7   31150    2070   1
+  -6  -1  12   -1870    1870  -2
+   6   1   7   -1870    1870   1
+   7   1   7   -3430    3430   1
+   8   1   7    2660    3620   1
+  12  -2  -3   -2520    2520  -2
+ -12   2   7   -2520    2520   1
+  11  -2  -2    6360    2450  -2
+ -11   2   7    6360    2450   1
+  10  -2  -1   36120    2760  -2
+ -10   2   7   36120    2760   1
+  -9   2   7   51240    3100   1
+  -8   2   7   36430    1770   1
+   7  -2   1  103510    2570  -2
+  -7   2   7  103510    2570   1
+   6  -2   2   12540    1180  -2
+  -6   2   7   12540    1180   1
+   5  -2   3    2750    1080  -2
+  -5   2   7    2750    1080   1
+  -4   2   7   16440    1260   1
+  -3   2   7  191210    2750   1
+  -2   2   7  690440    7230   1
+  -1   2   7  535100    6210   1
+   0  -2   7  449620    5410  -2
+   0   2   7  449620    5410   1
+   1   2   7   78130    2890   1
+   2   2   7   33320    2190   1
+   3   2   7   11080    1360   1
+   4   2   7    -530    1410   1
+   5   2   7   10450    1960   1
+  -6  -2  12   22580    3560  -2
+   6   2   7   22580    3560   1
+   7   2   7    6700    2400   1
+   8   2   7   -2790    3250   1
+  11  -3  -2   11730    2420  -2
+ -11   3   7   11730    2420   1
+  10  -3  -1   11330    2210  -2
+ -10   3   7   11330    2210   1
+  -9   3   7    1140    1930   1
+  -8   3   7    2030    1470   1
+   7  -3   1    1030    1070  -2
+  -7   3   7    1030    1070   1
+   6  -3   2  101140    2160  -2
+  -6   3   7  101140    2160   1
+   5  -3   3  192370    3400  -2
+  -5   3   7  192370    3400   1
+  -4   3   7  428080    4980   1
+  -3   3   7  163490    2680   1
+  -2   3   7    4310    1200   1
+  -1   3   7   17090    1330   1
+   0  -3   7   58880    2260  -2
+   0   3   7   58880    2260   1
+   1   3   7  162810    3530   1
+   2   3   7  180320    4400   1
+   3   3   7  150530    4000   1
+   4   3   7   36840    2540   1
+   5   3   7   13550    1870   1
+  -6  -3  12    2170    1930  -2
+   6   3   7    2170    1930   1
+   7   3   7   -3260    3260   1
+   8   3   7      20    3390   1
+  11  -4  -2   -2500    2500  -2
+ -11   4   7   -2500    2500   1
+  10  -4  -1   18040    2210  -2
+ -10   4   7   18040    2210   1
+  -9   4   7   73830    2800   1
+  -8   4   7   57490    2120   1
+   7  -4   1   56950    1680  -2
+  -7   4   7   56950    1680   1
+   6  -4   2    5710    1150  -2
+  -6   4   7    5710    1150   1
+   5  -4   3    7640    1330  -2
+  -5   4   7    7640    1330   1
+  -4   4   7  120390    2650   1
+  -3   4   7  270340    3520   1
+  -2   4   7  215620    3140   1
+  -1   4   7  284510    4930   1
+   0  -4   7  258180    4750  -2
+   0   4   7  258180    4750   1
+   1   4   7   50900    2700   1
+   2   4   7   33490    2250   1
+   3   4   7     750    1850   1
+   4   4   7    8920    2100   1
+   5   4   7    7480    2410   1
+  -6  -4  12    1580    3730  -2
+   6   4   7    1580    3730   1
+   7   4   7    3670    3210   1
+   8   4   7   -5400    5400   1
+  11  -5  -2    6800    2320  -2
+ -11   5   7    6800    2320   1
+  10  -5  -1    3110    1970  -2
+ -10   5   7    3110    1970   1
+  -9   5   7    2190    1770   1
+  -8   5   7    6890    1560   1
+   7  -5   1   32230    1650  -2
+  -7   5   7   32230    1650   1
+   6  -5   2   85200    2330  -2
+  -6   5   7   85200    2330   1
+   5  -5   3   69260    2170  -2
+  -5   5   7   69260    2170   1
+  -4   5   7  173810    3420   1
+  -3   5   7   39850    2320   1
+  -2   5   7   38550    1720   1
+  -1   5   7    2900    1220   1
+   0  -5   7  132660    3200  -2
+   0   5   7  132660    3200   1
+   1   5   7  141330    3550   1
+   2   5   7   89750    3290   1
+   3   5   7   62370    3270   1
+   4   5   7   17760    2580   1
+   5   5   7    9690    2480   1
+  -6  -5  12   -1670    2380  -2
+   6   5   7   -1670    2380   1
+   7   5   7   -1260    2320   1
+  10  -6  -1    3920    1910  -2
+ -10   6   7    3920    1910   1
+  -9   6   7   12780    1900   1
+  -8   6   7   12080    1590   1
+   7  -6   1   75700    2780  -2
+  -7   6   7   75700    2780   1
+   6  -6   2    5330    1340  -2
+  -6   6   7    5330    1340   1
+   5  -6   3    4780    1170  -2
+  -5   6   7    4780    1170   1
+  -4   6   7    -590     820   1
+  -3   6   7   48470    1700   1
+  -2   6   7  173640    2710   1
+  -1   6   7  181800    2750   1
+   0  -6   7  135640    3480  -2
+   0   6   7  135640    3480   1
+   1   6   7   47420    2540   1
+   2   6   7    8640    1990   1
+   3   6   7   -1840    1840   1
+   4   6   7   -3140    3140   1
+   5   6   7    2080    2630   1
+  -6  -6  12   15510    3380  -2
+   6   6   7   15510    3380   1
+   7   6   7    1090    7060   1
+  10  -7  -1    2860    2370  -2
+ -10   7   7    2860    2370   1
+  -9   7   7    -810    1560   1
+   8  -7   0      70    1720  -2
+  -8   7   7      70    1720   1
+   7  -7   1   15890    2920  -2
+  -7   7   7   15890    2920   1
+   6  -7   2  119210    4580  -2
+  -6   7   7  119210    4580   1
+   5  -7   3   64420    3180  -2
+  -5   7   7   64420    3180   1
+  -4   7   7   62170    2430   1
+  -3   7   7   19420    2000   1
+  -2   7   7   17230    1820   1
+  -1   7   7    3640    1430   1
+   0  -7   7   73820    2330  -2
+   0   7   7   73820    2330   1
+   1   7   7   91130    5820   1
+   2   7   7   46670    3280   1
+   3   7   7   17140    2060   1
+   4   7   7    5390    2980   1
+   5   7   7    3810    3530   1
+  -6  -7  12   -2970    3170  -2
+   6   7   7   -2970    3170   1
+  -9   8   7    2660    2410   1
+   8  -8   0    9310    3130  -2
+  -8   8   7    9310    3130   1
+   7  -8   1   18650    3330  -2
+  -7   8   7   18650    3330   1
+   6  -8   2   -1290    1290  -2
+  -6   8   7   -1290    1290   1
+   5  -8   3    1230    2000  -2
+  -5   8   7    1230    2000   1
+  -4   8   7   13560    2030   1
+  -3   8   7   15220    2110   1
+  -2   8   7   36290    3280   1
+   1  -8   6   84710    3190  -2
+  -1   8   7   84710    3190   1
+   0  -8   7   84810    3470  -2
+   0   8   7   84810    3470   1
+   1   8   7   13080    1410   1
+   2   8   7    9070    2230   1
+   3   8   7      40    1720   1
+   4   8   7   -2750    2840   1
+   5   8   7   -1740    2350   1
+   8  -9   0   -3080    3960  -2
+  -8   9   7   -3080    3960   1
+   7  -9   1    1020    2740  -2
+  -7   9   7    1020    2740   1
+   6  -9   2   11280    2060  -2
+  -6   9   7   11280    2060   1
+   5  -9   3   20820    2290  -2
+  -5   9   7   20820    2290   1
+  -4   9   7   54470    3620   1
+  -3   9   7   24120    2190   1
+  -2   9   7    3950    1740   1
+   1  -9   6   -1820    1820  -2
+  -1   9   7   -1820    1820   1
+   0  -9   7    2810    1710  -2
+   0   9   7    2810    1710   1
+   1   9   7   12240    2370   1
+   2   9   7   13720    2880   1
+   3   9   7   21570    2290   1
+   4   9   7    8560    3140   1
+   6 -10   2   -2690    3510  -2
+  -6  10   7   -2690    3510   1
+   5 -10   3    -730    1960  -2
+  -5  10   7    -730    1960   1
+  -4  10   7    7220    2410   1
+  -3  10   7   23510    2290   1
+  -2  10   7   34490    2940   1
+   1 -10   6   19590    2580  -2
+  -1  10   7   19590    2580   1
+   0 -10   7   16430    2610  -2
+   0  10   7   16430    2610   1
+  -1 -10   8    6820    2690  -2
+   1  10   7    6820    2690   1
+   2  10   7    2600    2610   1
+   3  10   7    -780    2360   1
+  -4  11   7    5610    3010   1
+  -3  11   7    3880    1930   1
+  -2  11   7    1330    2250   1
+   1 -11   6    -490    2130  -2
+  -1  11   7    -490    2130   1
+   0 -11   7    1260    2220  -2
+   0  11   7    1260    2220   1
+  -1 -11   8      30    2720  -2
+   1  11   7      30    2720   1
+  12   0  -2   28190    5620  -2
+ -12   0   8   28190    5620   1
+  11   0  -1   10220    3200  -2
+ -11   0   8   10220    3200   1
+ -10   0   8   13360    3090   1
+  -9   0   8   20860    2830   1
+  -8   0   8    6230    2060   1
+   7   0   2    6250    1660  -2
+  -7   0   8    6250    1660   1
+   6   0   3  126650    3920  -2
+  -6   0   8  126650    3920   1
+  -5   0   8  217900    4700   1
+  -4   0   8  279370    4980   1
+  -3   0   8  187590    3690   1
+  -2   0   8  327580    6300   1
+  -1   0   8   53840    3090   1
+   0   0   8   -1970    1970  -2
+   0   0   8   -1970    1970   1
+   1   0   8   90430    5700   1
+   2   0   8    -800    2010   1
+   3   0   8   -1890    1920   1
+   4   0   8   23770    3640   1
+   5   0   8   21150    3490   1
+  -6   0  13   11540   10060  -2
+   6   0   8   11540   10060   1
+   7   0   8   -6060    6060   1
+  12  -1  -2    2700    4670  -2
+ -12   1   8    2700    4670   1
+  11  -1  -1   -1950    1950  -2
+ -11   1   8   -1950    1950   1
+ -10   1   8    -280    1870   1
+  -9   1   8    7560    1630   1
+  -8   1   8   80020    2410   1
+   7  -1   2  142910    2790  -2
+  -7   1   8  142910    2790   1
+   6  -1   3  234760    3370  -2
+  -6   1   8  234760    3370   1
+  -5   1   8   79320    2260   1
+  -4   1   8    5090    1170   1
+  -3   1   8   16290    1340   1
+  -2   1   8  176580    3050   1
+  -1   1   8  518090    6570   1
+   0  -1   8  252370    3980  -2
+   0   1   8  252370    3980   1
+   1   1   8  221280    4930   1
+   2   1   8   56180    2130   1
+   3   1   8   56370    2180   1
+   4   1   8    -860    1440   1
+   5   1   8    -910    2590   1
+  -6  -1  13   25050    2630  -2
+   6   1   8   25050    2630   1
+   7   1   8   13010    4170   1
+  11  -2  -1   16270    2530  -2
+ -11   2   8   16270    2530   1
+  10  -2   0   32680    2610  -2
+ -10   2   8   32680    2610   1
+  -9   2   8   22980    2100   1
+  -8   2   8    6340    1400   1
+   7  -2   2     -90    1250  -2
+  -7   2   8     -90    1250   1
+   6  -2   3   96710    2400  -2
+  -6   2   8   96710    2400   1
+  -5   2   8  163070    3000   1
+  -4   2   8  240120    3770   1
+  -3   2   8  401350    4950   1
+  -2   2   8  307100    4130   1
+  -1   2   8   15490    1460   1
+   0  -2   8   62030    2010  -2
+   0   2   8   62030    2010   1
+   1   2   8     670    1660   1
+   2   2   8    8000    1840   1
+   3   2   8   18880    2210   1
+   4   2   8   29530    2580   1
+   5   2   8   16780    2010   1
+  -6  -2  13    2430    2870  -2
+   6   2   8    2430    2870   1
+   7   2   8    1360    3360   1
+  11  -3  -1   -1990    2460  -2
+ -11   3   8   -1990    2460   1
+  10  -3   0   11150    2390  -2
+ -10   3   8   11150    2390   1
+  -9   3   8   37170    2270   1
+  -8   3   8   59530    2060   1
+   7  -3   2   40880    1970  -2
+  -7   3   8   40880    1970   1
+   6  -3   3   98640    2560  -2
+  -6   3   8   98640    2560   1
+   5  -3   4   29000    1570  -2
+  -5   3   8   29000    1570   1
+  -4   3   8    4300    1590   1
+  -3   3   8   65970    1950   1
+  -2   3   8  224840    3750   1
+  -1   3   8  216490    3740   1
+   0  -3   8   93980    2810  -2
+   0   3   8   93980    2810   1
+   1   3   8  109940    3760   1
+   2   3   8   31200    2800   1
+   3   3   8   22990    2310   1
+   4   3   8   -1720    2150   1
+   5   3   8   -2800    2860   1
+  -6  -3  13    5420    3230  -2
+   6   3   8    5420    3230   1
+   7   3   8    6760    3470   1
+  11  -4  -1    8040    2360  -2
+ -11   4   8    8040    2360   1
+  10  -4   0   12770    2270  -2
+ -10   4   8   12770    2270   1
+  -9   4   8   24510    2230   1
+  -8   4   8    -220    1490   1
+   7  -4   2     600    1260  -2
+  -7   4   8     600    1260   1
+   6  -4   3    -950    1270  -2
+  -6   4   8    -950    1270   1
+   5  -4   4  117980    3390  -2
+  -5   4   8  117980    3390   1
+  -4   4   8  336670    4810   1
+  -3   4   8  276120    3770   1
+  -2   4   8  149540    2940   1
+  -1   4   8   36710    1820   1
+   0  -4   8   28890    1980  -2
+   0   4   8   28890    1980   1
+   1   4   8   -1810    1950   1
+   2   4   8     600    1940   1
+   3   4   8   29520    2420   1
+   4   4   8   33690    3070   1
+   5   4   8    8010    2580   1
+  -6  -4  13    8210    3190  -2
+   6   4   8    8210    3190   1
+   7   4   8   -2550    3110   1
+  10  -5   0   -1330    2000  -2
+ -10   5   8   -1330    2000   1
+  -9   5   8   10590    2540   1
+  -8   5   8   59980    2510   1
+   7  -5   2   58510    2120  -2
+  -7   5   8   58510    2120   1
+   6  -5   3  109540    2700  -2
+  -6   5   8  109540    2700   1
+   5  -5   4   19950    1680  -2
+  -5   5   8   19950    1680   1
+  -4   5   8    5410    1280   1
+  -3   5   8   26010    1440   1
+  -2   5   8   92590    2410   1
+  -1   5   8  140000    2390   1
+   0  -5   8  104900    3740  -2
+   0   5   8  104900    3740   1
+   1   5   8   76690    2870   1
+   2   5   8   13380    2180   1
+   3   5   8    8770    2400   1
+   4   5   8   -1830    2210   1
+   5   5   8   -2780    2780   1
+  -6  -5  13    -470    3070  -2
+   6   5   8    -470    3070   1
+  10  -6   0    6830    2520  -2
+ -10   6   8    6830    2520   1
+  -9   6   8    6240    2060   1
+  -8   6   8    2190    1930   1
+   7  -6   2    4600    1730  -2
+  -7   6   8    4600    1730   1
+   6  -6   3   53010    2290  -2
+  -6   6   8   53010    2290   1
+   5  -6   4   61340    3830  -2
+  -5   6   8   61340    3830   1
+  -4   6   8   35430    1740   1
+  -3   6   8   63140    1850   1
+  -2   6   8   81270    2830   1
+  -1   6   8   35070    1380   1
+   0  -6   8    9860    1860  -2
+   0   6   8    9860    1860   1
+   1   6   8    1900    1670   1
+   2   6   8    1720    1960   1
+   3   6   8    4030    2160   1
+   4   6   8    5610    2610   1
+   5   6   8    1360    1960   1
+  -6  -6  13    2230    3020  -2
+   6   6   8    2230    3020   1
+  -9   7   8    3840    3860   1
+  -8   7   8   12160    2570   1
+   7  -7   2   25570    2340  -2
+  -7   7   8   25570    2340   1
+   6  -7   3   71190    2450  -2
+  -6   7   8   71190    2450   1
+   5  -7   4   12140    2190  -2
+  -5   7   8   12140    2190   1
+  -4   7   8    2640    2260   1
+  -3   7   8   -1450    1890   1
+  -2   7   8   24850    1770   1
+  -1   7   8   81950    1810   1
+   0  -7   8   81090    3510  -2
+   0   7   8   81090    3510   1
+   1   7   8   48530    2560   1
+   2   7   8    5420    1940   1
+   3   7   8    6030    2060   1
+   4   7   8    1220    1600   1
+   5   7   8    4420    3310   1
+  -8   8   8   -1680    1800   1
+   7  -8   2    4730    2800  -2
+  -7   8   8    4730    2800   1
+   6  -8   3    6700    2060  -2
+  -6   8   8    6700    2060   1
+   5  -8   4   37190    2820  -2
+  -5   8   8   37190    2820   1
+  -4   8   8   47890    3180   1
+  -3   8   8   39390    2330   1
+  -2   8   8   34970    2280   1
+  -1   8   8    9900    1830   1
+   0  -8   8    2260    1260  -2
+   0   8   8    2260    1260   1
+   1   8   8    -320    1590   1
+   2   8   8   -2370    2770   1
+   3   8   8   -1100    1100   1
+   4   8   8    -770    1160   1
+   7  -9   2   10910    3370  -2
+  -7   9   8   10910    3370   1
+   6  -9   3   10880    2850  -2
+  -6   9   8   10880    2850   1
+   5  -9   4    1630    2110  -2
+  -5   9   8    1630    2110   1
+  -4   9   8    3310    1810   1
+  -3   9   8    2730    2100   1
+  -2   9   8    7070    2210   1
+  -1   9   8    7860    2540   1
+   0  -9   8   19920    2120  -2
+   0   9   8   19920    2120   1
+   1   9   8   14500    2620   1
+   2   9   8    4500    3260   1
+   3   9   8   -1620    2100   1
+   6 -10   3   -2110    2110  -2
+  -6  10   8   -2110    2110   1
+   5 -10   4    1840    2350  -2
+  -5  10   8    1840    2350   1
+  -4  10   8   17150    2690   1
+  -3  10   8   32810    3050   1
+  -2  10   8   23580    2460   1
+   1 -10   7   -1250    2250  -2
+  -1  10   8   -1250    2250   1
+   0 -10   8    4110    2910  -2
+   0  10   8    4110    2910   1
+   1  10   8   -1750    1750   1
+   2  10   8   -2050    2050   1
+  -3  11   8    2790    1250   1
+  -2  11   8    3640    3860   1
+   1 -11   7    3790    3260  -2
+  -1  11   8    3790    3260   1
+  11   0   0   -1140    3060  -2
+ -11   0   9   -1140    3060   1
+ -10   0   9   -2780    3350   1
+  -9   0   9    5140    4080   1
+  -8   0   9   38820    3350   1
+  -7   0   9  151730    4360   1
+   6   0   4  205100    4820  -2
+  -6   0   9  205100    4820   1
+  -5   0   9  223840    5030   1
+  -4   0   9  121430    3350   1
+  -3   0   9   16330    1910   1
+  -2   0   9   45510    2850   1
+  -1   0   9   32180    2870   1
+   0   0   9   54080    3280  -2
+   0   0   9   54080    3280   1
+   1   0   9   16270    3480   1
+   2   0   9   38790    3090   1
+   3   0   9   21770    2690   1
+   4   0   9   13610    2860   1
+   5   0   9    4530    2590   1
+  -6   0  14   -3350    6700  -2
+   6   0   9   -3350    6700   1
+   7   0   9    4180    5090   1
+  11  -1   0   11060    2430  -2
+ -11   1   9   11060    2430   1
+ -10   1   9   14440    2660   1
+  -9   1   9   30490    2250   1
+  -8   1   9   45220    2450   1
+  -7   1   9   22080    1560   1
+   6  -1   4    5350    1430  -2
+  -6   1   9    5350    1430   1
+  -5   1   9   55220    2100   1
+  -4   1   9   90870    2360   1
+  -3   1   9  170640    2910   1
+  -2   1   9   88400    2420   1
+  -1   1   9  201940    4070   1
+   0  -1   9   51900    2270  -2
+   0   1   9   51900    2270   1
+   1   1   9   44540    2630   1
+   2   1   9     310    1720   1
+   3   1   9    6440    1550   1
+   4   1   9   24500    2270   1
+   5   1   9   27250    2720   1
+  -6  -1  14   18470    4550  -2
+   6   1   9   18470    4550   1
+   7   1   9    3750    3740   1
+  11  -2   0    2860    2490  -2
+ -11   2   9    2860    2490   1
+ -10   2   9    1690    2210   1
+  -9   2   9    1160    1660   1
+  -8   2   9   10250    2210   1
+  -7   2   9   72690    2550   1
+   6  -2   4  176510    3510  -2
+  -6   2   9  176510    3510   1
+  -5   2   9  155950    3160   1
+  -4   2   9  121970    2640   1
+  -3   2   9   16300    1440   1
+  -2   2   9    -240    1390   1
+  -1   2   9    3960    1980   1
+   0  -2   9   -1810    1810  -2
+   0   2   9   -1810    1810   1
+   1   2   9    7970    2300   1
+   2   2   9   48560    3110   1
+   3   2   9   22060    2400   1
+   4   2   9    7520    2760   1
+   5   2   9    -210    3130   1
+  -6  -2  14    -620    3260  -2
+   6   2   9    -620    3260   1
+   7   2   9    4730    5740   1
+  11  -3   0    8960    2390  -2
+ -11   3   9    8960    2390   1
+ -10   3   9   38610    2670   1
+  -9   3   9   42110    2440   1
+  -8   3   9   38810    2250   1
+  -7   3   9    9150    1870   1
+   6  -3   4    1730    1600  -2
+  -6   3   9    1730    1600   1
+  -5   3   9   28130    1660   1
+  -4   3   9  149270    2970   1
+  -3   3   9  291290    4070   1
+  -2   3   9  125210    2840   1
+  -1   3   9   89250    2570   1
+   0  -3   9   27870    2040  -2
+   0   3   9   27870    2040   1
+   1   3   9   51410    2950   1
+   2   3   9   -1940    1940   1
+   3   3   9   16270    2680   1
+   4   3   9   45140    3510   1
+   5   3   9   27820    3260   1
+  -6  -3  14    4860    3300  -2
+   6   3   9    4860    3300   1
+  11  -4   0    3040    2860  -2
+ -11   4   9    3040    2860   1
+ -10   4   9    1480    2170   1
+  -9   4   9    5160    2140   1
+  -8   4   9   23980    2160   1
+   7  -4   3   36340    2160  -2
+  -7   4   9   36340    2160   1
+   6  -4   4   50380    1940  -2
+  -6   4   9   50380    1940   1
+  -5   4   9  103680    3290   1
+  -4   4   9   76730    2500   1
+  -3   4   9    9760    1460   1
+  -2   4   9    2620    1270   1
+  -1   4   9    1830    1090   1
+   0  -4   9     530    1840  -2
+   0   4   9     530    1840   1
+   1   4   9    7980    1980   1
+   2   4   9   27010    3140   1
+   3   4   9   10860    2760   1
+   4   4   9    2650    2560   1
+   5   4   9    2610    2720   1
+  -6  -4  14    1500    3160  -2
+   6   4   9    1500    3160   1
+ -10   5   9    9040    2970   1
+  -9   5   9   13770    2350   1
+  -8   5   9   33440    4560   1
+   7  -5   3    5050    1700  -2
+  -7   5   9    5050    1700   1
+   6  -5   4    1600    1840  -2
+  -6   5   9    1600    1840   1
+  -5   5   9    2930    1510   1
+  -4   5   9   51570    2050   1
+  -3   5   9   87030    2460   1
+  -2   5   9   59160    2010   1
+  -1   5   9   74340    2410   1
+   0  -5   9   25720    2760  -2
+   0   5   9   25720    2760   1
+   1   5   9   15810    2550   1
+   2   5   9   -2470    2470   1
+   3   5   9    9270    2540   1
+   4   5   9    9760    3440   1
+   5   5   9   18370    4390   1
+  -6  -5  14     480    2480  -2
+   6   5   9     480    2480   1
+ -10   6   9    1120    1530   1
+  -9   6   9     600    2700   1
+  -8   6   9    8260    2180   1
+   7  -6   3   63550    2550  -2
+  -7   6   9   63550    2550   1
+   6  -6   4   92270    3480  -2
+  -6   6   9   92270    3480   1
+   5  -6   5   62390    3080  -2
+  -5   6   9   62390    3080   1
+  -4   6   9   29470    1770   1
+  -3   6   9   15410    1470   1
+  -2   6   9    1020    1220   1
+  -1   6   9    2770    1270   1
+   0  -6   9   10250    2230  -2
+   0   6   9   10250    2230   1
+   1   6   9   13910    2150   1
+   2   6   9   21700    3740   1
+   3   6   9    6080    2930   1
+   4   6   9    1060    2840   1
+   5   6   9    -770    1690   1
+  -9   7   9     -50    7260   1
+  -8   7   9   16920    3590   1
+   7  -7   3    5360    1660  -2
+  -7   7   9    5360    1660   1
+   6  -7   4    -740    1390  -2
+  -6   7   9    -740    1390   1
+   5  -7   5   14660    1320  -2
+  -5   7   9   14660    1320   1
+  -4   7   9    8150    1380   1
+  -3   7   9   15350    1460   1
+  -2   7   9   28550    1290   1
+  -1   7   9   49590    2340   1
+   0  -7   9    9620    2320  -2
+   0   7   9    9620    2320   1
+   1   7   9    3310    1870   1
+   2   7   9   -2420    2420   1
+   3   7   9   -2570    2880   1
+   4   7   9   -1250    3050   1
+  -8   8   9    1670    3690   1
+   7  -8   3   15450    3870  -2
+  -7   8   9   15450    3870   1
+   6  -8   4   20800    3470  -2
+  -6   8   9   20800    3470   1
+   5  -8   5   36810    3600  -2
+  -5   8   9   36810    3600   1
+  -4   8   9   19520    2120   1
+  -3   8   9    6130    1870   1
+  -2   8   9    1400    2140   1
+  -1   8   9     370    1290   1
+   0  -8   9    4080    1130  -2
+   0   8   9    4080    1130   1
+   1   8   9    8850    2970   1
+   2   8   9     270    1460   1
+   3   8   9    -990    1340   1
+   7  -9   3    -720    4200  -2
+  -7   9   9    -720    4200   1
+   6  -9   4    1490    2510  -2
+  -6   9   9    1490    2510   1
+   5  -9   5   -1450    2470  -2
+  -5   9   9   -1450    2470   1
+  -4   9   9    7610    2760   1
+  -3   9   9   22170    2570   1
+  -2   9   9   16360    2160   1
+  -1   9   9   10150    2700   1
+   0  -9   9    -460    2050  -2
+   0   9   9    -460    2050   1
+   1   9   9    -880    2750   1
+   2   9   9    -830    1130   1
+   5 -10   5    9970    2900  -2
+  -5  10   9    9970    2900   1
+  -4  10   9    7370    2500   1
+  -3  10   9    1650    4610   1
+  -2  10   9     330    3660   1
+  -1  10   9   -2320    3970   1
+   0 -10   9   -5030    5030  -2
+   0  10   9   -5030    5030   1
+  11   0   1    -610    4580  -2
+ -11   0  10    -610    4580   1
+ -10   0  10    4500    4360   1
+  -9   0  10   21500    3180   1
+  -8   0  10   60260    4600   1
+  -7   0  10   78870    3990   1
+   6   0   5   55670    3780  -2
+  -6   0  10   55670    3780   1
+  -5   0  10    -640    2200   1
+  -4   0  10    -700    1820   1
+  -3   0  10     560    1950   1
+  -2   0  10   -1820    2110   1
+  -1   0  10   21580    2810   1
+   0   0  10  130240    5230  -2
+   0   0  10  130240    5230   1
+   1   0  10   29580    4120   1
+   2   0  10      90    2540   1
+   3   0  10    1320    3410   1
+   4   0  10    3370    2990   1
+   5   0  10   13250    5140   1
+  -6   0  15    5430    4760  -2
+   6   0  10    5430    4760   1
+  11  -1   1    9820    2640  -2
+ -11   1  10    9820    2640   1
+ -10   1  10    7880    3530   1
+  -9   1  10    6350    2100   1
+  -8   1  10    1280    2000   1
+  -7   1  10   32590    2030   1
+   6  -1   5   94280    2660  -2
+  -6   1  10   94280    2660   1
+  -5   1  10  123870    3300   1
+  -4   1  10   49290    1900   1
+  -3   1  10   79620    2230   1
+  -2   1  10   29160    1860   1
+  -1   1  10   34560    2150   1
+   0  -1  10   21380    2370  -2
+   0   1  10   21380    2370   1
+   1   1  10   37780    2420   1
+   2   1  10   51250    2630   1
+   3   1  10   37210    3300   1
+   4   1  10   14880    3980   1
+   5   1  10   13590    3540   1
+  -6  -1  15    3530    3490  -2
+   6   1  10    3530    3490   1
+  11  -2   1      40    3180  -2
+ -11   2  10      40    3180   1
+ -10   2  10   12980    3060   1
+  -9   2  10   31380    2480   1
+  -8   2  10   43200    2960   1
+  -7   2  10   51350    2800   1
+   6  -2   5   36090    2180  -2
+  -6   2  10   36090    2180   1
+  -5   2  10    2330    1570   1
+  -4   2  10    1240    1400   1
+  -3   2  10    9930    1440   1
+  -2   2  10   28170    1850   1
+  -1   2  10   15390    1830   1
+   0  -2  10   50950    2770  -2
+   0   2  10   50950    2770   1
+   1   2  10   18840    2390   1
+   2   2  10    4080    2260   1
+   3   2  10      60    2690   1
+   4   2  10    5880    2820   1
+   5   2  10    4900    3200   1
+  -6  -2  15    2700    3910  -2
+   6   2  10    2700    3910   1
+  11  -3   1   11300    2870  -2
+ -11   3  10   11300    2870   1
+ -10   3  10   14120    3650   1
+  -9   3  10    1470    2130   1
+  -8   3  10   -1930    1930   1
+  -7   3  10   -1640    1640   1
+   6  -3   5   27390    2250  -2
+  -6   3  10   27390    2250   1
+  -5   3  10   84790    3350   1
+  -4   3  10   73780    2310   1
+  -3   3  10   83260    2320   1
+  -2   3  10   14910    1620   1
+  -1   3  10   26010    2440   1
+   0  -3  10    1530    1850  -2
+   0   3  10    1530    1850   1
+   1   3  10    7240    2240   1
+   2   3  10   61220    4650   1
+   3   3  10   51070    3550   1
+   4   3  10   13380    3240   1
+   5   3  10    1650    3200   1
+  -6  -3  15   -2600    3160  -2
+   6   3  10   -2600    3160   1
+ -10   4  10   20130    5410   1
+  -9   4  10   46350    4100   1
+  -8   4  10   36910    3220   1
+  -7   4  10   28600    2630   1
+   6  -4   5   26550    1750  -2
+  -6   4  10   26550    1750   1
+  -5   4  10   10320    1550   1
+  -4   4  10      60    1510   1
+  -3   4  10   16570    1590   1
+  -2   4  10   12930    1440   1
+  -1   4  10   10650    2060   1
+   0  -4  10   31570    2510  -2
+   0   4  10   31570    2510   1
+   1   4  10   10650    2480   1
+   2   4  10    1500    4020   1
+   3   4  10     250    2440   1
+   4   4  10    5260    2890   1
+   5   4  10    1110    2410   1
+ -10   5  10   -2310    3010   1
+  -9   5  10    1290    4810   1
+  -8   5  10    -820    2010   1
+  -7   5  10   12470    2610   1
+   6  -5   5   28570    2290  -2
+  -6   5  10   28570    2290   1
+  -5   5  10   41490    2010   1
+  -4   5  10   34130    2130   1
+  -3   5  10   37630    1880   1
+  -2   5  10   10980    1560   1
+  -1   5  10    8380    2420   1
+   0  -5  10   -1890    1890  -2
+   0   5  10   -1890    1890   1
+   1   5  10    5890    2220   1
+   2   5  10   26200    4060   1
+   3   5  10   13220    3630   1
+   4   5  10    9540    4450   1
+   5   5  10     730    2860   1
+  -9   6  10    -290    2230   1
+  -8   6  10   14390    4980   1
+  -7   6  10   27990    3810   1
+   6  -6   5   16440    2530  -2
+  -6   6  10   16440    2530   1
+  -5   6  10    5290    1640   1
+  -4   6  10    -510    2080   1
+  -3   6  10    -950    1300   1
+  -2   6  10    6700    1220   1
+  -1   6  10   21280    1800   1
+   0  -6  10   28070    2400  -2
+   0   6  10   28070    2400   1
+   1   6  10    9310    2230   1
+   2   6  10      80    1730   1
+   3   6  10   -3220    3220   1
+   4   6  10    -990    2920   1
+  -8   7  10    -770    2510   1
+  -7   7  10     380    2970   1
+   6  -7   5   29840    4030  -2
+  -6   7  10   29840    4030   1
+   5  -7   6   21440    2250  -2
+  -5   7  10   21440    2250   1
+  -4   7  10   14740    1280   1
+  -3   7  10   18070    1800   1
+  -2   7  10    5280    1080   1
+  -1   7  10     570    1970   1
+   0  -7  10    1810    1920  -2
+   0   7  10    1810    1920   1
+   1   7  10     860    1820   1
+   2   7  10   11020    4190   1
+   3   7  10   -1300    1300   1
+   7  -8   4     660    5490  -2
+  -7   8  10     660    5490   1
+   6  -8   5   10340    3810  -2
+  -6   8  10   10340    3810   1
+   5  -8   6   -2590    2590  -2
+  -5   8  10   -2590    2590   1
+  -4   8  10   -1970    1970   1
+  -3   8  10   -2240    2240   1
+  -2   8  10    -680    2770   1
+  -1   8  10    7480    1900   1
+   0  -8  10   12960    1780  -2
+   0   8  10   12960    1780   1
+   1   8  10     350    1560   1
+   2   8  10     950    2020   1
+   6  -9   5    4350    5680  -2
+  -6   9  10    4350    5680   1
+   5  -9   6   -4040    5810  -2
+  -5   9  10   -4040    5810   1
+  -4   9  10   15100    4040   1
+  -3   9  10   16170    2670   1
+  -2   9  10     520    2690   1
+  -1   9  10    -380    2040   1
+   0  -9  10    -330    2100  -2
+   0   9  10    -330    2100   1
+   1   9  10   -2360    4080   1
+  11   0   2    5180    4830  -2
+ -11   0  11    5180    4830   1
+ -10   0  11   12360    3360   1
+  -9   0  11    8800    4280   1
+  -8   0  11    9940    3520   1
+  -7   0  11   -3200    3200   1
+   6   0   6    4980    2540  -2
+  -6   0  11    4980    2540   1
+  -5   0  11    9750    2710   1
+  -4   0  11    9730    2510   1
+  -3   0  11    5800    2280   1
+  -2   0  11   57240    3310   1
+  -1   0  11   28120    4890   1
+   0   0  11    3690    3460  -2
+   0   0  11    3690    3460   1
+   1   0  11   24460    8400   1
+   2   0  11   10660    3510   1
+   3   0  11   10860    4790   1
+   4   0  11    5810    4640   1
+   5   0  11   10300    5310   1
+  11  -1   2    1200    2870  -2
+ -11   1  11    1200    2870   1
+ -10   1  11    4890    3110   1
+  -9   1  11     910    2440   1
+  -8   1  11   18030    2660   1
+  -7   1  11   46090    3000   1
+   6  -1   6   42790    2670  -2
+  -6   1  11   42790    2670   1
+  -5   1  11   41880    2310   1
+  -4   1  11   10830    1590   1
+  -3   1  11   12750    1570   1
+  -2   1  11    2730    1630   1
+  -1   1  11   43910    2410   1
+   0  -1  11   99410    5260  -2
+   0   1  11   99410    5260   1
+   1   1  11   54420    3700   1
+   2   1  11   19300    2970   1
+   3   1  11    4350    4230   1
+   4   1  11    4530    3290   1
+   5   1  11   -1190    4780   1
+ -10   2  11   23030    2910   1
+  -9   2  11   13630    2860   1
+  -8   2  11   12200    2780   1
+  -7   2  11    1230    2040   1
+   6  -2   6   -1000    1820  -2
+  -6   2  11   -1000    1820   1
+  -5   2  11    6970    1770   1
+  -4   2  11   20900    1710   1
+  -3   2  11   30170    1780   1
+  -2   2  11   50300    2240   1
+  -1   2  11    9880    1820   1
+   0  -2  11     560    2350  -2
+   0   2  11     560    2350   1
+   1   2  11    1650    2730   1
+   2   2  11   12480    3210   1
+   3   2  11   18470    3060   1
+   4   2  11    3870    3300   1
+   5   2  11    7560    3470   1
+ -10   3  11    5690    3620   1
+  -9   3  11   11310    3600   1
+  -8   3  11   13130    2810   1
+  -7   3  11   17820    2080   1
+   6  -3   6   17410    2300  -2
+  -6   3  11   17410    2300   1
+  -5   3  11   25640    1980   1
+  -4   3  11   10190    1750   1
+  -3   3  11      20    1810   1
+  -2   3  11    7190    1560   1
+  -1   3  11   23270    3000   1
+   0  -3  11   50630    3200  -2
+   0   3  11   50630    3200   1
+   1   3  11   31430    3350   1
+   2   3  11   17430    2930   1
+   3   3  11    7830    2690   1
+   4   3  11    4840    3790   1
+   5   3  11    3200    3600   1
+ -10   4  11    5720    5570   1
+  -9   4  11   14960    2720   1
+  -8   4  11    7070    2440   1
+  -7   4  11    6590    2750   1
+   6  -4   6    1640    1760  -2
+  -6   4  11    1640    1760   1
+  -5   4  11    2070    1950   1
+  -4   4  11   29780    2150   1
+  -3   4  11   28840    1940   1
+  -2   4  11   28570    1870   1
+  -1   4  11    9060    3260   1
+   0  -4  11   -1030    2190  -2
+   0   4  11   -1030    2190   1
+   1   4  11   -2180    2350   1
+   2   4  11    6490    2610   1
+   3   4  11   12520    4300   1
+   4   4  11    3760    4400   1
+  -9   5  11     -60    4150   1
+  -8   5  11   13530    2870   1
+  -7   5  11   18560    3200   1
+   6  -5   6   24260    2260  -2
+  -6   5  11   24260    2260   1
+  -5   5  11   23550    2680   1
+  -4   5  11    5830    1830   1
+  -3   5  11    1750    1460   1
+  -2   5  11    2820    1210   1
+  -1   5  11   18750    2310   1
+   0  -5  11   34170    3200  -2
+   0   5  11   34170    3200   1
+   1   5  11   24380    3450   1
+   2   5  11   14670    3240   1
+   3   5  11    2010    1950   1
+   4   5  11      50    2200   1
+  -9   6  11   -1890    4450   1
+  -8   6  11    -790    2550   1
+  -7   6  11   -2170    2170   1
+   6  -6   6   -1840    1840  -2
+  -6   6  11   -1840    1840   1
+  -5   6  11    -280    1440   1
+  -4   6  11     860    1680   1
+  -3   6  11    7780    1380   1
+  -2   6  11   17900    1810   1
+  -1   6  11    3030    1890   1
+   0  -6  11    4190    1930  -2
+   0   6  11    4190    1930   1
+   1   6  11    3140    1720   1
+   2   6  11    2820    1750   1
+   3   6  11    2660    2470   1
+  -8   7  11   -3680    3680   1
+  -7   7  11   15170    5700   1
+   6  -7   6   19000    4220  -2
+  -6   7  11   19000    4220   1
+  -5   7  11    9520    2750   1
+  -4   7  11    -970    1650   1
+  -3   7  11   -1020    1020   1
+  -2   7  11   -1580    1580   1
+  -1   7  11    4420    1990   1
+   0  -7  11   22250    3880  -2
+   0   7  11   22250    3880   1
+   1   7  11    9370    5370   1
+   2   7  11    -820    1730   1
+   6  -8   6    1970    3570  -2
+  -6   8  11    1970    3570   1
+  -5   8  11    3960    5320   1
+  -4   8  11    2080    3830   1
+  -3   8  11    3470    2860   1
+  -2   8  11    2280    2240   1
+  -1   8  11    4170    4640   1
+   0  -8  11   -1760    1760  -2
+   0   8  11   -1760    1760   1
+   1   8  11    3760    5110   1
+  -4   9  11    1270    1670   1
+  -3   9  11   -2870    2870   1
+  -2   9  11   -3080    3380   1
+  -1   9  11     430    2680   1
+ -10   0  12    8670    5110   1
+  -9   0  12   -3800    3820   1
+  -8   0  12   -2570    3230   1
+  -7   0  12    4310    6030   1
+   6   0   7   30600    4230  -2
+  -6   0  12   30600    4230   1
+  -5   0  12   20320    3790   1
+  -4   0  12   28160    3060   1
+  -3   0  12    5220    3310   1
+  -2   0  12    -770    2750   1
+  -1   0  12   21500    3620   1
+   0   0  12   37040    7880  -2
+   0   0  12   37040    7880   1
+   1   0  12   22510    4660   1
+   2   0  12   11120    4550   1
+   3   0  12    1590    4550   1
+   4   0  12    1720    4740   1
+ -10   1  12    4750    3520   1
+  -9   1  12    7730    2980   1
+  -8   1  12   11000    3030   1
+  -7   1  12   16200    2830   1
+   6  -1   7   -2260    2260  -2
+  -6   1  12   -2260    2260   1
+  -5   1  12   -2060    2060   1
+  -4   1  12    2120    2250   1
+  -3   1  12   24530    2310   1
+  -2   1  12   50070    2660   1
+  -1   1  12   43560    2690   1
+   0  -1  12   19830    3830  -2
+   0   1  12   19830    3830   1
+   1   1  12    -630    3160   1
+   2   1  12   -1640    3030   1
+   3   1  12     400    3210   1
+   4   1  12   -3020    3020   1
+ -10   2  12    6210    3800   1
+  -9   2  12   -2140    2660   1
+  -8   2  12   -2070    2070   1
+  -7   2  12    4970    2810   1
+   6  -2   7   16190    3390  -2
+  -6   2  12   16190    3390   1
+  -5   2  12   13020    2400   1
+  -4   2  12   23770    2160   1
+  -3   2  12    8200    1930   1
+  -2   2  12     -50    1810   1
+  -1   2  12    7080    2450   1
+   0  -2  12   12990    3210  -2
+   0   2  12   12990    3210   1
+   1   2  12   11300    3630   1
+   2   2  12    6180    2890   1
+   3   2  12    6860    3330   1
+   4   2  12    8160    3380   1
+ -10   3  12    7630    5610   1
+  -9   3  12    7650    2820   1
+  -8   3  12    4830    2860   1
+  -7   3  12    5330    2770   1
+   6  -3   7    7120    3100  -2
+  -6   3  12    7120    3100   1
+  -5   3  12     810    2150   1
+  -4   3  12   13270    2560   1
+  -3   3  12   47340    2600   1
+  -2   3  12   49640    2560   1
+  -1   3  12   25840    3220   1
+   0  -3  12    9530    2840  -2
+   0   3  12    9530    2840   1
+   1   3  12    6020    2880   1
+   2   3  12     990    2640   1
+   3   3  12   -3310    3310   1
+   4   3  12   -2560    2560   1
+  -9   4  12   -2460    2460   1
+  -8   4  12    -280    2650   1
+  -7   4  12   -2680    2680   1
+   6  -4   7     940    3000  -2
+  -6   4  12     940    3000   1
+  -5   4  12   13210    2710   1
+  -4   4  12   18180    2280   1
+  -3   4  12    5950    2130   1
+  -2   4  12   -2100    2160   1
+  -1   4  12     -20    2170   1
+   0  -4  12    6330    3450  -2
+   0   4  12    6330    3450   1
+   1   4  12    6810    4230   1
+   2   4  12    4130    2080   1
+   3   4  12    4670    3590   1
+  -9   5  12    1530    2190   1
+  -8   5  12    -840    2690   1
+  -7   5  12    2850    3430   1
+   6  -5   7   -1030    2650  -2
+  -6   5  12   -1030    2650   1
+  -5   5  12   -2020    2020   1
+  -4   5  12   -1910    1910   1
+  -3   5  12   12570    1930   1
+  -2   5  12   23380    2370   1
+  -1   5  12   21670    2700   1
+   0  -5  12   18570    3940  -2
+   0   5  12   18570    3940   1
+   1   5  12   -1110    2990   1
+   2   5  12   -1410    2020   1
+   3   5  12   -3050    3050   1
+  -8   6  12    3380    4580   1
+  -7   6  12    1300    3590   1
+   6  -6   7     210    4270  -2
+  -6   6  12     210    4270   1
+  -5   6  12    9860    3700   1
+  -4   6  12      70    2130   1
+  -3   6  12    2230    1990   1
+  -2   6  12    -570    2300   1
+  -1   6  12   -1340    1340   1
+   0  -6  12    2150    2720  -2
+   0   6  12    2150    2720   1
+   1   6  12    2790    1990   1
+   2   6  12    2500    2820   1
+  -7   7  12   -3610    3610   1
+   6  -7   7   -1390    1390  -2
+  -6   7  12   -1390    1390   1
+  -5   7  12     890    1760   1
+  -4   7  12    -400    1900   1
+  -3   7  12    3440    1800   1
+  -2   7  12    9540    3480   1
+  -1   7  12   12760    3420   1
+   0  -7  12   10580    3340  -2
+   0   7  12   10580    3340   1
+   1   7  12   -1770    1770   1
+  -5   8  12    9290    5180   1
+  -4   8  12   -2200    2980   1
+  -3   8  12   -1930    1930   1
+  -2   8  12   -2200    4120   1
+  -1   8  12   -3460    6250   1
+  -9   0  13     340    4800   1
+  -8   0  13    6140    4880   1
+  -7   0  13   20410    5320   1
+   6   0   8   16880    4650  -2
+  -6   0  13   16880    4650   1
+  -5   0  13     300    5490   1
+  -4   0  13    -670    3110   1
+  -3   0  13    1900    3130   1
+  -2   0  13    9260    3210   1
+  -1   0  13   19660    3490   1
+   0   0  13   12470    6390  -2
+   0   0  13   12470    6390   1
+   1   0  13    6240    4180   1
+   2   0  13    9670    4590   1
+   3   0  13    5830    7900   1
+  -9   1  13     390    3380   1
+  -8   1  13    -100    2870   1
+  -7   1  13    -450    2790   1
+   6  -1   8    7540    2840  -2
+  -6   1  13    7540    2840   1
+  -5   1  13   18120    3640   1
+  -4   1  13   25680    2740   1
+  -3   1  13   23080    2670   1
+  -2   1  13   11650    3070   1
+  -1   1  13     -30    2230   1
+   0  -1  13    -620    3380  -2
+   0   1  13    -620    3380   1
+   1   1  13    1040    3080   1
+   2   1  13    4480    3290   1
+   3   1  13    3200    3260   1
+  -9   2  13    -540    2810   1
+  -8   2  13    6090    3140   1
+  -7   2  13    9980    2810   1
+   6  -2   8    9890    2810  -2
+  -6   2  13    9890    2810   1
+  -5   2  13    5070    2790   1
+  -4   2  13   -1120    2230   1
+  -3   2  13    4670    2950   1
+  -2   2  13   13810    2410   1
+  -1   2  13   11650    3280   1
+   0  -2  13    7320    3080  -2
+   0   2  13    7320    3080   1
+   1   2  13   11450    3800   1
+   2   2  13    2490    3590   1
+   3   2  13    1010    3470   1
+  -9   3  13     950    3420   1
+  -8   3  13   -1400    3210   1
+  -7   3  13   -2390    4110   1
+   6  -3   8   -2230    2980  -2
+  -6   3  13   -2230    2980   1
+  -5   3  13    8910    3090   1
+  -4   3  13   27860    2630   1
+  -3   3  13   18600    2310   1
+  -2   3  13    6020    2010   1
+  -1   3  13    1210    2440   1
+   0  -3  13     340    2690  -2
+   0   3  13     340    2690   1
+   1   3  13   -2430    2430   1
+   2   3  13    4800    3190   1
+  -8   4  13      20    3100   1
+  -7   4  13    7840    3970   1
+   6  -4   8    4720    2940  -2
+  -6   4  13    4720    2940   1
+  -5   4  13    2730    3050   1
+  -4   4  13     690    2060   1
+  -3   4  13    3950    1920   1
+  -2   4  13    7850    2550   1
+  -1   4  13    4130    3320   1
+   0  -4  13    3060    2110  -2
+   0   4  13    3060    2110   1
+   1   4  13    -330    1650   1
+   2   4  13    3560    2670   1
+  -8   5  13   -4280    4280   1
+  -7   5  13     940    2330   1
+   6  -5   8   -3940    5930  -2
+  -6   5  13   -3940    5930   1
+  -5   5  13    7820    2730   1
+  -4   5  13   13180    2350   1
+  -3   5  13   11130    1950   1
+  -2   5  13    4950    1980   1
+  -1   5  13    -480    1550   1
+   0  -5  13    -460    2390  -2
+   0   5  13    -460    2390   1
+   1   5  13    -510    3110   1
+  -7   6  13    6650    5200   1
+   6  -6   8    -660    3680  -2
+  -6   6  13    -660    3680   1
+  -5   6  13   -1610    1610   1
+  -4   6  13    -760    1270   1
+  -3   6  13    -680    1160   1
+  -2   6  13     890    1660   1
+  -1   6  13    4390    1760   1
+   0  -6  13    2580    2340  -2
+   0   6  13    2580    2340   1
+  -5   7  13   -1920    7290   1
+  -4   7  13    3240    1750   1
+  -3   7  13    -810    2700   1
+  -2   7  13   -1860    2300   1
+  -8   0  14    8300    4950   1
+  -7   0  14    1200    4400   1
+   6   0   9    2420    7800  -2
+  -6   0  14    2420    7800   1
+  -5   0  14    6810    4650   1
+  -4   0  14    7450    4750   1
+  -3   0  14    9130    4100   1
+  -2   0  14   12160    4490   1
+  -1   0  14   -4940    5870   1
+   0   0  14    6350    6410  -2
+   0   0  14    6350    6410   1
+   1   0  14   -4440    8890   1
+  -8   1  14    2120    3020   1
+  -7   1  14   14210    3580   1
+   6  -1   9   17840    3410  -2
+  -6   1  14   17840    3410   1
+  -5   1  14   15480    3080   1
+  -4   1  14   -1900    2680   1
+  -3   1  14    -810    2390   1
+  -2   1  14    2900    2580   1
+  -1   1  14    4040    4480   1
+   0  -1  14    9250    5730  -2
+   0   1  14    9250    5730   1
+   1   1  14     -60    4870   1
+  -8   2  14    5320    3110   1
+  -7   2  14    3810    2930   1
+   6  -2   9    2470    2770  -2
+  -6   2  14    2470    2770   1
+  -5   2  14    4950    3040   1
+  -4   2  14    5630    2840   1
+  -3   2  14   15090    2650   1
+  -2   2  14   10200    2510   1
+  -1   2  14    4870    3120   1
+   0  -2  14   -1360    3750  -2
+   0   2  14   -1360    3750   1
+   1   2  14    3770    2900   1
+  -8   3  14   -2570    3130   1
+  -7   3  14     900    2780   1
+   6  -3   9   10630    2900  -2
+  -6   3  14   10630    2900   1
+  -5   3  14    8350    2780   1
+  -4   3  14    5010    2370   1
+  -3   3  14   -2160    2160   1
+  -2   3  14    1650    3170   1
+  -1   3  14    -260    1850   1
+   0  -3  14   -2230    3650  -2
+   0   3  14   -2230    3650   1
+   1   3  14    -940    2040   1
+  -7   4  14    1460    2940   1
+   6  -4   9    1740    2740  -2
+  -6   4  14    1740    2740   1
+  -5   4  14    3410    4070   1
+  -4   4  14    6180    2300   1
+  -3   4  14   10560    2060   1
+  -2   4  14    7750    3040   1
+  -1   4  14    3960    2760   1
+   0  -4  14    -410    1940  -2
+   0   4  14    -410    1940   1
+   6  -5   9     790    3910  -2
+  -6   5  14     790    3910   1
+  -5   5  14    4310    5140   1
+  -4   5  14    5840    2640   1
+  -3   5  14     870    1750   1
+  -2   5  14   -1550    1550   1
+  -1   5  14   -1800    3690   1
+  -7   0  15     260    4560   1
+   6   0  10    3880    4390  -2
+  -6   0  15    3880    4390   1
+  -5   0  15    8720    4440   1
+  -4   0  15    5940    4120   1
+  -3   0  15    4570    4240   1
+  -2   0  15    3250    3990   1
+  -1   0  15   -5950    5950   1
+  -7   1  15    5320    3300   1
+   6  -1  10    3720    3130  -2
+  -6   1  15    3720    3130   1
+  -5   1  15    5760    3040   1
+  -4   1  15   -3200    3200   1
+  -3   1  15    2390    3440   1
+  -2   1  15    1760    5670   1
+  -1   1  15    3380    5800   1
+   6  -2  10    6730    3430  -2
+  -6   2  15    6730    3430   1
+  -5   2  15    7040    3010   1
+  -4   2  15    1400    3400   1
+  -3   2  15    3360    2620   1
+  -2   2  15    5600    6240   1
+  -1   2  15    -290    2360   1
+   6  -3  10    3960    3190  -2
+  -6   3  15    3960    3190   1
+  -5   3  15   -2000    2760   1
+  -4   3  15    1540    2440   1
+  -3   3  15   -2250    2610   1
+  -2   3  15    4440    3640   1
+  -4   4  15    4300    4040   1
+;
+_shelx_hkl_checksum              13301
+_olex2_submission_special_instructions 'No special instructions were received'
+loop_
+_twin_individual_id
+_twin_individual_mass_fraction_refined
+1 0.946(5)
+2 0.054(5)
+
