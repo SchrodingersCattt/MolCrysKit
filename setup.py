@@ -8,7 +8,7 @@ setup(
     name="molcrys-kit",
     version="0.2.0",
     description="Molecular Crystal Toolkit",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="SchrodingersCattt",
     url="https://github.com/SchrodingersCattt/MolCrysKit",
