@@ -114,6 +114,13 @@ def identify_molecules(
     This implementation solves the "Large Beta Angle" problem by strictly using
     the bond vectors identified by ASE's neighbor list logic, rather than
     guessing nearest neighbors via Minimum Image Convention.
+
+    When disorder group metadata is present, bonds between two atoms in
+    different non-zero PART groups are skipped. This mirrors the disorder
+    graph's bonding rule: ordered atoms (group 0) may bond to either
+    orientation, but mutually exclusive disorder images must not fuse into one
+    molecule. ``exclude_indices`` remains available for callers that need to
+    remove atoms from bond perception entirely.
     """
     from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
     
@@ -121,6 +128,7 @@ def identify_molecules(
     symbols = atoms.get_chemical_symbols()
 
     excluded = {int(i) for i in (exclude_indices or set())}
+    disorder_groups = atoms.arrays.get(KEY_DISORDER_GROUP)
 
     for i in range(len(atoms)):
         crystal_graph.add_node(i, symbol=symbols[i])
@@ -143,6 +151,11 @@ def identify_molecules(
             continue
         if int(i) in excluded or int(j) in excluded:
             continue
+        if disorder_groups is not None:
+            group_i = int(disorder_groups[i])
+            group_j = int(disorder_groups[j])
+            if group_i != 0 and group_j != 0 and group_i != group_j:
+                continue
 
         pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
 

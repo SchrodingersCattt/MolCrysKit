@@ -4,12 +4,14 @@ Unit tests for molcrys_kit.io.cif (read_mol_crystal, parse_cif_advanced, identif
 
 import warnings
 
+import numpy as np
 import pytest
 from ase import Atoms
 
 # Suppress pymatgen/CIF parsing warnings in tests (test data may have occupancy quirks)
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
+from molcrys_kit.constants.config import KEY_DISORDER_GROUP
 from molcrys_kit.io.cif import (
     identify_molecules,
     parse_cif_advanced,
@@ -147,3 +149,36 @@ class TestIdentifyMoleculesFromAtoms:
         assert by_size[0].get_chemical_symbols()[0] == "Ne"
         assert len(by_size[1].graph.edges()) == 2
         assert len(by_size[2].graph.edges()) == 3
+
+    def test_disorder_groups_skip_cross_part_bonds(self):
+        atoms = Atoms(
+            symbols=["N", "N"],
+            positions=[
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+            ],
+        )
+        atoms.set_array(KEY_DISORDER_GROUP, np.array([1, -1], dtype=int))
+
+        molecules = identify_molecules(atoms)
+
+        assert len(molecules) == 2
+        assert sorted(mol.info["atom_indices"] for mol in molecules) == [[0], [1]]
+        assert all(mol.info["bond_pairs"] == [] for mol in molecules)
+
+    @pytest.mark.parametrize("groups", ([1, 1], [0, -1]))
+    def test_disorder_group_compatible_atoms_can_still_bond(self, groups):
+        atoms = Atoms(
+            symbols=["N", "N"],
+            positions=[
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+            ],
+        )
+        atoms.set_array(KEY_DISORDER_GROUP, np.array(groups, dtype=int))
+
+        molecules = identify_molecules(atoms)
+
+        assert len(molecules) == 1
+        assert molecules[0].info["atom_indices"] == [0, 1]
+        assert molecules[0].info["bond_pairs"] == [(0, 1)]
