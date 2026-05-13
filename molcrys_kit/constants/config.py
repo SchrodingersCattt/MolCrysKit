@@ -49,7 +49,9 @@ TRANSITION_METALS = {
 BONDING_CONFIG = {
     "METAL_THRESHOLD_FACTOR": 0.5,
     "NON_METAL_THRESHOLD_FACTOR": 1.25,
-    "METAL_NON_METAL_THRESHOLD_FACTOR": 0.8,
+    # Calibrated for coordination bonds (Cd-S ~2.6-2.9 Å, Cd-N ~1.8-2.5 Å);
+    # kept in sync with constants.METAL_NON_METAL_THRESHOLD_FACTOR.
+    "METAL_NON_METAL_THRESHOLD_FACTOR": 1.15,
     "DEFAULT_ATOMIC_RADIUS": 0.5,  # Used when atomic radius is not available
     "MAX_HYDROGEN_BOND_DISTANCE": 3.5,  # Maximum distance for hydrogen bonds in Angstroms
     "MIN_HYDROGEN_BOND_ANGLE": 120,  # Minimum angle for hydrogen bonds in degrees

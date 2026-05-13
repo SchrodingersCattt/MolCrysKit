@@ -13,6 +13,11 @@ from molcrys_kit.analysis.interactions import (
     find_hydrogen_bonds,
     get_bonding_threshold,
 )
+from molcrys_kit.constants import (
+    METAL_THRESHOLD_FACTOR,
+    NON_METAL_THRESHOLD_FACTOR,
+    METAL_NON_METAL_THRESHOLD_FACTOR,
+)
 from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer
 from molcrys_kit.analysis.chemical_env import (
     ChemicalEnvironment,
@@ -111,14 +116,20 @@ class TestGetBondingThreshold:
     """get_bonding_threshold for coverage."""
 
     def test_metal_metal(self):
-        assert get_bonding_threshold(1.0, 1.0, True, True) == 1.0
+        expected = (1.0 + 1.0) * METAL_THRESHOLD_FACTOR
+        assert get_bonding_threshold(1.0, 1.0, True, True) == pytest.approx(expected)
 
     def test_nonmetal_nonmetal(self):
-        assert abs(get_bonding_threshold(1.0, 1.0, False, False) - 2.5) < 1e-10
+        expected = (1.0 + 1.0) * NON_METAL_THRESHOLD_FACTOR
+        assert get_bonding_threshold(1.0, 1.0, False, False) == pytest.approx(expected)
 
     def test_metal_nonmetal(self):
-        t = get_bonding_threshold(1.0, 1.0, True, False)
-        assert t == (1.0 + 1.0) * (0.5 + 1.25) / 2
+        # Metal-nonmetal uses a dedicated factor calibrated for coordination
+        # bonds (e.g. Cd-S ~2.6-2.9 Å, Cd-N ~1.8-2.5 Å), not the average of
+        # the metal/nonmetal factors.
+        expected = (1.0 + 1.0) * METAL_NON_METAL_THRESHOLD_FACTOR
+        assert get_bonding_threshold(1.0, 1.0, True, False) == pytest.approx(expected)
+        assert get_bonding_threshold(1.0, 1.0, False, True) == pytest.approx(expected)
 
 
 # =====================================================================

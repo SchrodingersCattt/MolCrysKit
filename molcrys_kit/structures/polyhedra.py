@@ -346,7 +346,15 @@ def _register(
     capped_from: Optional[Tuple[str, int]] = None,
     ambo_of: Tuple[str, ...] = (),
 ) -> None:
-    """Normalize vertices and register as an ideal polyhedron."""
+    """Normalize vertices and register as an ideal polyhedron.
+
+    Names must be unique within the registry. ``IDEAL_POLYHEDRA`` is a dict
+    keyed by name, so a duplicate registration would silently overwrite the
+    earlier entry there while ``_REGISTRY`` (a list) would still hold both
+    copies, leaving the two views out of sync. Fail fast instead.
+    """
+    if any(existing.name == name for existing in _REGISTRY):
+        raise ValueError(f"Polyhedron {name!r} is already registered")
     verts = _normalize_points(raw_vertices)
     topology = _polyhedron_topology_signature(verts)
     _REGISTRY.append(
@@ -541,25 +549,6 @@ _register(
     capped_from=("cube", 2),
 )
 
-_register(
-    "bicapped_cube",
-    10,
-    [
-        [-1, -1, -1],
-        [-1, -1, 1],
-        [-1, 1, -1],
-        [-1, 1, 1],
-        [1, -1, -1],
-        [1, -1, 1],
-        [1, 1, -1],
-        [1, 1, 1],
-        [0, 0, 1],
-        [0, 0, -1],
-    ],
-    point_group="D4h",
-    category="capped",
-)
-
 
 # --- CN = 11 ---
 
@@ -618,33 +607,6 @@ _register(
     point_group="C3v",
     category="capped",
     capped_from=("cube", 3),
-)
-
-# Tricapped cube (C3v): 8 cube corners + 3 face caps on the three mutually
-# orthogonal faces meeting at the corner (1,1,1). Caps lie on the 3-fold axis
-# along the body diagonal, so the polyhedron retains C3v symmetry. This is the
-# canonical CN=11 environment for several lanthanide and actinide complexes
-# and for hydrogen-bonded inorganic-cation coordination shells (e.g. ClO4^-
-# around an A2BX5 A-site cation), which the existing pentagonal-(anti)prism
-# and edge-bicapped square antiprism candidates do not represent well.
-_register(
-    "tricapped_cube",
-    11,
-    [
-        [-1, -1, -1],
-        [-1, -1, 1],
-        [-1, 1, -1],
-        [-1, 1, 1],
-        [1, -1, -1],
-        [1, -1, 1],
-        [1, 1, -1],
-        [1, 1, 1],
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1],
-    ],
-    point_group="C3v",
-    category="capped",
 )
 
 

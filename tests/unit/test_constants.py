@@ -13,6 +13,7 @@ from molcrys_kit.constants import (
     is_metal_element,
     METAL_THRESHOLD_FACTOR,
     NON_METAL_THRESHOLD_FACTOR,
+    METAL_NON_METAL_THRESHOLD_FACTOR,
     DEFAULT_NEIGHBOR_CUTOFF,
 )
 from molcrys_kit.constants.config import (
@@ -63,7 +64,19 @@ class TestConstantsInit:
     def test_threshold_factors(self):
         assert METAL_THRESHOLD_FACTOR == 0.5
         assert NON_METAL_THRESHOLD_FACTOR == 1.25
+        assert METAL_NON_METAL_THRESHOLD_FACTOR == 1.15
         assert DEFAULT_NEIGHBOR_CUTOFF == 3.5
+
+    def test_threshold_factors_match_bonding_config(self):
+        # The module-level constants and BONDING_CONFIG dict must agree;
+        # otherwise downstream code that reads from one source sees a
+        # different bonding threshold than code reading from the other.
+        assert BONDING_CONFIG["METAL_THRESHOLD_FACTOR"] == METAL_THRESHOLD_FACTOR
+        assert BONDING_CONFIG["NON_METAL_THRESHOLD_FACTOR"] == NON_METAL_THRESHOLD_FACTOR
+        assert (
+            BONDING_CONFIG["METAL_NON_METAL_THRESHOLD_FACTOR"]
+            == METAL_NON_METAL_THRESHOLD_FACTOR
+        )
 
 
 class TestConfig:
