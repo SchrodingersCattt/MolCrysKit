@@ -9,6 +9,7 @@ KEY_OCCUPANCY = "occupancy"          # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"  # Default: 0 as integer
 KEY_ASSEMBLY = "assembly"             # Default: "" empty string
 KEY_LABEL = "label"                   # Default: Atom element symbol
+KEY_SYM_OP_INDEX = "sym_op_index"     # Default: 0 as integer
 
 # Transition metals set
 TRANSITION_METALS = {

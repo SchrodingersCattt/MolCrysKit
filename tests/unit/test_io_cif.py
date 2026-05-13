@@ -11,7 +11,7 @@ from ase import Atoms
 # Suppress pymatgen/CIF parsing warnings in tests (test data may have occupancy quirks)
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
-from molcrys_kit.constants.config import KEY_DISORDER_GROUP
+from molcrys_kit.constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 from molcrys_kit.io.cif import (
     identify_molecules,
     parse_cif_advanced,
@@ -176,6 +176,40 @@ class TestIdentifyMoleculesFromAtoms:
             ],
         )
         atoms.set_array(KEY_DISORDER_GROUP, np.array(groups, dtype=int))
+
+        molecules = identify_molecules(atoms)
+
+        assert len(molecules) == 1
+        assert molecules[0].info["atom_indices"] == [0, 1]
+        assert molecules[0].info["bond_pairs"] == [(0, 1)]
+
+    def test_same_part_atoms_from_different_symmetry_ops_do_not_bond(self):
+        atoms = Atoms(
+            symbols=["N", "N"],
+            positions=[
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+            ],
+        )
+        atoms.set_array(KEY_DISORDER_GROUP, np.array([-1, -1], dtype=int))
+        atoms.set_array(KEY_SYM_OP_INDEX, np.array([0, 1], dtype=int))
+
+        molecules = identify_molecules(atoms)
+
+        assert len(molecules) == 2
+        assert sorted(mol.info["atom_indices"] for mol in molecules) == [[0], [1]]
+        assert all(mol.info["bond_pairs"] == [] for mol in molecules)
+
+    def test_same_part_atoms_from_same_symmetry_op_can_bond(self):
+        atoms = Atoms(
+            symbols=["N", "N"],
+            positions=[
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+            ],
+        )
+        atoms.set_array(KEY_DISORDER_GROUP, np.array([-1, -1], dtype=int))
+        atoms.set_array(KEY_SYM_OP_INDEX, np.array([0, 0], dtype=int))
 
         molecules = identify_molecules(atoms)
 

@@ -119,16 +119,19 @@ def identify_molecules(
     different non-zero PART groups are skipped. This mirrors the disorder
     graph's bonding rule: ordered atoms (group 0) may bond to either
     orientation, but mutually exclusive disorder images must not fuse into one
-    molecule. ``exclude_indices`` remains available for callers that need to
-    remove atoms from bond perception entirely.
+    molecule. When symmetry-operation provenance is available, atoms in the
+    same non-zero PART group must also come from the same generated image
+    before they can bond. ``exclude_indices`` remains available for callers
+    that need to remove atoms from bond perception entirely.
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX
     
     crystal_graph = nx.Graph()
     symbols = atoms.get_chemical_symbols()
 
     excluded = {int(i) for i in (exclude_indices or set())}
     disorder_groups = atoms.arrays.get(KEY_DISORDER_GROUP)
+    sym_op_indices = atoms.arrays.get(KEY_SYM_OP_INDEX)
 
     for i in range(len(atoms)):
         crystal_graph.add_node(i, symbol=symbols[i])
@@ -155,6 +158,13 @@ def identify_molecules(
             group_i = int(disorder_groups[i])
             group_j = int(disorder_groups[j])
             if group_i != 0 and group_j != 0 and group_i != group_j:
+                continue
+            if (
+                group_i != 0
+                and group_j != 0
+                and sym_op_indices is not None
+                and int(sym_op_indices[i]) != int(sym_op_indices[j])
+            ):
                 continue
 
         pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
@@ -203,7 +213,7 @@ def identify_molecules(
 
         # Preserve disorder-related arrays when creating molecules
         # Copy over disorder metadata for the sliced atoms
-        for key in [KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL]:
+        for key in [KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX]:
             if key in atoms.arrays:
                 original_array = atoms.arrays[key]
                 sliced_array = original_array[atom_indices]
@@ -700,7 +710,7 @@ def read_mol_crystal(
         contains `_chemical_formula_moiety`, the raw field is stored on
         `MolecularCrystal.formula_moiety` for downstream hydrogen completion.
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX
     
     # First, extract disorder info from CIF file
     disorder_info = scan_cif_disorder(filepath)
@@ -749,6 +759,8 @@ def read_mol_crystal(
     atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups[:len(symbols)], dtype=int))
     atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies[:len(symbols)]))
     atoms.set_array(KEY_LABEL, np.array(disorder_info.labels[:len(symbols)]))
+    if disorder_info.sym_op_indices:
+        atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices[:len(symbols)], dtype=int))
     
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms)
