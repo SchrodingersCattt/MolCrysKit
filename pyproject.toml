@@ -58,6 +58,5 @@ addopts = "--cov=molcrys_kit --cov-report=term-missing --cov-report=html"
 omit = [
     "scripts/*",
     "tests/*",
-    "setup.py",
     "molcrys_kit/io/output.py"
 ]
