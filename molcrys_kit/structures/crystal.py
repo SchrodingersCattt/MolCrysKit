@@ -39,6 +39,8 @@ class MolecularCrystal:
         Periodic boundary conditions along each lattice vector.
     formula_moiety : Optional[str]
         Raw CIF _chemical_formula_moiety value when available.
+    disorder_provenance : optional
+        Source-site audit trail for ordered replicas generated from disorder.
     """
 
     def __init__(
@@ -47,6 +49,7 @@ class MolecularCrystal:
         molecules: List[Atoms],
         pbc: Tuple[bool, bool, bool] = (True, True, True),
         formula_moiety: Optional[str] = None,
+        disorder_provenance=None,
     ):
         """
         Initialize a MolecularCrystal.
@@ -61,12 +64,15 @@ class MolecularCrystal:
             Periodic boundary conditions along each lattice vector.
         formula_moiety : Optional[str], default=None
             Raw CIF _chemical_formula_moiety value when available.
+        disorder_provenance : optional, default=None
+            Source-site audit trail for ordered disorder replicas.
         """
         from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
         
         self.lattice = np.array(lattice)
         self.pbc = pbc
         self.formula_moiety = formula_moiety
+        self.disorder_provenance = disorder_provenance
 
         # Wrap each ASE Atoms object in a CrystalMolecule
         self.molecules = []

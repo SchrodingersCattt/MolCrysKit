@@ -13,12 +13,88 @@ pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 from molcrys_kit.constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 from molcrys_kit.io.cif import (
+    SymmetryAutoExpandedWarning,
+    _parse_symmetry_operations,
     identify_molecules,
     parse_cif_advanced,
     read_mol_crystal,
     scan_cif_disorder,
 )
 from molcrys_kit.structures.molecule import CrystalMolecule
+
+
+class TestSymmetryExpansion:
+    def test_parse_symmetry_operations_expands_non_p1_with_identity_only(self):
+        block = {
+            "_space_group_IT_number": "14",
+            "_space_group_name_H-M_alt": "P 21/c",
+            "_symmetry_equiv_pos_as_xyz": ["x,y,z"],
+        }
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ops = _parse_symmetry_operations(block)
+
+        assert len(ops) == 4
+        assert any(issubclass(item.category, SymmetryAutoExpandedWarning) for item in caught)
+
+    def test_parse_symmetry_operations_respects_explicit_p1(self):
+        block = {
+            "_space_group_IT_number": "1",
+            "_space_group_name_H-M_alt": "P 1",
+            "_symmetry_equiv_pos_as_xyz": ["x,y,z"],
+        }
+
+        ops = _parse_symmetry_operations(block)
+
+        assert len(ops) == 1
+
+    def test_parse_symmetry_operations_expand_symmetry_false_opt_out(self):
+        block = {
+            "_space_group_IT_number": "14",
+            "_space_group_name_H-M_alt": "P 21/c",
+            "_symmetry_equiv_pos_as_xyz": ["x,y,z"],
+        }
+
+        ops = _parse_symmetry_operations(block, expand_symmetry=False)
+
+        assert len(ops) == 1
+
+    def test_scan_cif_disorder_auto_expands_identity_only_non_p1(self, tmp_path):
+        cif = tmp_path / "identity_only_p21c.cif"
+        cif.write_text(
+            """data_test
+_space_group_IT_number 14
+_space_group_name_H-M_alt 'P 21/c'
+_cell_length_a 10
+_cell_length_b 11
+_cell_length_c 12
+_cell_angle_alpha 90
+_cell_angle_beta 100
+_cell_angle_gamma 90
+loop_
+_symmetry_equiv_pos_as_xyz
+'x,y,z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+C1 C 0.11 0.22 0.33 1
+""",
+            encoding="utf-8",
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            expanded = scan_cif_disorder(str(cif))
+        verbatim = scan_cif_disorder(str(cif), expand_symmetry=False)
+
+        assert len(expanded.labels) == 4
+        assert len(verbatim.labels) == 1
+        assert any(issubclass(item.category, SymmetryAutoExpandedWarning) for item in caught)
 
 
 class TestReadMolCrystal:

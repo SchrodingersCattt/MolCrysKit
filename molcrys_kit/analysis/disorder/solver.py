@@ -20,6 +20,7 @@ from ase.geometry import get_distances
 
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
+from .provenance import DisorderProvenance
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 from ...constants.config import DISORDER_CONFIG
@@ -1677,7 +1678,10 @@ class DisorderSolver:
 
         crystals = []
         for independent_set in cleaned_sets:
-            crystal = self._reconstruct_crystal(independent_set)
+            provenance = self._build_provenance(independent_set, method)
+            crystal = self._reconstruct_crystal(
+                independent_set, disorder_provenance=provenance
+            )
             issues = check_valence_completeness(crystal, self.info)
             if issues:
                 for issue in issues:
@@ -1891,10 +1895,34 @@ class DisorderSolver:
             result = next_result
         return result
 
-    def _reconstruct_crystal(self, independent_set: List[int]) -> MolecularCrystal:
-        """
-        Reconstruct a MolecularCrystal from an independent set of atoms.
-        """
+    def _build_provenance(
+        self, independent_set: List[int], method: str
+    ) -> DisorderProvenance:
+        """Return source-site provenance for a cleaned independent set."""
+        kept_indices = [int(i) for i in independent_set]
+        kept_set = set(kept_indices)
+        dropped_indices = [
+            int(i) for i in range(len(self.info.labels)) if i not in kept_set
+        ]
+        source_sym_ops = getattr(self.info, "sym_op_indices", None)
+        sym_op_indices = None
+        if source_sym_ops is not None and len(source_sym_ops) >= len(self.info.labels):
+            sym_op_indices = [int(source_sym_ops[i]) for i in kept_indices]
+        return DisorderProvenance(
+            kept_indices=kept_indices,
+            dropped_indices=dropped_indices,
+            method=method,
+            coupled=bool(self._coupled),
+            sym_op_indices=sym_op_indices,
+        )
+
+    def _reconstruct_crystal(
+        self,
+        independent_set: List[int],
+        *,
+        disorder_provenance: Optional[DisorderProvenance] = None,
+    ) -> MolecularCrystal:
+        """Reconstruct a MolecularCrystal from an independent set of atoms."""
         selected_symbols = [self.info.symbols[i] for i in independent_set]
         selected_frac_coords = self.info.frac_coords[independent_set]
 
@@ -1906,6 +1934,11 @@ class DisorderSolver:
         )
         molecules = identify_molecules(atoms)
         pbc = (True, True, True)
-        crystal = MolecularCrystal(self.lattice, molecules, pbc)
+        crystal = MolecularCrystal(
+            self.lattice,
+            molecules,
+            pbc,
+            disorder_provenance=disorder_provenance,
+        )
 
         return crystal

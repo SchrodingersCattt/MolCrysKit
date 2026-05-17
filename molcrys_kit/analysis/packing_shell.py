@@ -155,6 +155,7 @@ def detect_coordination_number(
             "enclosure_expanded": False,
             "sorted_distances": [],
             "cutoff": float(cutoff) if cutoff is not None else None,
+            "rejection_reason": "no_neighbours_within_cutoff",
         }
         payload.update(_empty_gap_payload())
         return payload
@@ -165,9 +166,13 @@ def detect_coordination_number(
     # --- Cutoff mode: hard radial cutoff overrides gap selection ---
     if cutoff is not None:
         cutoff_val = float(cutoff)
-        cn = int(np.sum(sorted_distances <= cutoff_val))
+        raw_cn = int(np.sum(sorted_distances <= cutoff_val))
+        cn = raw_cn
+        fallback_limited = False
         if fallback_max is not None:
-            cn = min(cn, int(fallback_max))
+            capped_cn = min(cn, int(fallback_max))
+            fallback_limited = capped_cn < cn
+            cn = capped_cn
         cn = max(0, cn)
 
         enclosed = False
@@ -187,6 +192,15 @@ def detect_coordination_number(
         if gap_index is not None:
             gap_index = min(gap_index, len(gaps) - 1)
         gap_value = float(gaps[gap_index]) if gap_index is not None else None
+        rejection_reason = None
+        if cn == 0:
+            rejection_reason = "no_neighbours_within_cutoff"
+        elif fallback_limited:
+            rejection_reason = "max_cn_reached"
+        elif enforce_enclosure and cn < 4:
+            rejection_reason = "insufficient_for_hull"
+        elif enforce_enclosure and cn >= 4 and not enclosed:
+            rejection_reason = "centre_not_enclosed"
         return {
             "coordination_number": cn,
             "mode": "cutoff",
@@ -198,6 +212,7 @@ def detect_coordination_number(
             "enclosed": enclosed,
             "enclosure_expanded": False,
             "cutoff": cutoff_val,
+            "rejection_reason": rejection_reason,
         }
 
     # --- Gap (+ optional enclosure expansion) mode ---
@@ -213,6 +228,7 @@ def detect_coordination_number(
             "sorted_distances": sorted_distances.tolist(),
             "gaps": [],
             "cutoff": None,
+            "rejection_reason": "insufficient_for_hull" if enforce_enclosure else None,
         }
 
     cn = primary_cn
@@ -245,11 +261,23 @@ def detect_coordination_number(
                     expanded = True
                     break
 
+    fallback_limited = False
     if fallback_max is not None:
-        cn = min(cn, int(fallback_max))
+        capped_cn = min(cn, int(fallback_max))
+        fallback_limited = capped_cn < cn
+        cn = capped_cn
     cn = max(1, cn)
     gap_index = min(cn - 1, len(gaps) - 1) if len(gaps) > 0 else None
     gap_value = float(gaps[gap_index]) if gap_index is not None else None
+    rejection_reason = None
+    if fallback_limited:
+        rejection_reason = "max_cn_reached"
+    elif enforce_enclosure and (
+        coords_arr is None or center_arr is None or len(coords_arr) < 4
+    ):
+        rejection_reason = "insufficient_for_hull"
+    elif enforce_enclosure and not enclosed:
+        rejection_reason = "centre_not_enclosed"
     return {
         "coordination_number": cn,
         "mode": "gap+enclosure" if enforce_enclosure else "gap",
@@ -261,6 +289,7 @@ def detect_coordination_number(
         "enclosed": enclosed,
         "enclosure_expanded": expanded,
         "cutoff": None,
+        "rejection_reason": rejection_reason,
     }
 
 
@@ -513,6 +542,7 @@ def _find_polyhedra_atom_level(
     fallback_max: Optional[int],
     score_shape: bool,
     central_indices: Optional[Sequence[int]],
+    return_diagnostics: bool = False,
 ) -> List[Dict[str, Any]]:
     try:
         from ase.neighborlist import neighbor_list
@@ -543,22 +573,26 @@ def _find_polyhedra_atom_level(
         and (central_index_set is None or i in central_index_set)
     ]
     if not central_atoms:
-        return []
+        return ([], []) if return_diagnostics else []
 
     i_arr, j_arr, d_arr, D_arr = neighbor_list("ijdD", atoms, cutoff=float(search_cutoff))
 
     shells: Dict[int, list] = {idx: [] for idx in central_atoms}
+    candidate_counts: Dict[int, int] = {idx: 0 for idx in central_atoms}
     for src, dst, dist, vec in zip(i_arr, j_arr, d_arr, D_arr):
         src_i = int(src)
+        dst_i = int(dst)
         if src_i not in shells:
             continue
-        if symbols[int(dst)] != ligand:
+        if central == ligand and dst_i == src_i:
             continue
-        if central == ligand and int(dst) == src_i:
+        candidate_counts[src_i] += 1
+        if symbols[dst_i] != ligand:
             continue
-        shells[src_i].append((float(dist), int(dst), np.asarray(vec, dtype=float)))
+        shells[src_i].append((float(dist), dst_i, np.asarray(vec, dtype=float)))
 
     results: List[Dict[str, Any]] = []
+    diagnostics: List[Dict[str, Any]] = []
     for center_idx in central_atoms:
         entries = shells.get(center_idx, [])
         entries.sort(key=lambda item: item[0])
@@ -626,8 +660,19 @@ def _find_polyhedra_atom_level(
                 record["best_match"] = None
 
         results.append(record)
+        if return_diagnostics:
+            candidate_count = int(candidate_counts.get(center_idx, 0))
+            diagnostics.append({
+                "centre_index": int(center_idx),
+                "centre_position": center_pos.tolist(),
+                "candidate_count": candidate_count,
+                "ligand_species_filter_drops": max(0, candidate_count - len(entries)),
+                "cn_info": cn_info,
+                "rejection_reason": cn_info.get("rejection_reason"),
+                "accepted": bool(cn > 0 and (not enforce_enclosure or cn_info.get("enclosed"))),
+            })
 
-    return results
+    return (results, diagnostics) if return_diagnostics else results
 
 
 def _find_polyhedra_molecule_level(
@@ -644,6 +689,7 @@ def _find_polyhedra_molecule_level(
     fallback_max: Optional[int],
     score_shape: bool,
     central_indices: Optional[Sequence[int]],
+    return_diagnostics: bool = False,
 ) -> List[Dict[str, Any]]:
     if center_kind not in _MOLECULE_CENTRE_KINDS:
         raise ValueError(
@@ -718,7 +764,7 @@ def _find_polyhedra_molecule_level(
     ]
     ligand_mols = [i for i, sig in enumerate(sigs) if sig == ligand_sig]
     if not central_mols:
-        return []
+        return ([], []) if return_diagnostics else []
 
     # The translation set must cover every t such that
     # |c_ligand + t - c_central| <= radius for any (central, ligand)
@@ -738,9 +784,25 @@ def _find_polyhedra_molecule_level(
     )
 
     results: List[Dict[str, Any]] = []
+    diagnostics: List[Dict[str, Any]] = []
     homo_pair = central_sig == ligand_sig
     for center_mol_idx in central_mols:
         center_pos = centres[center_mol_idx]
+
+        # Count every molecule image within the radius before ligand filtering.
+        all_candidate_count = 0
+        if len(centres):
+            all_pts = centres[:, None, :] + translations[None, :, :]
+            all_vecs = all_pts - center_pos
+            all_dists = np.linalg.norm(all_vecs, axis=-1)
+            all_mask = all_dists <= radius
+            same_rows = [pos for pos, idx in enumerate(range(len(centres))) if idx == center_mol_idx]
+            if same_rows:
+                zero_t = int(np.argmin(np.linalg.norm(translations, axis=1)))
+                for pos in same_rows:
+                    all_mask[pos, zero_t] = False
+            all_mask &= all_dists > 1e-6
+            all_candidate_count = int(np.count_nonzero(all_mask))
 
         # Generate every image of every ligand molecule, vectorised
         if ligand_mols:
@@ -829,8 +891,18 @@ def _find_polyhedra_molecule_level(
                 record["best_match"] = None
 
         results.append(record)
+        if return_diagnostics:
+            diagnostics.append({
+                "centre_index": int(center_mol_idx),
+                "centre_position": center_pos.tolist(),
+                "candidate_count": all_candidate_count,
+                "ligand_species_filter_drops": max(0, all_candidate_count - len(sorted_dists)),
+                "cn_info": cn_info,
+                "rejection_reason": cn_info.get("rejection_reason"),
+                "accepted": bool(cn > 0 and (not enforce_enclosure or cn_info.get("enclosed"))),
+            })
 
-    return results
+    return (results, diagnostics) if return_diagnostics else results
 
 
 def find_polyhedra(
@@ -848,6 +920,7 @@ def find_polyhedra(
     fallback_max: Optional[int] = None,
     score_shape: bool = False,
     central_indices: Optional[Sequence[int]] = None,
+    return_diagnostics: bool = False,
 ) -> List[Dict[str, Any]]:
     """Enumerate A--B coordination polyhedra in a periodic structure.
 
@@ -923,6 +996,10 @@ def find_polyhedra(
         Optional iterable of indices restricting the search to a subset
         of central atoms (``level="atom"``) or central molecules
         (``level="molecule"``).
+    return_diagnostics
+        When true, return ``(records, diagnostics)`` where diagnostics has
+        one entry per attempted centre with candidate counts and rejection
+        reasons. The default preserves the historical ``records`` return.
 
     Radial knobs
     ------------
@@ -1028,6 +1105,7 @@ def find_polyhedra(
             fallback_max=fallback_max,
             score_shape=score_shape,
             central_indices=central_indices,
+            return_diagnostics=return_diagnostics,
         )
     if level == "molecule":
         return _find_polyhedra_molecule_level(
@@ -1043,6 +1121,7 @@ def find_polyhedra(
             fallback_max=fallback_max,
             score_shape=score_shape,
             central_indices=central_indices,
+            return_diagnostics=return_diagnostics,
         )
     raise ValueError(f"level must be 'atom' or 'molecule', got {level!r}.")
 
