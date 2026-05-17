@@ -87,6 +87,16 @@ The high-level API and graph/solver constructors accept `coupled`:
   disorder assembly are locked to the same PART choice, and motif merge keeps
   the single greedy best X(H)n orientation.
 
+Every crystal returned by `generate_ordered_replicas_from_disordered_sites`
+carries `crystal.disorder_provenance` with the final cleaned `kept_indices`,
+`dropped_indices`, `method`, `coupled`, and per-kept-site `sym_op_indices`
+when available.  `kept_indices` always index the source `DisorderInfo` arrays;
+`molecule.info["atom_indices"]` remains the local output-atom index used by
+`MolecularCrystal.to_ase()` to restore order.  For PART-switching NEB workflows,
+compare two replicas by intersecting / diffing their provenance `kept_indices`.
+Do not propagate disorder provenance through `get_supercell()` or `from_ase()`;
+those structures no longer have a one-to-one source disorder-site contract.
+
 Random/enumerate alternatives intentionally keep a linear occupancy weight
 (`sum(group occupancy)`) so the sampler remains occupancy-weighted rather than
 using the optimal-mode `* group_size / degree` heuristic.  The solver instead

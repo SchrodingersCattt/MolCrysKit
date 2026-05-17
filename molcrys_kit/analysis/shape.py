@@ -105,6 +105,7 @@ from __future__ import annotations
 
 import itertools
 from collections import Counter
+from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -529,6 +530,45 @@ def _alternative_to_candidate(alt: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+
+def _to_json_safe(value: Any) -> Any:
+    """Recursively convert numpy/dataclass containers to JSON-safe objects."""
+    if is_dataclass(value):
+        return _to_json_safe(asdict(value))
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {key: _to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json_safe(item) for item in value]
+    return value
+
+
+def _topology_summary(topology: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop rich face/edge registry objects while keeping scalar signatures."""
+    return {
+        key: _to_json_safe(value)
+        for key, value in topology.items()
+        if key not in {"faces", "edges"}
+    }
+
+
+def _strip_topology_details(value: Any) -> Any:
+    """Return a JSON-safe copy with registry face/edge topology stripped."""
+    if isinstance(value, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "topology" and isinstance(item, dict):
+                cleaned[key] = _topology_summary(item)
+            else:
+                cleaned[key] = _strip_topology_details(item)
+        return cleaned
+    if isinstance(value, (list, tuple)):
+        return [_strip_topology_details(item) for item in value]
+    return _to_json_safe(value)
+
 def classify_shell(
     coords: Iterable[Iterable[float]],
     center: Optional[Iterable[float]] = None,
@@ -539,6 +579,7 @@ def classify_shell(
     topology_match: bool = True,
     max_strip: Optional[int] = None,
     top_k: int = 3,
+    include_topology: bool = False,
 ) -> Dict[str, Any]:
     """Describe one coordination shell by core-residual decomposition.
 
@@ -693,7 +734,7 @@ def classify_shell(
     modifier = _label_modifier(float(best["score"]), gap) if best else "irregular"
     candidates = [_alternative_to_candidate(alt) for alt in kept_alternatives]
 
-    return {
+    payload = {
         "coordination_number": cn,
         "primary_label": best["primary_label"] if best else None,
         "label_modifier": modifier,
@@ -721,6 +762,7 @@ def classify_shell(
             "max_strip": max_strip,
         },
     }
+    return payload if include_topology else _strip_topology_details(payload)
 
 
 __all__ = [

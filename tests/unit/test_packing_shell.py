@@ -295,6 +295,54 @@ def test_find_polyhedra_atom_level_record_carries_level_field():
         assert record["level"] == "atom"
 
 
+def test_find_polyhedra_diagnostics_for_too_small_cutoff():
+    atoms = _rocksalt_atoms(a=5.0)
+    records, diagnostics = find_polyhedra(
+        atoms, central="Pb", ligand="I", cutoff=1.0, return_diagnostics=True
+    )
+
+    assert len(records) == 2
+    assert len(diagnostics) == 2
+    assert all(diag["rejection_reason"] == "no_neighbours_within_cutoff" for diag in diagnostics)
+    assert all(diag["accepted"] is False for diag in diagnostics)
+
+
+def test_find_polyhedra_diagnostics_for_unenclosed_shell():
+    atoms = Atoms(
+        symbols=["Pb", "I", "I", "I", "I"],
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+        ],
+        cell=np.eye(3) * 10.0,
+        pbc=False,
+    )
+
+    records, diagnostics = find_polyhedra(
+        atoms, central="Pb", ligand="I", search_cutoff=3.0, return_diagnostics=True
+    )
+
+    assert len(records) == 1
+    assert diagnostics[0]["candidate_count"] == 4
+    assert diagnostics[0]["rejection_reason"] == "centre_not_enclosed"
+    assert diagnostics[0]["accepted"] is False
+
+
+def test_find_polyhedra_diagnostics_for_ligand_species_filter():
+    atoms = _rocksalt_atoms(a=5.0)
+    records, diagnostics = find_polyhedra(
+        atoms, central="Pb", ligand="Br", cutoff=3.0, return_diagnostics=True
+    )
+
+    assert len(records) == 2
+    assert all(diag["candidate_count"] > 0 for diag in diagnostics)
+    assert all(diag["ligand_species_filter_drops"] == diag["candidate_count"] for diag in diagnostics)
+    assert all(diag["rejection_reason"] == "no_neighbours_within_cutoff" for diag in diagnostics)
+
+
 def test_find_polyhedra_invalid_level_raises():
     atoms = _rocksalt_atoms(a=5.0)
     with pytest.raises(ValueError, match="level must be"):

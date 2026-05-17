@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pymatgen.io.cif import CifParser
 from pymatgen.core.operations import SymmOp
 from pymatgen.core.lattice import Lattice
+from pymatgen.symmetry.groups import SpaceGroup
 
 from ase import Atoms
 from ase.neighborlist import neighbor_list
@@ -29,6 +30,62 @@ from ..constants import (
 )
 from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bonds
 from ..constants import DEFAULT_NEIGHBOR_CUTOFF
+
+
+class SymmetryAutoExpandedWarning(UserWarning):
+    """Warning emitted when CIF identity-only symops are expanded upstream."""
+
+
+def _first_cif_value(value):
+    """Return the first scalar from pymatgen CIF block values."""
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
+def _clean_space_group_token(value) -> Optional[str]:
+    value = _first_cif_value(value)
+    if value in (None, "", ".", "?"):
+        return None
+    return str(value).strip().strip("'\"") or None
+
+
+def _parse_space_group_number(data_block: dict) -> Optional[int]:
+    for tag in ("_space_group_IT_number", "_symmetry_Int_Tables_number"):
+        token = _clean_space_group_token(data_block.get(tag))
+        if token is None:
+            continue
+        try:
+            return int(float(token))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _space_group_name_variants(name: str) -> List[str]:
+    compact = re.sub(r"\s+", "", name)
+    screw_normalized = re.sub(r"([2346])([123456])", r"\1_\2", compact)
+    return [name, compact, screw_normalized]
+
+
+def _declared_space_group(data_block: dict) -> Optional[SpaceGroup]:
+    sg_number = _parse_space_group_number(data_block)
+    if sg_number is not None:
+        try:
+            return SpaceGroup.from_int_number(sg_number)
+        except Exception:
+            pass
+
+    for tag in ("_space_group_name_H-M_alt", "_symmetry_space_group_name_H-M"):
+        name = _clean_space_group_token(data_block.get(tag))
+        if name is None:
+            continue
+        for variant in _space_group_name_variants(name):
+            try:
+                return SpaceGroup(variant)
+            except Exception:
+                continue
+    return None
 
 
 _PYMATGEN_NUMERIC_MISSING_TAGS = {
@@ -416,46 +473,53 @@ def _extract_numeric_value(value_str: str) -> float:
         return 0.0
 
 
-def _parse_symmetry_operations(data_block: dict) -> List[SymmOp]:
-    """
-    Parse symmetry operations from CIF data block.
+def _parse_symmetry_operations(
+    data_block: dict, *, expand_symmetry: bool = True
+) -> List[SymmOp]:
+    """Parse symmetry operations from CIF data block.
 
-    Parameters
-    ----------
-    data_block : dict
-        CIF data block containing the raw CIF data.
-
-    Returns
-    -------
-    List[SymmOp]
-        List of symmetry operations as SymmOp objects.
+    When a CIF declares a non-P1 space group but only provides the identity
+    operation, optionally derive the full operation set from the declaration.
     """
-    # Look for symmetry operations in different possible CIF tags
     equiv_pos_list = data_block.get("_symmetry_equiv_pos_as_xyz", [])
     symop_list = data_block.get("_space_group_symop_operation_xyz", [])
 
-    # Combine the two lists if both exist
     sym_ops_raw = []
     if equiv_pos_list:
         sym_ops_raw.extend(equiv_pos_list)
     elif symop_list:
         sym_ops_raw.extend(symop_list)
     else:
-        # If no symmetry operations are found, assume P1 (identity only)
         sym_ops_raw = ["x,y,z"]
 
-    # Convert the raw symmetry operations to SymmOp objects
     sym_ops = []
     for op_str in sym_ops_raw:
         try:
             sym_ops.append(SymmOp.from_xyz_str(op_str))
         except Exception:
-            # If we can't parse the operation, skip it
             continue
 
-    # If no operations were successfully parsed, return identity only
     if not sym_ops:
         sym_ops = [SymmOp.from_xyz_str("x,y,z")]
+
+    declared_sg = _declared_space_group(data_block)
+    if (
+        expand_symmetry
+        and declared_sg is not None
+        and declared_sg.int_number > 1
+        and len(sym_ops) <= 1
+        and len(declared_sg.symmetry_ops) > len(sym_ops)
+    ):
+        expanded = list(declared_sg.symmetry_ops)
+        warnings.warn(
+            "CIF declares space group "
+            f"#{declared_sg.int_number} ({declared_sg.symbol}) but provides "
+            f"only {len(sym_ops)} symmetry operation(s); auto-expanded to "
+            f"{len(expanded)} operations.",
+            SymmetryAutoExpandedWarning,
+            stacklevel=2,
+        )
+        return expanded
 
     return sym_ops
 
@@ -484,7 +548,7 @@ def _are_coords_close(
     return distance < tol
 
 
-def scan_cif_disorder(filepath: str) -> DisorderInfo:
+def scan_cif_disorder(filepath: str, *, expand_symmetry: bool = True) -> DisorderInfo:
     """
     Scan a CIF file and extract raw disorder-related metadata without any logical processing.
 
@@ -513,7 +577,9 @@ def scan_cif_disorder(filepath: str) -> DisorderInfo:
     data_block = cif_data[first_key]
 
     # Parse symmetry operations from the CIF
-    sym_ops = _parse_symmetry_operations(data_block)
+    sym_ops = _parse_symmetry_operations(
+        data_block, expand_symmetry=expand_symmetry
+    )
 
     # Parse lattice for distance calculations
     try:

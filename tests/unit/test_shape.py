@@ -1,5 +1,6 @@
 """Tests for topology-gated CShM shape classification."""
 
+import json
 import os
 
 import numpy as np
@@ -93,6 +94,24 @@ def test_cshm_increases_with_radial_noise_for_cube():
         values.append(result["cshm_value"])
 
     assert values[0] < values[1] < values[2]
+
+
+def test_classify_shell_default_is_json_safe():
+    cube = get_polyhedron("cube")
+    result = classify_shell(cube.vertices, n_random_inits=1)
+
+    json.dumps(result)
+    assert "faces" not in result["topology"]
+    assert "edges" not in result["topology"]
+    assert "topology" not in result["core"] or "faces" not in result["core"]["topology"]
+
+
+def test_classify_shell_can_include_rich_topology():
+    cube = get_polyhedron("cube")
+    result = classify_shell(cube.vertices, n_random_inits=1, include_topology=True)
+
+    assert result["topology"]["faces"]
+    assert result["core"]["topology"]["edges"]
 
 
 def test_topology_gate_keeps_octahedron_candidate_specific():

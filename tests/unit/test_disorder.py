@@ -11,6 +11,7 @@ import networkx as nx
 from molcrys_kit.analysis.disorder.info import DisorderInfo
 from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
 from molcrys_kit.analysis.disorder.solver import DisorderSolver
+from molcrys_kit.analysis.disorder import is_minor_site
 from molcrys_kit.structures.crystal import MolecularCrystal
 
 
@@ -34,6 +35,35 @@ def _max_independent_set_size(graph, nodes):
                     if sub.subgraph(subset).number_of_edges() == 0:
                         return r
         return 1
+
+
+# =====================================================================
+# Disorder predicates
+# =====================================================================
+
+
+def test_is_minor_site_honors_explicit_flag():
+    assert is_minor_site({"_is_minor": True, "occ": 1.0}) is True
+    assert is_minor_site({"_is_minor": False, "dg": "-1", "occ": 0.2}) is False
+
+
+def test_is_minor_site_detects_shelx_negative_part():
+    assert is_minor_site({"dg": "-1", "occ": 1.0}) is True
+    assert is_minor_site({"disorder_group": " -2 ", "occupancy": 1.0}) is True
+
+
+def test_is_minor_site_full_or_missing_occupancy_is_not_minor():
+    assert is_minor_site({"dg": ".", "da": ".", "occ": 1.0}) is False
+    assert is_minor_site({"dg": ".", "da": "."}) is False
+
+
+def test_is_minor_site_detects_occupancy_only_minor_site():
+    assert is_minor_site({"dg": ".", "da": ".", "occ": 0.499}) is True
+    assert is_minor_site({"dg": ".", "da": ".", "occ": 0.5}) is False
+
+
+def test_is_minor_site_keeps_partial_tagged_sites_non_minor_without_negative_part():
+    assert is_minor_site({"dg": "1", "da": "A", "occ": 0.25}) is False
 
 
 # =====================================================================
