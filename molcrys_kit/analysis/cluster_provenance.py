@@ -74,9 +74,12 @@ class ClusterProvenance:
         Free-text citation block describing the published convention
         that motivated the specific parameter choices for this carve
         (``n_shells``, ``freeze_shell``, ``cap_distance`` override, cap
-        bond length overrides).  Empty by default; callers are
-        encouraged to fill it in with the DOI(s) appropriate to their
-        system so the sidecar JSON is self-documenting.
+        bond length overrides).  The default points at the canonical
+        cap-distance / shell-1 / shell-2 / rcut-convergence references
+        in the QM-cluster literature (see
+        :mod:`molcrys_kit.operations.cluster`); callers are encouraged
+        to override it with the DOI(s) appropriate to their own system
+        so the sidecar JSON is fully self-documenting.
     """
 
     mode: str
@@ -93,7 +96,19 @@ class ClusterProvenance:
     cap_distances_used_A: List[float] = field(default_factory=list)
     seed_merge_radius_A: float = 0.0
     parent_label: Optional[str] = None
-    convention_reference: str = ""
+    convention_reference: str = (
+        "Default QM-cluster convention: H caps along the cut bond at the "
+        "element-specific X-H length from BOND_LENGTHS (Wu/Gagliardi/Truhlar "
+        "PCCP 2018, 10.1039/c7cp06751h; cap-vs-periodic benchmark in "
+        "Beyzavi et al. JACS 2014, 10.1021/ja508626n); shell-1 freeze = "
+        "cap H + cut-side keeper (Wu/Truhlar PCCP 2018; Vitillo et al. "
+        "JPCC 2023, 10.1021/acs.jpcc.3c06423); shell-2 freeze adds one "
+        "heavy-atom layer inward (Gaggioli et al. Chem Sci 2020, "
+        "10.1039/d0sc02136a); rcut diagnostic follows Migues/Auerbach "
+        "JPCC 2018, 10.1021/acs.jpcc.8b08684 (delta-cluster convergence "
+        "test).  Callers should override with their system-specific "
+        "citation."
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a plain-dict (JSON-ready) representation.

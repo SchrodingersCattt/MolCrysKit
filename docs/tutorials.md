@@ -381,12 +381,18 @@ input writer which atoms to hold fixed during geometry optimisation:
 
 * `freeze_shell=0` -- nothing frozen.
 * `freeze_shell=1` -- all cap H atoms plus the kept-side atom of every
-  cut.
+  cut.  (Wu, Gagliardi, Truhlar, *PCCP* 2018,
+  [10.1039/c7cp06751h](https://doi.org/10.1039/c7cp06751h); Vitillo,
+  Bhan, Gagliardi, *JPCC* 2023,
+  [10.1021/acs.jpcc.3c06423](https://doi.org/10.1021/acs.jpcc.3c06423).)
 * `freeze_shell=2` -- as `freeze_shell=1` plus one additional layer of
-  heavy atoms inward.
+  heavy atoms inward.  (Gaggioli, Bernales, Gagliardi, *Chem. Sci.*
+  2020, [10.1039/d0sc02136a](https://doi.org/10.1039/d0sc02136a).)
 
-Cite the convention appropriate to your system in
-`convention_reference` (see below) so the sidecar is self-documenting.
+The same citations are baked into the default
+`ClusterProvenance.convention_reference` so every sidecar carries
+provenance for the freeze rule; override the field with your own
+system-specific citation when appropriate.
 
 ### Seed auto-grouping (`seed_merge_radius`)
 
@@ -481,3 +487,30 @@ which is the canonical record for any downstream QM input writer:
 * No charge / spin inference -- supply these when writing the QM input.
 * No Gaussian / ORCA / Psi4 writer; the sidecar JSON is the integration
   point.
+
+### Convention references
+
+These references ground the default freeze / cap / mode choices used
+by the carver and the default `ClusterProvenance.convention_reference`
+string.  Override the field with your own system-specific citation
+when appropriate; the defaults are not project-specific endorsements.
+
+* Beyzavi *et al.*, *J. Am. Chem. Soc.* **2014**, 136, 15861.
+  DOI: [10.1021/ja508626n](https://doi.org/10.1021/ja508626n).
+  Cap-vs-periodic energetic benchmark; foundational test of the
+  cap-and-freeze convention.
+* Wu, Gagliardi, Truhlar, *Phys. Chem. Chem. Phys.* **2018**, 20, 1953.
+  DOI: [10.1039/c7cp06751h](https://doi.org/10.1039/c7cp06751h).
+  Cap distance and freeze rule; methyl-vs-formate cap benchmark.
+  Source of the shell-1 freeze convention.
+* Vitillo, Bhan, Gagliardi, *J. Phys. Chem. C* **2023**.
+  DOI: [10.1021/acs.jpcc.3c06423](https://doi.org/10.1021/acs.jpcc.3c06423).
+  def2-SVP cluster opt + def2-TZVP single point, shell-1 freeze, for
+  transition-metal cluster QM.
+* Gaggioli, Bernales, Gagliardi, *Chem. Sci.* **2020**, 11.
+  DOI: [10.1039/d0sc02136a](https://doi.org/10.1039/d0sc02136a).
+  Shell-2 freeze convention.
+* Migues, Auerbach, *J. Phys. Chem. C* **2018**, 122, 23230.
+  DOI: [10.1021/acs.jpcc.8b08684](https://doi.org/10.1021/acs.jpcc.8b08684).
+  Delta-cluster convergence test in zeolites; basis for the
+  diagnostic `rcut` mode.

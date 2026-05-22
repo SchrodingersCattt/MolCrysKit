@@ -281,8 +281,14 @@ the same table `operations.add_hydrogens` consumes -- so an N-H cap is
 (retained for backwards compatibility and for callers that want the
 old uniform-cap behaviour); image offsets are accumulated via
 `neighbor_list("ijdD", ...)` bookkeeping.  Freeze sets
-(`freeze_shell=0|1|2`) and a free-text `convention_reference` travel
-in the JSON sidecar emitted by `write_xyz_with_freeze`.  The carver
+(`freeze_shell=0|1|2`) follow Wu/Truhlar PCCP 2018
+(`10.1039/c7cp06751h`) and Vitillo JPCC 2023
+(`10.1021/acs.jpcc.3c06423`) for shell-1 and Gaggioli Chem Sci 2020
+(`10.1039/d0sc02136a`) for shell-2; these DOIs ground the default
+`ClusterProvenance.convention_reference` so every sidecar carries
+the freeze-rule provenance, and callers can override the field with
+the citation appropriate to their own system.  The sidecar is
+emitted by `write_xyz_with_freeze`.  The carver
 does not infer charge / spin and does not write QM inputs -- those
 belong to the downstream toolchain that consumes the sidecar.
 Multi-atom nodes (paddle-wheels, M3 trimers, M6 nodes, ...) can be

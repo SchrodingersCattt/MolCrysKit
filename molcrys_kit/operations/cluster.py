@@ -41,15 +41,36 @@ Out of scope
 * No Gaussian / ORCA / Psi4 writer; the sidecar JSON is the integration
   point.
 
-References
-----------
-The algorithm follows the standard "BFS from a chosen seed, cut only at
-single non-ring C-C bonds, cap with H along the cut bond, freeze a
+Convention references
+---------------------
+The algorithm follows the standard "BFS from a chosen seed, cut only
+at single non-ring C-C bonds, cap with H along the cut bond, freeze a
 configurable shell" recipe shared across the QM-cluster literature.
-Specific defaults (``seed_merge_radius``, ``n_shells``, ``freeze_shell``)
-should be picked per system; see the project-specific cookbook (e.g. a
-``RECIPE.md`` next to your CIF inputs) for citations and parameter
-choices.
+These references ground the default freeze / cap / mode choices and
+are the basis of the default :class:`ClusterProvenance.convention_reference`
+string; callers should still override that field with the citation
+appropriate to their own system.
+
+* Beyzavi et al., *J. Am. Chem. Soc.* **2014**, 136, 15861.
+  DOI: 10.1021/ja508626n.  (Cap-vs-periodic energetic benchmark;
+  foundational test of the cap-and-freeze convention.)
+* Wu, Gagliardi, Truhlar, *Phys. Chem. Chem. Phys.* **2018**, 20, 1953.
+  DOI: 10.1039/c7cp06751h.  (Cap distance and freeze rule; methyl-
+  vs-formate cap benchmark.  Source of the shell-1 freeze convention.)
+* Vitillo, Bhan, Gagliardi, *J. Phys. Chem. C* **2023**.
+  DOI: 10.1021/acs.jpcc.3c06423.  (def2-SVP cluster opt + def2-TZVP
+  single point, shell-1 freeze, for transition-metal cluster QM.)
+* Gaggioli, Bernales, Gagliardi, *Chem. Sci.* **2020**, 11.
+  DOI: 10.1039/d0sc02136a.  (Shell-2 freeze convention.)
+* Migues, Auerbach, *J. Phys. Chem. C* **2018**, 122, 23230.
+  DOI: 10.1021/acs.jpcc.8b08684.  (Delta-cluster convergence test in
+  zeolites; basis for the diagnostic ``rcut`` mode.)
+
+System-specific defaults (which seed, what ``seed_merge_radius``, how
+many ``n_shells``, which ``freeze_shell``, whether to deviate from
+the per-element X-H cap table) should still be picked by the caller
+and recorded in :class:`ClusterProvenance.convention_reference` so
+the sidecar JSON is self-documenting per project.
 """
 
 from __future__ import annotations
@@ -851,13 +872,17 @@ class ClusterCarver:
         """Compute frozen local indices for ``freeze_shell in {0, 1, 2}``.
 
         * ``freeze_shell == 0`` -- nothing frozen.
-        * ``freeze_shell == 1`` -- all cap H + each kept-side atom of every cut.
+        * ``freeze_shell == 1`` -- all cap H + each kept-side atom of every
+          cut.  (Wu, Gagliardi, Truhlar, PCCP 2018, 10.1039/c7cp06751h;
+          Vitillo, Bhan, Gagliardi, JPCC 2023, 10.1021/acs.jpcc.3c06423.)
         * ``freeze_shell == 2`` -- shell-1 plus every kept atom that is one
-          bond inward from a kept-side atom of a cut.
+          bond inward from a kept-side atom of a cut.  (Gaggioli,
+          Bernales, Gagliardi, Chem. Sci. 2020, 10.1039/d0sc02136a.)
 
-        Callers should stamp the system-specific literature that motivated
-        their freeze choice into ``convention_reference`` so the sidecar
-        is self-documenting.
+        These citations ground the default freeze convention; callers may
+        stamp a system-specific override into ``convention_reference`` so
+        the sidecar JSON records exactly which literature justifies the
+        carve for the system at hand.
         """
         if freeze_shell <= 0:
             return []
