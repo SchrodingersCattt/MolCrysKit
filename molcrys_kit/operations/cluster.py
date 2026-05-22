@@ -1397,6 +1397,12 @@ class ClusterCarver:
             cap_distances_used_A=list(cap_distances_used),
             seed_merge_radius_A=self.seed_merge_radius,
             parent_label=parent_label,
+            # ClusterCarver is the coordination-cluster carver: it
+            # seeds on metals, follows ligand-complete BFS, and caps
+            # at the metal boundary.  Tag the provenance explicitly so
+            # downstream consumers can distinguish these clusters from
+            # future packing- / pi-stack-style carvers.
+            kind="coordination",
         )
         if convention_reference:
             provenance_kwargs["convention_reference"] = convention_reference

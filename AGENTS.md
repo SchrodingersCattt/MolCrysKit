@@ -330,17 +330,28 @@ current seed group; this is necessary whenever two metal nodes are
 bridged through non-C-C paths (M-X-X-M), since otherwise BFS could
 walk past every other node and silently return the whole framework.
 
-The acceptance criteria for any carved cluster -- C1 seed
-coordination intact, C2 no phantom bonds, C3 connectivity, C4
-per-keeper cap pairing, C5 cap geometry, C6 no unauthorized cuts, C7
-seed-seed bonds preserved, **C8 chemistry-aware cap count (no NH2
-over-capping)**, **C9 element conservation (the cluster carries the
-exact element budget of the parent kept atoms plus the recorded cap H
-atoms)**, and **C10 linker inventory (every cluster ligand fragment
-has a parent-side counterpart, identified by exact formula)** -- are
-implemented in `analysis.cluster_check.check_cluster` and exercised
+The C1-C10 *carve invariants* that any correctly-carved coordination
+cluster must satisfy -- C1 seed coordination intact, C2 no phantom
+bonds, C3 connectivity, C4 per-keeper cap pairing (anion-group aware),
+C5 cap geometry, C6 no unauthorized cuts, C7 seed-seed bonds
+preserved, **C8 chemistry-aware cap count (no NH2 over-capping; one
+cap H per anion group)**, **C9 element conservation (the cluster
+carries the exact element budget of the parent kept atoms plus the
+recorded cap H atoms)**, and **C10 linker inventory (every cluster
+ligand fragment has a parent-side counterpart, identified by exact
+formula)** -- are implemented in
+`analysis.cluster_invariants.check_cluster_invariants` and exercised
 by the unit-test suite so that any future regression fails CI rather
 than only being visible on visual inspection.  Each cap H is paired
-with its parent keeper atom via the new
+with its parent keeper atom via the
 `ClusterProvenance.cap_keeper_global_indices` field, which downstream
 QM input writers can use when annotating frozen/active layers.
+
+`ClusterCarver` is scoped to **coordination clusters** (metal seed +
+ligand-complete BFS + anion-group capping at the metal boundary); every
+emitted provenance carries `kind="coordination"` to mark this.  A
+future packing- / pi-stack- / H-bond-driven carver would emit
+`kind="packing"` and live next to this one.  `ClusterProvenance` lives
+in `structures/cluster.py` alongside `CrystalCluster` because the two
+are tightly coupled (the provenance has no consumer other than the
+cluster object).

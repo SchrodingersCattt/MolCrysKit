@@ -118,6 +118,19 @@ class ClusterProvenance:
     parent_label : Optional[str]
         Free-text label of the parent structure (e.g. the source CIF
         path).  Not used by the algorithm; for human bookkeeping.
+    kind : str
+        Carve-strategy tag distinguishing this cluster from clusters
+        produced by other future carvers.  The current
+        :class:`molcrys_kit.operations.cluster.ClusterCarver` produces
+        ``"coordination"`` clusters (metal seed + ligand-complete BFS
+        + anion-group capping at the metal boundary) -- the cluster
+        in the literature sense of "coordination cluster / SBU
+        environment", not the supramolecular sense of "weak-interaction
+        packing cluster".  A future pi-stack or H-bond carver would
+        emit ``kind="packing"``; this field gives downstream consumers
+        a single tag to discriminate without having to introspect the
+        rest of the provenance.  Recorded in the sidecar JSON so the
+        cluster's scope is self-describing.
     convention_reference : str
         Free-text citation block describing the published convention
         that motivated the specific parameter choices for this carve
@@ -149,6 +162,7 @@ class ClusterProvenance:
     cap_distances_used_A: List[float] = field(default_factory=list)
     seed_merge_radius_A: float = 0.0
     parent_label: Optional[str] = None
+    kind: str = "coordination"
     convention_reference: str = (
         "Default QM-cluster convention: H caps along the cut bond at the "
         "element-specific X-H length from BOND_LENGTHS (Wu/Gagliardi/Truhlar "
@@ -205,6 +219,7 @@ class ClusterProvenance:
             float(v) for v in payload.get("cap_distances_used_A", [])
         ]
         payload["seed_merge_radius_A"] = float(payload["seed_merge_radius_A"])
+        payload["kind"] = str(payload.get("kind", "coordination"))
         return payload
 
     @classmethod
@@ -246,6 +261,10 @@ class ClusterProvenance:
         kwargs["cap_distances_used_A"] = [
             float(v) for v in payload.get("cap_distances_used_A", [])
         ]
+        # Backward-compat: sidecars produced before the ``kind`` tag
+        # was introduced default to coordination clusters (which is
+        # what ClusterCarver always emitted historically).
+        kwargs["kind"] = str(payload.get("kind", "coordination"))
         return cls(**kwargs)
 
 

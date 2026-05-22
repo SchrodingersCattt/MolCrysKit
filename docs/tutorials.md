@@ -454,11 +454,14 @@ protonated only ONCE, not once per cut.  This rule is what prevents
 the over-capping NH2 pathology in azolate-based frameworks where a
 ring N coordinates several metals through periodic images.
 
-### Built-in correctness checker
+### Built-in invariant checker
 
-`molcrys_kit.analysis.cluster_check.check_cluster_artefacts` runs a
-hard set of acceptance criteria on a `(parent CIF, cluster XYZ, sidecar
-JSON)` triple and returns the list of violations:
+`molcrys_kit.analysis.cluster_invariants.check_cluster_invariants_from_files`
+runs the C1-C10 carve invariants on a `(parent CIF, cluster XYZ, sidecar
+JSON)` triple and returns the list of violations.  These are the
+conditions that hold by construction for every cluster the
+`ClusterCarver` is supposed to emit; the checker certifies the produced
+artefact independently of the carver internals:
 
 * **C1** every seed atom retains all of its first-shell non-metal
   donors (no dropped Zn-N / Zn-O coordination);
@@ -499,16 +502,18 @@ JSON)` triple and returns the list of violations:
 Use it programmatically:
 
 ```python
-from molcrys_kit.analysis.cluster_check import check_cluster_artefacts
+from molcrys_kit.analysis.cluster_invariants import (
+    check_cluster_invariants_from_files,
+)
 
-result = check_cluster_artefacts("structure.cif", "cluster_0.xyz")
+result = check_cluster_invariants_from_files("structure.cif", "cluster_0.xyz")
 print(result.report())
 ```
 
 or on the command line for a batch check:
 
 ```bash
-python -m molcrys_kit.analysis.cluster_check \
+python -m molcrys_kit.analysis.cluster_invariants \
     --parent-cif structure.cif \
     outputs/cluster__group*.xyz
 ```
@@ -572,8 +577,8 @@ per-atom flag column F/C/-) and `outputs/cluster__group<k>.xyz.cluster.json`
 ### Sidecar JSON schema
 
 The `.cluster.json` sidecar contains the full
-`molcrys_kit.analysis.cluster_provenance.ClusterProvenance` payload,
-which is the canonical record for any downstream QM input writer:
+`molcrys_kit.structures.cluster.ClusterProvenance` payload, which is
+the canonical record for any downstream QM input writer:
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -596,12 +601,27 @@ which is the canonical record for any downstream QM input writer:
 | `cap_distances_used_A` | list[float] | Per-cap distance actually applied |
 | `seed_merge_radius_A` | float | Auto-grouping threshold |
 | `parent_label` | str or null | Free-text label of the parent structure |
+| `kind` | str | Carve-strategy tag.  `ClusterCarver` always emits `"coordination"` (metal-seed + ligand-complete BFS + anion-group capping at the metal boundary); future packing- / pi-stack-style carvers would emit `"packing"`.  Sidecars produced before this field was introduced default to `"coordination"` on read. |
 | `convention_reference` | str | Caller-supplied citation of the QM-cluster recipe |
+
+### Scope: coordination clusters
+
+`ClusterCarver` is a **coordination-cluster carver**: it seeds on
+metal atoms, follows ligand-complete BFS, and caps at the metal
+boundary using `ChemicalEnvironment.compute_anion_protonation_groups`
+chemistry.  The clusters it emits are tagged
+`provenance.kind == "coordination"` to mark this scope explicitly.
+This is the "coordination cluster / SBU environment" of the MOF /
+coordination-polymer literature, not the supramolecular
+"weak-interaction packing cluster" of crystal engineering.  A future
+packing- / pi-stack- / H-bond-driven carver would emit
+`kind="packing"` and live next to this one.
 
 ### Out of scope
 
 * No domain typing (SBU / linker / paddle-wheel / pore / channel) --
-  the carver works at the atom + bond level.
+  the carver works at the atom + bond level.  Use the `kind` tag and
+  layer your own ontology on top.
 * No charge / spin inference -- supply these when writing the QM input.
 * No Gaussian / ORCA / Psi4 writer; the sidecar JSON is the integration
   point.
