@@ -9,17 +9,16 @@ caller.
 
 Two carving modes are supported:
 
-* ``bond_shells`` (default) -- chemistry-aware BFS from one or more seed
-  atoms.  The only cuttable bonds are **single C-C bonds that are not
-  part of any small ring** (the BFS leaves M-X, C=O, C-N, C=C and ring
-  bonds intact).  Each cut is capped with an H atom placed along the
-  original bond vector at the element-keyed X-H length from
-  :data:`molcrys_kit.constants.config.BOND_LENGTHS`.  Hop budget is
-  expressed in cut-boundary layers (``n_shells``), *not* raw bond hops.
-  An optional rule (``stop_at_non_seed_metals``, on by default) treats
-  any bond reaching a metal not in the current seed group as an
-  implicit cut, so frameworks that loop back via M-X-X-M paths do not
-  silently sweep the whole structure.
+* ``bond_shells`` (default) -- topology-preserving BFS from one or more
+  seed atoms.  By default the BFS keeps the full ligand topology and
+  cuts only at metal-boundary edges introduced by
+  ``stop_at_non_seed_metals`` (on by default).  Single non-ring C-C bonds
+  are cut only when the caller explicitly lists them in ``cut_cc_bonds``;
+  these user cuts are validated before carving and capped with H just
+  like metal-boundary cuts.  ``max_atoms`` is a hard safety limit for
+  periodically extended components: if the topology-preserving BFS grows
+  past it, the carver raises an error listing candidate C-C cut points
+  instead of silently choosing one.
 * ``rcut`` -- diagnostic radial cutoff: keep every atom within
   ``rcut`` Angstrom of any seed (minimum-image distance).  Same H-cap
   placement, but with a warning when a cut bond is not C-C (the
@@ -27,7 +26,7 @@ Two carving modes are supported:
 
 Output is XYZ + a JSON sidecar carrying the full
 :class:`ClusterProvenance` payload (kept-atom map, cut bonds, cap /
-frozen indices, mode, shells / rcut, per-cap distances actually used,
+frozen indices, mode, ``max_atoms`` / rcut, per-cap distances actually used,
 the X-H table consulted).  The sidecar is the canonical handoff to any
 downstream QM input writer (out of scope for MCK).
 
@@ -43,9 +42,10 @@ Out of scope
 
 Convention references
 ---------------------
-The algorithm follows the standard "BFS from a chosen seed, cut only
-at single non-ring C-C bonds, cap with H along the cut bond, freeze a
-configurable shell" recipe shared across the QM-cluster literature.
+The algorithm follows the standard "BFS from a chosen seed, keep the
+local ligand topology intact unless a user explicitly chooses a
+truncation bond, cap with H along the cut bond, freeze a configurable
+shell" recipe shared across the QM-cluster literature.
 These references ground the default freeze / cap / mode choices and
 are the basis of the default :class:`ClusterProvenance.convention_reference`
 string; callers should still override that field with the citation
@@ -66,8 +66,8 @@ appropriate to their own system.
   DOI: 10.1021/acs.jpcc.8b08684.  (Delta-cluster convergence test in
   zeolites; basis for the diagnostic ``rcut`` mode.)
 
-System-specific defaults (which seed, what ``seed_merge_radius``, how
-many ``n_shells``, which ``freeze_shell``, whether to deviate from
+System-specific defaults (which seed, what ``seed_merge_radius``, where
+to place any explicit C-C truncation, which ``freeze_shell``, whether to deviate from
 the per-element X-H cap table) should still be picked by the caller
 and recorded in :class:`ClusterProvenance.convention_reference` so
 the sidecar JSON is self-documenting per project.
@@ -106,10 +106,62 @@ from ..utils.geometry import minimum_image_distance
 # isolated centres or non-metal seeds should leave it at zero.
 DEFAULT_SEED_MERGE_RADIUS = 0.0
 
+# Hard safety cap for topology-preserving BFS.  The default should be
+# comfortably above normal QM-cluster sizes while still catching periodic
+# linkers or accidental whole-framework sweeps before they become
+# pathological.
+DEFAULT_MAX_ATOMS = 500
+
 # Fallback cap distance (Angstrom) when neither the explicit override nor
 # the per-element BOND_LENGTHS lookup yields a value.  Equal to the C-H
 # standard since the BOND_LENGTHS table also lists 1.09 A for "C-H".
 _FALLBACK_CAP_DISTANCE = 1.09
+
+
+def _build_anion_group_map(
+    parent_atoms: Atoms,
+    bond_graph: nx.Graph,
+) -> Dict[int, int]:
+    """Thin shim around
+    :meth:`molcrys_kit.analysis.chemical_env.ChemicalEnvironment.compute_anion_protonation_groups`.
+
+    The chemistry of "what counts as one anionic site" lives entirely
+    in :mod:`molcrys_kit.analysis.chemical_env` so the carver shares a
+    single source of truth with ``operations.add_hydrogens``: both
+    consult the same ``_is_carboxylate_like_C`` / ``_is_sulfonate_like_S``
+    / ``_is_phosphonate_like_P`` / ``_is_hypercoordinate_oxo_center``
+    detectors plus the geometry-validated aromatic-ring inventory.
+
+    Two implementation details matter for correctness:
+
+    * **Strip metal-ligand edges before calling chem_env.**  The
+      anion-site detectors classify an O as "terminal" by checking
+      that it has exactly one heavy neighbour; in the parent crystal
+      a carboxylate O is bonded to both its C and its coordinating
+      Zn, so the raw PBC bond graph would make the O *non*-terminal
+      and silently miss the carboxylate.  We therefore feed
+      :class:`ChemicalEnvironment` the *organic skeleton* (the bond
+      graph with metal-non-metal edges removed) so the detectors see
+      the same picture they do on a fully protonated crystal where
+      no metals are present.
+    * **Keep metal atoms as nodes** so the returned dict still maps
+      every parent index, with metals defaulting to a group of one.
+    """
+    from ..analysis.chemical_env import ChemicalEnvironment
+
+    syms = parent_atoms.get_chemical_symbols()
+    pos = parent_atoms.get_positions()
+    g = nx.Graph()
+    for i, s in enumerate(syms):
+        g.add_node(i, symbol=s)
+    for u, v in bond_graph.edges():
+        if is_metal_element(syms[int(u)]) or is_metal_element(syms[int(v)]):
+            # Metal-ligand edges are dropped from the organic-skeleton
+            # view used for carboxylate / sulfonate / ring detection;
+            # see the docstring above for the rationale.
+            continue
+        g.add_edge(int(u), int(v))
+    return ChemicalEnvironment((g, pos)).compute_anion_protonation_groups()
 
 
 def _resolve_cap_bond_lengths(
@@ -134,12 +186,6 @@ def _resolve_cap_bond_lengths(
             table[element] = float(value)
     return table
 
-# Default cut-boundary budget.  ``n_shells = 1`` corresponds to "include
-# the seed plus the first linker fragment up to the first cuttable
-# C-C bond"; ``0`` cuts at the very first cuttable bond.  Tune per system.
-DEFAULT_N_SHELLS = 1
-
-
 # Sentinel for "use the BOND_LENGTHS lookup keyed by the kept-side element"
 # in the cap-distance argument.  Passing a positive float overrides the
 # lookup with a uniform value (the original v0 behaviour).
@@ -147,6 +193,56 @@ DEFAULT_CAP_DISTANCE: Optional[float] = None
 
 
 SeedSpec = Union[str, int, Sequence[int], Callable[[Atoms], Sequence[int]]]
+
+
+def _edge_key(i: int, j: int) -> Tuple[int, int]:
+    """Return a stable, order-independent representation of an edge."""
+    a, b = int(i), int(j)
+    return (a, b) if a <= b else (b, a)
+
+
+class LigandTopologyOverflowError(ValueError):
+    """Raised when topology-preserving carving exceeds ``max_atoms``.
+
+    The error carries cuttable C-C candidates on the current frontier so a
+    caller can choose explicit ``cut_cc_bonds`` and rerun deterministically.
+    """
+
+    def __init__(
+        self,
+        seed_indices: Sequence[int],
+        actual_atom_count: int,
+        max_atoms: int,
+        candidates: Sequence[Tuple[int, int]],
+    ):
+        self.seed_indices = [int(i) for i in seed_indices]
+        self.actual_atom_count = int(actual_atom_count)
+        self.max_atoms = int(max_atoms)
+        self.candidates = [_edge_key(a, b) for a, b in candidates]
+        super().__init__(self.__str__())
+
+    def __str__(self) -> str:
+        candidate_text = (
+            ", ".join(f"({a}, {b})" for a, b in self.candidates)
+            if self.candidates
+            else "none found on the current frontier"
+        )
+        suggestion = ""
+        if self.candidates:
+            first = self.candidates[:4]
+            joined = ";".join(f"{a},{b}" for a, b in first)
+            suggestion = (
+                f" Suggested CLI retry: --cut-cc-bonds \"{joined}\" "
+                f"(inspect the candidates before choosing)."
+            )
+        return (
+            "Topology-preserving cluster carving exceeded max_atoms="
+            f"{self.max_atoms} for seed group {self.seed_indices}; "
+            f"current kept atom count is {self.actual_atom_count}. "
+            "This usually means the selected component is periodically "
+            "extended or the safety cap is too small. Candidate cuttable "
+            f"C-C frontier bonds: {candidate_text}.{suggestion}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -225,23 +321,41 @@ def _build_offset_bond_graph(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
 ) -> nx.Graph:
-    """Build a periodic bond graph with image-offset displacement vectors on edges.
+    """Build a PBC-aware bond graph with integer image offsets per edge.
 
-    Follows the same pattern as :func:`molcrys_kit.io.cif._build_molecule_graph`:
-    each edge stores ``vector`` (the displacement ``r_j + S @ lattice - r_i``)
-    so the carver can place caps along the *actual* bond direction even when
-    the bond crosses a periodic image.
+    The carver lives in a non-periodic Cartesian frame, but the parent
+    bond graph is genuinely periodic: a Zn-N coordination bond may
+    connect atoms whose wrapped positions sit on opposite faces of the
+    unit cell.  We therefore identify bonds using ASE's
+    ``neighbor_list("ijdS", atoms, ...)`` on the wrapped Atoms with
+    ``pbc=True``, and store both:
+
+    * ``image`` -- the integer image triple ``S`` such that the bonded
+      pair ``(min(i, j), max(i, j))`` is realized as ``pos[max] + S @ cell
+      - pos[min]``.  ``S`` is direction-sensitive and is signed for the
+      ``min -> max`` traversal direction.
+    * ``vector`` -- the Cartesian displacement from ``min`` to ``max`` in
+      that bonded frame, i.e. ``pos[max] + S @ cell - pos[min]``.
+    * ``distance`` -- the Euclidean length of ``vector``.
+
+    BFS in :class:`ClusterCarver` consumes these attributes to keep
+    every kept atom in a single consistent image frame around the seed
+    group.  Edges that close a periodic loop with an inconsistent image
+    are explicitly broken as "loop cuts" rather than left as phantom
+    bonds.
     """
     symbols = atoms.get_chemical_symbols()
-    i_list, j_list, d_list, D_vectors = neighbor_list(
-        "ijdD", atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF
+    i_list, j_list, d_list, S_list = neighbor_list(
+        "ijdS", atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF
     )
 
     graph = nx.Graph()
     graph.add_nodes_from((i, {"symbol": s}) for i, s in enumerate(symbols))
 
+    cell = np.asarray(atoms.get_cell())
+    wrapped = atoms.get_positions()
     bond_thresholds = bond_thresholds or {}
-    for i, j, distance, D_vec in zip(i_list, j_list, d_list, D_vectors):
+    for i, j, distance, S in zip(i_list, j_list, d_list, S_list):
         if i >= j:
             continue
         pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
@@ -259,10 +373,49 @@ def _build_offset_bond_graph(
                 is_metal_element(symbols[j]),
             )
         if distance < threshold:
-            graph.add_edge(int(i), int(j), vector=np.array(D_vec, dtype=float),
-                           distance=float(distance))
+            image = tuple(int(x) for x in S)
+            vec = wrapped[int(j)] + np.asarray(S, dtype=float) @ cell - wrapped[int(i)]
+            graph.add_edge(
+                int(i),
+                int(j),
+                image=image,
+                vector=np.array(vec, dtype=float),
+                distance=float(distance),
+            )
 
     return graph
+
+
+def _seed_group_offsets(
+    atoms: Atoms,
+    seed_group: Sequence[int],
+    lattice: np.ndarray,
+) -> Dict[int, Tuple[int, int, int]]:
+    """Per-seed integer image offset that co-locates the seed group.
+
+    Returns ``{seed_global_index: (sx, sy, sz)}`` such that
+    ``wrapped[seed] + S @ cell`` puts every seed in one geometric
+    minimum-image neighbourhood (anchored at the first seed at the
+    origin image ``(0, 0, 0)``).  This is the starting frame for the
+    offset-tracking BFS in the carver.
+    """
+    if not seed_group:
+        return {}
+    wrapped = atoms.get_positions()
+    cell = np.asarray(lattice, dtype=float)
+    inv = np.linalg.inv(cell)
+    anchor = int(seed_group[0])
+    offsets: Dict[int, Tuple[int, int, int]] = {anchor: (0, 0, 0)}
+    anchor_pos = wrapped[anchor]
+    for s in seed_group:
+        s_int = int(s)
+        if s_int == anchor:
+            continue
+        disp = wrapped[s_int] - anchor_pos
+        frac = disp @ inv
+        S = -np.round(frac).astype(int)
+        offsets[s_int] = (int(S[0]), int(S[1]), int(S[2]))
+    return offsets
 
 
 _MAX_CHEMICAL_RING_SIZE = 8  # covers furanose/pyranose/triazole/imidazole/benzene/cyclohexane
@@ -369,10 +522,22 @@ class ClusterCarver:
 
     Notes
     -----
-    The carver builds its own atom-level periodic bond graph with image
-    offsets from scratch (via the same ``neighbor_list("ijdD", ...)``
-    recipe used by :mod:`molcrys_kit.io.cif`); ``CrystalMolecule._build_graph``
-    does *not* carry offsets and therefore cannot be reused.
+    The carver builds a *PBC-aware* bond graph (atoms with ``pbc=True``)
+    where each edge carries the integer image triple ``S`` such that the
+    bonded pair sits at ``pos[max] + S @ cell - pos[min]``.  BFS from the
+    seed group then propagates per-atom image offsets so that every
+    kept atom lives in one consistent Cartesian frame around the seeds.
+    Whenever a topologically nontrivial periodic loop is encountered --
+    a kept atom is re-reached with an incompatible offset -- the
+    closing bond is recorded as a ``loop_cut`` and capped with H on
+    *both* sides; no phantom (algorithm-says-bonded but
+    several-Angstrom-apart) edge can survive.
+
+    Seed grouping itself uses the *wrapped* parent positions plus
+    minimum-image distance, so a metal trimer that wraps across a
+    periodic face is identified correctly; the per-seed image offsets
+    needed to co-locate the group geometrically are computed at the
+    start of each carve.
     """
 
     def __init__(
@@ -387,6 +552,9 @@ class ClusterCarver:
         # Important: to_ase reorders atoms by molecule; we keep that
         # convention for all global indices throughout the carver.
         self._lattice: np.ndarray = np.array(crystal.lattice)
+        self._wrapped_positions: np.ndarray = self._atoms.get_positions()
+        # PBC-aware bond graph; edges carry integer ``image`` triples
+        # and the corresponding Cartesian ``vector``.
         self._graph: nx.Graph = _build_offset_bond_graph(
             self._atoms, bond_thresholds
         )
@@ -396,7 +564,8 @@ class ClusterCarver:
     def carve_bond_shells(
         self,
         seed: SeedSpec,
-        n_shells: int = DEFAULT_N_SHELLS,
+        max_atoms: Optional[int] = DEFAULT_MAX_ATOMS,
+        cut_cc_bonds: Optional[Sequence[Tuple[int, int]]] = None,
         freeze_shell: int = 1,
         cap_distance: Optional[float] = DEFAULT_CAP_DISTANCE,
         cap_bond_lengths: Optional[Dict[str, float]] = None,
@@ -410,6 +579,17 @@ class ClusterCarver:
 
         Parameters
         ----------
+        max_atoms : int, optional
+            Hard safety limit for the topology-preserving BFS.  If the
+            retained parent atoms exceed this count, the carver raises
+            :class:`LigandTopologyOverflowError` and lists cuttable C-C
+            frontier bonds for an explicit retry.  ``None`` disables the
+            guard.
+        cut_cc_bonds : sequence[tuple[int, int]], optional
+            Parent global atom-index pairs where a single non-ring C-C
+            bond should be treated as a manual truncation boundary.  Each
+            pair is validated before carving; invalid bonds raise
+            ``ValueError`` rather than being silently ignored.
         cap_distance : float, optional
             If ``None`` (default), each cap H is placed at the
             element-specific X-H length from
@@ -443,6 +623,7 @@ class ClusterCarver:
             when more than one group is found.
         """
         seed_indices = _resolve_seed_atoms(self._atoms, seed)
+        validated_cut_cc_bonds = self._validate_user_cuts(cut_cc_bonds)
         seed_groups = _partition_seeds_by_distance(
             self._atoms, seed_indices, self._lattice, self.seed_merge_radius
         )
@@ -460,7 +641,8 @@ class ClusterCarver:
         for group in seed_groups:
             cluster = self._carve_one_group_bond_shells(
                 group,
-                n_shells=int(n_shells),
+                max_atoms=None if max_atoms is None else int(max_atoms),
+                cut_cc_bonds=validated_cut_cc_bonds,
                 freeze_shell=int(freeze_shell),
                 cap_distance=cap_override,
                 cap_lengths_table=cap_lengths_table,
@@ -521,7 +703,8 @@ class ClusterCarver:
     def _carve_one_group_bond_shells(
         self,
         seed_indices: Sequence[int],
-        n_shells: int,
+        max_atoms: Optional[int],
+        cut_cc_bonds: Sequence[Tuple[int, int]],
         freeze_shell: int,
         cap_distance: Optional[float],
         cap_lengths_table: Dict[str, float],
@@ -529,116 +712,243 @@ class ClusterCarver:
         convention_reference: str = "",
         stop_at_non_seed_metals: bool = True,
     ) -> CrystalCluster:
+        """Topology-preserving carve with chemistry-aware loop-cut placement.
+
+        Algorithm
+        ---------
+        1. Find the kept connected component starting from the seed
+           group: BFS through every edge **except** those that hit a
+           non-seed metal (when ``stop_at_non_seed_metals=True``) or
+           that the user explicitly listed in ``cut_cc_bonds``.  The
+           skipped edges become ``metal_boundary_cuts`` and
+           ``cut_cc_bonds_applied`` respectively.
+        2. Build a **maximum-weight spanning tree** of that component
+           with edge weights chosen so non-metal/non-metal (intra-
+           ligand) edges are vastly preferred over metal/non-metal
+           (coordination) edges.  This guarantees that every back edge
+           -- the one in each cycle that the tree does not contain --
+           is preferentially a metal-ligand bond, not an internal ring
+           bond.
+        3. BFS through the spanning tree from ``seed_indices[0]`` to
+           propagate per-atom integer image offsets consistently.
+        4. Sweep every non-tree (back) edge.  If its stored image
+           matches the offsets propagated through the tree, it is a
+           chemical ring closure and is kept silently.  If not, it
+           closes a topologically nontrivial periodic loop and is
+           recorded as a ``loop_cut`` -- capped with H on both sides.
+           By design the back edges are metal-ligand bonds, so the
+           ligand topology stays intact and the chemistry is correct.
+        """
         symbols = self._atoms.get_chemical_symbols()
         seed_set = set(int(i) for i in seed_indices)
+        cut_cc_keys = {_edge_key(a, b) for a, b in cut_cc_bonds}
 
-        # ----- Pre-pass: BFS bond-hop envelope + local ring detection -----
-        # Run a wide, ring-agnostic BFS to pick up enough atoms that the
-        # subsequent ring detection captures every ring inside the
-        # eventual cluster.  Envelope = (n_shells + 2) * max_hops_per_shell
-        # where one shell is conservatively bounded by 6 bond hops (M -> O
-        # -> C(carboxylate) -> C(aryl) -> C(aryl) -> C(alpha)).
-        envelope_hops = max(6 * (n_shells + 1) + 2, 8)
-        envelope_nodes = self._bfs_envelope(seed_indices, envelope_hops)
-        local_subgraph = self._graph.subgraph(envelope_nodes).copy()
-        rings_of = _local_rings(local_subgraph)
-
-        # ----- Main pass: ring-aware BFS with cut rule -------------------
-        kept_global: Set[int] = set(seed_indices)
-        # Per-node depth in "cut boundaries crossed".  Seed atoms are at
-        # depth 0; depth increments by 1 the moment BFS traverses through
-        # what would have been a cuttable C-C bond.  (But we only choose
-        # not to cut and to traverse when n_shells_remaining > 0.)
-        depth: Dict[int, int] = {int(i): 0 for i in seed_indices}
-        # Cumulative position offsets (in cell-vector units) for each
-        # kept atom relative to the original seed-anchored frame.  Seeds
-        # start at the unwrapped position of the seed itself.
-        offsets: Dict[int, np.ndarray] = {
-            int(i): np.zeros(3, dtype=float) for i in seed_indices
-        }
-        queue: deque = deque(seed_indices)
-        cut_bonds: List[Tuple[int, int]] = []
-        cut_keeper_offsets: List[np.ndarray] = []  # absolute Cartesian, kept side
-        cut_dropped_directions: List[np.ndarray] = []  # unit vector kept->dropped
-
-        cell = self._lattice
-
+        # ---- Step 1: identify the kept connected component ----------
+        kept_global: Set[int] = set(int(i) for i in seed_indices)
+        queue: deque = deque(int(i) for i in seed_indices)
+        metal_boundary_cuts: List[Tuple[int, int]] = []
+        seen_metal_boundary: Set[Tuple[int, int]] = set()
         while queue:
             i = queue.popleft()
-            for j, edge_data in self._graph[i].items():
-                # The stored vector points from min(i,j) to max(i,j);
-                # flip the sign when BFS traverses in the reverse order.
-                vec_stored = edge_data["vector"]
-                vec_ij = vec_stored if i < j else -vec_stored
-                if j in kept_global:
+            for j in self._graph[i]:
+                pair = _edge_key(i, j)
+                if pair in cut_cc_keys:
+                    # User-requested C-C cut; do not traverse.
                     continue
-                # Metal-boundary rule: never expand into a metal atom
-                # that is not part of the current seed group; record an
-                # implicit cut and cap on the kept (i) side.  This is
-                # what prevents a multi-node framework from sweeping
-                # past every other node via non-C-C (M-X-X-M) bridges.
                 if (
                     stop_at_non_seed_metals
                     and is_metal_element(symbols[j])
                     and int(j) not in seed_set
                 ):
-                    cut_bonds.append((int(i), int(j)))
-                    cut_keeper_offsets.append(
-                        self._atoms.positions[i] + offsets[i]
-                    )
-                    cut_dropped_directions.append(
-                        vec_ij / float(np.linalg.norm(vec_ij))
-                    )
+                    # Non-seed metal: record a metal-boundary cut and
+                    # do not enter.
+                    if pair not in seen_metal_boundary:
+                        seen_metal_boundary.add(pair)
+                        metal_boundary_cuts.append((int(i), int(j)))
                     continue
-                # Decide if this bond is a cut boundary.
-                is_cuttable = _is_cuttable_cc(symbols, self._graph, i, j, rings_of)
-                if is_cuttable:
-                    # If we have shells remaining, *cross* the cut (consume
-                    # one shell) and continue BFS through j; otherwise
-                    # record the cut, place a cap, do not enqueue j.
-                    if depth[i] >= n_shells:
-                        # Cut here.  Record and skip.
-                        # Direction from kept i toward dropped j (already
-                        # offset-aware via vec_ij).
-                        cut_bonds.append((int(i), int(j)))
-                        cut_keeper_offsets.append(
-                            self._atoms.positions[i] + offsets[i]
-                        )
-                        cut_dropped_directions.append(
-                            vec_ij / float(np.linalg.norm(vec_ij))
-                        )
-                        continue
-                    else:
-                        new_depth = depth[i] + 1
-                else:
-                    new_depth = depth[i]
-
+                if int(j) in kept_global:
+                    continue
                 kept_global.add(int(j))
-                depth[int(j)] = new_depth
-                # Image offset of atom j relative to its parent frame is
-                # determined by extending the kept-side cumulative offset
-                # with the displacement that brings j into the same
-                # contiguous frame as i.
-                # vec_ij = r_j_raw - r_i_raw + S @ cell, where r_i_raw
-                # is the unwrapped position we already have.  The S we
-                # need is the integer shift that fits this constraint.
-                # We invert: S = round( (vec_ij - (r_j_raw - r_i_raw)) @ inv(cell) ).
-                raw_disp = self._atoms.positions[j] - self._atoms.positions[i]
-                shift = np.linalg.solve(cell.T, (vec_ij - raw_disp))
-                offsets[int(j)] = offsets[i] + shift @ cell
                 queue.append(int(j))
+                if max_atoms is not None and len(kept_global) > max_atoms:
+                    raise LigandTopologyOverflowError(
+                        seed_indices=seed_indices,
+                        actual_atom_count=len(kept_global),
+                        max_atoms=max_atoms,
+                        candidates=self._collect_frontier_cuttables(kept_global),
+                    )
 
-        # ----- Emit the cluster --------------------------------------------
+        # ---- Step 2: build the maximum-weight spanning tree ----------
+        # Edge weight rule: a ligand-internal (non-metal/non-metal)
+        # edge is two orders of magnitude heavier than a metal/non-
+        # metal edge, so the maximum-weight spanning tree keeps every
+        # available ligand-internal edge as a tree edge whenever doing
+        # so does not disconnect the cluster.  Back edges (the ones
+        # the tree omits) are therefore overwhelmingly metal-X edges,
+        # which is exactly where a topologically forced cut belongs.
+        # We add a tiny preference for shorter bonds inside each weight
+        # tier so the tree is deterministic regardless of insertion
+        # order.
+        subgraph_view = self._graph.subgraph(kept_global)
+        weighted = nx.Graph()
+        weighted.add_nodes_from(subgraph_view.nodes(data=True))
+        for u, v, data in subgraph_view.edges(data=True):
+            pair = _edge_key(u, v)
+            if pair in cut_cc_keys:
+                # User-requested C-C cut: do not include in the cluster
+                # bond graph used for offset propagation.  The cut is
+                # processed separately below.
+                continue
+            metal_endpoint = (
+                is_metal_element(symbols[int(u)])
+                or is_metal_element(symbols[int(v)])
+            )
+            base_weight = 1.0 if metal_endpoint else 100.0
+            # Smaller bond distance => slightly higher weight (break
+            # weight-tier ties in a deterministic, geometrically
+            # reasonable way).
+            tiebreak = -0.001 * float(data.get("distance", 0.0))
+            weighted.add_edge(
+                int(u), int(v), weight=base_weight + tiebreak, _data=data
+            )
+
+        if weighted.number_of_nodes() == 0:
+            mst_edges: Set[Tuple[int, int]] = set()
+        else:
+            mst = nx.maximum_spanning_tree(weighted, weight="weight")
+            mst_edges = {_edge_key(u, v) for u, v in mst.edges()}
+
+        # ---- Step 3: BFS along the spanning tree to set offsets -----
+        anchor = int(seed_indices[0])
+        kept_offset: Dict[int, Tuple[int, int, int]] = {anchor: (0, 0, 0)}
+        tree_queue: deque = deque([anchor])
+        while tree_queue:
+            i = tree_queue.popleft()
+            offset_i = np.asarray(kept_offset[i], dtype=int)
+            for j in weighted.neighbors(i):
+                if _edge_key(i, j) not in mst_edges:
+                    continue
+                if int(j) in kept_offset:
+                    continue
+                edge_data = self._graph[i][int(j)]
+                image_stored = np.asarray(edge_data["image"], dtype=int)
+                if i < j:
+                    image_ij = image_stored
+                else:
+                    image_ij = -image_stored
+                kept_offset[int(j)] = tuple(
+                    int(x) for x in (offset_i + image_ij).tolist()
+                )
+                tree_queue.append(int(j))
+
+        # Any atom not visited by the tree BFS (defensive guard --
+        # should only happen for atoms isolated by an entirely-
+        # excluded edge, e.g. an orphan inside the cut_cc_bonds
+        # boundary) keeps its wrapped position.
+        for g in kept_global:
+            kept_offset.setdefault(int(g), (0, 0, 0))
+
+        def _cluster_pos(g: int) -> np.ndarray:
+            offset = np.asarray(kept_offset[g], dtype=float)
+            return self._wrapped_positions[g] + offset @ self._lattice
+
+        # ---- Step 4: sweep back edges, mark inconsistent as loop_cut --
+        cut_bonds: List[Tuple[int, int]] = []
+        loop_cuts: List[Tuple[int, int]] = []
+        loop_cut_keys: Set[Tuple[int, int]] = set()
+        cut_keeper_positions: List[np.ndarray] = []
+        cut_dropped_directions: List[np.ndarray] = []
+
+        for u, v, edge_data in subgraph_view.edges(data=True):
+            pair = _edge_key(u, v)
+            if pair in cut_cc_keys:
+                continue
+            if pair in mst_edges:
+                continue
+            # Back edge: check offset consistency.
+            image_stored = np.asarray(edge_data["image"], dtype=int)
+            vec_stored = edge_data["vector"]
+            if u < v:
+                image_uv = image_stored
+                vec_uv = vec_stored
+            else:
+                image_uv = -image_stored
+                vec_uv = -vec_stored
+            expected = tuple(
+                int(x) for x in (
+                    np.asarray(kept_offset[int(u)], dtype=int) + image_uv
+                ).tolist()
+            )
+            if kept_offset[int(v)] == expected:
+                # Consistent chemical ring closure -- the bond is
+                # geometrically realized in the cluster.
+                continue
+            # Topologically nontrivial loop crossing PBC: sever this
+            # bond.  Chemistry rule for capping: only protonate the
+            # non-metal endpoint(s).  A metal endpoint becomes an
+            # "open coordination site" that, in practice, would bind a
+            # solvent in the real material -- adding a Zn-H or Cu-H
+            # hydride here would be chemically wrong.  When both sides
+            # are non-metals (a real ligand-polymeric PBC loop, e.g.
+            # graphene-like covalent net) we cap both sides as before.
+            loop_cut_keys.add(pair)
+            loop_cuts.append(pair)
+            unit_uv = np.asarray(vec_uv) / float(np.linalg.norm(vec_uv))
+            u_is_metal = is_metal_element(symbols[int(u)])
+            v_is_metal = is_metal_element(symbols[int(v)])
+            if not u_is_metal:
+                cut_bonds.append((int(u), int(v)))
+                cut_keeper_positions.append(_cluster_pos(int(u)))
+                cut_dropped_directions.append(unit_uv)
+            if not v_is_metal:
+                cut_bonds.append((int(v), int(u)))
+                cut_keeper_positions.append(_cluster_pos(int(v)))
+                cut_dropped_directions.append(-unit_uv)
+
+        # ---- Metal-boundary cuts: emit cap from the kept side --------
+        for kept_i, dropped_j in metal_boundary_cuts:
+            edge_data = self._graph[int(kept_i)][int(dropped_j)]
+            vec_stored = edge_data["vector"]
+            vec_ij = vec_stored if int(kept_i) < int(dropped_j) else -vec_stored
+            cut_bonds.append((int(kept_i), int(dropped_j)))
+            cut_keeper_positions.append(_cluster_pos(int(kept_i)))
+            cut_dropped_directions.append(
+                np.asarray(vec_ij) / float(np.linalg.norm(vec_ij))
+            )
+
+        # ---- User-requested C-C cuts ---------------------------------
+        cut_cc_bonds_applied: List[Tuple[int, int]] = []
+        for a, b in cut_cc_bonds:
+            a_kept = int(a) in kept_global
+            b_kept = int(b) in kept_global
+            if a_kept == b_kept:
+                continue
+            kept_i, dropped_j = (int(a), int(b)) if a_kept else (int(b), int(a))
+            edge_data = self._graph[kept_i][dropped_j]
+            vec_stored = edge_data["vector"]
+            vec_ij = vec_stored if kept_i < dropped_j else -vec_stored
+            cut = (kept_i, dropped_j)
+            cut_bonds.append(cut)
+            cut_cc_bonds_applied.append(cut)
+            cut_keeper_positions.append(_cluster_pos(kept_i))
+            cut_dropped_directions.append(
+                np.asarray(vec_ij) / float(np.linalg.norm(vec_ij))
+            )
+
         return self._finalize_cluster(
             kept_global=kept_global,
-            offsets=offsets,
+            kept_offset=kept_offset,
             cut_bonds=cut_bonds,
-            cut_keeper_offsets=cut_keeper_offsets,
+            cut_keeper_positions=cut_keeper_positions,
             cut_dropped_directions=cut_dropped_directions,
             seed_indices=seed_indices,
             mode="bond_shells",
-            n_shells=n_shells,
             rcut_A=None,
+            max_atoms=max_atoms,
+            cut_cc_bonds_requested=cut_cc_bonds,
+            cut_cc_bonds_applied=cut_cc_bonds_applied,
+            metal_boundary_cuts=metal_boundary_cuts,
+            loop_cuts=loop_cuts,
             freeze_shell=freeze_shell,
             cap_distance=cap_distance,
             cap_lengths_table=cap_lengths_table,
@@ -659,69 +969,94 @@ class ClusterCarver:
         parent_label: Optional[str],
         convention_reference: str = "",
     ) -> CrystalCluster:
-        # Strategy: BFS the bond graph; an atom is kept iff its
-        # *minimum-image* Cartesian distance to any seed atom is <= rcut.
-        # Using BFS (rather than a flat distance scan) guarantees
-        # contiguity in the cluster -- isolated guest molecules within
-        # rcut of the seed are not pulled in.
-
-        # Seed cartesians as reference points.
-        seed_carts = np.array(
-            [self._atoms.positions[i] for i in seed_indices], dtype=float
+        # Strategy: BFS the PBC bond graph while tracking each kept
+        # atom's integer image offset.  An atom is kept iff its
+        # cluster-frame distance to any seed (computed from the
+        # propagated offset) is <= ``rcut``.  Loop edges with
+        # inconsistent offsets are recorded as ``loop_cuts`` exactly as
+        # in the bond_shells mode.
+        kept_offset: Dict[int, Tuple[int, int, int]] = _seed_group_offsets(
+            self._atoms, seed_indices, self._lattice
         )
+        kept_global: Set[int] = set(kept_offset.keys())
+        queue: deque = deque(kept_offset.keys())
 
-        kept_global: Set[int] = set(seed_indices)
-        offsets: Dict[int, np.ndarray] = {
-            int(i): np.zeros(3, dtype=float) for i in seed_indices
-        }
-        queue: deque = deque(seed_indices)
         cut_bonds: List[Tuple[int, int]] = []
-        cut_keeper_offsets: List[np.ndarray] = []
+        loop_cuts: List[Tuple[int, int]] = []
+        loop_cut_keys: Set[Tuple[int, int]] = set()
+        cut_keeper_positions: List[np.ndarray] = []
         cut_dropped_directions: List[np.ndarray] = []
 
-        cell = self._lattice
+        def _cluster_pos(g: int) -> np.ndarray:
+            offset = np.asarray(kept_offset[g], dtype=float)
+            return self._wrapped_positions[g] + offset @ self._lattice
+
+        seed_carts = np.array(
+            [_cluster_pos(int(i)) for i in seed_indices], dtype=float
+        )
 
         while queue:
             i = queue.popleft()
+            offset_i = np.asarray(kept_offset[i], dtype=int)
             for j, edge_data in self._graph[i].items():
+                image_stored = np.asarray(edge_data["image"], dtype=int)
                 vec_stored = edge_data["vector"]
-                vec_ij = vec_stored if i < j else -vec_stored
-                if j in kept_global:
-                    continue
-                # Candidate position of j in the seed-anchored frame.
-                raw_disp = self._atoms.positions[j] - self._atoms.positions[i]
-                shift = np.linalg.solve(cell.T, (vec_ij - raw_disp))
-                offset_j = offsets[i] + shift @ cell
-                pos_j = self._atoms.positions[j] + offset_j
+                if i < j:
+                    image_ij = image_stored
+                    vec_ij = vec_stored
+                else:
+                    image_ij = -image_stored
+                    vec_ij = -vec_stored
+                new_offset = tuple(int(x) for x in (offset_i + image_ij).tolist())
 
-                # Minimum image distance to any seed.
-                dists = np.linalg.norm(seed_carts - pos_j, axis=1)
-                if float(dists.min()) > rcut:
-                    # j is outside the radius: record a cut at i, do not
-                    # traverse.
+                if int(j) in kept_global:
+                    if kept_offset[int(j)] != new_offset:
+                        pair = _edge_key(i, j)
+                        if pair in loop_cut_keys:
+                            continue
+                        loop_cut_keys.add(pair)
+                        loop_cuts.append(pair)
+                        symbols = self._atoms.get_chemical_symbols()
+                        i_is_metal = is_metal_element(symbols[int(i)])
+                        j_is_metal = is_metal_element(symbols[int(j)])
+                        unit_ij = np.asarray(vec_ij) / float(np.linalg.norm(vec_ij))
+                        if not i_is_metal:
+                            cut_bonds.append((int(i), int(j)))
+                            cut_keeper_positions.append(_cluster_pos(int(i)))
+                            cut_dropped_directions.append(unit_ij)
+                        if not j_is_metal:
+                            cut_bonds.append((int(j), int(i)))
+                            cut_keeper_positions.append(_cluster_pos(int(j)))
+                            cut_dropped_directions.append(-unit_ij)
+                    continue
+
+                pos_j = self._wrapped_positions[int(j)] + np.asarray(new_offset, dtype=float) @ self._lattice
+                if float(np.linalg.norm(seed_carts - pos_j, axis=1).min()) > rcut:
                     cut_bonds.append((int(i), int(j)))
-                    cut_keeper_offsets.append(
-                        self._atoms.positions[i] + offsets[i]
-                    )
+                    cut_keeper_positions.append(_cluster_pos(int(i)))
                     cut_dropped_directions.append(
-                        vec_ij / float(np.linalg.norm(vec_ij))
+                        np.asarray(vec_ij) / float(np.linalg.norm(vec_ij))
                     )
                     continue
 
                 kept_global.add(int(j))
-                offsets[int(j)] = offset_j
+                kept_offset[int(j)] = new_offset
                 queue.append(int(j))
 
         return self._finalize_cluster(
             kept_global=kept_global,
-            offsets=offsets,
+            kept_offset=kept_offset,
             cut_bonds=cut_bonds,
-            cut_keeper_offsets=cut_keeper_offsets,
+            cut_keeper_positions=cut_keeper_positions,
             cut_dropped_directions=cut_dropped_directions,
             seed_indices=seed_indices,
             mode="rcut",
-            n_shells=None,
             rcut_A=rcut,
+            max_atoms=None,
+            cut_cc_bonds_requested=[],
+            cut_cc_bonds_applied=[],
+            metal_boundary_cuts=[],
+            loop_cuts=loop_cuts,
             freeze_shell=freeze_shell,
             cap_distance=cap_distance,
             cap_lengths_table=cap_lengths_table,
@@ -731,6 +1066,113 @@ class ClusterCarver:
         )
 
     # ----- shared assembly + cap placement -------------------------------
+
+    def _ring_membership_near(self, nodes: Sequence[int]) -> Dict[int, frozenset]:
+        """Return small-ring membership in a local neighbourhood.
+
+        Expanding by ``_MAX_CHEMICAL_RING_SIZE`` hops is enough to identify
+        whether a queried edge belongs to any chemical ring up to that size,
+        without running cycle-basis detection on the full framework graph.
+        """
+        seed_nodes = {int(n) for n in nodes if int(n) in self._graph}
+        expanded: Set[int] = set(seed_nodes)
+        layer: Set[int] = set(seed_nodes)
+        for _ in range(_MAX_CHEMICAL_RING_SIZE):
+            next_layer: Set[int] = set()
+            for node in layer:
+                for nb in self._graph[node]:
+                    if int(nb) not in expanded:
+                        next_layer.add(int(nb))
+            if not next_layer:
+                break
+            expanded.update(next_layer)
+            layer = next_layer
+        return _local_rings(self._graph.subgraph(expanded).copy())
+
+    def _uncuttable_reason(
+        self, i: int, j: int, rings_of: Dict[int, frozenset]
+    ) -> str:
+        """Explain why edge ``i-j`` is not a legal manual C-C truncation."""
+        symbols = self._atoms.get_chemical_symbols()
+        if i < 0 or i >= len(symbols) or j < 0 or j >= len(symbols):
+            return f"atom index out of range [0, {len(symbols)})"
+        if not self._graph.has_edge(i, j):
+            return "no bond exists between these parent atom indices"
+        if symbols[i] != "C" or symbols[j] != "C":
+            return f"expected C-C, got {symbols[i]}{i}-{symbols[j]}{j}"
+        if rings_of.get(i, frozenset()) & rings_of.get(j, frozenset()):
+            return "bond belongs to a small ring"
+        distance = (self._graph.get_edge_data(i, j) or {}).get("distance")
+        if distance is not None and distance < 1.42:
+            return (
+                f"C-C distance {float(distance):.3f} A is shorter than the "
+                "single-bond cutoff 1.42 A"
+            )
+        return ""
+
+    def _validate_user_cuts(
+        self, cut_cc_bonds: Optional[Sequence[Tuple[int, int]]]
+    ) -> List[Tuple[int, int]]:
+        """Validate and normalize user-specified C-C truncation bonds."""
+        if not cut_cc_bonds:
+            return []
+
+        normalized: List[Tuple[int, int]] = []
+        seen: Set[Tuple[int, int]] = set()
+        nodes: Set[int] = set()
+        for pair in cut_cc_bonds:
+            if len(pair) != 2:
+                raise ValueError(
+                    "cut_cc_bonds entries must be (i, j) parent-index pairs; "
+                    f"got {pair!r}."
+                )
+            key = _edge_key(pair[0], pair[1])
+            if key[0] == key[1]:
+                raise ValueError(f"cut_cc_bonds cannot contain self-edge {key}.")
+            if key not in seen:
+                normalized.append(key)
+                seen.add(key)
+                nodes.update(key)
+
+        rings_of = self._ring_membership_near(sorted(nodes))
+        errors: List[str] = []
+        for i, j in normalized:
+            reason = self._uncuttable_reason(i, j, rings_of)
+            if reason:
+                errors.append(f"({i}, {j}): {reason}")
+        if errors:
+            raise ValueError(
+                "Invalid cut_cc_bonds; only single non-ring C-C bonds may be "
+                "manually truncated. " + "; ".join(errors)
+            )
+        return normalized
+
+    def _collect_frontier_cuttables(
+        self, kept_set: Sequence[int]
+    ) -> List[Tuple[int, int]]:
+        """List legal C-C truncation candidates crossing the current frontier."""
+        kept = {int(i) for i in kept_set}
+        frontier: List[Tuple[int, int]] = []
+        local_nodes: Set[int] = set(kept)
+        for u in sorted(kept):
+            for v in self._graph[u]:
+                if int(v) in kept:
+                    continue
+                edge = _edge_key(u, v)
+                frontier.append(edge)
+                local_nodes.update(edge)
+
+        if not frontier:
+            return []
+
+        rings_of = self._ring_membership_near(sorted(local_nodes))
+        symbols = self._atoms.get_chemical_symbols()
+        candidates = {
+            edge
+            for edge in frontier
+            if _is_cuttable_cc(symbols, self._graph, edge[0], edge[1], rings_of)
+        }
+        return sorted(candidates)
 
     def _bfs_envelope(
         self, seed_indices: Sequence[int], max_hops: int
@@ -752,14 +1194,18 @@ class ClusterCarver:
     def _finalize_cluster(
         self,
         kept_global: Set[int],
-        offsets: Dict[int, np.ndarray],
+        kept_offset: Dict[int, Tuple[int, int, int]],
         cut_bonds: List[Tuple[int, int]],
-        cut_keeper_offsets: List[np.ndarray],
+        cut_keeper_positions: List[np.ndarray],
         cut_dropped_directions: List[np.ndarray],
         seed_indices: Sequence[int],
         mode: str,
-        n_shells: Optional[int],
         rcut_A: Optional[float],
+        max_atoms: Optional[int],
+        cut_cc_bonds_requested: Sequence[Tuple[int, int]],
+        cut_cc_bonds_applied: Sequence[Tuple[int, int]],
+        metal_boundary_cuts: Sequence[Tuple[int, int]],
+        loop_cuts: Sequence[Tuple[int, int]],
         freeze_shell: int,
         cap_distance: Optional[float],
         cap_lengths_table: Dict[str, float],
@@ -768,10 +1214,18 @@ class ClusterCarver:
         audit_non_cc_cuts: bool,
     ) -> CrystalCluster:
         symbols = self._atoms.get_chemical_symbols()
+        loop_cut_keys: Set[Tuple[int, int]] = {
+            _edge_key(a, b) for a, b in loop_cuts
+        }
 
         # Optional audit (rcut mode only).
         if audit_non_cc_cuts:
             for kept_i, dropped_j in cut_bonds:
+                if _edge_key(kept_i, dropped_j) in loop_cut_keys:
+                    # Loop cuts are not user-controlled; they are
+                    # required by the topology and are reported via the
+                    # loop_cuts list rather than as a "red-flag" cut.
+                    continue
                 if symbols[kept_i] != "C" or symbols[dropped_j] != "C":
                     warnings.warn(
                         f"ClusterCarver.carve_rcut: cut bond "
@@ -784,38 +1238,122 @@ class ClusterCarver:
 
         # ----- Build the emitted cluster atom list ------------------------
         # Preserve a stable ordering: kept atoms sorted by global index,
-        # then cap H atoms (one per cut bond, in cut-bond order).
+        # then cap H atoms (one per cut bond, in cut-bond order).  Each
+        # kept atom's cluster position is its wrapped parent position
+        # offset by ``kept_offset[g] @ lattice`` so the entire cluster
+        # lives in one consistent image frame around the seeds.
         kept_sorted = sorted(kept_global)
         global_to_local: Dict[int, int] = {g: lo for lo, g in enumerate(kept_sorted)}
 
         positions: List[np.ndarray] = []
         new_symbols: List[str] = []
         for g in kept_sorted:
-            positions.append(self._atoms.positions[g] + offsets[g])
+            offset = np.asarray(kept_offset[g], dtype=float)
+            positions.append(self._wrapped_positions[g] + offset @ self._lattice)
             new_symbols.append(symbols[g])
 
         # Place cap H atoms.  When the user did not pass an explicit
         # ``cap_distance`` override, the X-H length is looked up per
         # kept-side element from the shared BOND_LENGTHS table
-        # (1.09 for C-H, 1.01 for N-H, 0.96 for O-H, ...).  This matters
-        # in particular for metal-boundary cuts where the kept side is
-        # an N or O.
+        # (1.09 for C-H, 1.01 for N-H, 0.96 for O-H, ...).
+        #
+        # Chemistry-aware deduplication has two layers, both designed
+        # to match the local-environment heuristics the
+        # ``add_hydrogens`` HydrogenCompleter uses on full molecular
+        # crystals so the carver does not invent chemistry that the
+        # hydrogenation pipeline would reject:
+        #
+        # 1.  *Per-atom dedup* -- a single non-carbon keeper that is
+        #     the keeper side of several cuts gets at most one cap H
+        #     (a μ-N bridging two non-seed Zn becomes N-H, not NH2).
+        # 2.  *Per-anion-group dedup* -- a chemical group (a -COO^-
+        #     carboxylate, a sulfonate -SO3^-, a phosphonate -PO3^-,
+        #     a hypercoordinate oxo anion such as NO3^- / ClO4^-, or
+        #     a fully-deprotonated aromatic N-heterocycle ring like
+        #     triazolate / imidazolate / tetrazolate) collectively
+        #     gets at most one cap H even when several keeper atoms
+        #     in the same group were cut from their metals.  Without
+        #     this rule a μ-carboxylate losing both Zn-O bonds would
+        #     become a chemically impossible ``-C(OH)2`` geminal diol
+        #     instead of the correct ``-COOH``; the rule is what
+        #     turns the geminal diol failure mode into the right
+        #     neutral acid form upon QM relaxation.
+        #
+        # Carbon keepers (which only show up for explicit C-C
+        # truncations, where every cut C-X bond is one missing valence
+        # on that carbon) keep the one-cap-per-cut behaviour and are
+        # not subject to the anion-group dedup.
+        anion_groups = _build_anion_group_map(self._atoms, self._graph)
+
         cap_local_indices: List[int] = []
         cap_distances_used: List[float] = []
-        for k, ((kept_i, _dropped_j), keeper_pos, direction) in enumerate(
-            zip(cut_bonds, cut_keeper_offsets, cut_dropped_directions)
+        cap_keeper_globals: List[int] = []
+
+        keeper_directions: Dict[int, List[np.ndarray]] = {}
+        keeper_first_pos: Dict[int, np.ndarray] = {}
+        for (kept_i, _dropped_j), keeper_pos, direction in zip(
+            cut_bonds, cut_keeper_positions, cut_dropped_directions
         ):
+            keeper_directions.setdefault(int(kept_i), []).append(np.asarray(direction))
+            keeper_first_pos.setdefault(int(kept_i), np.asarray(keeper_pos))
+
+        emitted_non_c_keepers: Set[int] = set()
+        emitted_anion_groups: Set[int] = set()
+        for (kept_i, _dropped_j), keeper_pos, direction in zip(
+            cut_bonds, cut_keeper_positions, cut_dropped_directions
+        ):
+            keeper_sym = symbols[int(kept_i)]
+            if keeper_sym != "C":
+                if int(kept_i) in emitted_non_c_keepers:
+                    continue
+                gid = anion_groups.get(int(kept_i), int(kept_i))
+                if gid in emitted_anion_groups:
+                    # The anionic site this keeper belongs to has
+                    # already been protonated via another keeper in
+                    # the same group (e.g., the other O of the same
+                    # carboxylate, or another N of the same
+                    # triazolate ring).  Skip to avoid double-
+                    # protonation.
+                    emitted_non_c_keepers.add(int(kept_i))
+                    continue
+                emitted_non_c_keepers.add(int(kept_i))
+                emitted_anion_groups.add(gid)
+                # Average of unit directions; for a symmetric μ2
+                # bridge this points roughly along the bisector
+                # between the two cut directions, which is the
+                # chemically natural place for the lone-pair proton.
+                directions = keeper_directions[int(kept_i)]
+                stacked = np.stack(directions, axis=0)
+                avg = stacked.sum(axis=0)
+                norm = float(np.linalg.norm(avg))
+                if norm < 1e-6:
+                    # Diametrically opposed cuts: fall back to the
+                    # first cut's direction so we still get a
+                    # defined cap position.
+                    avg_dir = directions[0]
+                else:
+                    avg_dir = avg / norm
+                keeper_pos_used = keeper_first_pos[int(kept_i)]
+                direction_used = avg_dir
+            else:
+                # C keeper: one cap per cut, along the cut's own
+                # direction.  Each cut C-X bond is restored as a
+                # distinct C-H.
+                keeper_pos_used = np.asarray(keeper_pos)
+                direction_used = np.asarray(direction)
+
             if cap_distance is not None:
                 dist = float(cap_distance)
             else:
                 dist = float(
-                    cap_lengths_table.get(symbols[kept_i], _FALLBACK_CAP_DISTANCE)
+                    cap_lengths_table.get(keeper_sym, _FALLBACK_CAP_DISTANCE)
                 )
-            cap_pos = keeper_pos + dist * direction
+            cap_pos = keeper_pos_used + dist * direction_used
             positions.append(cap_pos)
             new_symbols.append("H")
             cap_local_indices.append(len(positions) - 1)
             cap_distances_used.append(dist)
+            cap_keeper_globals.append(int(kept_i))
 
         cluster_atoms = Atoms(
             symbols=new_symbols,
@@ -836,10 +1374,21 @@ class ClusterCarver:
         provenance_kwargs: Dict[str, object] = dict(
             mode=mode,
             seed_global_indices=list(seed_indices),
-            n_shells=n_shells,
             rcut_A=rcut_A,
+            max_atoms=max_atoms,
             kept_global_indices=kept_global_indices_list,
             cut_bonds=[(int(a), int(b)) for a, b in cut_bonds],
+            cut_cc_bonds_requested=[
+                (int(a), int(b)) for a, b in cut_cc_bonds_requested
+            ],
+            cut_cc_bonds_applied=[
+                (int(a), int(b)) for a, b in cut_cc_bonds_applied
+            ],
+            metal_boundary_cuts=[
+                (int(a), int(b)) for a, b in metal_boundary_cuts
+            ],
+            loop_cuts=[(int(a), int(b)) for a, b in loop_cuts],
+            cap_keeper_global_indices=list(cap_keeper_globals),
             cap_local_indices=cap_local_indices,
             frozen_local_indices=frozen_local_indices,
             freeze_shell=freeze_shell,
@@ -911,8 +1460,9 @@ def carve_cluster(
     crystal: MolecularCrystal,
     seed: SeedSpec,
     mode: str = "bond_shells",
-    n_shells: int = DEFAULT_N_SHELLS,
     rcut: Optional[float] = None,
+    max_atoms: Optional[int] = DEFAULT_MAX_ATOMS,
+    cut_cc_bonds: Optional[Sequence[Tuple[int, int]]] = None,
     freeze_shell: int = 1,
     cap_distance: Optional[float] = DEFAULT_CAP_DISTANCE,
     cap_bond_lengths: Optional[Dict[str, float]] = None,
@@ -934,7 +1484,8 @@ def carve_cluster(
     if mode == "bond_shells":
         return carver.carve_bond_shells(
             seed,
-            n_shells=n_shells,
+            max_atoms=max_atoms,
+            cut_cc_bonds=cut_cc_bonds,
             freeze_shell=freeze_shell,
             cap_distance=cap_distance,
             cap_bond_lengths=cap_bond_lengths,
@@ -957,4 +1508,4 @@ def carve_cluster(
     raise ValueError(f"Unknown mode '{mode}'. Use 'bond_shells' or 'rcut'.")
 
 
-__all__ = ["ClusterCarver", "carve_cluster"]
+__all__ = ["ClusterCarver", "LigandTopologyOverflowError", "carve_cluster"]

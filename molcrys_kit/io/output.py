@@ -116,8 +116,8 @@ def write_xyz_with_freeze(
         f"frozen={len(frozen)}",
         f"caps={len(caps)}",
     ]
-    if provenance.n_shells is not None:
-        header_bits.append(f"n_shells={provenance.n_shells}")
+    if provenance.max_atoms is not None:
+        header_bits.append(f"max_atoms={provenance.max_atoms}")
     if provenance.rcut_A is not None:
         header_bits.append(f"rcut_A={provenance.rcut_A:g}")
     if comment:

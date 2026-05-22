@@ -11,7 +11,6 @@ Chemistry-aware carve seeded on a chosen atom (production):
         --cif path/to/structure.cif \
         --seed-index 17 \
         --mode bond_shells \
-        --shells 1 \
         --freeze-shell 1 \
         --out outputs/cluster
 
@@ -22,7 +21,6 @@ nodes whose centres lie within 3.8 A of one another (e.g. M3 trimers):
         --cif path/to/structure.cif \
         --seed-element M \
         --mode bond_shells \
-        --shells 1 \
         --seed-merge-radius 3.8 \
         --freeze-shell 1 \
         --out outputs/cluster
@@ -43,7 +41,7 @@ Outputs (per cluster group)
 * ``<out>__group<k>.xyz``              XYZ with an extra per-atom flag
                                        column (F=frozen, C=cap H, -=free).
 * ``<out>__group<k>.xyz.cluster.json`` Machine-readable provenance
-                                       (mode, n_shells / rcut, seed
+                                       (mode, max_atoms / rcut, seed
                                        indices, kept parent indices,
                                        cut bonds, cap and frozen local
                                        indices, per-cap distances, the
@@ -60,11 +58,11 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import List
+from typing import List, Tuple
 
 from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.io.output import write_xyz_with_freeze
-from molcrys_kit.operations import ClusterCarver, carve_cluster
+from molcrys_kit.operations import ClusterCarver, LigandTopologyOverflowError
 
 
 def _parse_seed(args: argparse.Namespace):
@@ -79,6 +77,31 @@ def _parse_seed(args: argparse.Namespace):
     raise SystemExit(
         "Specify a seed via --seed-element ELEMENT or --seed-index I [I ...]."
     )
+
+
+def _parse_cut_cc_bonds(text: str | None) -> List[Tuple[int, int]]:
+    """Parse ``i,j;k,l`` into parent-index edge pairs."""
+    if text is None or not text.strip():
+        return []
+    out: List[Tuple[int, int]] = []
+    for chunk in text.split(";"):
+        item = chunk.strip()
+        if not item:
+            continue
+        parts = [p.strip() for p in item.split(",")]
+        if len(parts) != 2:
+            raise SystemExit(
+                "--cut-cc-bonds expects 'i,j;k,l' parent-index pairs; "
+                f"got '{chunk}'."
+            )
+        try:
+            out.append((int(parts[0]), int(parts[1])))
+        except ValueError as exc:
+            raise SystemExit(
+                "--cut-cc-bonds entries must be integer pairs; "
+                f"got '{chunk}'."
+            ) from exc
+    return out
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -114,11 +137,20 @@ def main(argv: List[str] | None = None) -> int:
         "(refer to crystal.to_ase() ordering).",
     )
     parser.add_argument(
-        "--shells",
+        "--max-atoms",
         type=int,
-        default=1,
-        help="Number of cut-boundary layers crossed beyond the seed "
-        "(bond_shells mode only).",
+        default=500,
+        help="Hard safety cap for topology-preserving bond_shells BFS. "
+        "If exceeded, the script exits with candidate C-C cut bonds "
+        "instead of choosing a truncation automatically.",
+    )
+    parser.add_argument(
+        "--cut-cc-bonds",
+        type=str,
+        default=None,
+        metavar="I,J;K,L",
+        help="Explicit parent-index single C-C bonds to truncate, e.g. "
+        "'--cut-cc-bonds 45,87;90,92'.  Bonds are validated before carving.",
     )
     parser.add_argument(
         "--rcut",
@@ -195,6 +227,8 @@ def main(argv: List[str] | None = None) -> int:
     if args.mode == "rcut" and args.rcut is None:
         raise SystemExit("--rcut is required when --mode rcut.")
 
+    cut_cc_bonds = _parse_cut_cc_bonds(args.cut_cc_bonds)
+
     cap_overrides: dict = {}
     for entry in args.cap_bond_length:
         if "=" not in entry:
@@ -206,27 +240,35 @@ def main(argv: List[str] | None = None) -> int:
 
     crystal = read_mol_crystal(args.cif)
     carver = ClusterCarver(crystal, seed_merge_radius=args.seed_merge_radius)
-    if args.mode == "bond_shells":
-        clusters = carver.carve_bond_shells(
-            seed,
-            n_shells=args.shells,
-            freeze_shell=args.freeze_shell,
-            cap_distance=args.cap_distance,
-            cap_bond_lengths=cap_overrides or None,
-            parent_label=os.path.abspath(args.cif),
-            convention_reference=args.convention_reference,
-            stop_at_non_seed_metals=args.stop_at_non_seed_metals,
-        )
-    else:
-        clusters = carver.carve_rcut(
-            seed,
-            rcut=args.rcut,
-            freeze_shell=args.freeze_shell,
-            cap_distance=args.cap_distance,
-            cap_bond_lengths=cap_overrides or None,
-            parent_label=os.path.abspath(args.cif),
-            convention_reference=args.convention_reference,
-        )
+    try:
+        if args.mode == "bond_shells":
+            clusters = carver.carve_bond_shells(
+                seed,
+                max_atoms=args.max_atoms,
+                cut_cc_bonds=cut_cc_bonds,
+                freeze_shell=args.freeze_shell,
+                cap_distance=args.cap_distance,
+                cap_bond_lengths=cap_overrides or None,
+                parent_label=os.path.abspath(args.cif),
+                convention_reference=args.convention_reference,
+                stop_at_non_seed_metals=args.stop_at_non_seed_metals,
+            )
+        else:
+            clusters = carver.carve_rcut(
+                seed,
+                rcut=args.rcut,
+                freeze_shell=args.freeze_shell,
+                cap_distance=args.cap_distance,
+                cap_bond_lengths=cap_overrides or None,
+                parent_label=os.path.abspath(args.cif),
+                convention_reference=args.convention_reference,
+            )
+    except LigandTopologyOverflowError as exc:
+        print(str(exc), file=sys.stderr)
+        if exc.candidates:
+            formatted = ";".join(f"{a},{b}" for a, b in exc.candidates)
+            print(f"All candidate bonds: --cut-cc-bonds \"{formatted}\"", file=sys.stderr)
+        return 2
 
     out_dir = os.path.dirname(args.out)
     if out_dir and not os.path.isdir(out_dir):

@@ -41,7 +41,7 @@ from .molecule_manipulation import (
     replace_molecule,
 )
 
-from .cluster import ClusterCarver, carve_cluster
+from .cluster import ClusterCarver, LigandTopologyOverflowError, carve_cluster
 
 __all__ = [
     "apply_gaussian_displacement_molecule",
@@ -69,5 +69,6 @@ __all__ = [
     "rotate_molecule",
     "replace_molecule",
     "ClusterCarver",
+    "LigandTopologyOverflowError",
     "carve_cluster",
 ]
