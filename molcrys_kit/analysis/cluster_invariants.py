@@ -1,42 +1,46 @@
-"""Hard correctness checks for carved QM clusters.
+"""C1-C10 invariants every correctly-carved coordination cluster must
+satisfy.
 
-The functions here verify that a cluster XYZ + sidecar pair satisfies the
-acceptance criteria that any downstream QM calculation depends on.  They
-operate purely on parent-crystal data plus the cluster artefacts, so a
-fresh checker run does not depend on the carver internals -- the carver
-can change implementation and the checker still tells us whether the
-emitted artefact is correct.
+A *carve invariant* is a condition that holds, by construction, for any
+cluster emitted by :class:`molcrys_kit.operations.cluster.ClusterCarver`
+operating on a sensible parent crystal.  The functions in this module
+*check* those invariants on the produced artefacts (parent + cluster +
+sidecar provenance), and return the list of violations.  An empty list
+means the cluster passes.
 
-Criteria
---------
+The check runs purely on parent-crystal data plus the cluster artefacts
+so it does not depend on the carver internals: the carver can change
+implementation and the checker still tells us whether the emitted
+artefact is a valid coordination cluster.
+
+Invariants
+----------
 * ``C1`` -- every seed atom retains its first-shell non-metal donors that
   were bonded in the parent crystal.
 * ``C2`` -- no phantom bonds: every parent-bonded pair of kept atoms is
   also geometrically close in the cluster (except topologically
   required ``loop_cuts``).
 * ``C3`` -- the cluster (heavy atoms + cap H) is one connected component.
-* ``C4`` -- per-keeper cap pairing: every cut keeper appears in
-  ``cap_keeper_global_indices``; conversely, every cap H is bonded to
-  its recorded keeper at the right element-specific X-H length.
+* ``C4`` -- per-anion-group cap pairing: every cut keeper appears in
+  ``cap_keeper_global_indices`` after anion-group lookup (carboxylate /
+  sulfonate / phosphonate / hypercoordinate oxo / deprotonated aromatic
+  N-heterocycle); cap-index columns are length-consistent.
 * ``C5`` -- each cap H sits at the recorded ``cap_distances_used_A`` from
   its keeper atom.
 * ``C6`` -- every entry in ``cut_bonds`` is either a metal-boundary cut, a
   requested-and-applied C-C cut, or a loop cut.
 * ``C7`` -- bonds between seed atoms must survive the carve.
-* ``C8`` -- chemistry-aware cap count: each non-C keeper atom carries at
-  most one cap H (a μ-bridging triazolate N that loses several Zn
-  contacts is still protonated only once, to NH not NH2), and the
-  total cap count equals (unique non-C keepers) + (C-C cuts).
+* ``C8`` -- chemistry-aware cap count: at most one cap H per anion
+  group (no -C(OH)2 geminal diols, no dihydro-N-heterocycle tautomers)
+  and per non-C keeper (no NH2 from mu-bridging N over-capping); the
+  total cap count equals (unique non-C anion groups) + (C-C cuts).
 * ``C9`` -- element conservation: the cluster's non-H element counts
   exactly equal the parent counts on ``kept_global_indices``; the
   cluster's H count equals (kept parent H) + ``len(cap_local_indices)``.
 * ``C10`` -- linker inventory: every connected non-metal fragment that
   appears in the cluster has a parent-side counterpart (after counting
-  cap H atoms back as missing Zn coordination), i.e. the carver did not
-  invent or destroy a ligand species.
-
-A check function returns the list of failures (each a human-readable
-string).  An empty list means the cluster passes.
+  cap H atoms back as missing metal coordination), i.e. the carver did
+  not invent or destroy a ligand species.
 """
 
 from __future__ import annotations
@@ -64,16 +68,16 @@ from .interactions import get_bonding_threshold
 
 
 __all__ = [
-    "ClusterCheckResult",
+    "ClusterInvariantReport",
     "build_parent_bond_graph",
-    "check_cluster",
-    "check_cluster_artefacts",
+    "check_cluster_invariants",
+    "check_cluster_invariants_from_files",
 ]
 
 
 @dataclass
-class ClusterCheckResult:
-    """Result of running the cluster checker on one cluster."""
+class ClusterInvariantReport:
+    """Result of running the carve-invariant check on one cluster."""
 
     name: str
     failures: List[str]
@@ -133,7 +137,7 @@ def _build_cluster_bond_graph(cluster_atoms: Atoms) -> nx.Graph:
     return graph
 
 
-def check_cluster(
+def check_cluster_invariants(
     parent_atoms: Atoms,
     cluster_atoms: Atoms,
     provenance: Dict[str, object],
@@ -141,7 +145,10 @@ def check_cluster(
     cap_distance_tol: float = 1e-2,
     bond_slack: float = 1.0,
 ) -> List[str]:
-    """Run all acceptance checks; return the list of human-readable failures.
+    """Check the C1-C10 carve invariants on one cluster artefact.
+
+    Returns the list of violations (each a human-readable string).  An
+    empty list means the cluster passes every invariant.
 
     Parameters
     ----------
@@ -492,11 +499,11 @@ def check_cluster(
     return failures
 
 
-def check_cluster_artefacts(
+def check_cluster_invariants_from_files(
     parent_cif: Path | str,
     xyz_path: Path | str,
     sidecar_path: Path | str | None = None,
-) -> ClusterCheckResult:
+) -> ClusterInvariantReport:
     """File-driven entry point: read parent CIF + cluster XYZ + sidecar JSON."""
     from ..io.cif import read_mol_crystal
 
@@ -511,15 +518,15 @@ def check_cluster_artefacts(
     with open(sidecar_path) as fh:
         provenance = json.load(fh)
 
-    failures = check_cluster(parent_atoms, cluster_atoms, provenance)
-    return ClusterCheckResult(name=str(xyz_path), failures=failures)
+    failures = check_cluster_invariants(parent_atoms, cluster_atoms, provenance)
+    return ClusterInvariantReport(name=str(xyz_path), failures=failures)
 
 
 def _main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Run hard correctness checks on carved QM clusters."
+        description="Check C1-C10 carve invariants on carved QM clusters."
     )
     parser.add_argument("--parent-cif", required=True, type=Path)
     parser.add_argument("xyz", nargs="+", type=Path)
@@ -527,7 +534,7 @@ def _main() -> int:
 
     all_ok = True
     for xyz in args.xyz:
-        result = check_cluster_artefacts(args.parent_cif, xyz)
+        result = check_cluster_invariants_from_files(args.parent_cif, xyz)
         print(result.report())
         if not result.ok:
             all_ok = False

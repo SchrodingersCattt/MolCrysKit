@@ -615,14 +615,14 @@ def test_no_phantom_bonds_when_loop_crosses_periodic_face():
 
 
 # ---------------------------------------------------------------------------
-# Regression: hard correctness checker (cluster_check) must pass on a
+# Regression: cluster_invariants checker must pass on a
 # representative periodic-loop fixture so that the C1-C7 acceptance
 # criteria are guaranteed by the carver, not just by visual inspection.
 # ---------------------------------------------------------------------------
 
 
-def test_cluster_check_passes_on_periodic_loop_fixture():
-    """The cluster checker (analysis.cluster_check) must report zero
+def test_cluster_invariants_passes_on_periodic_loop_fixture():
+    """The cluster invariant checker must report zero
     failures for the seeded-group carve of the periodic-loop fixture.
 
     This wires the acceptance-criteria checker (C1 seed coordination
@@ -632,13 +632,13 @@ def test_cluster_check_passes_on_periodic_loop_fixture():
     any future carver change that violates a chemical invariant fails
     in CI rather than silently producing broken QM input.
     """
-    from molcrys_kit.analysis.cluster_check import check_cluster
+    from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants
 
     crystal = _two_zn_bridge_crystal_wrapped()
     carver = ClusterCarver(crystal, seed_merge_radius=3.5)
     cluster = carver.carve_bond_shells("Zn")[0]
 
-    failures = check_cluster(
+    failures = check_cluster_invariants(
         parent_atoms=crystal.to_ase(),
         cluster_atoms=cluster.to_ase(),
         provenance=cluster.provenance.to_dict(),
@@ -646,12 +646,12 @@ def test_cluster_check_passes_on_periodic_loop_fixture():
     assert not failures, "\n".join(failures)
 
 
-def test_cluster_check_catches_dropped_donor():
+def test_cluster_invariants_catches_dropped_donor():
     """If we forge a provenance that drops one seed's first-shell
     donor, the checker must flag it as a C1 failure.  This guards the
     checker itself against silent regressions ("checker says OK when
     actually broken")."""
-    from molcrys_kit.analysis.cluster_check import check_cluster
+    from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants
 
     crystal = _two_zn_bridge_crystal_wrapped()
     carver = ClusterCarver(crystal, seed_merge_radius=3.5)
@@ -662,7 +662,7 @@ def test_cluster_check_catches_dropped_donor():
     bad["kept_global_indices"] = [
         g for g in bad["kept_global_indices"] if int(g) != 2
     ]
-    failures = check_cluster(
+    failures = check_cluster_invariants(
         parent_atoms=crystal.to_ase(),
         cluster_atoms=cluster.to_ase(),
         provenance=bad,
@@ -725,7 +725,7 @@ def test_mu_bridging_donor_receives_exactly_one_cap_h():
     intact.  Only ONE cap H should land on the N (in the chemistry
     we are modelling, the bridging N becomes neutral N-H, not NH2).
     """
-    from molcrys_kit.analysis.cluster_check import check_cluster
+    from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants
 
     crystal = _mu_n_two_zn_fixture()
     carver = ClusterCarver(crystal, seed_merge_radius=0.5)
@@ -751,7 +751,7 @@ def test_mu_bridging_donor_receives_exactly_one_cap_h():
     )
     # Full checker must pass too: C8 (cap count), C9 (element conservation),
     # C10 (no foreign linker fragments).
-    failures = check_cluster(
+    failures = check_cluster_invariants(
         parent_atoms=crystal.to_ase(),
         cluster_atoms=cluster_atoms,
         provenance=cluster.provenance.to_dict(),
@@ -759,11 +759,11 @@ def test_mu_bridging_donor_receives_exactly_one_cap_h():
     assert not failures, "\n".join(failures)
 
 
-def test_cluster_check_catches_nh2_overcapping():
+def test_cluster_invariants_catches_nh2_overcapping():
     """If we forge a provenance that pretends two cap H were emitted
     for the same N keeper, the checker (C8) must flag it.  This guards
     the chemistry-formula check itself."""
-    from molcrys_kit.analysis.cluster_check import check_cluster
+    from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants
 
     crystal = _mu_n_two_zn_fixture()
     carver = ClusterCarver(crystal, seed_merge_radius=0.5)
@@ -786,7 +786,7 @@ def test_cluster_check_catches_nh2_overcapping():
     ) + [2]
     bad["cap_distances_used_A"] = list(bad["cap_distances_used_A"]) + [1.01]
 
-    failures = check_cluster(
+    failures = check_cluster_invariants(
         parent_atoms=crystal.to_ase(),
         cluster_atoms=forged_atoms,
         provenance=bad,
@@ -797,11 +797,11 @@ def test_cluster_check_catches_nh2_overcapping():
     )
 
 
-def test_cluster_check_catches_destroyed_ligand_fragment():
+def test_cluster_invariants_catches_destroyed_ligand_fragment():
     """If we hide one of the bridging O atoms from the kept set, the
     cluster's "linker inventory" (C10) should flag the resulting
     foreign-formula fragment."""
-    from molcrys_kit.analysis.cluster_check import check_cluster
+    from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants
 
     crystal = _two_zn_bridge_crystal_wrapped()
     carver = ClusterCarver(crystal, seed_merge_radius=3.5)
@@ -818,7 +818,7 @@ def test_cluster_check_catches_destroyed_ligand_fragment():
     c_local = kept.index(3)
     syms[c_local] = "N"
     forged_atoms = Atoms(symbols=syms, positions=pos, pbc=False)
-    failures = check_cluster(
+    failures = check_cluster_invariants(
         parent_atoms=crystal.to_ase(),
         cluster_atoms=forged_atoms,
         provenance=cluster.provenance.to_dict(),
@@ -884,7 +884,7 @@ def test_carboxylate_receives_single_cap_h_not_geminal_diol():
     every dicarboxylate in the DMA MOFs and that the user explicitly
     flagged ("端位不可能是偕二醇吧").
     """
-    from molcrys_kit.analysis.cluster_check import check_cluster
+    from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants
 
     crystal = _zn2_mu_oxalate_fixture()
     carver = ClusterCarver(crystal, seed_merge_radius=0.5)
@@ -924,7 +924,7 @@ def test_carboxylate_receives_single_cap_h_not_geminal_diol():
     # And exactly one cap H must exist for the cut carboxylate.
     assert n_h == 1, f"Expected 1 cap H for the cut -COO group, got {n_h}"
 
-    failures = check_cluster(
+    failures = check_cluster_invariants(
         parent_atoms=crystal.to_ase(),
         cluster_atoms=cluster_atoms,
         provenance=cluster.provenance.to_dict(),
