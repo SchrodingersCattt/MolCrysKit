@@ -258,3 +258,49 @@ in pure gap+enclosure mode); `record["cutoff"]` echoes what
 `None` when no hard cap was applied.  Downstream code that wants to
 inspect "was a hard cap applied?" should prefer `record["hard_cutoff"]`
 over `record["cutoff"]` on the molecule level.
+
+---
+
+## Cluster Carving (`operations/cluster.py`)
+
+`ClusterCarver` / `carve_cluster()` carve a finite, hydrogen-capped
+`CrystalCluster` (a non-periodic `CrystalMolecule` subclass) out of a
+periodic `MolecularCrystal` for downstream Gaussian / ORCA / Psi4 work.
+Unlike the other entries in `operations/`, the return type is **not**
+`MolecularCrystal` -- a cluster genuinely is not a crystal (it has
+`pbc=False` and no lattice), so we expose the cluster directly.  Two
+modes coexist: `bond_shells` is chemistry-aware (BFS that only cuts
+non-ring single C-C bonds; `n_shells` counts cut-boundary layers
+crossed, not raw hops) and is the production path; `rcut` is a
+diagnostic radial cut that warns on non-C-C cuts.  Cap H atoms are
+placed along the original (PBC-aware) bond vector at the element-keyed
+X-H length pulled from `molcrys_kit.constants.config.BOND_LENGTHS` --
+the same table `operations.add_hydrogens` consumes -- so an N-H cap is
+1.01 Å and an O-H cap is 0.96 Å rather than a one-size-fits-all
+1.09 Å.  Pass a positive `cap_distance` to force a uniform override
+(retained for backwards compatibility and for callers that want the
+old uniform-cap behaviour); image offsets are accumulated via
+`neighbor_list("ijdD", ...)` bookkeeping.  Freeze sets
+(`freeze_shell=0|1|2`) and a free-text `convention_reference` travel
+in the JSON sidecar emitted by `write_xyz_with_freeze`.  The carver
+does not infer charge / spin and does not write QM inputs -- those
+belong to the downstream toolchain that consumes the sidecar.
+Multi-atom nodes (paddle-wheels, M3 trimers, M6 nodes, ...) can be
+collapsed into a single seed group via `seed_merge_radius`; the
+default is `0.0` (no auto-grouping) so the parameter is meaningful
+only when the caller opts in.
+
+Internal note: the carver builds its own image-offset bond graph
+because `CrystalMolecule._build_graph()` does not store offsets.  The
+stored edge vector points from `min(i, j)` to `max(i, j)`; BFS code
+must sign-flip when traversing in the reverse direction.  Ring
+detection runs on a BFS-local subgraph (envelope: ~`6*(n_shells+1)+2`
+hops) **and rejects rings larger than 8 atoms**; without that cap, the
+topological macrocycles in a periodic framework graph would mark every
+linker C-C as "ring-bonded" and the carver would never cut anything.
+A second guardrail (`stop_at_non_seed_metals=True`, on by default)
+cuts at any bond reaching a metal that is not in the current seed
+group; this is necessary whenever two metal nodes are bridged through
+non-C-C paths (M-X-X-M), since a pure C-C-only cut rule would let
+BFS walk past every other node via those bridges and silently return
+the whole framework.

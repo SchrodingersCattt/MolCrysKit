@@ -4,6 +4,8 @@ Output functionality for molecular crystal structures.
 This module provides functions for writing molecular crystal data to various formats.
 """
 
+import json
+import os
 from io import StringIO
 from typing import Optional
 import warnings
@@ -48,6 +50,101 @@ def write_xyz(molecule: CrystalMolecule, filename: str = None) -> str:
     else:
         with open(filename, "w") as f:
             f.write(xyz_string)
+
+
+def write_xyz_with_freeze(
+    cluster,
+    filename: str,
+    comment: Optional[str] = None,
+    sidecar_path: Optional[str] = None,
+) -> str:
+    """Write a carved :class:`CrystalCluster` as XYZ plus a JSON sidecar.
+
+    Two artefacts are emitted:
+
+    * ``<filename>`` -- standard XYZ.  The comment line carries the
+      cluster mode, atom count, and the count of frozen / cap atoms.  A
+      per-atom flag column (``F`` for frozen, ``C`` for cap, ``-``
+      otherwise) is appended after the (x, y, z) triple so that humans
+      and minimal parsers can still see freeze/cap roles at a glance.
+      The numerical XYZ block remains a valid XYZ stream for tools that
+      ignore extra trailing tokens.
+    * ``<sidecar_path>`` (default ``<filename>.cluster.json``) -- the
+      full :class:`molcrys_kit.analysis.cluster_provenance.ClusterProvenance`
+      payload via ``to_dict``.  This is the canonical machine-readable
+      record consumed by downstream Gaussian / ORCA input writers
+      (kept out of this package on purpose; see
+      :mod:`molcrys_kit.operations.cluster`).
+
+    Parameters
+    ----------
+    cluster : CrystalCluster
+        The carved cluster (must expose ``provenance``,
+        ``frozen_local_indices``, and ``cap_local_indices``).
+    filename : str
+        Path of the XYZ output file.
+    comment : str, optional
+        Extra comment string appended to the XYZ comment line.
+    sidecar_path : str, optional
+        Path of the JSON sidecar.  Defaults to ``<filename>.cluster.json``.
+
+    Returns
+    -------
+    str
+        Absolute path of the JSON sidecar that was written.
+    """
+    # Local import to avoid a cycle (operations -> structures.cluster ->
+    # analysis.cluster_provenance, all loaded eagerly).
+    from ..structures.cluster import CrystalCluster
+
+    if not isinstance(cluster, CrystalCluster):
+        raise TypeError(
+            "write_xyz_with_freeze expects a CrystalCluster instance "
+            f"(got {type(cluster).__name__}).  Use write_xyz for plain "
+            "CrystalMolecule output."
+        )
+
+    symbols = cluster.get_chemical_symbols()
+    positions = cluster.get_positions()
+    frozen = set(cluster.frozen_local_indices)
+    caps = set(cluster.cap_local_indices)
+
+    provenance = cluster.provenance
+    header_bits = [
+        f"natoms={len(symbols)}",
+        f"mode={provenance.mode}",
+        f"frozen={len(frozen)}",
+        f"caps={len(caps)}",
+    ]
+    if provenance.n_shells is not None:
+        header_bits.append(f"n_shells={provenance.n_shells}")
+    if provenance.rcut_A is not None:
+        header_bits.append(f"rcut_A={provenance.rcut_A:g}")
+    if comment:
+        header_bits.append(comment)
+
+    xyz_lines = [str(len(symbols)), " ".join(header_bits)]
+    for local_idx, (symbol, pos) in enumerate(zip(symbols, positions)):
+        if local_idx in caps:
+            flag = "C"
+        elif local_idx in frozen:
+            flag = "F"
+        else:
+            flag = "-"
+        xyz_lines.append(
+            f"{symbol:2s} {pos[0]:12.6f} {pos[1]:12.6f} {pos[2]:12.6f} {flag}"
+        )
+
+    xyz_string = "\n".join(xyz_lines) + "\n"
+    with open(filename, "w") as fh:
+        fh.write(xyz_string)
+
+    if sidecar_path is None:
+        sidecar_path = filename + ".cluster.json"
+    with open(sidecar_path, "w") as fh:
+        json.dump(provenance.to_dict(), fh, indent=2, sort_keys=True)
+
+    return os.path.abspath(sidecar_path)
 
 
 def write_molecule_summary(molecule: CrystalMolecule) -> str:

@@ -332,3 +332,152 @@ When replacing a molecule, the system automatically checks whether the replaceme
 | | `clash_threshold` | `1.0` | Min distance (Å) to host atoms |
 | | `max_rotation_attempts` | `100` | Max rotation tries for clash resolution |
 | | `align_method` | `"com"` | Alignment: `"com"` or `"centroid"` |
+
+## Carving Finite Clusters for QM
+
+MolCrysKit can carve finite, hydrogen-capped cluster models out of any
+periodic `MolecularCrystal` so the cluster is ready to feed into
+Gaussian / ORCA / Psi4. The carver lives in
+`molcrys_kit.operations.cluster` and emits a `CrystalCluster` (a
+non-periodic `CrystalMolecule` subclass) plus a JSON sidecar that
+records exactly how the cluster was constructed. The algorithm is
+framework-agnostic; the system-specific parameter choices (which seed,
+how many shells, which freeze layer, what literature convention) live
+in a project-side recipe.
+
+### Two modes
+
+* **`bond_shells`** (default, production): chemistry-aware BFS from one
+  or more seed atoms. The carver only cuts **single C-C bonds that lie
+  outside any small ring** (rings are detected on the BFS-local subgraph
+  and rejected above 8 atoms so periodic macrocyclic "topological
+  rings" do not mark every linker C-C as ring-bonded). Every cut is
+  capped by an H atom placed along the original bond vector at the
+  element-specific X-H length looked up from
+  `molcrys_kit.constants.config.BOND_LENGTHS` -- the same table that
+  powers `operations.add_hydrogens` (C-H 1.09, N-H 1.01, O-H 0.96,
+  S-H 1.34, P-H 1.42). Pass `cap_distance=` to force a uniform value
+  for every cap instead, or `cap_bond_lengths={"C-H": 1.10, ...}` to
+  tweak individual entries.
+* **`rcut`** (diagnostic): radial cutoff -- keep every atom whose
+  minimum-image Cartesian distance to any seed is within `rcut`
+  Angstrom. Any cut that is *not* a C-C bond raises a warning, since
+  this is the classical red flag for accidentally severing C-O / C-N.
+
+### Hop budget (`n_shells`)
+
+`n_shells` is the **number of cut-boundary layers crossed** beyond the
+seed, not raw bond hops:
+
+* `n_shells=0` -- cluster stops at the very first cuttable C-C bond.
+* `n_shells=1` -- include the first linker fragment up to the next
+  cuttable C-C.
+* `n_shells=2` -- continue one more layer.
+
+### Freeze convention (`freeze_shell`)
+
+The frozen-atom set written into the sidecar tells the downstream QM
+input writer which atoms to hold fixed during geometry optimisation:
+
+* `freeze_shell=0` -- nothing frozen.
+* `freeze_shell=1` -- all cap H atoms plus the kept-side atom of every
+  cut.
+* `freeze_shell=2` -- as `freeze_shell=1` plus one additional layer of
+  heavy atoms inward.
+
+Cite the convention appropriate to your system in
+`convention_reference` (see below) so the sidecar is self-documenting.
+
+### Seed auto-grouping (`seed_merge_radius`)
+
+By default (`seed_merge_radius=0.0`) each resolved seed produces its
+own cluster. Set it to the diameter of a multi-atom node (paddle-wheel
+~3.0 Å, M3 trimer ~3.5-3.8 Å, ...) when you want one cluster per node
+group.
+
+### Metal-boundary rule
+
+Periodic frameworks are topologically closed: two metal nodes can be
+linked through a non-C-C path (e.g. M-X-X-M through a heterocyclic
+linker), so a naive BFS that only cuts at C-C bonds would walk past
+every other node and the "cluster" would silently become the whole
+framework. By default, `bond_shells` therefore treats any bond
+reaching a metal atom **outside the current seed group** as an
+implicit boundary: the bond is cut and capped on the kept (ligand)
+side exactly like a regular C-C cut. The parent-side atom is still
+recorded in `cut_bonds`, so downstream tools can distinguish C-C cuts
+from metal-boundary cuts by inspecting the dropped element. Pass
+`stop_at_non_seed_metals=False` (or `--no-stop-at-non-seed-metals` on
+the CLI) for diagnostic carves that should sweep through every metal.
+
+### Programmatic example
+
+```python
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.io.output import write_xyz_with_freeze
+from molcrys_kit.operations import carve_cluster
+
+crystal = read_mol_crystal("structure.cif")
+clusters = carve_cluster(
+    crystal,
+    seed=17,              # global atom index, or e.g. "Zn" / "Si" / "Cu"
+    mode="bond_shells",
+    n_shells=1,
+    freeze_shell=1,
+    seed_merge_radius=3.8,
+    convention_reference="DOI: 10.xxxx/yyyy (your QM-cluster recipe)",
+)
+for k, cluster in enumerate(clusters):
+    write_xyz_with_freeze(cluster, f"cluster_{k}.xyz")
+    print(cluster.provenance.kept_global_indices)
+```
+
+### CLI
+
+```bash
+python scripts/carve_cluster.py \
+    --cif structure.cif \
+    --seed-index 17 \
+    --mode bond_shells \
+    --shells 1 \
+    --freeze-shell 1 \
+    --seed-merge-radius 3.8 \
+    --convention-reference "DOI: 10.xxxx/yyyy" \
+    --out outputs/cluster
+```
+
+The script emits `outputs/cluster__group<k>.xyz` (with an extra
+per-atom flag column F/C/-) and `outputs/cluster__group<k>.xyz.cluster.json`
+(the full `ClusterProvenance` payload) for each seed group.
+
+### Sidecar JSON schema
+
+The `.cluster.json` sidecar contains the full
+`molcrys_kit.analysis.cluster_provenance.ClusterProvenance` payload,
+which is the canonical record for any downstream QM input writer:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `mode` | str | `"bond_shells"` or `"rcut"` |
+| `seed_global_indices` | list[int] | Parent-atom indices used as seeds |
+| `n_shells` | int or null | Cut-boundary layers crossed (bond_shells) |
+| `rcut_A` | float or null | Radial cutoff in Angstrom (rcut) |
+| `kept_global_indices` | list[int] | Parent-atom indices retained |
+| `cut_bonds` | list[[int, int]] | (kept, dropped) parent index per cut |
+| `cap_local_indices` | list[int] | Local indices of cap H in the XYZ |
+| `frozen_local_indices` | list[int] | Local indices to hold fixed |
+| `freeze_shell` | int | 0, 1, or 2 |
+| `cap_distance_A` | float or null | Uniform override; null = per-element |
+| `cap_bond_lengths_A` | dict[str, float] | Element-keyed X-H table consulted |
+| `cap_distances_used_A` | list[float] | Per-cap distance actually applied |
+| `seed_merge_radius_A` | float | Auto-grouping threshold |
+| `parent_label` | str or null | Free-text label of the parent structure |
+| `convention_reference` | str | Caller-supplied citation of the QM-cluster recipe |
+
+### Out of scope
+
+* No domain typing (SBU / linker / paddle-wheel / pore / channel) --
+  the carver works at the atom + bond level.
+* No charge / spin inference -- supply these when writing the QM input.
+* No Gaussian / ORCA / Psi4 writer; the sidecar JSON is the integration
+  point.
