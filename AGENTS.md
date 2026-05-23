@@ -258,3 +258,100 @@ in pure gap+enclosure mode); `record["cutoff"]` echoes what
 `None` when no hard cap was applied.  Downstream code that wants to
 inspect "was a hard cap applied?" should prefer `record["hard_cutoff"]`
 over `record["cutoff"]` on the molecule level.
+
+---
+
+## Cluster Carving (`operations/cluster.py`)
+
+`ClusterCarver` / `carve_cluster()` carve a finite, hydrogen-capped
+`CrystalCluster` (a non-periodic `CrystalMolecule` subclass) out of a
+periodic `MolecularCrystal` for downstream Gaussian / ORCA / Psi4 work.
+Unlike the other entries in `operations/`, the return type is **not**
+`MolecularCrystal` -- a cluster genuinely is not a crystal (it has
+`pbc=False` and no lattice), so we expose the cluster directly.
+
+Two modes coexist. `bond_shells` is the production path: it performs a
+topology-preserving BFS and, by default, keeps complete ligand topology.
+It cuts only at metal-ligand boundaries introduced by
+`stop_at_non_seed_metals=True`. Single non-ring C-C bonds are truncated
+only when the caller explicitly provides `cut_cc_bonds=[(i, j), ...]`
+using parent global atom indices; those bonds are validated as real
+single non-ring C-C bonds before carving. `max_atoms` is a hard safety
+cap for periodically extended linkers or accidental whole-framework
+sweeps: if the BFS exceeds it, `LigandTopologyOverflowError` is raised
+with frontier C-C candidates and the caller must choose the cut points.
+The algorithm never auto-picks C-C truncation sites.
+
+`rcut` is a diagnostic radial cut that warns on non-C-C cuts. Cap H
+atoms are placed along the original bond vector at the element-keyed X-H
+length pulled from `molcrys_kit.constants.config.BOND_LENGTHS` -- the
+same table `operations.add_hydrogens` consumes -- so an N-H cap is
+1.01 Å and an O-H cap is 0.96 Å rather than a one-size-fits-all
+1.09 Å. Pass a positive `cap_distance` to force a uniform override.
+Freeze sets (`freeze_shell=0|1|2`) follow Wu/Truhlar PCCP 2018
+(`10.1039/c7cp06751h`) and Vitillo JPCC 2023
+(`10.1021/acs.jpcc.3c06423`) for shell-1 and Gaggioli Chem Sci 2020
+(`10.1039/d0sc02136a`) for shell-2; these DOIs ground the default
+`ClusterProvenance.convention_reference`. The sidecar is emitted by
+`write_xyz_with_freeze`. The carver does not infer charge / spin and
+does not write QM inputs -- those belong to the downstream toolchain
+that consumes the sidecar. Multi-atom nodes (paddle-wheels, M3 trimers,
+M6 nodes, ...) can be collapsed into a single seed group via
+`seed_merge_radius`; the default is `0.0` (no auto-grouping).
+
+Internal note: the carver builds a PBC-aware bond graph (`pbc=True`)
+whose edges carry the integer image triple needed to traverse them
+geometrically. To place every kept atom in a single consistent
+Cartesian frame around the seeds, it builds a **maximum-weight
+spanning tree** of the kept connected component where ligand-internal
+edges (non-metal/non-metal) are weighted two orders of magnitude
+heavier than metal-ligand edges. BFS through the spanning tree
+propagates per-atom integer image offsets, then every non-tree (back)
+edge is checked against the tree-induced offsets: consistent images
+mean the bond is a chemical ring closure and is kept silently;
+inconsistent images mean the bond closes a topologically nontrivial
+periodic loop and is recorded as a `loop_cut`. By construction the
+back edges are overwhelmingly metal-ligand bonds, so loop cuts land
+at the metal boundary -- never inside an aromatic ring. The
+chemistry-aware cap rule is twofold: (a) for each non-C keeper atom
+**at most one cap H is placed regardless of how many cuts share that
+keeper** (a μ-bridging N that loses two Zn contacts becomes N-H, not
+NH2; the cap H direction is the average of all cut directions at that
+atom); (b) loop cuts at metal-ligand edges only cap the non-metal
+side -- the metal endpoint becomes an open coordination site instead
+of a chemically wrong Zn-H/Cu-H hydride.
+
+Ring detection for user-cut validation and overflow candidate
+reporting runs on local graph neighbourhoods and rejects rings larger
+than 8 atoms, so periodic topological macrocycles do not masquerade as
+chemical rings. The second guardrail (`stop_at_non_seed_metals=True`,
+on by default) cuts at any bond reaching a metal that is not in the
+current seed group; this is necessary whenever two metal nodes are
+bridged through non-C-C paths (M-X-X-M), since otherwise BFS could
+walk past every other node and silently return the whole framework.
+
+The C1-C10 *carve invariants* that any correctly-carved coordination
+cluster must satisfy -- C1 seed coordination intact, C2 no phantom
+bonds, C3 connectivity, C4 per-keeper cap pairing (anion-group aware),
+C5 cap geometry, C6 no unauthorized cuts, C7 seed-seed bonds
+preserved, **C8 chemistry-aware cap count (no NH2 over-capping; one
+cap H per anion group)**, **C9 element conservation (the cluster
+carries the exact element budget of the parent kept atoms plus the
+recorded cap H atoms)**, and **C10 linker inventory (every cluster
+ligand fragment has a parent-side counterpart, identified by exact
+formula)** -- are implemented in
+`analysis.cluster_invariants.check_cluster_invariants` and exercised
+by the unit-test suite so that any future regression fails CI rather
+than only being visible on visual inspection.  Each cap H is paired
+with its parent keeper atom via the
+`ClusterProvenance.cap_keeper_global_indices` field, which downstream
+QM input writers can use when annotating frozen/active layers.
+
+`ClusterCarver` is scoped to **coordination clusters** (metal seed +
+ligand-complete BFS + anion-group capping at the metal boundary); every
+emitted provenance carries `kind="coordination"` to mark this.  A
+future packing- / pi-stack- / H-bond-driven carver would emit
+`kind="packing"` and live next to this one.  `ClusterProvenance` lives
+in `structures/cluster.py` alongside `CrystalCluster` because the two
+are tightly coupled (the provenance has no consumer other than the
+cluster object).

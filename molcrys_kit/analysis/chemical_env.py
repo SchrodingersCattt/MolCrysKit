@@ -8,7 +8,7 @@ bond angles, and ring detection.
 
 import warnings
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 import networkx as nx
 from abc import ABC, abstractmethod
 from ..structures.crystal import MolecularCrystal
@@ -283,6 +283,164 @@ class ChemicalEnvironment:
             if co_len < 1.30:
                 return True
         return False
+
+    def _is_deprotonated_aromatic_n_heterocycle_ring(
+        self, ring_atoms: List[int]
+    ) -> bool:
+        """Return True iff ``ring_atoms`` is an aromatic N-heterocycle ring
+        whose nitrogens are all deprotonated (no parent N-H).
+
+        The ring is considered an *anionic* aromatic N-heterocycle when
+
+        * the ring is small (size <= 6) -- only chemically reasonable
+          pyrazolate / imidazolate / triazolate / tetrazolate;
+        * it contains two or more N atoms (a single-N ring such as
+          pyridine is *neutral* even without N-H and is excluded);
+        * none of its N atoms carries a parent-bonded H (the anionic
+          ring is fully deprotonated; rings with even one parent N-H
+          are already neutral and need no further protonation).
+
+        Used by :meth:`compute_anion_protonation_groups` to dedup cap H
+        placement so that a triazolate ring losing several metal
+        contacts ends up as 1H-triazole (one ring N-H) instead of a
+        chemically impossible dihydro form.
+        """
+        if len(ring_atoms) > 6:
+            return False
+        symbols = [
+            self.graph.nodes[int(i)].get('symbol', '') for i in ring_atoms
+        ]
+        n_indices = [int(i) for i, s in zip(ring_atoms, symbols) if s == 'N']
+        if len(n_indices) < 2:
+            return False
+        for ni in n_indices:
+            for nb in self.graph.neighbors(int(ni)):
+                if self.graph.nodes[int(nb)].get('symbol', '') == 'H':
+                    return False
+        return True
+
+    def compute_anion_protonation_groups(self) -> Dict[int, int]:
+        """Return a per-atom map ``{atom_index: group_id}`` that groups
+        the parent atoms into *anion sites* whose protonation must be
+        handled jointly.
+
+        Two atoms with the same ``group_id`` together carry **one** net
+        negative charge in the parent crystal and should collectively
+        receive **at most one** proton when their metal coordination is
+        severed.  Recognised groups:
+
+        * **Carboxylate** ``-COO^-`` -- one C with two terminal O at
+          C-O <= 1.32 A and within 0.08 A of each other
+          (:meth:`_is_carboxylate_like_C`).
+        * **Sulfonate** ``-SO3^-`` -- one S with >= 3 terminal O
+          (:meth:`_is_sulfonate_like_S`).
+        * **Phosphonate** ``-PO3^-`` -- one P with >= 3 terminal O
+          (:meth:`_is_phosphonate_like_P`).
+        * **Hypercoordinate oxo anion** ``NO3^-`` / ``ClO4^-`` --
+          (:meth:`_is_hypercoordinate_oxo_center`).
+        * **Deprotonated aromatic N-heterocycle ring** (pyrazolate,
+          imidazolate, 1,2,4-triazolate, tetrazolate, ...)
+          (:meth:`_is_deprotonated_aromatic_n_heterocycle_ring`).
+
+        Atoms not in any recognised anion group keep a unique group id
+        equal to their own atom index, so the *one-cap-per-atom* dedup
+        behaviour of isolated keepers is preserved.
+
+        This grouping is the chemistry that
+        :func:`molcrys_kit.operations.cluster._finalize_cluster` uses
+        to avoid the pathological cap configurations the
+        ``add_hydrogens`` pipeline would otherwise refuse to produce on
+        a parent crystal (geminal ``-C(OH)2`` diols on carboxylates,
+        1,2,4-trihydrotriazoles on triazolate rings, etc.).
+        """
+        n = len(self.positions)
+        group_id: Dict[int, int] = {i: i for i in self.graph.nodes()}
+        next_gid = n
+
+        symbols = {
+            i: self.graph.nodes[int(i)].get('symbol', '')
+            for i in self.graph.nodes()
+        }
+
+        # --- Sulfonate / Phosphonate / hypercoordinate oxo --------------
+        for i in self.graph.nodes():
+            s = symbols[int(i)]
+            terminal_o: List[int] = []
+            if s == 'S' and self._is_sulfonate_like_S(int(i)):
+                terminal_o = [
+                    j for j in self._heavy_neighbors(int(i))
+                    if symbols[int(j)] == 'O'
+                    and len(self._heavy_neighbors(int(j))) == 1
+                ]
+            elif s == 'P' and self._is_phosphonate_like_P(int(i)):
+                terminal_o = [
+                    j for j in self._heavy_neighbors(int(i))
+                    if symbols[int(j)] == 'O'
+                    and len(self._heavy_neighbors(int(j))) == 1
+                ]
+            elif s in ('Cl', 'N') and self._is_hypercoordinate_oxo_center(int(i)):
+                terminal_o = [
+                    j for j in self._heavy_neighbors(int(i))
+                    if symbols[int(j)] == 'O'
+                    and len(self._heavy_neighbors(int(j))) == 1
+                ]
+            else:
+                continue
+            gid = next_gid
+            next_gid += 1
+            group_id[int(i)] = gid
+            for j in terminal_o:
+                group_id[int(j)] = gid
+
+        # --- Carboxylate ------------------------------------------------
+        for i in self.graph.nodes():
+            if symbols[int(i)] != 'C':
+                continue
+            if not self._is_carboxylate_like_C(int(i)):
+                continue
+            o_nbrs = [
+                j for j in self._heavy_neighbors(int(i))
+                if symbols[int(j)] == 'O'
+            ]
+            gid = next_gid
+            next_gid += 1
+            if group_id[int(i)] == int(i):
+                group_id[int(i)] = gid
+            for j in o_nbrs:
+                if group_id[int(j)] == int(j):
+                    group_id[int(j)] = gid
+
+        # --- Deprotonated aromatic N-heterocycle anion ------------------
+        # We enumerate the rings from the cached
+        # ``_atom_rings`` cycle basis and apply
+        # :meth:`_is_deprotonated_aromatic_n_heterocycle_ring` which is
+        # *purely topological* (size <= 6, >= 2 N, no parent N-H).
+        # The geometric aromatic-window / planarity filter is
+        # intentionally NOT applied here because in periodic crystals
+        # a chemically aromatic ring whose atoms span the cell border
+        # may look non-planar in raw Cartesian coordinates.  For the
+        # anion-grouping use case the topological identity is what
+        # matters: any small all-CNO ring fully deprotonated on N must
+        # receive **one** proton when its metal contacts are severed,
+        # whether the ring is aromatic or saturated.
+        seen_rings: Set[frozenset] = set()
+        for cycles in self._atom_rings.values():
+            for cycle in cycles:
+                key = frozenset(int(i) for i in cycle)
+                if key in seen_rings:
+                    continue
+                seen_rings.add(key)
+                if not self._is_deprotonated_aromatic_n_heterocycle_ring(cycle):
+                    continue
+                gid = next_gid
+                next_gid += 1
+                for j in cycle:
+                    if symbols[int(j)] != 'N':
+                        continue
+                    if group_id[int(j)] == int(j):
+                        group_id[int(j)] = gid
+
+        return group_id
 
     def nearest_anion_distance(self, atom_index: int) -> float:
         """Return nearest distance to caller-supplied likely anion positions."""
