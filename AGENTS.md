@@ -355,3 +355,36 @@ future packing- / pi-stack- / H-bond-driven carver would emit
 in `structures/cluster.py` alongside `CrystalCluster` because the two
 are tightly coupled (the provenance has no consumer other than the
 cluster object).
+
+---
+
+## Release Process
+
+The package version is owned by **`setuptools_scm`** and derived from
+the most recent `vX.Y.Z` git tag at build / install time. There is **no
+hardcoded version string in `molcrys_kit/__init__.py` or
+`pyproject.toml`** -- both read the value generated into
+`molcrys_kit/_version.py` (gitignored).
+
+To cut a new release `vX.Y.Z`:
+
+1. Branch off `main`: `git checkout -b chore/release-X.Y.Z`.
+2. Bump **`CITATION.cff`** `version:` field to `X.Y.Z`. This is the
+   only file in the repo that still tracks the version manually --
+   GitHub's "Cite this repository" widget reads it.
+3. (Optional) Bump the v0.X.Y example tags inside `Dockerfile` /
+   `Dockerfile.bohrium` docstring comments. These are documentation
+   only; the runtime image label `org.opencontainers.image.version` is
+   injected by `docker/metadata-action` from the tag at publish time.
+4. Open a PR, merge to `main`.
+5. `git tag -a vX.Y.Z <merge-commit> -m "MolCrysKit X.Y.Z"`.
+6. `git push origin vX.Y.Z` -- this triggers
+   `.github/workflows/publish-pypi.yml` (PyPI via OIDC trusted
+   publishing, requires manual approval of the `pypi` environment) and
+   `.github/workflows/publish-ghcr.yml` (GHCR Docker image).
+7. `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file ...`.
+
+The PyPI workflow's `actions/checkout@v4` is configured with
+`fetch-depth: 0` so `setuptools_scm` can see the full tag history; do
+not lower it. Same applies to any future workflow that calls
+`python -m build` or `pip install -e .`.
