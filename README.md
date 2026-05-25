@@ -1,8 +1,9 @@
 # MolCrysKit: Molecular Crystal Toolkit
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](#)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)](#)
+[![PyPI](https://img.shields.io/pypi/v/molcrys-kit.svg)](https://pypi.org/project/molcrys-kit/)
+[![unit-tests](https://github.com/SchrodingersCattt/MolCrysKit/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/SchrodingersCattt/MolCrysKit/actions/workflows/unit-tests.yml)
 
 ## Overview
 
@@ -17,17 +18,31 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 
 ## Installation
 
-To install MolCrysKit, you can use pip:
+### From PyPI (recommended)
 
 ```bash
-pip install .
+pip install molcrys-kit
 ```
 
-Or for development purposes, install in editable mode:
+### From source (development)
 
 ```bash
-pip install -e .
+git clone https://github.com/SchrodingersCattt/MolCrysKit.git
+cd MolCrysKit
+pip install -e ".[dev]"
 ```
+
+All dependencies are declared in `pyproject.toml` (there is no separate
+`requirements.txt`). `requires-python = ">=3.10"`. The available extras are:
+
+| Extra | Adds |
+|---|---|
+| `[test]` | `pytest`, `pytest-cov` |
+| `[vis]` | `nglview`, `py3Dmol` for 3-D visualisation in notebooks |
+| `[dev]` | `[test]` + `[vis]` + `build`, `ruff>=0.15`, `pre-commit`, `nbstripout`, `twine` |
+
+So a contributor environment is `pip install -e ".[dev]"` and a CI / minimal
+test environment is `pip install -e ".[test]"`.
 
 ## Quick Start
 
@@ -126,8 +141,8 @@ docker build -f Dockerfile.bohrium -t molcryskit-bohrium:latest .
 # Pin to an immutable Git tag instead of the moving main branch
 # (recommended for archival/reviewer reproducibility)
 docker build -f Dockerfile.bohrium \
-    --build-arg MOLCRYSKIT_REF=refs/tags/v0.2.0 \
-    -t molcryskit-bohrium:v0.2.0 .
+    --build-arg MOLCRYSKIT_REF=refs/tags/v0.4.0 \
+    -t molcryskit-bohrium:v0.4.0 .
 ```
 
 The Bohrium image uses `pip install` from the GitHub archive zip (no `git clone`
@@ -144,7 +159,7 @@ to GitHub Container Registry (GHCR).
 The workflow [`publish-ghcr.yml`](.github/workflows/publish-ghcr.yml) pushes
 [`Dockerfile`](Dockerfile) images to `ghcr.io/<owner>/molcryskit`:
 
-- pushing a Git tag such as `v0.2.0` publishes `ghcr.io/<owner>/molcryskit:v0.2.0`
+- pushing a Git tag such as `v0.4.0` publishes `ghcr.io/<owner>/molcryskit:v0.4.0`
 - stable release tags also receive `latest`
 - manual dispatch can publish a development snapshot from a chosen Git ref
 
@@ -152,11 +167,11 @@ Recommended archival pattern:
 
 ```bash
 # 1. Create and push an immutable release tag
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.4.0
+git push origin v0.4.0
 
 # 2. GitHub Actions publishes the image automatically to GHCR
-#    ghcr.io/<owner>/molcryskit:v0.2.0
+#    ghcr.io/<owner>/molcryskit:v0.4.0
 ```
 
 For Bohrium, keep using [`Dockerfile.bohrium`](Dockerfile.bohrium) as the
