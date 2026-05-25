@@ -207,5 +207,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# setuptools_scm generated version file (single source of truth lives in git tags)
+molcrys_kit/_version.py
+
 # Local planning notes (scratch only; not part of the published source)
 plans/

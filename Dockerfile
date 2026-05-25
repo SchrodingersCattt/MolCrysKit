@@ -8,8 +8,8 @@
 #
 # Pin to a specific release tag (recommended for reproducibility):
 #   docker build \
-#     --build-arg MOLCRYSKIT_REF=refs/tags/v0.2.0 \
-#     -t molcryskit:v0.2.0 .
+#     --build-arg MOLCRYSKIT_REF=refs/tags/v0.4.0 \
+#     -t molcryskit:v0.4.0 .
 #
 # Run - interactive shell:
 #   docker run -it --rm molcryskit:latest bash
@@ -26,9 +26,10 @@ FROM python:3.10-slim
 
 LABEL maintainer="Ming-Yu Guo <guomy26@mail2.sysu.edu.cn>"
 LABEL description="MolCrysKit: A Topology-Aware Toolkit for Molecular Crystal Preprocessing"
-LABEL version="0.2.0"
 LABEL org.opencontainers.image.source="https://github.com/SchrodingersCattt/MolCrysKit"
 LABEL org.opencontainers.image.licenses="MIT"
+# org.opencontainers.image.version is injected at publish time from the git tag
+# by docker/metadata-action (see .github/workflows/publish-ghcr.yml).
 
 # -- System dependencies ----------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,7 +43,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # -- MolCrysKit + all runtime dependencies from GitHub archive --------------
 # MOLCRYSKIT_REF must be a GitHub archive ref, e.g. refs/heads/main or
-# refs/tags/v0.2.0.
+# refs/tags/v0.4.0.
 # pip resolves all dependencies declared in pyproject.toml automatically.
 # The [vis] extra adds nglview and py3Dmol for 3-D visualisation in the notebook.
 ARG MOLCRYSKIT_REF=refs/heads/main
