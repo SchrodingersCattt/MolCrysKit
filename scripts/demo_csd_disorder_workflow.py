@@ -28,7 +28,6 @@ Usage:
     # Or with a pre-exported full CIF (no CCDC needed for step 3-6):
     python demo_csd_disorder_workflow.py --cifs ./ABACIR.cif ./ABABUB.cif --output-dir ./demo_output
 
-Author: UQ-Bench project (2026)
 """
 
 from __future__ import annotations
