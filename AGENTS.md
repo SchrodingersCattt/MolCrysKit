@@ -56,12 +56,13 @@ tests/unit/           Pytest regression suite
 
 Version is owned by **`setuptools_scm`** from the latest `vX.Y.Z` git tag.
 
-Release steps:
-1. Branch off `main`, bump `CITATION.cff` `version:` field.
-2. PR → merge → `git tag -a vX.Y.Z <merge-commit>` → `git push origin vX.Y.Z`.
-3. Tag push triggers `.github/workflows/publish-pypi.yml` (PyPI) and
-   `.github/workflows/publish-ghcr.yml` (Docker).
-4. `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file ...`.
+Release steps (manual → automated):
+1. Branch off `main`, bump `CITATION.cff` `version:` field, PR → merge.
+2. `git tag -a vX.Y.Z <merge-commit> && git push origin vX.Y.Z`.
+3. Tag push **automatically** triggers:
+   - `publish-pypi.yml` → build & upload to PyPI (trusted publisher).
+   - `publish-ghcr.yml` → build & push Docker image to GHCR.
+4. *(Manual)* `gh release create vX.Y.Z --generate-notes` for GitHub Release.
 
 CI checkouts use `fetch-depth: 0` so `setuptools_scm` sees full tag history;
 do not lower it.
