@@ -69,6 +69,13 @@ def write_extxyz(
         Forwarded to :func:`ase.io.write` (``format="extxyz"``).
         Useful keys include ``write_info=True`` (default), ``write_results=True``,
         ``columns``, and ``plain``.
+
+    Notes
+    -----
+    For dataset bundles, store per-frame provenance (for example ``refcode``,
+    ``motif``, ``dataset_id``, and ``frame_index``) in ``info``.  Read bundles
+    with ``read_extxyz(path, index=":")``; the default ``index=None`` follows
+    ASE convention and returns only the last frame.
     """
     if isinstance(crystals, MolecularCrystal):
         crystals = [crystals]

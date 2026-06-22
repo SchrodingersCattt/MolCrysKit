@@ -123,6 +123,37 @@ def test_custom_payload_per_frame(simple_crystal, tmp_xyz):
     assert [frame.metadata["frame_id"] for frame in frames] == [0, 1]
 
 
+def test_deepmolcryst_frame_metadata_round_trip(simple_crystal, tmp_xyz):
+    """Dataset bundle provenance belongs in per-frame ExtXYZ info."""
+    write_extxyz(
+        [simple_crystal, simple_crystal],
+        tmp_xyz,
+        info=[
+            {
+                "dataset_id": "DeepMolCryst-26",
+                "refcode": "TEST01",
+                "source_family": "weak_interactions",
+                "motif": "hydrogen_bond",
+                "query_id": "Q26-WI-HYDROGEN-BOND-001",
+                "frame_index": 0,
+            },
+            {
+                "dataset_id": "DeepMolCryst-26",
+                "refcode": "TEST02",
+                "source_family": "weak_interactions",
+                "motif": "hydrogen_bond",
+                "query_id": "Q26-WI-HYDROGEN-BOND-001",
+                "frame_index": 1,
+            },
+        ],
+    )
+
+    frames = read_extxyz(tmp_xyz, index=":")
+    assert [frame.metadata["refcode"] for frame in frames] == ["TEST01", "TEST02"]
+    assert all(frame.metadata["dataset_id"] == "DeepMolCryst-26" for frame in frames)
+    assert all(frame.metadata["motif"] == "hydrogen_bond" for frame in frames)
+
+
 # ---------------------------------------------------------------------------
 # Index access
 # ---------------------------------------------------------------------------
