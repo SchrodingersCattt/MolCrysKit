@@ -23,6 +23,7 @@ except ImportError:
 from .structures.atom import MolAtom
 from .structures.molecule import CrystalMolecule
 from .structures.crystal import MolecularCrystal
+from .structures.trajectory import CrystalTrajectory
 from .io.cif import read_mol_crystal
 
 # For backward compatibility
@@ -32,6 +33,7 @@ __all__ = [
     "MolAtom",
     "CrystalMolecule",
     "MolecularCrystal",
+    "CrystalTrajectory",
     "read_mol_crystal",
     # Backward compatibility
     "Molecule",
