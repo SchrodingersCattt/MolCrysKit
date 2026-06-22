@@ -13,6 +13,7 @@ from molcrys_kit.analysis.interactions import (
     HHContact,
     HalogenBond,
     HydrogenBond,
+    LocalGeometry,
     PiStacking,
     PiStackingCriteria,
     find_ch_pi,
@@ -22,6 +23,7 @@ from molcrys_kit.analysis.interactions import (
     find_pi_stacking,
     get_bonding_threshold,
 )
+from molcrys_kit.analysis.molecular_identity import ChemicalIdentity
 from molcrys_kit.constants import (
     METAL_THRESHOLD_FACTOR,
     NON_METAL_THRESHOLD_FACTOR,
@@ -138,6 +140,28 @@ class TestHydrogenBond:
         assert hb.dha_angle_deg == pytest.approx(180.0)
         assert hb.image == (0, 0, 0)
 
+    def test_find_hydrogen_bonds_detects_periodic_image(self):
+        donor = CrystalMolecule(
+            Atoms("OHH", positions=[[9.4, 0, 0], [10.36, 0, 0], [9.4, 0.96, 0]])
+        )
+        acceptor = CrystalMolecule(
+            Atoms("OHH", positions=[[2.2, 0, 0], [3.16, 0, 0], [2.2, 0.96, 0]])
+        )
+        crystal = MolecularCrystal(
+            np.diag([10.0, 10.0, 10.0]),
+            [donor, acceptor],
+            pbc=(True, False, False),
+        )
+
+        hbonds = find_hydrogen_bonds(crystal, max_distance=2.0)
+
+        assert len(hbonds) == 1
+        hb = hbonds[0]
+        assert hb.acceptor.image == (1, 0, 0)
+        assert hb.acceptor.crystal_atom_index == 3
+        assert hb.h_acceptor_distance_A == pytest.approx(1.84)
+        assert hb.dha_angle_deg == pytest.approx(180.0)
+
     def test_no_hydrogen_bonds_when_far(self):
         w1 = CrystalMolecule(
             Atoms("OHH", positions=[[0, 0, 0], [0.757, 0.586, 0], [-0.757, 0.586, 0]])
@@ -166,6 +190,50 @@ class TestGetBondingThreshold:
         expected = (1.0 + 1.0) * METAL_NON_METAL_THRESHOLD_FACTOR
         assert get_bonding_threshold(1.0, 1.0, True, False) == pytest.approx(expected)
         assert get_bonding_threshold(1.0, 1.0, False, True) == pytest.approx(expected)
+
+
+class TestInteractionSupportObjects:
+    """Smoke tests for interaction support schemas and caches."""
+
+    def test_chemical_identity_from_molecule(self):
+        mol = CrystalMolecule(Atoms("CO", positions=[[0, 0, 0], [1.2, 0, 0]]))
+
+        identity = ChemicalIdentity.from_molecule(
+            mol,
+            molecule_index=2,
+            species_id="CO_1",
+            include_topology=False,
+        )
+
+        assert identity.molecule_index == 2
+        assert identity.formula == "CO"
+        assert identity.hill_formula == "CO"
+        assert identity.heavy_signature == (("C", 1), ("O", 1))
+        assert identity.species_id == "CO_1"
+        assert identity.topo_signature is None
+        payload = identity.to_dict()
+        assert payload["formula"] == "CO"
+        assert payload["heavy_signature"] == [["C", 1], ["O", 1]]
+
+    def test_local_geometry_exposes_neighbors_hydrogens_and_rings(self):
+        water = CrystalMolecule(
+            Atoms("OHH", positions=[[0, 0, 0], [0.96, 0, 0], [0, 0.96, 0]])
+        )
+        ring = _benzene_like_molecule()
+
+        water_geometry = LocalGeometry(water)
+        ring_geometry = LocalGeometry(ring)
+
+        assert set(water_geometry.neighbors(0)) == {1, 2}
+        assert water_geometry.bonded_hydrogens(0) == (1, 2)
+        assert water_geometry.atom(0).coordination_number == 2
+
+        rings = ring_geometry.rings(aromatic_only=True)
+        assert len(rings) == 1
+        assert rings[0].atom_indices == (0, 1, 2, 3, 4, 5)
+        assert rings[0].is_aromatic is True
+        assert rings[0].is_planar is True
+        assert rings[0].centroid_A == pytest.approx((0.0, 0.0, 0.0))
 
 
 def _benzene_like_molecule(z: float = 0.0) -> CrystalMolecule:
