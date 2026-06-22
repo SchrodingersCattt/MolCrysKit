@@ -1,4 +1,8 @@
-"""C-H···pi interaction records and detector."""
+"""C-H···pi criteria, records, and detector.
+
+The detector searches directional C-H donors pointing toward ring centroids.
+Crystal inputs enable periodic-image searches and molecule identity metadata.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,13 @@ from .local_geometry import AtomLocalGeometry, LocalGeometryCache
 
 @dataclass(frozen=True)
 class CHPiInteractionCriteria:
-    """Geometric criteria for C-H···pi interactions."""
+    """Geometric thresholds for directional C-H···pi interactions.
+
+    A contact is accepted when the H···ring-centroid distance is within the Å
+    cutoff and the C-H-centroid angle exceeds the configured minimum in
+    degrees.  Donor carbon elements, aromatic-ring filtering, and periodic
+    search radius are configurable.
+    """
 
     max_h_centroid_distance_A: float = 3.2
     min_ch_centroid_angle_deg: float = 120.0
@@ -27,7 +37,13 @@ class CHPiInteractionCriteria:
 
 @dataclass(init=False)
 class CHPiInteraction(BaseInteraction):
-    """Directional C-H donor to aromatic-ring interaction."""
+    """Directional C-H donor to ring-centroid interaction record.
+
+    The record stores carbon and hydrogen atom references, the acceptor ring
+    reference, molecule identities, local carbon geometry, H···centroid
+    distance, C-H-centroid angle, periodic image information, and detector
+    metadata.
+    """
 
     carbon: AtomRef
     hydrogen: AtomRef
@@ -54,6 +70,7 @@ class CHPiInteraction(BaseInteraction):
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
     ):
+        """Initialize a C-H···pi interaction from references and metrics."""
         BaseInteraction.__init__(
             self,
             kind="ch_pi",
@@ -79,7 +96,13 @@ def find_ch_pi(
     target: MolecularCrystal | Sequence,
     criteria: CHPiInteractionCriteria | None = None,
 ) -> list[CHPiInteraction]:
-    """Identify directional C-H···pi interactions."""
+    """Find directional C-H···pi interactions in a target.
+
+    For each candidate carbon atom, bonded hydrogens are obtained from local
+    topology.  Each C-H vector is tested against candidate ring centroids using
+    the configured H···centroid distance and C-H-centroid angle thresholds.
+    Periodic images are considered only for ``MolecularCrystal`` inputs.
+    """
     criteria = criteria or CHPiInteractionCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
@@ -172,11 +195,17 @@ def find_ch_pi_interactions(
     target: MolecularCrystal | Sequence,
     criteria: CHPiInteractionCriteria | None = None,
 ) -> list[CHPiInteraction]:
-    """Alias for :func:`find_ch_pi`."""
+    """Alias for :func:`find_ch_pi` with identical behavior."""
     return find_ch_pi(target, criteria=criteria)
 
 
 def _directional_pairs(n_molecules: int, include_periodic_context: bool) -> list[tuple[int, int]]:
+    """Return ordered donor/ring molecule pairs for a directional detector.
+
+    With periodic context, all ordered pairs including self-pairs are returned
+    so nonzero images can be considered.  Without periodic context, only
+    distinct molecule pairs are returned in both directions.
+    """
     if include_periodic_context:
         return [(i, j) for i in range(n_molecules) for j in range(n_molecules)]
     return [(i, j) for i in range(n_molecules) for j in range(n_molecules) if i < j] + [
@@ -185,12 +214,14 @@ def _directional_pairs(n_molecules: int, include_periodic_context: bool) -> list
 
 
 def _translation(lattice, image: tuple[int, int, int]) -> np.ndarray:
+    """Return the Cartesian translation vector for an image as an array."""
     if lattice is None:
         return np.zeros(3)
     return np.asarray(image_translation(lattice, image), dtype=float)
 
 
 def _criteria_metadata(criteria: CHPiInteractionCriteria) -> dict[str, Any]:
+    """Return a JSON-friendly snapshot of C-H···pi criteria."""
     return {
         "max_h_centroid_distance_A": criteria.max_h_centroid_distance_A,
         "min_ch_centroid_angle_deg": criteria.min_ch_centroid_angle_deg,

@@ -1,4 +1,9 @@
-"""Hydrogen-bond interaction records and detector."""
+"""Hydrogen-bond criteria, records, and detector.
+
+The detector supports both molecule sequences and ``MolecularCrystal`` inputs.
+A crystal input enables periodic-image searches and molecule identity
+annotations; a plain sequence performs nonperiodic intermolecular searches.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,14 @@ from .local_geometry import AtomLocalGeometry, LocalGeometryCache
 
 @dataclass(frozen=True)
 class HydrogenBondCriteria:
-    """Geometric and chemical criteria for hydrogen-bond detection."""
+    """Chemical and geometric thresholds for hydrogen-bond detection.
+
+    The primary geometry is D-H···A, filtered by maximum H···A distance in Å
+    and minimum D-H-A angle in degrees.  Donor and acceptor element sets are
+    configurable, and the donor-hydrogen distance bounds are used only as a
+    fallback when bonded-hydrogen connectivity is unavailable.  ``search_radius_A``
+    controls periodic image enumeration for crystal inputs.
+    """
 
     max_h_acceptor_distance_A: float = BONDING_CONFIG["MAX_HYDROGEN_BOND_DISTANCE"]
     min_dha_angle_deg: float = BONDING_CONFIG["MIN_HYDROGEN_BOND_ANGLE"]
@@ -29,16 +41,19 @@ class HydrogenBondCriteria:
 
     @classmethod
     def from_legacy_max_distance(cls, max_distance: float) -> "HydrogenBondCriteria":
-        """Build criteria from the legacy ``max_distance`` argument."""
+        """Create criteria from the legacy ``max_distance`` H···A cutoff."""
         return cls(max_h_acceptor_distance_A=float(max_distance))
 
 
 @dataclass(init=False)
 class HydrogenBond(BaseInteraction):
-    """Representation of a hydrogen bond interaction.
+    """Hydrogen-bond interaction record with legacy-compatible fields.
 
-    The constructor accepts the legacy arguments used by MolCrysKit while also
-    allowing richer reference/identity/geometry fields.
+    Instances expose the original MolCrysKit attributes (``donor``,
+    ``acceptor``, ``distance``, and atom indices) while also filling the generic
+    ``BaseInteraction`` fields with ``AtomRef`` participants, H···A distance,
+    D-H-A angle, periodic image, translation, identities, and local geometry
+    metadata when available.
     """
 
     donor: Any
@@ -78,6 +93,14 @@ class HydrogenBond(BaseInteraction):
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
     ):
+        """Initialize a hydrogen-bond record.
+
+        ``donor`` and ``acceptor`` may be legacy molecule-like objects or
+        modern ``AtomRef`` objects.  ``distance`` is accepted as a
+        backward-compatible alias for ``h_acceptor_distance_A``.  When atom
+        references are provided, they are added to the role-named participant
+        map used by ``BaseInteraction``.
+        """
         h_acceptor_distance_A = (
             float(distance)
             if h_acceptor_distance_A is None and distance is not None
@@ -121,7 +144,7 @@ class HydrogenBond(BaseInteraction):
         self.dha_angle_deg = dha_angle_deg
 
     def __repr__(self) -> str:
-        """String representation of the hydrogen bond."""
+        """Return a compact formula-based representation of the hydrogen bond."""
         donor_formula = _participant_formula(self.donor, self.donor_identity, "?")
         acceptor_formula = _participant_formula(self.acceptor, self.acceptor_identity, "?")
         return (
@@ -136,8 +159,17 @@ def find_hydrogen_bonds(
     max_distance: float = 3.5,
     criteria: HydrogenBondCriteria | None = None,
 ) -> list[HydrogenBond]:
-    """
-    Identify potential hydrogen bonds between molecules in a molecular crystal.
+    """Find D-H···A hydrogen bonds in a crystal or molecule sequence.
+
+    For ``MolecularCrystal`` input, all molecule pairs and relevant periodic
+    images are searched according to the crystal PBC flags.  For a plain
+    sequence, only distinct intermolecular pairs in the supplied coordinates are
+    considered.  Donor hydrogens are identified from local topology first and
+    by donor-H distance fallback otherwise.
+
+    Detected records include atom references, molecule identities when a crystal
+    is available, local donor/acceptor geometry, H···A and D···A distances,
+    D-H-A angle, periodic image, and detector criteria metadata.
 
     Parameters
     ----------
@@ -298,6 +330,12 @@ def _bonded_hydrogens_with_fallback(
     donor_atom_idx: int,
     criteria: HydrogenBondCriteria,
 ) -> tuple[int, ...]:
+    """Return donor-bound hydrogens, falling back to distance assignment.
+
+    The preferred source is ``LocalGeometry.bonded_hydrogens``.  If no bonded
+    hydrogen is present in the topology graph, nearby hydrogen atoms within the
+    criteria donor-H distance window are treated as donor hydrogens.
+    """
     hydrogens = local_geometry.bonded_hydrogens(donor_atom_idx)
     if hydrogens:
         return hydrogens
@@ -314,6 +352,12 @@ def _bonded_hydrogens_with_fallback(
 
 
 def _participant_formula(participant, identity: ChemicalIdentity | None, default: str) -> str:
+    """Return a readable formula or atom label for a participant.
+
+    Identity metadata takes precedence, followed by molecule-like
+    ``get_chemical_formula()`` objects, then ``AtomRef`` molecule/symbol/index
+    labels.
+    """
     if identity is not None:
         return identity.formula
     if hasattr(participant, "get_chemical_formula"):

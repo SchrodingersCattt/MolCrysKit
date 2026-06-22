@@ -1,4 +1,9 @@
-"""H···H contact records and detector."""
+"""Intermolecular H···H contact criteria, records, and detector.
+
+The detector reports close-but-not-covalent hydrogen-hydrogen contacts between
+distinct molecules or periodic images.  Crystal inputs enable PBC image
+handling and molecule identity metadata.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +20,13 @@ from .geometry import enumerate_lattice_images, image_translation
 
 @dataclass(frozen=True)
 class HHContactCriteria:
-    """Distance criteria for intermolecular H···H contacts."""
+    """Distance thresholds for intermolecular H···H contacts.
+
+    Contacts are accepted only when the H···H distance lies between the
+    configured minimum and maximum cutoffs in Å.  The minimum avoids reporting
+    implausibly short overlaps or covalent-like contacts, while the optional
+    search radius controls periodic image enumeration for crystal inputs.
+    """
 
     min_h_h_distance_A: float = 1.0
     max_h_h_distance_A: float = 2.4
@@ -24,7 +35,12 @@ class HHContactCriteria:
 
 @dataclass(init=False)
 class HHContact(BaseInteraction):
-    """Intermolecular H···H contact."""
+    """Intermolecular H···H contact record.
+
+    The record stores both hydrogen references, molecule identities, the H···H
+    distance, periodic image information, and detector criteria metadata through
+    ``BaseInteraction``.
+    """
 
     hydrogen1: AtomRef
     hydrogen2: AtomRef
@@ -45,6 +61,7 @@ class HHContact(BaseInteraction):
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
     ):
+        """Initialize an H···H contact from two hydrogen references."""
         BaseInteraction.__init__(
             self,
             kind="h_h_contact",
@@ -67,7 +84,14 @@ def find_h_h_contacts(
     target: MolecularCrystal | Sequence,
     criteria: HHContactCriteria | None = None,
 ) -> list[HHContact]:
-    """Identify intermolecular H···H contacts."""
+    """Find intermolecular H···H contacts in a crystal or sequence.
+
+    For molecule sequences, only distinct molecule pairs are searched.  For
+    crystal inputs, same-molecule pairs are also considered in nonzero periodic
+    images.  Detected contacts include atom references with flattened crystal
+    atom indices, optional molecule identities, image translation, and criteria
+    metadata.
+    """
     criteria = criteria or HHContactCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
@@ -137,12 +161,14 @@ def find_h_h_contacts(
 
 
 def _translation(lattice, image: tuple[int, int, int]) -> np.ndarray:
+    """Return the Cartesian translation vector for an image as an array."""
     if lattice is None:
         return np.zeros(3)
     return np.asarray(image_translation(lattice, image), dtype=float)
 
 
 def _criteria_metadata(criteria: HHContactCriteria) -> dict[str, Any]:
+    """Return a JSON-friendly snapshot of H···H contact criteria."""
     return {
         "min_h_h_distance_A": criteria.min_h_h_distance_A,
         "max_h_h_distance_A": criteria.max_h_h_distance_A,

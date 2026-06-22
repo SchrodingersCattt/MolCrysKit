@@ -1,4 +1,9 @@
-"""Aromatic pi-stacking interaction records and detector."""
+"""Aromatic ring-ring pi-stacking criteria, records, and detector.
+
+The detector classifies ring pairs as face-centered parallel, displaced
+parallel, or T-shaped using centroid distance, ring-normal angle, and lateral
+offset.  Crystal inputs enable periodic-image searches and identity metadata.
+"""
 
 from __future__ import annotations
 
@@ -19,11 +24,19 @@ PiStackingSubtype = Literal[
     "displaced_parallel",
     "T_shape",
 ]
+"""Supported empirical pi-stacking geometry classes."""
 
 
 @dataclass(frozen=True)
 class PiStackingCriteria:
-    """Geometric criteria for aromatic ring stacking."""
+    """Geometric thresholds for aromatic ring stacking.
+
+    Distances are in Å and angles are in degrees.  The criteria separate
+    parallel-stack classification from T-shaped classification.  Constructor
+    names ``max_normal_angle_deg`` and ``max_lateral_offset_A`` are accepted as
+    aliases for the parallel normal-angle and displaced-parallel lateral-offset
+    thresholds.
+    """
 
     max_centroid_distance_A: float = 4.5
     max_parallel_normal_angle_deg: float = 30.0
@@ -49,6 +62,12 @@ class PiStackingCriteria:
         max_normal_angle_deg: float | None = None,
         max_lateral_offset_A: float | None = None,
     ):
+        """Initialize pi-stacking thresholds with compatible aliases.
+
+        If ``max_normal_angle_deg`` is supplied, it overrides
+        ``max_parallel_normal_angle_deg``.  If ``max_lateral_offset_A`` is
+        supplied, it overrides ``max_parallel_lateral_offset_A``.
+        """
         if max_normal_angle_deg is not None:
             max_parallel_normal_angle_deg = max_normal_angle_deg
         if max_lateral_offset_A is not None:
@@ -76,7 +95,12 @@ class PiStackingCriteria:
 
 @dataclass(init=False)
 class PiStacking(BaseInteraction):
-    """Aromatic ring-ring stacking interaction."""
+    """Ring-ring pi-stacking interaction record.
+
+    The record stores both ring references, molecule identities, centroid
+    distance, normal/plane angle, lateral offset, assigned stacking subtype,
+    periodic image, translation, and criteria metadata.
+    """
 
     ring1: RingRef
     ring2: RingRef
@@ -105,6 +129,11 @@ class PiStacking(BaseInteraction):
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
     ):
+        """Initialize a pi-stacking interaction from ring references.
+
+        ``plane_angle_deg`` defaults to ``normal_angle_deg`` for compatibility
+        with the current ring-normal-based classification.
+        """
         plane_angle = normal_angle_deg if plane_angle_deg is None else plane_angle_deg
         BaseInteraction.__init__(
             self,
@@ -132,7 +161,14 @@ def find_pi_stacking(
     target: MolecularCrystal | Sequence,
     criteria: PiStackingCriteria | None = None,
 ) -> list[PiStacking]:
-    """Identify aromatic pi-stacking interactions between molecular rings."""
+    """Find pi-stacking interactions between molecular rings.
+
+    Rings are obtained from ``LocalGeometry``, optionally restricted to aromatic
+    rings.  Each ring pair is evaluated over relevant periodic images for
+    crystal inputs, or only in the input coordinates for molecule sequences.
+    Accepted pairs are deduplicated by molecule index, ring atom indices, and
+    image.
+    """
     criteria = criteria or PiStackingCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
@@ -207,7 +243,7 @@ def find_pi_stacking(
 
 
 def find_pi_stacks(target: MolecularCrystal | Sequence, criteria: PiStackingCriteria | None = None) -> list[PiStacking]:
-    """Alias for :func:`find_pi_stacking`."""
+    """Alias for :func:`find_pi_stacking` with identical behavior."""
     return find_pi_stacking(target, criteria=criteria)
 
 
@@ -222,6 +258,13 @@ def _evaluate_ring_pair(
     atom_offsets,
     criteria,
 ):
+    """Evaluate one ring pair and return construction data if accepted.
+
+    The helper computes centroid distance, folded ring-normal angle, lateral
+    offset relative to the first ring plane, and stacking subtype.  It returns
+    populated ``RingRef`` objects plus geometry metrics, or ``None`` when the
+    pair fails any criterion.
+    """
     c1 = np.asarray(ring1.centroid_A, dtype=float)
     c2 = np.asarray(ring2.centroid_A, dtype=float) + translation
     centroid_vec = c2 - c1
@@ -264,6 +307,12 @@ def _classify_pi_stacking(
     lateral_offset: float,
     criteria: PiStackingCriteria,
 ) -> PiStackingSubtype | None:
+    """Classify ring-pair geometry as a supported pi-stacking subtype.
+
+    Parallel rings are split into face-centered and displaced cases by lateral
+    offset.  Nonparallel rings are accepted as T-shaped only within the
+    configured normal-angle window and lateral-offset cutoff.
+    """
     if normal_angle <= criteria.max_parallel_normal_angle_deg:
         if lateral_offset <= criteria.max_face_centered_offset_A:
             return "face_centered_parallel"
@@ -281,12 +330,14 @@ def _classify_pi_stacking(
 
 
 def _translation(lattice, image: tuple[int, int, int]) -> np.ndarray:
+    """Return the Cartesian translation vector for an image as an array."""
     if lattice is None:
         return np.zeros(3)
     return np.asarray(image_translation(lattice, image), dtype=float)
 
 
 def _criteria_metadata(criteria: PiStackingCriteria) -> dict[str, Any]:
+    """Return a JSON-friendly snapshot of pi-stacking criteria."""
     return {
         "max_centroid_distance_A": criteria.max_centroid_distance_A,
         "max_parallel_normal_angle_deg": criteria.max_parallel_normal_angle_deg,

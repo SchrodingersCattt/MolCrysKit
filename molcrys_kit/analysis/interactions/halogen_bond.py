@@ -1,4 +1,9 @@
-"""Halogen-bond interaction records and detector."""
+"""Halogen-bond criteria, records, and detector.
+
+The detector searches directional D-X···A contacts, where X is a halogen bonded
+to a donor atom and A is an acceptor atom.  Crystal inputs enable PBC image
+handling and molecule identity metadata.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,13 @@ from .local_geometry import AtomLocalGeometry, LocalGeometryCache
 
 @dataclass(frozen=True)
 class HalogenBondCriteria:
-    """Geometric and chemical criteria for halogen-bond detection."""
+    """Chemical and geometric thresholds for D-X···A halogen bonds.
+
+    A contact is accepted when the halogen-acceptor distance is within
+    ``max_x_acceptor_distance_A`` Å and the donor-halogen-acceptor angle is at
+    least ``min_dxa_angle_deg`` degrees.  Halogen and acceptor element sets,
+    plus the periodic search radius, are configurable.
+    """
 
     max_x_acceptor_distance_A: float = 3.8
     min_dxa_angle_deg: float = 150.0
@@ -27,7 +38,13 @@ class HalogenBondCriteria:
 
 @dataclass(init=False)
 class HalogenBond(BaseInteraction):
-    """Directional D-X···A halogen-bond interaction."""
+    """Directional D-X···A halogen-bond interaction record.
+
+    The record stores donor, halogen, and acceptor atom references, X···A and
+    optional D···A distances, D-X-A angle, periodic image information, molecule
+    identities, local geometry metadata, and detector criteria metadata through
+    ``BaseInteraction``.
+    """
 
     donor: AtomRef
     halogen: AtomRef
@@ -58,6 +75,7 @@ class HalogenBond(BaseInteraction):
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
     ):
+        """Initialize a halogen-bond record from references and geometry."""
         BaseInteraction.__init__(
             self,
             kind="halogen_bond",
@@ -85,7 +103,13 @@ def find_halogen_bonds(
     target: MolecularCrystal | Sequence,
     criteria: HalogenBondCriteria | None = None,
 ) -> list[HalogenBond]:
-    """Identify directional halogen bonds between molecules."""
+    """Find directional halogen bonds in a crystal or molecule sequence.
+
+    For each candidate halogen atom, the first heavy neighbour is used as the
+    donor atom defining the D-X direction.  Candidate acceptors are tested
+    against the configured distance and D-X-A angle thresholds.  Periodic
+    images are searched only for ``MolecularCrystal`` inputs.
+    """
     criteria = criteria or HalogenBondCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
@@ -180,6 +204,13 @@ def find_halogen_bonds(
 
 
 def _directional_pairs(n_molecules: int, include_periodic_context: bool) -> list[tuple[int, int]]:
+    """Return ordered molecule pairs for a directional detector.
+
+    With periodic context, all ordered pairs including self-pairs are returned
+    because nonzero images can represent intermolecular contacts.  Without
+    periodic context, only distinct molecule pairs are returned in both
+    directions.
+    """
     if include_periodic_context:
         return [(i, j) for i in range(n_molecules) for j in range(n_molecules)]
     return [(i, j) for i in range(n_molecules) for j in range(n_molecules) if i < j] + [
@@ -188,12 +219,14 @@ def _directional_pairs(n_molecules: int, include_periodic_context: bool) -> list
 
 
 def _translation(lattice, image: tuple[int, int, int]) -> np.ndarray:
+    """Return the Cartesian translation vector for an image as an array."""
     if lattice is None:
         return np.zeros(3)
     return np.asarray(image_translation(lattice, image), dtype=float)
 
 
 def _criteria_metadata(criteria: HalogenBondCriteria) -> dict[str, Any]:
+    """Return a JSON-friendly snapshot of halogen-bond criteria."""
     return {
         "max_x_acceptor_distance_A": criteria.max_x_acceptor_distance_A,
         "min_dxa_angle_deg": criteria.min_dxa_angle_deg,

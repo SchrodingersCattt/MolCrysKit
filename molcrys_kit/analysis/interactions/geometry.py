@@ -1,4 +1,9 @@
-"""Geometry helpers for interaction detectors."""
+"""Numerical geometry helpers used by interaction detectors.
+
+The functions in this module are intentionally small and dependency-light:
+vector angles, periodic-image translations, conservative lattice-image
+enumeration, and best-fit planes for molecular rings.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,12 @@ import numpy as np
 
 
 def vector_angle_deg(vec1, vec2) -> float:
-    """Return the angle between two vectors in degrees."""
+    """Return the angle between two vectors in degrees.
+
+    The result is in the range ``[0, 180]``.  Degenerate zero-length vectors
+    return ``nan`` instead of raising, and the cosine is clipped to avoid
+    numerical domain errors near parallel or antiparallel vectors.
+    """
     v1 = np.asarray(vec1, dtype=float)
     v2 = np.asarray(vec2, dtype=float)
     n1 = np.linalg.norm(v1)
@@ -21,7 +31,12 @@ def vector_angle_deg(vec1, vec2) -> float:
 
 
 def image_translation(lattice, image: tuple[int, int, int]) -> tuple[float, float, float]:
-    """Convert an integer periodic image to a Cartesian translation vector."""
+    """Convert an integer periodic image to a Cartesian translation vector.
+
+    ``image`` is interpreted as lattice-vector coefficients and multiplied by
+    the row-vector lattice matrix, returning a three-component Cartesian tuple
+    in Å.
+    """
     translation = np.asarray(image, dtype=float) @ np.asarray(lattice, dtype=float)
     return tuple(float(v) for v in translation)
 
@@ -31,10 +46,14 @@ def enumerate_lattice_images(
     pbc: tuple[bool, bool, bool] = (True, True, True),
     search_radius_A: float | None = None,
 ) -> tuple[tuple[int, int, int], ...]:
-    """Enumerate plausible periodic images for an interaction search radius.
+    """Enumerate periodic images that may contribute within a search radius.
 
-    The ranges are conservative and based on lattice-vector lengths.  The origin
-    image is always included.
+    For periodic axes, the image range is chosen conservatively from the
+    lattice-vector length and ``search_radius_A``; nonperiodic axes are fixed at
+    zero.  When no positive radius is supplied, nearest-neighbour images
+    ``[-1, 0, 1]`` are used for periodic axes.  The origin image is always
+    included.  Images are generated in product order and are not distance
+    sorted.
     """
     if search_radius_A is None or search_radius_A <= 0:
         ranges = [range(-1, 2) if flag else range(0, 1) for flag in pbc]
@@ -54,7 +73,12 @@ def enumerate_lattice_images(
 
 
 def best_fit_plane(points) -> tuple[tuple[float, float, float], tuple[float, float, float], float]:
-    """Return centroid, unit normal, and plane RMSD for a point cloud."""
+    """Fit a least-squares plane to points.
+
+    Returns the point centroid, a unit normal vector, and the RMS deviation of
+    the points from the plane.  The fit uses SVD of centered coordinates and is
+    used by ring geometry to estimate planarity and ring normals.
+    """
     pts = np.asarray(points, dtype=float)
     centroid = pts.mean(axis=0)
     centered = pts - centroid

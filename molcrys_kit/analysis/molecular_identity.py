@@ -1,4 +1,11 @@
-"""Molecule-level chemical identity annotations."""
+"""Molecule-level identity records used by crystal analysis.
+
+This module converts ``CrystalMolecule``-like objects into stable, lightweight
+annotations: formulae, heavy-atom signatures, optional topology signatures,
+moiety-derived charges, species labels, and formal-charge annotations.  The
+records are intentionally JSON-friendly and are used by interaction detectors
+to attach molecule/species context without storing full molecule objects.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +19,20 @@ from .formula_moiety import heavy_signature, match_molecule_to_fragment, parse_m
 
 @dataclass(frozen=True)
 class ChemicalIdentity:
-    """Molecule/fragment/species-level identity annotation."""
+    """Immutable molecule/fragment/species identity annotation.
+
+    ``ChemicalIdentity`` summarizes one molecule in a crystal using
+    formula-based, topological, and optional CIF/moiety-derived information.
+    It is a portable metadata record for downstream analyses, interaction
+    records, and JSON export, not an owner of molecular coordinates or bonding
+    state.
+
+    ``heavy_signature`` stores the non-hydrogen composition as sorted
+    ``(element, count)`` pairs for fragment matching.  ``topo_signature`` is an
+    optional graph-derived label, ``species_id`` is an optional caller-provided
+    grouping label, and the charge/moiety fields are annotations when the
+    corresponding analysis data are available.
+    """
 
     molecule_index: int
     formula: str
@@ -37,7 +57,19 @@ class ChemicalIdentity:
         charge_result: MolChargeResult | None = None,
         include_topology: bool = True,
     ) -> "ChemicalIdentity":
-        """Build identity from a molecule and optional crystal-level annotations."""
+        """Construct an identity record from molecule and crystal metadata.
+
+        The molecule supplies formula, Hill formula, heavy-atom composition,
+        and, when requested, a topology signature.  If a parent crystal has a
+        ``formula_moiety`` string, the molecule is matched to a moiety fragment
+        to recover the raw moiety token and formal moiety charge.  A precomputed
+        ``MolChargeResult`` can additionally attach a formal charge and charge
+        provenance.
+
+        Topology-signature failures caused by missing graph/bonding
+        information are treated as unavailable metadata rather than hard
+        errors.
+        """
         symbols = molecule.get_chemical_symbols()
         formula = molecule.get_chemical_formula()
         hill_formula = molecule.get_chemical_formula(mode="hill", empirical=False)
@@ -80,7 +112,12 @@ class ChemicalIdentity:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-friendly representation."""
+        """Return a JSON-friendly representation of the identity record.
+
+        Tuple fields such as ``heavy_signature`` are converted to nested lists,
+        and the metadata mapping is copied so callers can serialize or mutate
+        the result without modifying the dataclass instance.
+        """
         return {
             "molecule_index": self.molecule_index,
             "formula": self.formula,
@@ -97,7 +134,14 @@ class ChemicalIdentity:
 
 
 class ChemicalIdentityCache:
-    """Lazy cache of ``ChemicalIdentity`` objects for crystal molecules."""
+    """Lazy per-molecule cache for ``ChemicalIdentity`` records.
+
+    The cache is keyed by molecule index in a parent crystal.  Optional species
+    IDs and topology-signature-indexed charge results are injected when an
+    identity is first requested.  This avoids repeated topology-signature
+    construction in interaction detectors that visit the same molecule many
+    times.
+    """
 
     def __init__(
         self,
@@ -107,6 +151,13 @@ class ChemicalIdentityCache:
         charge_results: dict[str, MolChargeResult] | None = None,
         include_topology: bool = True,
     ):
+        """Initialize an identity cache for a molecular crystal.
+
+        ``charge_results`` is expected to be keyed by topological signature,
+        matching the value computed for each molecule when
+        ``include_topology`` is true.  Missing mappings are normalized to empty
+        dictionaries.
+        """
         self.crystal = crystal
         self.species_ids = species_ids or {}
         self.charge_results = charge_results or {}
@@ -114,7 +165,13 @@ class ChemicalIdentityCache:
         self._cache: dict[int, ChemicalIdentity] = {}
 
     def get(self, molecule_index: int) -> ChemicalIdentity:
-        """Return identity for a molecule index."""
+        """Return the cached identity for one molecule index.
+
+        The identity is built on first access from
+        ``crystal.molecules[molecule_index]``.  When topology is enabled, the
+        molecule topology signature is also used to look up any precomputed
+        charge annotation.
+        """
         molecule_index = int(molecule_index)
         if molecule_index not in self._cache:
             molecule = self.crystal.molecules[molecule_index]
@@ -136,4 +193,5 @@ class ChemicalIdentityCache:
         return self._cache[molecule_index]
 
     def __getitem__(self, molecule_index: int) -> ChemicalIdentity:
+        """Return ``get(molecule_index)`` for dictionary-like cache access."""
         return self.get(molecule_index)

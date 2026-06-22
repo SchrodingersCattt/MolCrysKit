@@ -1,4 +1,10 @@
-"""Molecule-local geometry views for interaction detectors."""
+"""Cached molecule-local topology and ring geometry for interaction detectors.
+
+``LocalGeometry`` wraps ``ChemicalEnvironment`` to expose repeated
+neighbourhood, bonded-hydrogen, and ring queries through a small cache.  The
+records here keep molecule-local geometry separate from periodic image
+handling, which is managed by the interaction detectors.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +21,13 @@ from .geometry import best_fit_plane
 
 @dataclass(frozen=True)
 class AtomLocalGeometry:
-    """Cached local topology/geometry around a molecule-local atom."""
+    """Cached topology and simple geometry around one molecule-local atom.
+
+    The record stores neighbour lists, heavy-atom neighbours, coordination
+    number, bond-length/angle summaries, and ring/aromatic-ring membership.  It
+    is intended as contextual metadata for interaction records rather than a
+    full chemical environment model.
+    """
 
     atom_index: int
     symbol: str
@@ -32,7 +44,12 @@ class AtomLocalGeometry:
 
 @dataclass(frozen=True)
 class RingGeometry:
-    """Geometry of a molecule-local ring."""
+    """Molecule-local ring geometry derived from a topology cycle.
+
+    The record contains sorted ring atom indices, element symbols, centroid in
+    Å, fitted normal, plane RMSD in Å, planarity/aromaticity flags, ring size,
+    and an optional ``RingRef`` when the parent molecule index is known.
+    """
 
     atom_indices: tuple[int, ...]
     symbols: tuple[str, ...]
@@ -46,9 +63,21 @@ class RingGeometry:
 
 
 class LocalGeometry:
-    """Cached molecule-local geometry wrapper around ``ChemicalEnvironment``."""
+    """Cached geometry view for one molecule.
+
+    The wrapper owns a ``ChemicalEnvironment`` and lazily computes atom-local
+    records and ring geometries.  It provides the common local queries needed
+    by weak-interaction detectors while hiding graph and ring-detection details.
+    """
 
     def __init__(self, molecule, molecule_index: int | None = None):
+        """Create a cached local-geometry view for a molecule.
+
+        ``molecule_index`` is optional; when supplied, generated ring
+        geometries include ``RingRef`` objects that can be embedded directly in
+        interaction records.  The wrapper reads from the molecule but does not
+        intentionally mutate it.
+        """
         self.molecule = molecule
         self.molecule_index = molecule_index
         self.env = ChemicalEnvironment(molecule)
@@ -56,7 +85,12 @@ class LocalGeometry:
         self._rings_cache: list[RingGeometry] | None = None
 
     def atom(self, atom_index: int) -> AtomLocalGeometry:
-        """Return local geometry for one atom."""
+        """Return cached local geometry for one molecule-local atom.
+
+        The first request reads neighbours and ring information from
+        ``ChemicalEnvironment``, computes heavy-neighbour and aromatic-ring
+        summaries, and stores the resulting ``AtomLocalGeometry`` for reuse.
+        """
         atom_index = int(atom_index)
         if atom_index not in self._atom_cache:
             graph = self.env.graph
@@ -87,17 +121,26 @@ class LocalGeometry:
         return self._atom_cache[atom_index]
 
     def neighbors(self, atom_index: int, heavy_only: bool = False) -> tuple[int, ...]:
-        """Return molecule-local neighbour indices."""
+        """Return molecule-local neighbour indices for an atom.
+
+        Set ``heavy_only=True`` to exclude hydrogens from the returned
+        neighbour tuple.
+        """
         local = self.atom(atom_index)
         return local.heavy_neighbor_indices if heavy_only else local.neighbor_indices
 
     def bonded_hydrogens(self, atom_index: int) -> tuple[int, ...]:
-        """Return hydrogens bonded to a molecule-local atom."""
+        """Return molecule-local hydrogen indices bonded to the given atom."""
         symbols = self.molecule.get_chemical_symbols()
         return tuple(i for i in self.neighbors(atom_index) if symbols[i] == "H")
 
     def rings(self, aromatic_only: bool = False) -> list[RingGeometry]:
-        """Return deduplicated ring geometries for the molecule."""
+        """Return cached ring geometries for the molecule.
+
+        When ``aromatic_only`` is true, only rings marked aromatic by
+        ``ChemicalEnvironment`` are returned.  A shallow list copy is returned
+        so callers cannot mutate the internal cache list.
+        """
         if self._rings_cache is None:
             self._rings_cache = self._build_rings()
         if aromatic_only:
@@ -105,6 +148,14 @@ class LocalGeometry:
         return list(self._rings_cache)
 
     def _build_rings(self) -> list[RingGeometry]:
+        """Construct ring geometry records from topology cycles.
+
+        Each cycle is converted to sorted atom indices, aromaticity is inferred
+        from per-atom aromatic ring sizes, and a best-fit plane supplies
+        centroid, normal, and planarity RMSD.  Plane-fitting failures produce a
+        warning and a fallback centroid with a zero normal so ring detection can
+        continue.
+        """
         rings: list[RingGeometry] = []
         positions = self.molecule.get_positions()
         symbols = self.molecule.get_chemical_symbols()
@@ -156,7 +207,11 @@ class LocalGeometry:
 
 
 class LocalGeometryCache:
-    """Lazy cache of ``LocalGeometry`` objects for crystal molecules."""
+    """Lazy cache of ``LocalGeometry`` objects indexed by molecule number.
+
+    The constructor accepts either a ``MolecularCrystal``-like object with a
+    ``molecules`` attribute or an explicit molecule sequence.
+    """
 
     def __init__(self, crystal_or_molecules):
         if hasattr(crystal_or_molecules, "molecules"):
@@ -166,6 +221,7 @@ class LocalGeometryCache:
         self._cache: dict[int, LocalGeometry] = {}
 
     def get(self, molecule_index: int) -> LocalGeometry:
+        """Return cached ``LocalGeometry`` for one molecule index."""
         molecule_index = int(molecule_index)
         if molecule_index not in self._cache:
             self._cache[molecule_index] = LocalGeometry(
@@ -174,4 +230,5 @@ class LocalGeometryCache:
         return self._cache[molecule_index]
 
     def __getitem__(self, molecule_index: int) -> LocalGeometry:
+        """Return ``get(molecule_index)`` for dictionary-like cache access."""
         return self.get(molecule_index)
