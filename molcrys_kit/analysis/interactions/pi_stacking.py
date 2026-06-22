@@ -9,7 +9,7 @@ import numpy as np
 
 from ...structures.crystal import MolecularCrystal
 from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
-from .base import BaseInteraction, RingRef
+from .base import BaseInteraction, RingRef, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import RingGeometry, LocalGeometryCache
 
@@ -136,6 +136,7 @@ def find_pi_stacking(
     criteria = criteria or PiStackingCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
+    atom_offsets = build_crystal_atom_offsets(molecules)
     local_geometries = LocalGeometryCache(molecules)
     identities = ChemicalIdentityCache(crystal) if crystal is not None else None
 
@@ -171,6 +172,7 @@ def find_pi_stacking(
                             ring2,
                             image,
                             translation,
+                            atom_offsets,
                             criteria,
                         )
                         if result is None:
@@ -209,7 +211,17 @@ def find_pi_stacks(target: MolecularCrystal | Sequence, criteria: PiStackingCrit
     return find_pi_stacking(target, criteria=criteria)
 
 
-def _evaluate_ring_pair(molecules, mol1_idx, mol2_idx, ring1: RingGeometry, ring2: RingGeometry, image, translation, criteria):
+def _evaluate_ring_pair(
+    molecules,
+    mol1_idx,
+    mol2_idx,
+    ring1: RingGeometry,
+    ring2: RingGeometry,
+    image,
+    translation,
+    atom_offsets,
+    criteria,
+):
     c1 = np.asarray(ring1.centroid_A, dtype=float)
     c2 = np.asarray(ring2.centroid_A, dtype=float) + translation
     centroid_vec = c2 - c1
@@ -230,10 +242,19 @@ def _evaluate_ring_pair(molecules, mol1_idx, mol2_idx, ring1: RingGeometry, ring
     if subtype is None:
         return None
     ring1_ref = RingRef.from_molecule(
-        molecules[mol1_idx], mol1_idx, ring1.atom_indices, is_aromatic=ring1.is_aromatic
+        molecules[mol1_idx],
+        mol1_idx,
+        ring1.atom_indices,
+        is_aromatic=ring1.is_aromatic,
+        crystal_atom_offset=atom_offsets[mol1_idx],
     )
     ring2_ref = RingRef.from_molecule(
-        molecules[mol2_idx], mol2_idx, ring2.atom_indices, is_aromatic=ring2.is_aromatic, image=image
+        molecules[mol2_idx],
+        mol2_idx,
+        ring2.atom_indices,
+        is_aromatic=ring2.is_aromatic,
+        image=image,
+        crystal_atom_offset=atom_offsets[mol2_idx],
     )
     return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset, subtype
 

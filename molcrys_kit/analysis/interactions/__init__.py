@@ -13,7 +13,7 @@ The package separates interaction analysis into four layers:
 The legacy import path ``molcrys_kit.analysis.interactions`` is kept stable.
 """
 
-from .base import AtomRef, BaseInteraction, RingRef
+from .base import AtomRef, BaseInteraction, RingRef, build_crystal_atom_offsets
 from .bonding import get_bonding_threshold
 from .ch_pi import CHPiInteraction, CHPiInteractionCriteria, find_ch_pi, find_ch_pi_interactions
 from .h_h_contact import HHContact, HHContactCriteria, find_h_h_contacts
@@ -49,6 +49,7 @@ __all__ = [
     "PiStackingSubtype",
     "RingGeometry",
     "RingRef",
+    "build_crystal_atom_offsets",
     "find_ch_pi",
     "find_ch_pi_interactions",
     "find_h_h_contacts",

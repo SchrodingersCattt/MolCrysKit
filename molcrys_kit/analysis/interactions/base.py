@@ -17,6 +17,16 @@ from ...constants.config import (
 Image = tuple[int, int, int]
 
 
+def build_crystal_atom_offsets(molecules: Any) -> tuple[int, ...]:
+    """Return flattened atom-index offsets for a molecule sequence."""
+    offsets: list[int] = []
+    current = 0
+    for molecule in molecules:
+        offsets.append(current)
+        current += len(molecule)
+    return tuple(offsets)
+
+
 def _array_value(molecule: Any, key: str, atom_index: int, default: Any = None) -> Any:
     arrays = getattr(molecule, "arrays", {})
     if key not in arrays:
@@ -43,7 +53,8 @@ class AtomRef:
     atom_index: int
     symbol: str
     label: str | None = None
-    global_index: int | None = None
+    crystal_atom_index: int | None = None
+    asu_atom_index: int | None = None
     image: Image = (0, 0, 0)
     occupancy: float | None = None
     disorder_group: int | None = None
@@ -57,13 +68,17 @@ class AtomRef:
         molecule_index: int,
         atom_index: int,
         image: Image = (0, 0, 0),
+        crystal_atom_offset: int | None = None,
     ) -> "AtomRef":
         """Build an atom reference from a ``CrystalMolecule``-like object."""
         symbols = molecule.get_chemical_symbols()
-        global_indices = getattr(molecule, "info", {}).get("atom_indices")
-        global_index = None
-        if global_indices is not None and atom_index < len(global_indices):
-            global_index = int(global_indices[atom_index])
+        asu_indices = getattr(molecule, "info", {}).get("atom_indices")
+        asu_atom_index = None
+        if asu_indices is not None and atom_index < len(asu_indices):
+            asu_atom_index = int(asu_indices[atom_index])
+        crystal_atom_index = None
+        if crystal_atom_offset is not None:
+            crystal_atom_index = int(crystal_atom_offset) + int(atom_index)
 
         return cls(
             molecule_index=int(molecule_index),
@@ -72,7 +87,8 @@ class AtomRef:
             label=_coerce_optional_str(
                 _array_value(molecule, KEY_LABEL, atom_index, symbols[atom_index])
             ),
-            global_index=global_index,
+            crystal_atom_index=crystal_atom_index,
+            asu_atom_index=asu_atom_index,
             image=tuple(int(v) for v in image),
             occupancy=_coerce_optional_float(
                 _array_value(molecule, KEY_OCCUPANCY, atom_index, None)
@@ -95,7 +111,8 @@ class AtomRef:
             "atom_index": self.atom_index,
             "symbol": self.symbol,
             "label": self.label,
-            "global_index": self.global_index,
+            "crystal_atom_index": self.crystal_atom_index,
+            "asu_atom_index": self.asu_atom_index,
             "image": list(self.image),
             "occupancy": self.occupancy,
             "disorder_group": self.disorder_group,
@@ -123,6 +140,7 @@ class RingRef:
         atom_indices: tuple[int, ...],
         is_aromatic: bool = False,
         image: Image = (0, 0, 0),
+        crystal_atom_offset: int | None = None,
     ) -> "RingRef":
         """Build a ring reference from molecule-local atom indices."""
         atom_indices = tuple(sorted(int(i) for i in atom_indices))
@@ -130,7 +148,13 @@ class RingRef:
             molecule_index=int(molecule_index),
             atom_indices=atom_indices,
             atom_refs=tuple(
-                AtomRef.from_molecule(molecule, molecule_index, i, image=image)
+                AtomRef.from_molecule(
+                    molecule,
+                    molecule_index,
+                    i,
+                    image=image,
+                    crystal_atom_offset=crystal_atom_offset,
+                )
                 for i in atom_indices
             ),
             size=len(atom_indices),

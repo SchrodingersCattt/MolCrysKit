@@ -9,7 +9,7 @@ import numpy as np
 
 from ...structures.crystal import MolecularCrystal
 from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
-from .base import AtomRef, BaseInteraction
+from .base import AtomRef, BaseInteraction, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import AtomLocalGeometry, LocalGeometryCache
 
@@ -89,6 +89,7 @@ def find_halogen_bonds(
     criteria = criteria or HalogenBondCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
+    atom_offsets = build_crystal_atom_offsets(molecules)
     local_geometries = LocalGeometryCache(molecules)
     identities = ChemicalIdentityCache(crystal) if crystal is not None else None
 
@@ -139,10 +140,24 @@ def find_halogen_bonds(
                     if dxa_angle < criteria.min_dxa_angle_deg:
                         continue
 
-                    donor_ref = AtomRef.from_molecule(donor_mol, donor_mol_idx, donor_atom_idx)
-                    halogen_ref = AtomRef.from_molecule(donor_mol, donor_mol_idx, halogen_idx)
+                    donor_ref = AtomRef.from_molecule(
+                        donor_mol,
+                        donor_mol_idx,
+                        donor_atom_idx,
+                        crystal_atom_offset=atom_offsets[donor_mol_idx],
+                    )
+                    halogen_ref = AtomRef.from_molecule(
+                        donor_mol,
+                        donor_mol_idx,
+                        halogen_idx,
+                        crystal_atom_offset=atom_offsets[donor_mol_idx],
+                    )
                     acceptor_ref = AtomRef.from_molecule(
-                        acceptor_mol, acceptor_mol_idx, acc_idx, image=image
+                        acceptor_mol,
+                        acceptor_mol_idx,
+                        acc_idx,
+                        image=image,
+                        crystal_atom_offset=atom_offsets[acceptor_mol_idx],
                     )
                     bonds.append(
                         HalogenBond(

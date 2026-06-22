@@ -129,6 +129,10 @@ class TestHydrogenBond:
         assert hb.donor.molecule_index == 0
         assert hb.hydrogen.molecule_index == 0
         assert hb.acceptor.molecule_index == 1
+        assert hb.donor.crystal_atom_index == 0
+        assert hb.hydrogen.crystal_atom_index == 1
+        assert hb.acceptor.crystal_atom_index == 3
+        assert "global_index" not in hb.acceptor.to_dict()
         assert hb.h_acceptor_distance_A == pytest.approx(1.84)
         assert hb.donor_acceptor_distance_A == pytest.approx(2.8)
         assert hb.dha_angle_deg == pytest.approx(180.0)
@@ -195,6 +199,9 @@ class TestAdditionalInteractionDetectors:
         assert bond.donor.atom_index == 0
         assert bond.halogen.atom_index == 1
         assert bond.acceptor.atom_index == 0
+        assert bond.donor.crystal_atom_index == 0
+        assert bond.halogen.crystal_atom_index == 1
+        assert bond.acceptor.crystal_atom_index == 2
         assert bond.x_acceptor_distance_A == pytest.approx(3.0)
         assert bond.dxa_angle_deg == pytest.approx(180.0)
 
@@ -209,6 +216,8 @@ class TestAdditionalInteractionDetectors:
         assert isinstance(stack, PiStacking)
         assert stack.ring1.atom_indices == (0, 1, 2, 3, 4, 5)
         assert stack.ring2.atom_indices == (0, 1, 2, 3, 4, 5)
+        assert stack.ring1.atom_refs[0].crystal_atom_index == 0
+        assert stack.ring2.atom_refs[0].crystal_atom_index == 6
         assert stack.centroid_distance_A == pytest.approx(3.4)
         assert stack.normal_angle_deg == pytest.approx(0.0)
         assert stack.lateral_offset_A == pytest.approx(0.0)
@@ -270,6 +279,9 @@ class TestAdditionalInteractionDetectors:
         assert interaction.carbon.atom_index == 0
         assert interaction.hydrogen.atom_index == 1
         assert interaction.ring.atom_indices == (0, 1, 2, 3, 4, 5)
+        assert interaction.carbon.crystal_atom_index == 0
+        assert interaction.hydrogen.crystal_atom_index == 1
+        assert interaction.ring.atom_refs[0].crystal_atom_index == 2
         assert interaction.h_centroid_distance_A == pytest.approx(1.4)
         assert interaction.ch_centroid_angle_deg == pytest.approx(180.0)
 
@@ -284,7 +296,28 @@ class TestAdditionalInteractionDetectors:
         assert isinstance(contact, HHContact)
         assert contact.hydrogen1.atom_index == 0
         assert contact.hydrogen2.atom_index == 0
+        assert contact.hydrogen1.crystal_atom_index == 0
+        assert contact.hydrogen2.crystal_atom_index == 1
         assert contact.h_h_distance_A == pytest.approx(2.0)
+
+    def test_atom_ref_separates_crystal_and_asu_indices(self):
+        mol1 = CrystalMolecule(Atoms(["H"], positions=[[0, 0, 0]]))
+        mol2 = CrystalMolecule(Atoms(["H"], positions=[[2.0, 0, 0]]))
+        mol1.info["atom_indices"] = [10]
+        mol2.info["atom_indices"] = [42]
+
+        contacts = find_h_h_contacts([mol1, mol2])
+
+        assert len(contacts) == 1
+        contact = contacts[0]
+        assert contact.hydrogen1.crystal_atom_index == 0
+        assert contact.hydrogen2.crystal_atom_index == 1
+        assert contact.hydrogen1.asu_atom_index == 10
+        assert contact.hydrogen2.asu_atom_index == 42
+        payload = contact.hydrogen2.to_dict()
+        assert payload["crystal_atom_index"] == 1
+        assert payload["asu_atom_index"] == 42
+        assert "global_index" not in payload
 
 
 # =====================================================================

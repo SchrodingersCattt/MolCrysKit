@@ -9,7 +9,7 @@ import numpy as np
 
 from ...structures.crystal import MolecularCrystal
 from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
-from .base import AtomRef, BaseInteraction
+from .base import AtomRef, BaseInteraction, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation
 
 
@@ -71,6 +71,7 @@ def find_h_h_contacts(
     criteria = criteria or HHContactCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
+    atom_offsets = build_crystal_atom_offsets(molecules)
     identities = ChemicalIdentityCache(crystal) if crystal is not None else None
 
     if crystal is not None:
@@ -107,8 +108,19 @@ def find_h_h_contacts(
                         distance = float(np.linalg.norm(h1_pos - h2_pos))
                         if not (criteria.min_h_h_distance_A <= distance <= criteria.max_h_h_distance_A):
                             continue
-                        h1_ref = AtomRef.from_molecule(mol1, mol1_idx, h1_idx)
-                        h2_ref = AtomRef.from_molecule(mol2, mol2_idx, h2_idx, image=image)
+                        h1_ref = AtomRef.from_molecule(
+                            mol1,
+                            mol1_idx,
+                            h1_idx,
+                            crystal_atom_offset=atom_offsets[mol1_idx],
+                        )
+                        h2_ref = AtomRef.from_molecule(
+                            mol2,
+                            mol2_idx,
+                            h2_idx,
+                            image=image,
+                            crystal_atom_offset=atom_offsets[mol2_idx],
+                        )
                         contacts.append(
                             HHContact(
                                 hydrogen1=h1_ref,

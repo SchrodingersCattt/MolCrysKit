@@ -9,7 +9,7 @@ import numpy as np
 
 from ...structures.crystal import MolecularCrystal
 from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
-from .base import AtomRef, BaseInteraction, RingRef
+from .base import AtomRef, BaseInteraction, RingRef, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import AtomLocalGeometry, LocalGeometryCache
 
@@ -83,6 +83,7 @@ def find_ch_pi(
     criteria = criteria or CHPiInteractionCriteria()
     crystal = target if isinstance(target, MolecularCrystal) else None
     molecules = list(crystal.molecules if crystal is not None else target)
+    atom_offsets = build_crystal_atom_offsets(molecules)
     local_geometries = LocalGeometryCache(molecules)
     identities = ChemicalIdentityCache(crystal) if crystal is not None else None
 
@@ -129,14 +130,25 @@ def find_ch_pi(
                         if angle < criteria.min_ch_centroid_angle_deg:
                             continue
 
-                        carbon_ref = AtomRef.from_molecule(donor_mol, donor_idx, carbon_idx)
-                        hydrogen_ref = AtomRef.from_molecule(donor_mol, donor_idx, hydrogen_idx)
+                        carbon_ref = AtomRef.from_molecule(
+                            donor_mol,
+                            donor_idx,
+                            carbon_idx,
+                            crystal_atom_offset=atom_offsets[donor_idx],
+                        )
+                        hydrogen_ref = AtomRef.from_molecule(
+                            donor_mol,
+                            donor_idx,
+                            hydrogen_idx,
+                            crystal_atom_offset=atom_offsets[donor_idx],
+                        )
                         ring_ref = RingRef.from_molecule(
                             ring_mol,
                             ring_mol_idx,
                             ring.atom_indices,
                             is_aromatic=ring.is_aromatic,
                             image=image,
+                            crystal_atom_offset=atom_offsets[ring_mol_idx],
                         )
                         interactions.append(
                             CHPiInteraction(
