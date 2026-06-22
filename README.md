@@ -14,7 +14,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Robust Molecule Identification: Identify individual molecules within a crystal structure using graph-based algorithms
 - Disorder Handling: Process disordered structures with graph algorithms
 - Topological Surface Generation: Create surface slabs while preserving molecular topology
-- Hydrogen Addition: Automatically add hydrogen atoms with geometric placement rules, optionally constrained by CIF `_chemical_formula_moiety` fragment formulas when available
+- Hydrogen Completion: Add hydrogen atoms with heuristic geometric placement rules
 
 ## Installation
 
