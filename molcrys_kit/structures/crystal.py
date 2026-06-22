@@ -50,6 +50,9 @@ class MolecularCrystal:
         pbc: Tuple[bool, bool, bool] = (True, True, True),
         formula_moiety: Optional[str] = None,
         disorder_provenance=None,
+        calc_results: Optional[dict] = None,
+        metadata: Optional[dict] = None,
+        extra_arrays: Optional[dict] = None,
     ):
         """
         Initialize a MolecularCrystal.
@@ -66,6 +69,16 @@ class MolecularCrystal:
             Raw CIF _chemical_formula_moiety value when available.
         disorder_provenance : optional, default=None
             Source-site audit trail for ordered disorder replicas.
+        calc_results : Optional[dict], default=None
+            Calculator results (energy, forces, stress, etc.) to attach
+            when serialising via :meth:`to_ase`.  Populated automatically
+            by :meth:`from_ase_atoms` when the source Atoms carries a
+            :class:`~ase.calculators.singlepoint.SinglePointCalculator`.
+        metadata : Optional[dict], default=None
+            Extra per-frame metadata preserved through ExtXYZ ``atoms.info``.
+        extra_arrays : Optional[dict], default=None
+            Extra per-atom arrays preserved through ExtXYZ ``Properties``
+            columns on the flattened ASE Atoms representation.
         """
         from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
         
@@ -73,6 +86,12 @@ class MolecularCrystal:
         self.pbc = pbc
         self.formula_moiety = formula_moiety
         self.disorder_provenance = disorder_provenance
+        self._calc_results: Optional[dict] = calc_results
+        self.metadata: dict = dict(metadata or {})
+        self.extra_arrays: dict = {
+            key: np.asarray(value).copy()
+            for key, value in (extra_arrays or {}).items()
+        }
 
         # Wrap each ASE Atoms object in a CrystalMolecule
         self.molecules = []
@@ -408,13 +427,21 @@ class MolecularCrystal:
         Convert the MolecularCrystal to an ASE Atoms object.
 
         This method combines all molecules in the crystal into a single ASE Atoms object,
-        preserving their positions and the crystal lattice.
+        preserving their positions and the crystal lattice.  A ``molecule_index``
+        per-atom array is stored so that :meth:`from_ase_atoms` can reconstruct
+        the original molecule partitioning exactly.
+
+        All standard disorder metadata arrays (``occupancy``, ``disorder_group``,
+        ``assembly``, ``label``) are propagated to the flat Atoms.
 
         Returns
         -------
         Atoms
             An ASE Atoms object representing the entire crystal structure.
         """
+        from ..constants.config import (
+            KEY_OCCUPANCY, KEY_DISORDER_GROUP,
+        )
 
         n_total = sum(len(molecule) for molecule in self.molecules)
         indices_lists = [
@@ -434,28 +461,178 @@ class MolecularCrystal:
             and set(flat_indices) == set(range(n_total))
         )
 
+        # --- per-frame / per-atom arrays to propagate ---
+        # NOTE: We deliberately skip `assembly` (usually all empty strings) and
+        # `label` (usually duplicates `symbols`) because they cause extxyz
+        # column-count mismatches and carry no information for non-disordered
+        # crystals.  When they do carry information (real disorder), the
+        # provenance dict in atoms.info captures the full context.
+        base_keys = {"numbers", "positions"}
+        skip_string_keys = {"assembly", "label"}
+        custom_keys = sorted(
+            {
+                key
+                for molecule in self.molecules
+                for key in molecule.arrays.keys()
+            }
+            - base_keys
+            - skip_string_keys
+            - {KEY_OCCUPANCY, KEY_DISORDER_GROUP}
+        )
+        disorder_keys = [KEY_OCCUPANCY, KEY_DISORDER_GROUP] + custom_keys
+
         if can_restore_order:
             symbols = [None] * n_total
             positions = np.zeros((n_total, 3), dtype=float)
-            for molecule, indices in zip(self.molecules, indices_lists):
+            mol_idx = np.empty(n_total, dtype=int)
+            disorder_arrays = {k: [None] * n_total for k in disorder_keys}
+            for i_mol, (molecule, indices) in enumerate(zip(self.molecules, indices_lists)):
                 molecule_symbols = molecule.get_chemical_symbols()
                 molecule_positions = molecule.get_positions()
                 for local_index, global_index in enumerate(indices):
                     global_index = int(global_index)
                     symbols[global_index] = molecule_symbols[local_index]
                     positions[global_index] = molecule_positions[local_index]
-            return Atoms(
-                symbols=symbols,
-                positions=positions,
-                cell=self.lattice,
-                pbc=self.pbc,
-            )
+                    mol_idx[global_index] = i_mol
+                for k in disorder_keys:
+                    arr = molecule.arrays.get(k)
+                    if arr is not None:
+                        for local_index, global_index in enumerate(indices):
+                            disorder_arrays[k][int(global_index)] = arr[local_index]
+        else:
+            symbols = []
+            positions = []
+            mol_idx = np.empty(n_total, dtype=int)
+            disorder_arrays = {k: [] for k in disorder_keys}
+            offset = 0
+            for i_mol, molecule in enumerate(self.molecules):
+                symbols.extend(molecule.get_chemical_symbols())
+                positions.extend(molecule.get_positions())
+                n = len(molecule)
+                mol_idx[offset:offset + n] = i_mol
+                for k in disorder_keys:
+                    arr = molecule.arrays.get(k)
+                    if arr is not None:
+                        disorder_arrays[k].extend(arr)
+                    else:
+                        disorder_arrays[k].extend([None] * n)
+                offset += n
 
-        symbols, positions = [], []
-        for molecule in self.molecules:
-            symbols.extend(molecule.get_chemical_symbols())
-            positions.extend(molecule.get_positions())
-
-        return Atoms(
-            symbols=symbols, positions=positions, cell=self.lattice, pbc=self.pbc
+        atoms = Atoms(
+            symbols=symbols, positions=positions, cell=self.lattice, pbc=self.pbc,
         )
+        atoms.set_array("molecule_index", mol_idx)
+
+        for key, values in self.extra_arrays.items():
+            arr = np.asarray(values)
+            if len(arr) != len(atoms):
+                raise ValueError(
+                    f"Extra array {key!r} has length {len(arr)}; "
+                    f"expected {len(atoms)}."
+                )
+            atoms.set_array(key, arr.copy())
+
+        # --- propagate only arrays with real non-default information ---
+        for k in disorder_keys:
+            vals = disorder_arrays[k]
+            if all(v is not None for v in vals):
+                arr = np.array(vals)
+                # Only write if there is actual non-default data
+                if k == KEY_OCCUPANCY and np.allclose(arr, 1.0):
+                    continue
+                if k == KEY_DISORDER_GROUP and np.all(arr == 0):
+                    continue
+                atoms.set_array(k, arr.astype(arr.dtype))
+
+        # --- crystal-level info ---
+        atoms.info.update(self.metadata)
+        if self.formula_moiety is not None:
+            atoms.info["formula_moiety"] = self.formula_moiety
+        if self.disorder_provenance is not None:
+            import dataclasses
+            if hasattr(self.disorder_provenance, "to_dict"):
+                atoms.info["disorder_provenance"] = self.disorder_provenance.to_dict()
+            elif dataclasses.is_dataclass(self.disorder_provenance):
+                atoms.info["disorder_provenance"] = dataclasses.asdict(self.disorder_provenance)
+            elif isinstance(self.disorder_provenance, dict):
+                atoms.info["disorder_provenance"] = self.disorder_provenance
+            else:
+                atoms.info["disorder_provenance"] = str(self.disorder_provenance)
+
+        # --- propagate calculator if attached ---
+        if self._calc_results is not None:
+            from ase.calculators.singlepoint import SinglePointCalculator
+            atoms.calc = SinglePointCalculator(atoms, **self._calc_results)
+
+        return atoms
+
+    @classmethod
+    def from_ase_atoms(cls, atoms: Atoms) -> "MolecularCrystal":
+        """
+        Reconstruct a MolecularCrystal from a flat ASE Atoms object
+        that was produced by :meth:`to_ase`.
+
+        Requires a ``molecule_index`` per-atom array (int).  Falls back to
+        :meth:`from_ase` (graph-based molecule identification) if the array
+        is missing.
+
+        Parameters
+        ----------
+        atoms : Atoms
+            ASE Atoms object, typically from :meth:`to_ase` or an extxyz frame.
+
+        Returns
+        -------
+        MolecularCrystal
+        """
+        mol_idx = atoms.arrays.get("molecule_index")
+        if mol_idx is None:
+            return cls.from_ase(atoms)
+
+        from ..constants.config import (
+            KEY_OCCUPANCY, KEY_DISORDER_GROUP,
+        )
+
+        n_mol = int(mol_idx.max()) + 1
+        base_keys = {"numbers", "positions"}
+        string_metadata_keys = {"assembly", "label"}
+        preserved_array_keys = [
+            key
+            for key in atoms.arrays.keys()
+            if key not in base_keys and key not in string_metadata_keys
+        ]
+        molecules = []
+        for i in range(n_mol):
+            mask = mol_idx == i
+            indices = np.where(mask)[0]
+            sub_atoms = atoms[indices]
+            mol = CrystalMolecule(sub_atoms, crystal=None, check_pbc=False)
+            mol.info["atom_indices"] = indices.tolist()
+            molecules.append(mol)
+
+        info = dict(atoms.info)
+        formula_moiety = info.pop("formula_moiety", None)
+        disorder_provenance = info.pop("disorder_provenance", None)
+
+        # --- extract calculator results ---
+        calc_results = None
+        calc = getattr(atoms, "calc", None)
+        if calc is not None and hasattr(calc, "results"):
+            calc_results = dict(calc.results)
+
+        crystal = cls(
+            lattice=atoms.get_cell().array if np.array(atoms.get_cell()).ndim == 2
+                     else atoms.get_cell().array,
+            molecules=molecules,
+            pbc=tuple(atoms.get_pbc()),
+            formula_moiety=formula_moiety,
+            disorder_provenance=disorder_provenance,
+            calc_results=calc_results,
+            metadata=info,
+            extra_arrays={
+                key: np.asarray(atoms.arrays[key]).copy()
+                for key in preserved_array_keys
+                if key not in {"molecule_index", KEY_OCCUPANCY, KEY_DISORDER_GROUP}
+            },
+        )
+        return crystal

@@ -3,7 +3,7 @@
 import numpy as np
 from ase import Atoms
 
-from molcrys_kit.io import write_cif_sequence, write_poscar_sequence
+from molcrys_kit.io import read_extxyz, write_cif_sequence, write_poscar_sequence, write_trajectory
 from molcrys_kit.operations.interpolation import (
     InterpolationMethod,
     best_atom_mapping,
@@ -136,3 +136,33 @@ def test_sequence_writers_create_expected_files(tmp_path):
     assert (tmp_path / "poscars" / "01" / "POSCAR").exists()
     assert (tmp_path / "cifs" / "frame_000.cif").exists()
     assert (tmp_path / "cifs" / "frame_001.cif").exists()
+
+
+def test_write_trajectory_extxyz_round_trips_interpolation_frames(tmp_path):
+    crystal_a, crystal_b, _ = _single_water_crystals()
+    frames = interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=3)
+    path = tmp_path / "path.extxyz"
+
+    written = write_trajectory(
+        frames,
+        str(path),
+        format="extxyz",
+        info=[{"lambda_index": i} for i in range(len(frames))],
+    )
+    restored = read_extxyz(written, index=":")
+
+    assert len(restored) == 3
+    assert restored[1].metadata["lambda_index"] == 1
+    np.testing.assert_allclose(restored[-1].lattice, crystal_b.lattice)
+
+
+def test_write_trajectory_xyz_creates_multiframe_file(tmp_path):
+    crystal_a, crystal_b, _ = _single_water_crystals()
+    frames = interpolate_crystal(crystal_a, crystal_b, method="com_so3", n_images=2)
+    path = tmp_path / "path.xyz"
+
+    written = write_trajectory(frames, str(path), format="xyz")
+
+    assert written.endswith("path.xyz")
+    assert path.exists()
+    assert path.read_text().count("\n3\n") == 1 or path.read_text().startswith("3\n")
