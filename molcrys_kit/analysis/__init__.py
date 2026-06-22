@@ -1,4 +1,18 @@
-from .interactions import *
+from .interactions import (
+    AtomLocalGeometry,
+    AtomRef,
+    BaseInteraction,
+    ChemicalIdentity,
+    ChemicalIdentityCache,
+    HydrogenBond,
+    HydrogenBondCriteria,
+    LocalGeometry,
+    LocalGeometryCache,
+    RingGeometry,
+    RingRef,
+    find_hydrogen_bonds,
+    get_bonding_threshold,
+)
 from .species import *
 from .stoichiometry import *
 from .bfdh import BFDHFacetInfo, enumerate_bfdh_facets, enumerate_low_index_millers
@@ -21,10 +35,21 @@ from .shape import classify_shell, cshm, topology_signature
 
 
 __all__ = [
+    "AtomLocalGeometry",
+    "AtomRef",
+    "BaseInteraction",
     "BFDHFacetInfo",
+    "ChemicalIdentity",
+    "ChemicalIdentityCache",
     "ChemicalEnvironment",
     "Fragment",
+    "HydrogenBond",
+    "HydrogenBondCriteria",
+    "LocalGeometry",
+    "LocalGeometryCache",
     "MolChargeResult",
+    "RingGeometry",
+    "RingRef",
     "DEFAULT_CENTROID_OFFSET_FRAC",
     "DEFAULT_MOLECULAR_SEARCH_CUTOFF",
     "DEFAULT_POLYHEDRON_SEARCH_CUTOFF",
@@ -34,6 +59,8 @@ __all__ = [
     "compute_angular_signature",
     "compute_topo_signature",
     "cshm",
+    "find_hydrogen_bonds",
+    "get_bonding_threshold",
     "heavy_signature",
     "match_molecule_to_fragment",
     "parse_moiety_string",
