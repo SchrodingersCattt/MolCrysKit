@@ -12,10 +12,12 @@ preserved exactly.
 
 from __future__ import annotations
 
-from typing import List, Union
+from collections.abc import Mapping, Sequence
+from typing import Any, List, Union
 
 import ase.io
 from ase import Atoms
+import numpy as np
 
 from ..structures.crystal import MolecularCrystal
 
@@ -35,6 +37,8 @@ def write_extxyz(
     filepath: str,
     *,
     append: bool = False,
+    info: Union[Mapping[str, Any], Sequence[Mapping[str, Any]], None] = None,
+    arrays: Union[Mapping[str, Any], Sequence[Mapping[str, Any]], None] = None,
     **write_kwargs,
 ) -> None:
     """Write one or more molecular crystals to an Extended XYZ file.
@@ -53,6 +57,14 @@ def write_extxyz(
         Path to the output file (``.xyz`` extension recommended).
     append:
         If ``True``, append frames to *filepath* instead of overwriting.
+    info:
+        Custom per-frame ExtXYZ header fields.  A single mapping is applied to
+        every frame; a sequence of mappings is matched frame-by-frame.
+    arrays:
+        Custom per-atom arrays to write as ExtXYZ ``Properties`` columns.  A
+        single mapping is applied to every frame; a sequence of mappings is
+        matched frame-by-frame.  Each array length must equal the atom count of
+        the corresponding frame.
     **write_kwargs:
         Forwarded to :func:`ase.io.write` (``format="extxyz"``).
         Useful keys include ``write_info=True`` (default), ``write_results=True``,
@@ -62,6 +74,21 @@ def write_extxyz(
         crystals = [crystals]
 
     images = [c.to_ase() for c in crystals]
+    frame_infos = _normalise_frame_payload(info, len(images), "info")
+    frame_arrays = _normalise_frame_payload(arrays, len(images), "arrays")
+
+    for atoms, info_payload, arrays_payload in zip(images, frame_infos, frame_arrays):
+        if info_payload:
+            atoms.info.update(dict(info_payload))
+        if arrays_payload:
+            for name, values in arrays_payload.items():
+                array = np.asarray(values)
+                if len(array) != len(atoms):
+                    raise ValueError(
+                        f"Custom array {name!r} has length {len(array)}; "
+                        f"expected {len(atoms)} for this frame."
+                    )
+                atoms.set_array(name, array)
 
     ase.io.write(
         filepath,
@@ -112,3 +139,24 @@ def read_extxyz(
 
     # list of Atoms
     return [MolecularCrystal.from_ase_atoms(atoms) for atoms in raw]
+
+
+def _normalise_frame_payload(payload, n_frames: int, name: str) -> list[dict]:
+    """Normalise a custom payload into one mapping per frame."""
+    if payload is None:
+        return [{} for _ in range(n_frames)]
+
+    if isinstance(payload, Mapping):
+        return [dict(payload) for _ in range(n_frames)]
+
+    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes)):
+        if len(payload) != n_frames:
+            raise ValueError(
+                f"{name} sequence has length {len(payload)}; expected {n_frames}."
+            )
+        return [dict(item) for item in payload]
+
+    raise TypeError(
+        f"{name} must be a mapping, a sequence of mappings, or None "
+        f"(got {type(payload).__name__})."
+    )

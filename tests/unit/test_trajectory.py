@@ -135,6 +135,29 @@ def test_energy_round_trip(simple_crystal, tmp_xyz):
     assert e1 == pytest.approx(-5.5)
 
 
+def test_custom_info_round_trip(simple_crystal, tmp_xyz):
+    with CrystalTrajectory(tmp_xyz, "w") as traj:
+        traj.write(simple_crystal, frame_id=0, transform="identity")
+        traj.write(simple_crystal, info={"frame_id": 1, "transform": "rotation"})
+
+    reader = CrystalTrajectory(tmp_xyz, "r")
+    assert reader[0].metadata["frame_id"] == 0
+    assert reader[0].metadata["transform"] == "identity"
+    assert reader[1].metadata["frame_id"] == 1
+    assert reader[1].metadata["transform"] == "rotation"
+
+
+def test_custom_arrays_round_trip(simple_crystal, tmp_xyz):
+    values = np.arange(simple_crystal.get_total_nodes())
+    with CrystalTrajectory(tmp_xyz, "w") as traj:
+        traj.write(simple_crystal, arrays={"site_id": values})
+
+    reader = CrystalTrajectory(tmp_xyz, "r")
+    atoms = reader[0].to_ase()
+    assert "site_id" in atoms.arrays
+    assert np.array_equal(atoms.arrays["site_id"], values)
+
+
 def test_forces_round_trip(simple_crystal, tmp_xyz):
     forces = np.random.randn(simple_crystal.get_total_nodes(), 3)
     with CrystalTrajectory(tmp_xyz, "w") as traj:

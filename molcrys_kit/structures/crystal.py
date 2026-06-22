@@ -51,6 +51,8 @@ class MolecularCrystal:
         formula_moiety: Optional[str] = None,
         disorder_provenance=None,
         calc_results: Optional[dict] = None,
+        metadata: Optional[dict] = None,
+        extra_arrays: Optional[dict] = None,
     ):
         """
         Initialize a MolecularCrystal.
@@ -72,6 +74,11 @@ class MolecularCrystal:
             when serialising via :meth:`to_ase`.  Populated automatically
             by :meth:`from_ase_atoms` when the source Atoms carries a
             :class:`~ase.calculators.singlepoint.SinglePointCalculator`.
+        metadata : Optional[dict], default=None
+            Extra per-frame metadata preserved through ExtXYZ ``atoms.info``.
+        extra_arrays : Optional[dict], default=None
+            Extra per-atom arrays preserved through ExtXYZ ``Properties``
+            columns on the flattened ASE Atoms representation.
         """
         from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
         
@@ -80,6 +87,11 @@ class MolecularCrystal:
         self.formula_moiety = formula_moiety
         self.disorder_provenance = disorder_provenance
         self._calc_results: Optional[dict] = calc_results
+        self.metadata: dict = dict(metadata or {})
+        self.extra_arrays: dict = {
+            key: np.asarray(value).copy()
+            for key, value in (extra_arrays or {}).items()
+        }
 
         # Wrap each ASE Atoms object in a CrystalMolecule
         self.molecules = []
@@ -455,7 +467,19 @@ class MolecularCrystal:
         # column-count mismatches and carry no information for non-disordered
         # crystals.  When they do carry information (real disorder), the
         # provenance dict in atoms.info captures the full context.
-        disorder_keys = [KEY_OCCUPANCY, KEY_DISORDER_GROUP]
+        base_keys = {"numbers", "positions"}
+        skip_string_keys = {"assembly", "label"}
+        custom_keys = sorted(
+            {
+                key
+                for molecule in self.molecules
+                for key in molecule.arrays.keys()
+            }
+            - base_keys
+            - skip_string_keys
+            - {KEY_OCCUPANCY, KEY_DISORDER_GROUP}
+        )
+        disorder_keys = [KEY_OCCUPANCY, KEY_DISORDER_GROUP] + custom_keys
 
         if can_restore_order:
             symbols = [None] * n_total
@@ -499,6 +523,15 @@ class MolecularCrystal:
         )
         atoms.set_array("molecule_index", mol_idx)
 
+        for key, values in self.extra_arrays.items():
+            arr = np.asarray(values)
+            if len(arr) != len(atoms):
+                raise ValueError(
+                    f"Extra array {key!r} has length {len(arr)}; "
+                    f"expected {len(atoms)}."
+                )
+            atoms.set_array(key, arr.copy())
+
         # --- propagate only arrays with real non-default information ---
         for k in disorder_keys:
             vals = disorder_arrays[k]
@@ -512,6 +545,7 @@ class MolecularCrystal:
                 atoms.set_array(k, arr.astype(arr.dtype))
 
         # --- crystal-level info ---
+        atoms.info.update(self.metadata)
         if self.formula_moiety is not None:
             atoms.info["formula_moiety"] = self.formula_moiety
         if self.disorder_provenance is not None:
@@ -560,6 +594,13 @@ class MolecularCrystal:
         )
 
         n_mol = int(mol_idx.max()) + 1
+        base_keys = {"numbers", "positions"}
+        string_metadata_keys = {"assembly", "label"}
+        preserved_array_keys = [
+            key
+            for key in atoms.arrays.keys()
+            if key not in base_keys and key not in string_metadata_keys
+        ]
         molecules = []
         for i in range(n_mol):
             mask = mol_idx == i
@@ -569,8 +610,9 @@ class MolecularCrystal:
             mol.info["atom_indices"] = indices.tolist()
             molecules.append(mol)
 
-        formula_moiety = atoms.info.get("formula_moiety", None)
-        disorder_provenance = atoms.info.get("disorder_provenance", None)
+        info = dict(atoms.info)
+        formula_moiety = info.pop("formula_moiety", None)
+        disorder_provenance = info.pop("disorder_provenance", None)
 
         # --- extract calculator results ---
         calc_results = None
@@ -586,5 +628,11 @@ class MolecularCrystal:
             formula_moiety=formula_moiety,
             disorder_provenance=disorder_provenance,
             calc_results=calc_results,
+            metadata=info,
+            extra_arrays={
+                key: np.asarray(atoms.arrays[key]).copy()
+                for key in preserved_array_keys
+                if key not in {"molecule_index", KEY_OCCUPANCY, KEY_DISORDER_GROUP}
+            },
         )
         return crystal

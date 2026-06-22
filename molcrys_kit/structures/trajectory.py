@@ -26,11 +26,13 @@ Typical usage:
 
 from __future__ import annotations
 
-from typing import Iterator, List, Union
+from typing import Any, Iterator, List, Mapping, Union
 
 import ase.io
 from ase import Atoms
+from ase.calculators.calculator import all_properties
 from ase.calculators.singlepoint import SinglePointCalculator
+import numpy as np
 
 from .crystal import MolecularCrystal
 
@@ -157,19 +159,48 @@ class CrystalTrajectoryWriter:
 
     # -- write ------------------------------------------------------------
 
-    def write(self, crystal: MolecularCrystal, **calc_kwargs) -> None:
+    def write(
+        self,
+        crystal: MolecularCrystal,
+        *,
+        info: Mapping[str, Any] | None = None,
+        arrays: Mapping[str, Any] | None = None,
+        **kwargs,
+    ) -> None:
         """Append a single crystal frame.
 
         Parameters
         ----------
         crystal:
             The :class:`MolecularCrystal` frame to write.
-        **calc_kwargs:
-            Calculator results to attach to the frame, e.g.
-            ``energy=-10.5``, ``forces=...``, ``stress=...``.
-            Stored as a :class:`~ase.calculators.singlepoint.SinglePointCalculator`.
+        info:
+            Custom per-frame ExtXYZ header fields.
+        arrays:
+            Custom per-atom ExtXYZ ``Properties`` arrays.
+        **kwargs:
+            ASE calculator results (``energy``, ``forces``, ``stress``, ...)
+            are stored as a :class:`~ase.calculators.singlepoint.SinglePointCalculator`.
+            Unknown keyword arguments are treated as additional per-frame
+            metadata fields for convenience, e.g. ``rotation_angle=30``.
         """
         atoms = crystal.to_ase()
+
+        calc_kwargs = {k: v for k, v in kwargs.items() if k in all_properties}
+        extra_info = {k: v for k, v in kwargs.items() if k not in all_properties}
+        if info:
+            atoms.info.update(dict(info))
+        if extra_info:
+            atoms.info.update(extra_info)
+        if arrays:
+            for name, values in arrays.items():
+                array = np.asarray(values)
+                if len(array) != len(atoms):
+                    raise ValueError(
+                        f"Custom array {name!r} has length {len(array)}; "
+                        f"expected {len(atoms)} for this frame."
+                    )
+                atoms.set_array(name, array)
+
         if calc_kwargs:
             atoms.calc = SinglePointCalculator(atoms, **calc_kwargs)
 

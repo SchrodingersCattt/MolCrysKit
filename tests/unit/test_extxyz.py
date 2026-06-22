@@ -86,6 +86,43 @@ def test_write_extxyz_append(simple_crystal, tmp_xyz):
     assert len(results) == 2
 
 
+def test_custom_frame_info_round_trip(simple_crystal, tmp_xyz):
+    """Custom ExtXYZ header fields are preserved as crystal metadata."""
+    write_extxyz(
+        simple_crystal,
+        tmp_xyz,
+        info={"frame_id": 7, "transform": "rotation", "theta_deg": 30.0},
+    )
+
+    c2 = read_extxyz(tmp_xyz)
+    assert c2.metadata["frame_id"] == 7
+    assert c2.metadata["transform"] == "rotation"
+    assert c2.metadata["theta_deg"] == pytest.approx(30.0)
+
+
+def test_custom_per_atom_array_round_trip(simple_crystal, tmp_xyz):
+    """Custom per-atom arrays are written as ExtXYZ Properties columns."""
+    labels = np.arange(simple_crystal.get_total_nodes())
+    write_extxyz(simple_crystal, tmp_xyz, arrays={"site_id": labels})
+
+    c2 = read_extxyz(tmp_xyz)
+    atoms = c2.to_ase()
+    assert "site_id" in atoms.arrays
+    assert np.array_equal(atoms.arrays["site_id"], labels)
+
+
+def test_custom_payload_per_frame(simple_crystal, tmp_xyz):
+    """A sequence of custom info payloads maps one-to-one to frames."""
+    write_extxyz(
+        [simple_crystal, simple_crystal],
+        tmp_xyz,
+        info=[{"frame_id": 0}, {"frame_id": 1}],
+    )
+
+    frames = read_extxyz(tmp_xyz, index=":")
+    assert [frame.metadata["frame_id"] for frame in frames] == [0, 1]
+
+
 # ---------------------------------------------------------------------------
 # Index access
 # ---------------------------------------------------------------------------
