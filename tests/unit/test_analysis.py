@@ -91,7 +91,7 @@ class TestHydrogenBond:
         assert hb.donor is cm1
         assert hb.distance == 2.0
         r = repr(hb)
-        assert "HydrogenBond" in r and "2.000" in r
+        assert r == "HydrogenBond(donor=H3N, acceptor=HO, distance=2.000 Å)"
 
     def test_find_hydrogen_bonds_returns_list(self, crystal_single_water, cubic_lattice_10):
         water2 = Atoms(
@@ -101,6 +101,29 @@ class TestHydrogenBond:
         molecules = [crystal_single_water.molecules[0], CrystalMolecule(water2)]
         hbonds = find_hydrogen_bonds(molecules, max_distance=3.0)
         assert isinstance(hbonds, list)
+
+    def test_find_hydrogen_bonds_detects_expected_geometry(self):
+        donor = CrystalMolecule(
+            Atoms("OHH", positions=[[0, 0, 0], [0.96, 0, 0], [0, 0.96, 0]])
+        )
+        acceptor = CrystalMolecule(
+            Atoms("OHH", positions=[[2.8, 0, 0], [3.76, 0, 0], [2.8, 0.96, 0]])
+        )
+
+        hbonds = find_hydrogen_bonds([donor, acceptor], max_distance=3.0)
+
+        assert len(hbonds) == 1
+        hb = hbonds[0]
+        assert hb.donor_atom_index == 0
+        assert hb.hydrogen_index == 1
+        assert hb.acceptor_atom_index == 0
+        assert hb.donor.molecule_index == 0
+        assert hb.hydrogen.molecule_index == 0
+        assert hb.acceptor.molecule_index == 1
+        assert hb.h_acceptor_distance_A == pytest.approx(1.84)
+        assert hb.donor_acceptor_distance_A == pytest.approx(2.8)
+        assert hb.dha_angle_deg == pytest.approx(180.0)
+        assert hb.image == (0, 0, 0)
 
     def test_no_hydrogen_bonds_when_far(self):
         w1 = CrystalMolecule(

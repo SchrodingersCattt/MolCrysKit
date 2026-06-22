@@ -23,7 +23,7 @@ def _array_value(molecule: Any, key: str, atom_index: int, default: Any = None) 
         return default
     try:
         value = arrays[key][atom_index]
-    except Exception:
+    except (IndexError, KeyError, TypeError):
         return default
     if hasattr(value, "item"):
         return value.item()

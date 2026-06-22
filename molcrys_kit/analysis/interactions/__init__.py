@@ -15,7 +15,6 @@ The legacy import path ``molcrys_kit.analysis.interactions`` is kept stable.
 
 from .base import AtomRef, BaseInteraction, RingRef
 from .bonding import get_bonding_threshold
-from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .hydrogen_bond import HydrogenBond, HydrogenBondCriteria, find_hydrogen_bonds
 from .identity import ChemicalIdentity, ChemicalIdentityCache
 from .local_geometry import (
@@ -37,9 +36,6 @@ __all__ = [
     "LocalGeometryCache",
     "RingGeometry",
     "RingRef",
-    "enumerate_lattice_images",
     "find_hydrogen_bonds",
     "get_bonding_threshold",
-    "image_translation",
-    "vector_angle_deg",
 ]

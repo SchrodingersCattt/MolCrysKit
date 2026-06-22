@@ -48,7 +48,7 @@ class ChemicalIdentity:
         if include_topology:
             try:
                 topo_signature = compute_topo_signature(molecule)
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 topo_signature = None
 
         moiety_raw = None
@@ -122,7 +122,7 @@ class ChemicalIdentityCache:
             if self.include_topology:
                 try:
                     topo_signature = compute_topo_signature(molecule)
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     topo_signature = None
             charge_result = self.charge_results.get(topo_signature)
             self._cache[molecule_index] = ChemicalIdentity.from_molecule(

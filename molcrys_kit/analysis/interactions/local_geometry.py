@@ -105,61 +105,53 @@ class LocalGeometry:
         return list(self._rings_cache)
 
     def _build_rings(self) -> list[RingGeometry]:
-        seen: set[frozenset[int]] = set()
         rings: list[RingGeometry] = []
-        atom_rings = getattr(self.env, "_atom_rings", {})
-        aromatic_sizes_by_atom = getattr(self.env, "_atom_aromatic_ring_sizes", {})
         positions = self.molecule.get_positions()
         symbols = self.molecule.get_chemical_symbols()
 
-        for cycles in atom_rings.values():
-            for cycle in cycles:
-                atom_indices = tuple(int(i) for i in cycle)
-                key = frozenset(atom_indices)
-                if key in seen:
-                    continue
-                seen.add(key)
-                size = len(atom_indices)
-                is_aromatic = all(
-                    size in aromatic_sizes_by_atom.get(i, []) for i in atom_indices
+        for cycle in self.env.rings():
+            atom_indices = tuple(int(i) for i in cycle)
+            size = len(atom_indices)
+            is_aromatic = all(
+                size in self.env.atom_aromatic_ring_sizes(i) for i in atom_indices
+            )
+            pts = positions[list(atom_indices)]
+            try:
+                centroid, normal, rmsd = best_fit_plane(pts)
+                is_planar = bool(rmsd <= 0.25)
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                warnings.warn(
+                    f"Could not fit plane for ring {atom_indices}: {exc}",
+                    RuntimeWarning,
+                    stacklevel=3,
                 )
-                pts = positions[list(atom_indices)]
-                try:
-                    centroid, normal, rmsd = best_fit_plane(pts)
-                    is_planar = bool(rmsd <= 0.25)
-                except (ValueError, np.linalg.LinAlgError) as exc:
-                    warnings.warn(
-                        f"Could not fit plane for ring {atom_indices}: {exc}",
-                        RuntimeWarning,
-                        stacklevel=3,
-                    )
-                    centroid = tuple(float(v) for v in np.asarray(pts).mean(axis=0))
-                    normal = (0.0, 0.0, 0.0)
-                    rmsd = None
-                    is_planar = False
+                centroid = tuple(float(v) for v in np.asarray(pts).mean(axis=0))
+                normal = (0.0, 0.0, 0.0)
+                rmsd = None
+                is_planar = False
 
-                ring_ref = None
-                if self.molecule_index is not None:
-                    ring_ref = RingRef.from_molecule(
-                        self.molecule,
-                        self.molecule_index,
-                        atom_indices,
-                        is_aromatic=is_aromatic,
-                    )
-
-                rings.append(
-                    RingGeometry(
-                        atom_indices=atom_indices,
-                        symbols=tuple(symbols[i] for i in atom_indices),
-                        centroid_A=centroid,
-                        normal=normal,
-                        plane_rmsd_A=rmsd,
-                        is_planar=is_planar,
-                        is_aromatic=is_aromatic,
-                        size=size,
-                        ring_ref=ring_ref,
-                    )
+            ring_ref = None
+            if self.molecule_index is not None:
+                ring_ref = RingRef.from_molecule(
+                    self.molecule,
+                    self.molecule_index,
+                    atom_indices,
+                    is_aromatic=is_aromatic,
                 )
+
+            rings.append(
+                RingGeometry(
+                    atom_indices=atom_indices,
+                    symbols=tuple(symbols[i] for i in atom_indices),
+                    centroid_A=centroid,
+                    normal=normal,
+                    plane_rmsd_A=rmsd,
+                    is_planar=is_planar,
+                    is_aromatic=is_aromatic,
+                    size=size,
+                    ring_ref=ring_ref,
+                )
+            )
         return rings
 
 
