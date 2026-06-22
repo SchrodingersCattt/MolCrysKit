@@ -184,6 +184,28 @@ class ChemicalEnvironment:
         """
         return self._atom_aromatic_ring_sizes.get(atom_index, [])
 
+    def atom_rings(self, atom_index: int) -> List[List[int]]:
+        """Return ring cycles containing an atom.
+
+        This public accessor exposes the ring membership computed during
+        initialization without requiring downstream analysis modules to reach
+        into private cache attributes.
+        """
+        return [list(cycle) for cycle in self._atom_rings.get(atom_index, [])]
+
+    def rings(self) -> List[List[int]]:
+        """Return deduplicated ring cycles for the molecule."""
+        seen: Set[frozenset] = set()
+        rings: List[List[int]] = []
+        for cycles in self._atom_rings.values():
+            for cycle in cycles:
+                key = frozenset(int(i) for i in cycle)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rings.append([int(i) for i in cycle])
+        return rings
+
     def _heavy_neighbors(self, atom_index: int) -> List[int]:
         """Return non-hydrogen neighbours of an atom."""
         return [
