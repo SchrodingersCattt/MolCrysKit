@@ -52,8 +52,8 @@ docker build -f Dockerfile.bohrium -t molcryskit-bohrium:latest .
 # Pin to an immutable Git tag instead of the moving main branch
 # (recommended for archival/reviewer reproducibility)
 docker build -f Dockerfile.bohrium \
-    --build-arg MOLCRYSKIT_REF=refs/tags/v0.4.0 \
-    -t molcryskit-bohrium:v0.4.0 .
+  --build-arg MOLCRYSKIT_REF=refs/tags/vX.Y.Z \
+  -t molcryskit-bohrium:vX.Y.Z .
 ```
 
 The Bohrium image uses `pip install` from the GitHub archive zip (no `git clone`
@@ -67,10 +67,10 @@ only archival location because image retention is controlled by the platform and
 project namespace. For a stable public anchor, publish immutable release images
 to GitHub Container Registry (GHCR).
 
-The workflow [`publish-ghcr.yml`](../.github/workflows/publish-ghcr.yml) pushes
+The tag-driven workflow [`release.yml`](../.github/workflows/release.yml) pushes
 [`Dockerfile`](../Dockerfile) images to `ghcr.io/<owner>/molcryskit`:
 
-- pushing a Git tag such as `v0.4.0` publishes `ghcr.io/<owner>/molcryskit:v0.4.0`
+- pushing a Git tag such as `vX.Y.Z` publishes `ghcr.io/<owner>/molcryskit:vX.Y.Z`
 - stable release tags also receive `latest`
 - manual dispatch can publish a development snapshot from a chosen Git ref
 
@@ -78,16 +78,18 @@ Recommended archival pattern:
 
 ```bash
 # 1. Create and push an immutable release tag
-git tag v0.4.0
-git push origin v0.4.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 
 # 2. GitHub Actions publishes the image automatically to GHCR
-#    ghcr.io/<owner>/molcryskit:v0.4.0
+#    ghcr.io/<owner>/molcryskit:vX.Y.Z
 ```
 
 For Bohrium, keep using [`Dockerfile.bohrium`](../Dockerfile.bohrium) as the
-platform-specific runtime image, but cite the GitHub repository and GHCR image
-as the permanent public anchor.
+platform-specific runtime image. It is not published automatically by the
+release workflow because the target registry and platform policy are deployment
+specific. Cite the GitHub repository and standard GHCR image as the permanent
+public anchor.
 
 ## Mounting Your Own Data
 

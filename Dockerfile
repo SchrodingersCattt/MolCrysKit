@@ -8,8 +8,8 @@
 #
 # Pin to a specific release tag (recommended for reproducibility):
 #   docker build \
-#     --build-arg MOLCRYSKIT_REF=refs/tags/v0.4.0 \
-#     -t molcryskit:v0.4.0 .
+#     --build-arg MOLCRYSKIT_REF=refs/tags/vX.Y.Z \
+#     -t molcryskit:vX.Y.Z .
 #
 # Run - interactive shell:
 #   docker run -it --rm molcryskit:latest bash
@@ -43,7 +43,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # -- MolCrysKit + all runtime dependencies from GitHub archive --------------
 # MOLCRYSKIT_REF must be a GitHub archive ref, e.g. refs/heads/main or
-# refs/tags/v0.4.0.
+# refs/tags/vX.Y.Z.
 # pip resolves all dependencies declared in pyproject.toml automatically.
 # The [vis] extra adds nglview and py3Dmol for 3-D visualisation in the notebook.
 ARG MOLCRYSKIT_REF=refs/heads/main
