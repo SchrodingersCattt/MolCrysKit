@@ -1,0 +1,276 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release-checks:
+    name: Release metadata checks
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag and citation metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vX.Y.Z: ${TAG}" >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          CITATION_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("CITATION.cff").read_text(encoding="utf-8")
+          match = re.search(r"(?m)^version:\s*['\"]?([^\s'\"#]+)['\"]?\s*(?:#.*)?$", text)
+          if not match:
+              raise SystemExit("No top-level version field found in CITATION.cff")
+          print(match.group(1))
+          PY
+          )"
+          if [[ "${CITATION_VERSION}" != "${VERSION}" ]]; then
+            echo "CITATION.cff version ${CITATION_VERSION} does not match tag ${TAG} (${VERSION})" >&2
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+  tests:
+    name: Unit tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: release-checks
+    if: needs.release-checks.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Run unit tests
+        run: pytest tests/unit
+
+  build-package:
+    name: Build package distributions
+    runs-on: ubuntu-latest
+    needs: [release-checks, tests]
+    if: needs.release-checks.result == 'success' && needs.tests.result == 'success'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install build frontend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+
+      - name: Build source and wheel distributions
+        run: python -m build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [release-checks, build-package]
+    if: needs.release-checks.result == 'success' && needs.build-package.result == 'success'
+    environment:
+      name: pypi
+      url: https://pypi.org/project/molcrys-kit/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-docker:
+    name: Publish GHCR image
+    runs-on: ubuntu-latest
+    needs: [release-checks, tests]
+    if: needs.release-checks.result == 'success' && needs.tests.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: standard
+            dockerfile: ./Dockerfile
+            image_suffix: molcryskit
+            latest_tag: latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve build ref and image coordinates
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${OWNER_LC}/${{ matrix.image_suffix }}"
+
+          GIT_REF="refs/tags/${GITHUB_REF_NAME}"
+          IMAGE_TAG="${GITHUB_REF_NAME}"
+
+          if [[ "${GIT_REF}" != refs/heads/* && "${GIT_REF}" != refs/tags/* ]]; then
+            echo "git_ref must start with refs/heads/ or refs/tags/: ${GIT_REF}" >&2
+            exit 1
+          fi
+
+          if [[ ! "${IMAGE_TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "image_tag is not a valid Docker tag: ${IMAGE_TAG}" >&2
+            exit 1
+          fi
+
+          PROMOTE_LATEST="false"
+          if [[ "${GITHUB_REF}" == refs/tags/* && "${GITHUB_REF_NAME}" != *-* ]]; then
+            PROMOTE_LATEST="true"
+          fi
+
+          echo "image=${IMAGE}" >> "${GITHUB_OUTPUT}"
+          echo "git_ref=${GIT_REF}" >> "${GITHUB_OUTPUT}"
+          echo "image_tag=${IMAGE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "promote_latest=${PROMOTE_LATEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.prep.outputs.image }}
+          tags: |
+            type=raw,value=${{ steps.prep.outputs.image_tag }}
+            type=sha,prefix=sha-
+            type=raw,value=${{ matrix.latest_tag }},enable=${{ steps.prep.outputs.promote_latest == 'true' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.prep.outputs.image_tag }}
+            org.opencontainers.image.title=MolCrysKit ${{ matrix.name }} image
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: |
+            MOLCRYSKIT_REF=${{ steps.prep.outputs.git_ref }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Write publish summary
+        shell: bash
+        run: |
+          {
+            echo "## GHCR publish result (${{ matrix.name }})"
+            echo
+            echo "- Image: \`${{ steps.prep.outputs.image }}\`"
+            echo "- Git ref inside build: \`${{ steps.prep.outputs.git_ref }}\`"
+            echo "- Primary tag: \`${{ steps.prep.outputs.image_tag }}\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [release-checks, publish-pypi, publish-docker]
+    if: needs.release-checks.result == 'success' && needs.publish-pypi.result == 'success' && needs.publish-docker.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - name: Create release notes body
+        id: body
+        shell: bash
+        run: |
+          set -euo pipefail
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          BODY="release-body.md"
+          {
+            echo "## Artifacts"
+            echo
+            echo "- PyPI: https://pypi.org/project/molcrys-kit/${VERSION}/"
+            echo "- GHCR standard image: \`ghcr.io/${OWNER_LC}/molcryskit:${TAG}\`"
+          } > "${BODY}"
+          echo "path=${BODY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes-file "${{ steps.body.outputs.path }}" \
+            --title "MolCrysKit ${GITHUB_REF_NAME}"

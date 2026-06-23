@@ -1,18 +1,15 @@
 name: publish-ghcr
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       git_ref:
-        description: "GitHub archive ref to build from (for example refs/heads/main or refs/tags/v0.4.0)"
+        description: "GitHub archive ref to build from (for example refs/heads/main or refs/tags/vX.Y.Z)"
         required: true
         default: "refs/heads/main"
         type: string
       image_tag:
-        description: "GHCR image tag to push (for example dev260326 or v0.4.0)"
+        description: "GHCR image tag to push (for example dev260326 or vX.Y.Z)"
         required: true
         default: "dev"
         type: string

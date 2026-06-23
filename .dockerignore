@@ -36,6 +36,10 @@ output/
 .DS_Store
 Thumbs.db
 
+# Local configuration
+.*
+!.dockerignore
+
 # Git
 .git/
 .gitignore
