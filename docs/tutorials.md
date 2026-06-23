@@ -23,12 +23,12 @@ MolCrysKit provides functionality to add hydrogen atoms to molecular crystals ba
 
 ### Basic Usage:
 ```python
-from molcrys_kit import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.operations import add_hydrogens
 from molcrys_kit.io.output import write_cif
 
 # Load a molecular crystal from a CIF file
-crystal = read_mol_crystal('bulk.cif')
+crystal = mck.read_mol_crystal('bulk.cif')
 
 # Add hydrogens with default rules.
 # If the CIF contains _chemical_formula_moiety, it is used to correct
@@ -89,12 +89,12 @@ MolCrysKit provides functionality for generating surface slabs from molecular cr
 
 ### Basic Usage:
 ```python
-from molcrys_kit import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.operations import generate_topological_slab
 from molcrys_kit.io.output import write_cif
 
 # Load a molecular crystal from a CIF file
-crystal = read_mol_crystal('bulk.cif')
+crystal = mck.read_mol_crystal('bulk.cif')
 
 # Generate a surface slab with specific Miller indices (layers or min_thickness required)
 slab = generate_topological_slab(
@@ -124,11 +124,11 @@ empirical candidate generator, not a surface-energy calculation.
 ### Basic Usage
 
 ```python
-from molcrys_kit.io.cif import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.analysis import enumerate_bfdh_facets
 from molcrys_kit.operations import generate_slabs_with_terminations
 
-crystal = read_mol_crystal("bulk.cif")
+crystal = mck.read_mol_crystal("bulk.cif")
 
 # Default: low-index Miller indices up to max_index=2, with
 # Donnay-Harker-style systematic-absence filtering when structure symmetry is
@@ -193,11 +193,11 @@ Molecular formal charges are determined by a three-level fallback:
 ### Example 1: Neutral Organic Crystal (Fast Path)
 
 ```python
-from molcrys_kit.io.cif import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.operations import enumerate_terminations, generate_slabs_with_terminations
 from molcrys_kit.io.output import write_cif
 
-crystal = read_mol_crystal("examples/Acetaminophen_HXACAN.cif")
+crystal = mck.read_mol_crystal("examples/Acetaminophen_HXACAN.cif")
 
 # Enumerate unique terminations for (1, 0, 0)
 term_infos = enumerate_terminations(crystal, miller_index=(1, 0, 0))
@@ -223,11 +223,11 @@ for slab, info in results:
 ### Example 2: Salt-Type Crystal with mol_charge_map
 
 ```python
-from molcrys_kit.io.cif import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.operations import generate_slabs_with_terminations
 from molcrys_kit.io.output import write_cif
 
-crystal = read_mol_crystal("examples/salt_crystal.cif")
+crystal = mck.read_mol_crystal("examples/salt_crystal.cif")
 
 # Provide explicit charges for cation and anion building blocks
 results = generate_slabs_with_terminations(
@@ -282,7 +282,7 @@ All manipulation operations return a **new** `MolecularCrystal` — the original
 ### Basic Usage — Functional API:
 
 ```python
-from molcrys_kit import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.operations.molecule_manipulation import (
     translate_molecule,
     rotate_molecule,
@@ -291,7 +291,7 @@ from molcrys_kit.operations.molecule_manipulation import (
 )
 
 # Load a molecular crystal
-crystal = read_mol_crystal("structure.cif")
+crystal = mck.read_mol_crystal("structure.cif")
 
 # Translate molecule #0 by [1.0, 0.0, 0.0] Angstrom
 new_crystal = translate_molecule(crystal, molecule_index=0, vector=[1.0, 0.0, 0.0])
@@ -323,7 +323,7 @@ except MoleculeClashError as e:
 ```python
 from molcrys_kit.operations.molecule_manipulation import MoleculeManipulator
 
-crystal = read_mol_crystal("structure.cif")
+crystal = mck.read_mol_crystal("structure.cif")
 manip = MoleculeManipulator(crystal)
 
 # Select molecules by species ID (from stoichiometry analysis)
@@ -382,7 +382,7 @@ When replacing a molecule, the system automatically checks whether the replaceme
 MolCrysKit can carve finite, hydrogen-capped cluster models out of any
 periodic `MolecularCrystal` so the cluster is ready to feed into
 Gaussian / ORCA / Psi4. The carver lives in
-`molcrys_kit.operations.cluster` and emits a `CrystalCluster` (a
+`mck.operations.cluster` and emits a `CrystalCluster` (a
 non-periodic `CrystalMolecule` subclass) plus a JSON sidecar that
 records exactly how the cluster was constructed. The algorithm is
 framework-agnostic; the system-specific parameter choices (which seed,
@@ -399,7 +399,7 @@ convention) live in a project-side recipe.
   `cut_cc_bonds=[(i, j), ...]` using parent global atom indices; each
   requested bond is validated before carving. Every cut is capped by an
   H atom placed along the original bond vector at the element-specific
-  X-H length looked up from `molcrys_kit.constants.config.BOND_LENGTHS`
+  X-H length looked up from `mck.constants.config.BOND_LENGTHS`
   -- the same table that powers `operations.add_hydrogens` (C-H 1.09,
   N-H 1.01, O-H 0.96, S-H 1.34, P-H 1.42). Pass `cap_distance=` to
   force a uniform value for every cap instead, or
@@ -500,7 +500,7 @@ ring N coordinates several metals through periodic images.
 
 ### Built-in invariant checker
 
-`molcrys_kit.analysis.cluster_invariants.check_cluster_invariants_from_files`
+`mck.analysis.cluster_invariants.check_cluster_invariants_from_files`
 runs the C1-C10 carve invariants on a `(parent CIF, cluster XYZ, sidecar
 JSON)` triple and returns the list of violations.  These are the
 conditions that hold by construction for every cluster the
@@ -546,9 +546,8 @@ artefact independently of the carver internals:
 Use it programmatically:
 
 ```python
-from molcrys_kit.analysis.cluster_invariants import (
-    check_cluster_invariants_from_files,
-)
+import molcrys_kit as mck
+from molcrys_kit.analysis.cluster_invariants import check_cluster_invariants_from_files
 
 result = check_cluster_invariants_from_files("structure.cif", "cluster_0.xyz")
 print(result.report())
@@ -580,11 +579,11 @@ site(s), then rerun with `cut_cc_bonds` / `--cut-cc-bonds`.
 ### Programmatic example
 
 ```python
-from molcrys_kit.io.cif import read_mol_crystal
+import molcrys_kit as mck
 from molcrys_kit.io.output import write_xyz_with_freeze
 from molcrys_kit.operations import carve_cluster
 
-crystal = read_mol_crystal("structure.cif")
+crystal = mck.read_mol_crystal("structure.cif")
 clusters = carve_cluster(
     crystal,
     seed=17,              # global atom index, or e.g. "Zn" / "Si" / "Cu"
@@ -621,7 +620,7 @@ per-atom flag column F/C/-) and `outputs/cluster__group<k>.xyz.cluster.json`
 ### Sidecar JSON schema
 
 The `.cluster.json` sidecar contains the full
-`molcrys_kit.structures.cluster.ClusterProvenance` payload, which is
+`mck.structures.cluster.ClusterProvenance` payload, which is
 the canonical record for any downstream QM input writer:
 
 | Key | Type | Meaning |

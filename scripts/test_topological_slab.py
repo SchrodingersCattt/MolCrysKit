@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+import molcrys_kit as mck
 from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.operations import enumerate_terminations, generate_slabs_with_terminations
 from molcrys_kit.io.cif import identify_molecules

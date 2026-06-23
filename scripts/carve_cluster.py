@@ -60,6 +60,7 @@ import os
 import sys
 from typing import List, Tuple
 
+import molcrys_kit as mck
 from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.io.output import write_xyz_with_freeze
 from molcrys_kit.operations import ClusterCarver, LigandTopologyOverflowError

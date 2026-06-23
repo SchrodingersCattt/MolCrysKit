@@ -12,6 +12,7 @@ This script tests the desolvation functionality by:
 """
 
 import os
+import molcrys_kit as mck
 from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.io.output import write_cif
 from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer

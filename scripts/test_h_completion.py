@@ -10,6 +10,7 @@ This script validates that:
 
 import os
 import numpy as np
+import molcrys_kit as mck
 from molcrys_kit.io import read_mol_crystal
 from molcrys_kit.io.output import write_cif, write_xyz
 from molcrys_kit.operations import add_hydrogens

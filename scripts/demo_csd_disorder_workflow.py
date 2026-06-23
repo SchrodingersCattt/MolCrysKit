@@ -47,6 +47,7 @@ from ase import Atoms
 from ase.io import write as ase_write
 from pymatgen.core.lattice import Lattice
 
+import molcrys_kit as mck
 from molcrys_kit.io.cif import scan_cif_disorder, identify_molecules
 from molcrys_kit.constants.config import (
     KEY_OCCUPANCY,

@@ -16,6 +16,7 @@ import os
 import time
 import traceback
 from pathlib import Path
+import molcrys_kit as mck
 from molcrys_kit.analysis.disorder import (
     generate_ordered_replicas_from_disordered_sites,
 )

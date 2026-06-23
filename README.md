@@ -49,8 +49,8 @@ test environment is `pip install -e ".[test]"`.
 Here's a simple example of how to use MolCrysKit:
 
 ```python
+import molcrys_kit as mck
 from ase import Atoms
-from molcrys_kit.structures.crystal import MolecularCrystal
 
 # 1. Create a toy system (e.g., 2 Water molecules in a unit cell)
 # In practice, you would typically load this from a file: atoms = read('cif_file.cif')
@@ -65,7 +65,7 @@ atoms = Atoms(
 )
 
 # 2. Initialize MolecularCrystal (Automatically identifies molecules via graph logic)
-crystal = MolecularCrystal.from_ase(atoms)
+crystal = mck.MolecularCrystal.from_ase(atoms)
 
 # 3. Access Crystal & Molecular Properties
 print(f"Lattice Parameters: {crystal.get_lattice_parameters()}")

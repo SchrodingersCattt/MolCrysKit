@@ -1,3 +1,4 @@
+import molcrys_kit as mck
 from molcrys_kit.io import read_mol_crystal
 
 # Read a CIF file with automatic molecule identification
