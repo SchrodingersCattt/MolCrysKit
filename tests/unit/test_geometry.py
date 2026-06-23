@@ -21,6 +21,13 @@ from molcrys_kit.utils.geometry import (
     get_missing_vectors,
     reduce_surface_lattice,
     calculate_dihedral_and_adjustment,
+    kabsch_align,
+    quaternion_slerp,
+    quaternion_to_rotation_matrix,
+    rotation_matrix_to_quaternion,
+    rotation_to_axis_angle,
+    se3_exp,
+    se3_log,
 )
 
 
@@ -204,6 +211,58 @@ class TestRotationMatrix:
     def test_orthogonal(self):
         R = get_rotation_matrix(np.array([1.0, 0, 0]), np.pi / 4)
         np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-10)
+
+
+class TestRigidBodyGeometry:
+    """Rigid-body math helpers for replica interpolation."""
+
+    def test_kabsch_align_known_rotation(self):
+        mobile = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 3.0]]
+        )
+        mobile -= mobile.mean(axis=0)
+        expected = get_rotation_matrix(np.array([0.0, 0.0, 1.0]), np.pi / 3)
+        target = mobile @ expected.T
+        rotation, rmsd = kabsch_align(mobile, target)
+        np.testing.assert_allclose(rotation, expected, atol=1e-10)
+        assert rmsd < 1e-10
+
+    def test_rotation_axis_angle_roundtrip(self):
+        expected = get_rotation_matrix(np.array([1.0, 2.0, 3.0]), 0.7)
+        axis, angle = rotation_to_axis_angle(expected)
+        reconstructed = get_rotation_matrix(axis, angle)
+        np.testing.assert_allclose(reconstructed, expected, atol=1e-10)
+
+    def test_se3_log_exp_roundtrip(self):
+        rotation = get_rotation_matrix(np.array([0.2, 0.7, 0.4]), 0.8)
+        translation = np.array([1.2, -0.4, 2.1])
+        xi = se3_log(rotation, translation)
+        out_rotation, out_translation = se3_exp(xi)
+        np.testing.assert_allclose(out_rotation, rotation, atol=1e-10)
+        np.testing.assert_allclose(out_translation, translation, atol=1e-10)
+
+    def test_se3_pure_translation_roundtrip(self):
+        translation = np.array([1.0, 2.0, 3.0])
+        xi = se3_log(np.eye(3), translation)
+        out_rotation, out_translation = se3_exp(xi)
+        np.testing.assert_allclose(out_rotation, np.eye(3), atol=1e-10)
+        np.testing.assert_allclose(out_translation, translation, atol=1e-10)
+
+    def test_quaternion_slerp_endpoints(self):
+        start = np.eye(3)
+        end = get_rotation_matrix(np.array([0.0, 0.0, 1.0]), np.pi / 2)
+        q0 = rotation_matrix_to_quaternion(start)
+        q1 = rotation_matrix_to_quaternion(end)
+        np.testing.assert_allclose(
+            quaternion_to_rotation_matrix(quaternion_slerp(q0, q1, 0.0)),
+            start,
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            quaternion_to_rotation_matrix(quaternion_slerp(q0, q1, 1.0)),
+            end,
+            atol=1e-10,
+        )
 
 
 class TestGetMissingVectors:

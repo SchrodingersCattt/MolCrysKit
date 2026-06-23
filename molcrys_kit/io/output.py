@@ -7,9 +7,10 @@ This module provides functions for writing molecular crystal data to various for
 import json
 import os
 from io import StringIO
-from typing import Optional
+from typing import Optional, Sequence
 import warnings
 
+import ase.io
 import numpy as np
 from ase.constraints import FixScaled
 from ase.io.vasp import write_vasp
@@ -505,6 +506,120 @@ def write_poscar(
             f.write(poscar_string)
 
     return poscar_string
+
+
+def write_poscar_sequence(
+    crystals: Sequence[MolecularCrystal],
+    directory: str,
+    *,
+    padding: int = 2,
+    filename: str = "POSCAR",
+    comment_prefix: Optional[str] = None,
+    **poscar_kwargs,
+) -> list[str]:
+    """Write interpolated crystal frames as a VASP image directory sequence.
+
+    Frames are written as ``directory/00/POSCAR``, ``directory/01/POSCAR``, ...
+    by default. Additional keyword arguments are forwarded to
+    :func:`write_poscar`.
+    """
+    if not crystals:
+        raise ValueError("Cannot write an empty POSCAR sequence")
+    os.makedirs(directory, exist_ok=True)
+    written = []
+    for index, crystal in enumerate(crystals):
+        image_dir = os.path.join(directory, f"{index:0{padding}d}")
+        os.makedirs(image_dir, exist_ok=True)
+        path = os.path.join(image_dir, filename)
+        kwargs = dict(poscar_kwargs)
+        if comment_prefix is not None and "comment" not in kwargs:
+            kwargs["comment"] = f"{comment_prefix} image={index}"
+        write_poscar(crystal, path, **kwargs)
+        written.append(os.path.abspath(path))
+    return written
+
+
+def write_cif_sequence(
+    crystals: Sequence[MolecularCrystal],
+    directory: str,
+    *,
+    prefix: str = "frame",
+    padding: int = 3,
+    metadata: Optional[dict] = None,
+) -> list[str]:
+    """Write interpolated crystal frames as individual CIF files."""
+    if not crystals:
+        raise ValueError("Cannot write an empty CIF sequence")
+    os.makedirs(directory, exist_ok=True)
+    written = []
+    for index, crystal in enumerate(crystals):
+        path = os.path.join(directory, f"{prefix}_{index:0{padding}d}.cif")
+        write_cif(crystal, path, metadata=metadata)
+        written.append(os.path.abspath(path))
+    return written
+
+
+def write_trajectory(
+    crystals: Sequence[MolecularCrystal],
+    filename: str,
+    *,
+    format: str = "extxyz",
+    info: Optional[Sequence[dict] | dict] = None,
+    arrays: Optional[Sequence[dict] | dict] = None,
+    append: bool = False,
+    **write_kwargs,
+) -> str:
+    """Write molecular-crystal frames as an XYZ-family trajectory.
+
+    Parameters
+    ----------
+    crystals : Sequence[MolecularCrystal]
+        Frames to write.
+    filename : str
+        Output trajectory path.
+    format : {"extxyz", "xyz"}, default="extxyz"
+        ``"extxyz"`` preserves lattice, PBC, molecule indices, metadata, and
+        calculator results through MolCrysKit's ExtXYZ writer. ``"xyz"`` writes
+        a plain multi-frame XYZ stream through ASE and is intentionally lossy.
+    info, arrays : dict or sequence of dict, optional
+        Per-frame ExtXYZ payloads. Supported only for ``format="extxyz"``.
+    append : bool, default=False
+        Append frames to an existing trajectory.
+    **write_kwargs
+        Extra writer options forwarded to the underlying ASE/ExtXYZ writer.
+
+    Returns
+    -------
+    str
+        Absolute path to the written trajectory.
+    """
+    if not crystals:
+        raise ValueError("Cannot write an empty trajectory")
+
+    normalized = format.lower().replace("-", "")
+    if normalized in {"extxyz", "extendedxyz"}:
+        from .extxyz import write_extxyz
+
+        write_extxyz(
+            list(crystals),
+            filename,
+            append=append,
+            info=info,
+            arrays=arrays,
+            **write_kwargs,
+        )
+        return os.path.abspath(filename)
+
+    if normalized == "xyz":
+        if info is not None or arrays is not None:
+            raise ValueError("info/arrays payloads are supported only for extxyz output")
+        images = [crystal.to_ase() for crystal in crystals]
+        ase.io.write(filename, images, format="xyz", append=append, **write_kwargs)
+        return os.path.abspath(filename)
+
+    raise ValueError(
+        f"Unsupported trajectory format {format!r}; expected 'extxyz' or 'xyz'."
+    )
 
 
 def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:

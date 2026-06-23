@@ -43,6 +43,18 @@ from .molecule_manipulation import (
 
 from .cluster import ClusterCarver, LigandTopologyOverflowError, carve_cluster
 
+from .interpolation import (
+    InterpolationConfig,
+    InterpolationMethod,
+    MoleculeMatch,
+    best_atom_mapping,
+    find_flipping_molecules,
+    interpolate_crystal,
+    interpolate_molecule,
+    interpolate_pose,
+    match_molecules,
+)
+
 __all__ = [
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
@@ -71,4 +83,13 @@ __all__ = [
     "ClusterCarver",
     "LigandTopologyOverflowError",
     "carve_cluster",
+    "InterpolationConfig",
+    "InterpolationMethod",
+    "MoleculeMatch",
+    "best_atom_mapping",
+    "find_flipping_molecules",
+    "interpolate_crystal",
+    "interpolate_molecule",
+    "interpolate_pose",
+    "match_molecules",
 ]

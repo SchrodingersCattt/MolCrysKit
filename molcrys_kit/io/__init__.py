@@ -6,7 +6,15 @@ This module handles reading and writing of molecular crystal data.
 
 from .cif import identify_molecule_indices, read_mol_crystal, parse_cif_advanced
 from .extxyz import read_extxyz, write_extxyz
-from .output import write_cif, write_poscar, write_xyz, write_xyz_with_freeze
+from .output import (
+    write_cif,
+    write_cif_sequence,
+    write_poscar,
+    write_poscar_sequence,
+    write_trajectory,
+    write_xyz,
+    write_xyz_with_freeze,
+)
 from .poscar import read_poscar
 from .xyz import read_xyz
 
@@ -15,7 +23,10 @@ __all__ = [
     "parse_cif_advanced",
     "identify_molecule_indices",
     "write_cif",
+    "write_cif_sequence",
     "write_poscar",
+    "write_poscar_sequence",
+    "write_trajectory",
     "write_xyz",
     "write_xyz_with_freeze",
     "read_xyz",

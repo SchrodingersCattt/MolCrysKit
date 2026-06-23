@@ -10,6 +10,9 @@ from typing import List, Optional, Tuple
 from ..constants import get_atomic_mass, has_atomic_mass
 
 
+_GEOM_EPS = 1e-12
+
+
 def frac_to_cart(frac: np.ndarray, lattice: np.ndarray) -> np.ndarray:
     """
     Convert fractional coordinates to cartesian coordinates.
@@ -66,6 +69,272 @@ def normalize_vector(vector: np.ndarray) -> np.ndarray:
     if norm == 0:
         return vector
     return vector / norm
+
+
+def skew_matrix(vector: np.ndarray) -> np.ndarray:
+    """Return the 3x3 skew-symmetric matrix for a cross product vector."""
+    x, y, z = np.asarray(vector, dtype=float)
+    return np.array(
+        [[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]],
+        dtype=float,
+    )
+
+
+def unskew_matrix(matrix: np.ndarray) -> np.ndarray:
+    """Return the vector represented by a 3x3 skew-symmetric matrix."""
+    matrix = np.asarray(matrix, dtype=float)
+    return np.array(
+        [matrix[2, 1], matrix[0, 2], matrix[1, 0]],
+        dtype=float,
+    )
+
+
+def kabsch_align(mobile: np.ndarray, target: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Find the best active rotation aligning ``mobile`` to ``target``.
+
+    The returned matrix ``R`` follows the MolCrysKit row-vector convention used
+    throughout the operations layer: ``mobile @ R.T`` best approximates
+    ``target``. Inputs are expected to be centered already.
+
+    Parameters
+    ----------
+    mobile, target : np.ndarray
+        Arrays with shape ``(n, 3)`` containing corresponding Cartesian points.
+
+    Returns
+    -------
+    Tuple[np.ndarray, float]
+        Active rotation matrix and RMSD after alignment.
+    """
+    mobile = np.asarray(mobile, dtype=float)
+    target = np.asarray(target, dtype=float)
+    if mobile.shape != target.shape or mobile.ndim != 2 or mobile.shape[1] != 3:
+        raise ValueError(
+            "mobile and target must both have shape (n, 3); "
+            f"got {mobile.shape} and {target.shape}"
+        )
+    if len(mobile) == 0:
+        raise ValueError("Cannot align empty point sets")
+
+    covariance = mobile.T @ target
+    u, _, vt = np.linalg.svd(covariance)
+    det = np.linalg.det(vt.T @ u.T)
+    correction = np.diag([1.0, 1.0, 1.0 if det >= 0.0 else -1.0])
+    rotation = vt.T @ correction @ u.T
+    aligned = mobile @ rotation.T
+    rmsd = float(np.sqrt(np.mean(np.sum((aligned - target) ** 2, axis=1))))
+    return rotation, rmsd
+
+
+def rotation_to_axis_angle(rotation: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Decompose a rotation matrix into an axis and angle in radians.
+
+    The returned angle is in ``[0, π]``. For the identity rotation, the axis is
+    the conventional ``[1, 0, 0]`` and the angle is zero.
+    """
+    rotation = np.asarray(rotation, dtype=float)
+    if rotation.shape != (3, 3):
+        raise ValueError(f"rotation must have shape (3, 3), got {rotation.shape}")
+
+    cos_theta = np.clip((np.trace(rotation) - 1.0) / 2.0, -1.0, 1.0)
+    angle = float(np.arccos(cos_theta))
+    if angle < 1e-10:
+        return np.array([1.0, 0.0, 0.0]), 0.0
+
+    if np.pi - angle < 1e-7:
+        # Near 180 degrees the usual skew formula is ill-conditioned.  The
+        # rotation axis is the eigenvector with eigenvalue +1.
+        eigvals, eigvecs = np.linalg.eig(rotation)
+        index = int(np.argmin(np.abs(np.real(eigvals) - 1.0)))
+        axis = np.real(eigvecs[:, index])
+        axis = normalize_vector(axis)
+        if np.linalg.norm(axis) < _GEOM_EPS:
+            axis = np.array([1.0, 0.0, 0.0])
+        return axis, angle
+
+    axis = np.array(
+        [
+            rotation[2, 1] - rotation[1, 2],
+            rotation[0, 2] - rotation[2, 0],
+            rotation[1, 0] - rotation[0, 1],
+        ],
+        dtype=float,
+    ) / (2.0 * np.sin(angle))
+    return normalize_vector(axis), angle
+
+
+def rotation_log_vector(rotation: np.ndarray) -> np.ndarray:
+    """Return the SO(3) logarithm vector ``omega = axis * angle``."""
+    axis, angle = rotation_to_axis_angle(rotation)
+    return axis * angle
+
+
+def rotation_exp_vector(omega: np.ndarray) -> np.ndarray:
+    """Return ``exp([omega]x)`` as a 3x3 rotation matrix."""
+    omega = np.asarray(omega, dtype=float)
+    theta = float(np.linalg.norm(omega))
+    if theta < _GEOM_EPS:
+        return np.eye(3)
+    return get_rotation_matrix(omega / theta, theta)
+
+
+def _left_jacobian_so3(omega: np.ndarray) -> np.ndarray:
+    """Left Jacobian of SO(3), used as the SE(3) translational V matrix."""
+    omega = np.asarray(omega, dtype=float)
+    theta = float(np.linalg.norm(omega))
+    omega_hat = skew_matrix(omega)
+    if theta < 1e-8:
+        return np.eye(3) + 0.5 * omega_hat + (1.0 / 6.0) * (omega_hat @ omega_hat)
+    theta2 = theta * theta
+    return (
+        np.eye(3)
+        + ((1.0 - np.cos(theta)) / theta2) * omega_hat
+        + ((theta - np.sin(theta)) / (theta2 * theta)) * (omega_hat @ omega_hat)
+    )
+
+
+def _left_jacobian_so3_inverse(omega: np.ndarray) -> np.ndarray:
+    """Inverse left Jacobian of SO(3)."""
+    omega = np.asarray(omega, dtype=float)
+    theta = float(np.linalg.norm(omega))
+    omega_hat = skew_matrix(omega)
+    if theta < 1e-8:
+        return np.eye(3) - 0.5 * omega_hat + (1.0 / 12.0) * (omega_hat @ omega_hat)
+    theta2 = theta * theta
+    coefficient = (1.0 / theta2) - ((1.0 + np.cos(theta)) / (2.0 * theta * np.sin(theta)))
+    return np.eye(3) - 0.5 * omega_hat + coefficient * (omega_hat @ omega_hat)
+
+
+def se3_log(rotation: np.ndarray, translation: np.ndarray) -> np.ndarray:
+    """Map an SE(3) transform to its Lie-algebra twist vector.
+
+    Parameters
+    ----------
+    rotation : np.ndarray
+        3x3 rotation matrix.
+    translation : np.ndarray
+        Cartesian translation vector.
+
+    Returns
+    -------
+    np.ndarray
+        Six-vector ``[omega_x, omega_y, omega_z, v_x, v_y, v_z]``.
+    """
+    omega = rotation_log_vector(rotation)
+    translation = np.asarray(translation, dtype=float)
+    v = _left_jacobian_so3_inverse(omega) @ translation
+    return np.concatenate([omega, v])
+
+
+def se3_exp(xi: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Map a Lie-algebra twist vector to an SE(3) transform.
+
+    Parameters
+    ----------
+    xi : np.ndarray
+        Six-vector ``[omega_x, omega_y, omega_z, v_x, v_y, v_z]``.
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        Rotation matrix and Cartesian translation vector.
+    """
+    xi = np.asarray(xi, dtype=float)
+    if xi.shape != (6,):
+        raise ValueError(f"xi must have shape (6,), got {xi.shape}")
+    omega = xi[:3]
+    v = xi[3:]
+    rotation = rotation_exp_vector(omega)
+    translation = _left_jacobian_so3(omega) @ v
+    return rotation, translation
+
+
+def rotation_matrix_to_quaternion(rotation: np.ndarray) -> np.ndarray:
+    """Convert a rotation matrix to a normalized quaternion ``[w, x, y, z]``."""
+    rotation = np.asarray(rotation, dtype=float)
+    if rotation.shape != (3, 3):
+        raise ValueError(f"rotation must have shape (3, 3), got {rotation.shape}")
+    trace = float(np.trace(rotation))
+    if trace > 0.0:
+        scale = np.sqrt(trace + 1.0) * 2.0
+        quat = np.array(
+            [
+                0.25 * scale,
+                (rotation[2, 1] - rotation[1, 2]) / scale,
+                (rotation[0, 2] - rotation[2, 0]) / scale,
+                (rotation[1, 0] - rotation[0, 1]) / scale,
+            ]
+        )
+    else:
+        idx = int(np.argmax(np.diag(rotation)))
+        if idx == 0:
+            scale = np.sqrt(1.0 + rotation[0, 0] - rotation[1, 1] - rotation[2, 2]) * 2.0
+            quat = np.array(
+                [
+                    (rotation[2, 1] - rotation[1, 2]) / scale,
+                    0.25 * scale,
+                    (rotation[0, 1] + rotation[1, 0]) / scale,
+                    (rotation[0, 2] + rotation[2, 0]) / scale,
+                ]
+            )
+        elif idx == 1:
+            scale = np.sqrt(1.0 + rotation[1, 1] - rotation[0, 0] - rotation[2, 2]) * 2.0
+            quat = np.array(
+                [
+                    (rotation[0, 2] - rotation[2, 0]) / scale,
+                    (rotation[0, 1] + rotation[1, 0]) / scale,
+                    0.25 * scale,
+                    (rotation[1, 2] + rotation[2, 1]) / scale,
+                ]
+            )
+        else:
+            scale = np.sqrt(1.0 + rotation[2, 2] - rotation[0, 0] - rotation[1, 1]) * 2.0
+            quat = np.array(
+                [
+                    (rotation[1, 0] - rotation[0, 1]) / scale,
+                    (rotation[0, 2] + rotation[2, 0]) / scale,
+                    (rotation[1, 2] + rotation[2, 1]) / scale,
+                    0.25 * scale,
+                ]
+            )
+    return normalize_vector(quat)
+
+
+def quaternion_to_rotation_matrix(quaternion: np.ndarray) -> np.ndarray:
+    """Convert a quaternion ``[w, x, y, z]`` to a rotation matrix."""
+    q = normalize_vector(np.asarray(quaternion, dtype=float))
+    if q.shape != (4,):
+        raise ValueError(f"quaternion must have shape (4,), got {q.shape}")
+    w, x, y, z = q
+    return np.array(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ],
+        dtype=float,
+    )
+
+
+def quaternion_slerp(q0: np.ndarray, q1: np.ndarray, fraction: float) -> np.ndarray:
+    """Spherical linear interpolation between normalized quaternions."""
+    q0 = normalize_vector(np.asarray(q0, dtype=float))
+    q1 = normalize_vector(np.asarray(q1, dtype=float))
+    if q0.shape != (4,) or q1.shape != (4,):
+        raise ValueError("q0 and q1 must both have shape (4,)")
+    fraction = float(fraction)
+    dot = float(np.dot(q0, q1))
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+    if dot > 0.9995:
+        return normalize_vector((1.0 - fraction) * q0 + fraction * q1)
+    theta_0 = np.arccos(np.clip(dot, -1.0, 1.0))
+    sin_theta_0 = np.sin(theta_0)
+    theta = theta_0 * fraction
+    scale0 = np.sin(theta_0 - theta) / sin_theta_0
+    scale1 = np.sin(theta) / sin_theta_0
+    return normalize_vector(scale0 * q0 + scale1 * q1)
 
 
 def distance_between_points(point1: np.ndarray, point2: np.ndarray) -> float:
