@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import molcrys_kit as mck
 from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder  # noqa: E402
 from molcrys_kit.analysis.disorder.solver import DisorderSolver  # noqa: E402
 from molcrys_kit.io.cif import _pymatgen_cif_parser, scan_cif_disorder  # noqa: E402

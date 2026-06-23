@@ -23,6 +23,8 @@ from time import time
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+import molcrys_kit as mck
+
 try:
     from molcrys_kit.io.cif import scan_cif_disorder
     from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder

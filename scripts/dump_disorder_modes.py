@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import molcrys_kit as mck
 from molcrys_kit.analysis.disorder.process import (  # noqa: E402
     generate_ordered_replicas_from_disordered_sites,
 )

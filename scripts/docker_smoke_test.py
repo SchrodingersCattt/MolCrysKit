@@ -14,6 +14,8 @@ Exit code 1 = at least one check failed.
 import sys
 import traceback
 
+import molcrys_kit as mck
+
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
 
@@ -38,7 +40,7 @@ print("[ imports ]")
 
 def test_import_top_level():
     import molcrys_kit  # noqa: F401
-    from molcrys_kit import MolecularCrystal, CrystalMolecule, read_mol_crystal  # noqa: F401
+    from mck import MolecularCrystal, CrystalMolecule, read_mol_crystal  # noqa: F401
 
 
 def test_import_operations():

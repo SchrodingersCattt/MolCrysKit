@@ -4,6 +4,7 @@ verify_merge_bug.py
 """
 import os
 import numpy as np
+import molcrys_kit as mck
 from molcrys_kit.io.cif import scan_cif_disorder
 
 def create_test_cif(filename):

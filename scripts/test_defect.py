@@ -1,5 +1,6 @@
 from pathlib import Path
 from ase.io import write
+import molcrys_kit as mck
 from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer
 from molcrys_kit.operations.defects import VacancyGenerator

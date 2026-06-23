@@ -27,6 +27,7 @@ sys.path.insert(0, str(__file__ + "/../../"))  # repo root on any machine
 
 from ase.geometry import get_distances
 
+import molcrys_kit as mck
 from molcrys_kit.io.cif import scan_cif_disorder
 from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
 from molcrys_kit.analysis.disorder.solver import DisorderSolver
