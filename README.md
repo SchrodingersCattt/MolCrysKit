@@ -80,7 +80,7 @@ print(f"Molecule 1 Center of Mass: {mol.get_center_of_mass()}")
 
 If you use MolCrysKit in academic work, please cite:
 
-> Guo, M.-Y.; Zhang, W.-X. *MolCrysKit: A Topology-Aware Toolkit for Bridging Experimental Molecular-Crystal Structures and Simulation-Ready Modeling*. **J. Chem. Inf. Model.** **2026**, *66* (9), 4999-5007. https://doi.org/10.1021/acs.jcim.6c00168
+> Guo, M.-Y.; Zhang, W.-X. MolCrysKit: A Topology-Aware Toolkit for Bridging Experimental Molecular-Crystal Structures and Simulation-Ready Modeling. *J. Chem. Inf. Model.* **2026**, *66* (9), 4999-5007. https://doi.org/10.1021/acs.jcim.6c00168
 
 For exact reproduction of the published JCIM results, use the archived
 `v0.1.0` release together with the versioned container image and the material
