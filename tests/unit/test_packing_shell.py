@@ -627,6 +627,8 @@ def test_find_polyhedra_molecule_level_collapses_disorder_alternatives():
     assert len(polys) == 1
     assert polys[0]["center_formula"] == "H4N"
     assert polys[0]["shell_formula"] == "ClO4"
+    # hard_cutoff=8 captures the eight periodic ClO4-image neighbours of the
+    # toy CsCl-like NH4/ClO4 packing arrangement.
     assert polys[0]["coordination_number"] == 8
 
 

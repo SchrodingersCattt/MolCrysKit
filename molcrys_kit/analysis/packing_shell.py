@@ -481,6 +481,7 @@ def _active_disorder_mask(molecule) -> np.ndarray:
     moiety matching for packing-shell/polyhedron analysis. For each non-empty
     disorder assembly, keep the disorder group with the largest occupancy sum
     and drop the other alternatives for centroid/formula/signature purposes.
+    Ties are resolved deterministically by atom count and then group label.
     Ordered atoms are always kept.
     """
     symbols = list(molecule.get_chemical_symbols())
@@ -565,14 +566,15 @@ def _molecule_centre(molecule, kind: str) -> np.ndarray:
         raise ValueError("Cannot compute molecule centre: empty molecule.")
     symbols = list(molecule.get_chemical_symbols())
     active_mask = _active_disorder_mask(molecule)
-    if active_mask.shape[0] == len(symbols) and active_mask.any():
+    use_active_mask = active_mask.shape[0] == len(symbols) and active_mask.any()
+    if use_active_mask:
         positions = positions[active_mask]
         symbols = [sym for sym, keep in zip(symbols, active_mask) if bool(keep)]
     if kind == "centroid":
         return positions.mean(axis=0)
     if kind == "com":
         masses = np.asarray(molecule.get_masses(), dtype=float)
-        if active_mask.shape[0] == len(masses) and active_mask.any():
+        if use_active_mask:
             masses = masses[active_mask]
         total = float(masses.sum())
         if total <= 0:
@@ -843,7 +845,7 @@ def _find_polyhedra_molecule_level(
     formulas: List[str] = []
     for mol in molecules:
         symbols = _molecule_formula_symbols(mol)
-        sigs.append(_molecule_heavy_signature(mol))
+        sigs.append(heavy_signature(dict(Counter(s for s in symbols if s != "H"))))
         formulas.append(_format_molecule_formula(symbols))
 
     central_index_set = (
