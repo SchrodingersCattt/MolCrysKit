@@ -68,6 +68,10 @@ DEFAULT_PROFILE_KEYS = (
     "close_contact",
 )
 
+PROFILE_KIND_ALIASES = {
+    "h_h_contact": "close_contact",
+}
+
 
 def interaction_profile(
     target: MolecularCrystal | Sequence,
@@ -81,8 +85,9 @@ def interaction_profile(
     """Return count/max/mean/sum scoring profile for all interaction detectors.
 
     The returned profile keeps the full raw interaction list while summarizing
-    scores by interaction ``kind``.  Legacy H···H contact detector output is
-    reported under the ``close_contact`` kind.
+    scores by profile kind.  Legacy H···H contact records keep their
+    ``kind="h_h_contact"`` value for backward compatibility and are summarized
+    under the more descriptive ``close_contact`` profile key.
     """
     interactions: list[BaseInteraction] = []
     interactions.extend(find_hydrogen_bonds(target, criteria=hydrogen_bond_criteria))
@@ -92,10 +97,17 @@ def interaction_profile(
     interactions.extend(find_h_h_contacts(target, criteria=h_h_contact_criteria))
 
     summaries = {
-        key: _score_summary([item for item in interactions if item.kind == key])
+        key: _score_summary(
+            [item for item in interactions if _profile_kind(item.kind) == key]
+        )
         for key in DEFAULT_PROFILE_KEYS
     }
     return InteractionProfile(summaries=summaries, interactions=tuple(interactions))
+
+
+def _profile_kind(kind: str) -> str:
+    """Return aggregation key for a raw interaction kind."""
+    return PROFILE_KIND_ALIASES.get(kind, kind)
 
 
 def _score_summary(interactions: Sequence[BaseInteraction]) -> InteractionScoreSummary:

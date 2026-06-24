@@ -7,6 +7,10 @@ The data is loaded from JSON files in the same directory.
 Atomic masses are in atomic mass units (amu).
 Atomic radii are covalent radii in Angstroms (Å).
 Van der Waals radii are in Angstroms (Å).
+Van der Waals radii combine standard Bondi values for common organic elements
+with Alvarez-style fallback values for heavier elements included in the data
+table; they are intended for geometric normalization, not high-precision force
+field parametrization.
 """
 
 import os

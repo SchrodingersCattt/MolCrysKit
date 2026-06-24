@@ -375,7 +375,7 @@ class TestAdditionalInteractionDetectors:
         assert contact.hydrogen1.crystal_atom_index == 0
         assert contact.hydrogen2.crystal_atom_index == 1
         assert contact.h_h_distance_A == pytest.approx(2.0)
-        assert contact.kind == "close_contact"
+        assert contact.kind == "h_h_contact"
         assert contact.score is not None
         assert contact.score > 0.3
 
@@ -394,6 +394,11 @@ class TestAdditionalInteractionDetectors:
         assert hbond_summary.max == pytest.approx(hbond_summary.sum)
         assert hbond_summary.mean == pytest.approx(hbond_summary.max)
         assert hbond_summary.max > 0.8
+
+        contact_summary = profile.summaries["close_contact"]
+        raw_contacts = [item for item in profile.interactions if item.kind == "h_h_contact"]
+        assert contact_summary.count == len(raw_contacts)
+        assert contact_summary.count > 0
 
     def test_atom_ref_separates_crystal_and_asu_indices(self):
         mol1 = CrystalMolecule(Atoms(["H"], positions=[[0, 0, 0]]))

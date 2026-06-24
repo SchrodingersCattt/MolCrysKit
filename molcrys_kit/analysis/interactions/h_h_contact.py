@@ -66,7 +66,7 @@ class HHContact(BaseInteraction):
         """Initialize an H···H contact from two hydrogen references."""
         BaseInteraction.__init__(
             self,
-            kind="close_contact",
+            kind="h_h_contact",
             participants={"hydrogen1": hydrogen1, "hydrogen2": hydrogen2},
             distance_A=float(h_h_distance_A),
             angle_deg=None,
@@ -183,6 +183,7 @@ def find_h_h_contacts(
                                     "score_components": {
                                         "h_h_distance_A": distance,
                                         "h_h_vdw_sum_A": vdw_radius_sum("H", "H"),
+                                        "score_semantics": "vdw_close_contact",
                                     },
                                 },
                             )

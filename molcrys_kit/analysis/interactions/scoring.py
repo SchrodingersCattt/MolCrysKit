@@ -52,6 +52,9 @@ class ScoringParams:
     ch_pi_angle0_deg: float = 180.0
     ch_pi_angle_sigma_deg: float = 25.0
 
+    # H···H close-contact scores describe closeness to the vdW contact shell,
+    # not attractive interaction strength. Shorter steric contacts can be more
+    # severe but are intentionally not assigned larger positive scores here.
     close_contact_distance_sigma_A: float = 0.3
 
 
