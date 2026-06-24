@@ -7,7 +7,7 @@ offset.  Crystal inputs enable periodic-image searches and identity metadata.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Sequence
 
 import numpy as np
@@ -17,6 +17,7 @@ from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .base import BaseInteraction, RingRef, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import RingGeometry, LocalGeometryCache
+from .scoring import ScoringParams, composite_score, scaled_cutoff
 
 
 PiStackingSubtype = Literal[
@@ -47,6 +48,7 @@ class PiStackingCriteria:
     max_t_shape_lateral_offset_A: float = 2.5
     aromatic_only: bool = True
     search_radius_A: float | None = None
+    scoring_params: ScoringParams = field(default_factory=ScoringParams)
 
     def __init__(
         self,
@@ -59,6 +61,7 @@ class PiStackingCriteria:
         max_t_shape_lateral_offset_A: float = 2.5,
         aromatic_only: bool = True,
         search_radius_A: float | None = None,
+        scoring_params: ScoringParams | None = None,
         max_normal_angle_deg: float | None = None,
         max_lateral_offset_A: float | None = None,
     ):
@@ -72,15 +75,44 @@ class PiStackingCriteria:
             max_parallel_normal_angle_deg = max_normal_angle_deg
         if max_lateral_offset_A is not None:
             max_parallel_lateral_offset_A = max_lateral_offset_A
-        object.__setattr__(self, "max_centroid_distance_A", float(max_centroid_distance_A))
-        object.__setattr__(self, "max_parallel_normal_angle_deg", float(max_parallel_normal_angle_deg))
-        object.__setattr__(self, "min_t_shape_normal_angle_deg", float(min_t_shape_normal_angle_deg))
-        object.__setattr__(self, "max_t_shape_normal_angle_deg", float(max_t_shape_normal_angle_deg))
-        object.__setattr__(self, "max_face_centered_offset_A", float(max_face_centered_offset_A))
-        object.__setattr__(self, "max_parallel_lateral_offset_A", float(max_parallel_lateral_offset_A))
-        object.__setattr__(self, "max_t_shape_lateral_offset_A", float(max_t_shape_lateral_offset_A))
+        object.__setattr__(
+            self,
+            "max_centroid_distance_A",
+            float(max_centroid_distance_A),
+        )
+        object.__setattr__(
+            self,
+            "max_parallel_normal_angle_deg",
+            float(max_parallel_normal_angle_deg),
+        )
+        object.__setattr__(
+            self,
+            "min_t_shape_normal_angle_deg",
+            float(min_t_shape_normal_angle_deg),
+        )
+        object.__setattr__(
+            self,
+            "max_t_shape_normal_angle_deg",
+            float(max_t_shape_normal_angle_deg),
+        )
+        object.__setattr__(
+            self,
+            "max_face_centered_offset_A",
+            float(max_face_centered_offset_A),
+        )
+        object.__setattr__(
+            self,
+            "max_parallel_lateral_offset_A",
+            float(max_parallel_lateral_offset_A),
+        )
+        object.__setattr__(
+            self,
+            "max_t_shape_lateral_offset_A",
+            float(max_t_shape_lateral_offset_A),
+        )
         object.__setattr__(self, "aromatic_only", bool(aromatic_only))
         object.__setattr__(self, "search_radius_A", search_radius_A)
+        object.__setattr__(self, "scoring_params", scoring_params or ScoringParams())
 
     @property
     def max_normal_angle_deg(self) -> float:
@@ -181,7 +213,8 @@ def find_pi_stacking(
         images = enumerate_lattice_images(
             lattice,
             tuple(bool(v) for v in crystal.pbc),
-            criteria.search_radius_A or criteria.max_centroid_distance_A,
+            criteria.search_radius_A
+            or scaled_cutoff(criteria.max_centroid_distance_A, criteria.scoring_params),
         )
     else:
         lattice = None
@@ -223,7 +256,7 @@ def find_pi_stacking(
                         if key in seen:
                             continue
                         seen.add(key)
-                        ring1_ref, ring2_ref, distance, angle, offset, subtype = result
+                        ring1_ref, ring2_ref, distance, angle, offset, subtype, score = result
                         stacks.append(
                             PiStacking(
                                 ring1=ring1_ref,
@@ -235,14 +268,30 @@ def find_pi_stacking(
                                 molecule1_identity=identities[mol1_idx] if identities else None,
                                 molecule2_identity=identities[mol2_idx] if identities else None,
                                 image=tuple(int(v) for v in image),
-                                translation_A=tuple(float(v) for v in translation) if lattice is not None else None,
-                                metadata={"criteria": _criteria_metadata(criteria)},
+                                translation_A=(
+                                    tuple(float(v) for v in translation)
+                                    if lattice is not None
+                                    else None
+                                ),
+                                score=score,
+                                metadata={
+                                    "criteria": _criteria_metadata(criteria),
+                                    "score_components": {
+                                        "centroid_distance_A": distance,
+                                        "normal_angle_deg": angle,
+                                        "lateral_offset_A": offset,
+                                        "lateral_offset_weight": 1.0,
+                                    },
+                                },
                             )
                         )
     return stacks
 
 
-def find_pi_stacks(target: MolecularCrystal | Sequence, criteria: PiStackingCriteria | None = None) -> list[PiStacking]:
+def find_pi_stacks(
+    target: MolecularCrystal | Sequence,
+    criteria: PiStackingCriteria | None = None,
+) -> list[PiStacking]:
     """Alias for :func:`find_pi_stacking` with identical behavior."""
     return find_pi_stacking(target, criteria=criteria)
 
@@ -269,7 +318,7 @@ def _evaluate_ring_pair(
     c2 = np.asarray(ring2.centroid_A, dtype=float) + translation
     centroid_vec = c2 - c1
     centroid_distance = float(np.linalg.norm(centroid_vec))
-    if centroid_distance > criteria.max_centroid_distance_A:
+    if centroid_distance > scaled_cutoff(criteria.max_centroid_distance_A, criteria.scoring_params):
         return None
     n1 = np.asarray(ring1.normal, dtype=float)
     n2 = np.asarray(ring2.normal, dtype=float)
@@ -283,6 +332,29 @@ def _evaluate_ring_pair(
     lateral_offset = float(np.linalg.norm(lateral_vec))
     subtype = _classify_pi_stacking(normal_angle, lateral_offset, criteria)
     if subtype is None:
+        return None
+    angle0 = (
+        criteria.scoring_params.pi_t_shape_angle0_deg
+        if subtype == "T_shape"
+        else criteria.scoring_params.pi_parallel_angle0_deg
+    )
+    score = composite_score(
+        (
+            (
+                centroid_distance,
+                criteria.scoring_params.pi_centroid_distance0_A,
+                criteria.scoring_params.pi_centroid_distance_sigma_A,
+                "lorentzian",
+            ),
+            (
+                normal_angle,
+                angle0,
+                criteria.scoring_params.pi_angle_sigma_deg,
+                "gaussian",
+            ),
+        )
+    )
+    if score < criteria.scoring_params.score_threshold:
         return None
     ring1_ref = RingRef.from_molecule(
         molecules[mol1_idx],
@@ -299,7 +371,7 @@ def _evaluate_ring_pair(
         image=image,
         crystal_atom_offset=atom_offsets[mol2_idx],
     )
-    return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset, subtype
+    return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset, subtype, score
 
 
 def _classify_pi_stacking(
@@ -347,4 +419,6 @@ def _criteria_metadata(criteria: PiStackingCriteria) -> dict[str, Any]:
         "max_parallel_lateral_offset_A": criteria.max_parallel_lateral_offset_A,
         "max_t_shape_lateral_offset_A": criteria.max_t_shape_lateral_offset_A,
         "aromatic_only": criteria.aromatic_only,
+        "prefilter_factor": criteria.scoring_params.prefilter_factor,
+        "score_threshold": criteria.scoring_params.score_threshold,
     }

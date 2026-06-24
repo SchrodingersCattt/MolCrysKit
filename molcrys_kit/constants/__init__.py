@@ -5,7 +5,8 @@ This module provides access to atomic properties such as masses and radii.
 The data is loaded from JSON files in the same directory.
 
 Atomic masses are in atomic mass units (amu).
-Atomic radii are in Angstroms (Å).
+Atomic radii are covalent radii in Angstroms (Å).
+Van der Waals radii are in Angstroms (Å).
 """
 
 import os
@@ -21,6 +22,10 @@ with open(os.path.join(_CONSTANTS_DIR, "atomic_masses.json"), "r") as f:
 # Load atomic radii
 with open(os.path.join(_CONSTANTS_DIR, "atomic_radii.json"), "r") as f:
     ATOMIC_RADII = json.load(f)
+
+# Load van der Waals radii
+with open(os.path.join(_CONSTANTS_DIR, "vdw_radii.json"), "r") as f:
+    VDW_RADII = json.load(f)
 
 # Define metal elements
 METAL_ELEMENTS = {
@@ -184,6 +189,28 @@ def get_atomic_radius(symbol: str) -> float:
     return ATOMIC_RADII[symbol]
 
 
+def get_vdw_radius(symbol: str) -> float:
+    """
+    Get the van der Waals radius of an element.
+
+    Parameters
+    ----------
+    symbol : str
+        Chemical symbol of the element (e.g., 'H', 'C', 'O').
+
+    Returns
+    -------
+    float
+        Van der Waals radius in Angstroms (Å).
+
+    Raises
+    ------
+    KeyError
+        If the element symbol is not found in the database.
+    """
+    return VDW_RADII[symbol]
+
+
 def has_atomic_mass(symbol: str) -> bool:
     """
     Check if atomic mass data is available for an element.
@@ -232,6 +259,23 @@ def has_atomic_radius(symbol: str) -> bool:
     return symbol in ATOMIC_RADII
 
 
+def has_vdw_radius(symbol: str) -> bool:
+    """
+    Check if van der Waals radius data is available for an element.
+
+    Parameters
+    ----------
+    symbol : str
+        Chemical symbol of the element.
+
+    Returns
+    -------
+    bool
+        True if vdW radius data is available, False otherwise.
+    """
+    return symbol in VDW_RADII
+
+
 def list_elements_with_data() -> dict:
     """
     Get lists of elements with available data.
@@ -241,7 +285,11 @@ def list_elements_with_data() -> dict:
     dict
         Dictionary with 'masses' and 'radii' keys containing lists of element symbols.
     """
-    return {"masses": list(ATOMIC_MASSES.keys()), "radii": list(ATOMIC_RADII.keys())}
+    return {
+        "masses": list(ATOMIC_MASSES.keys()),
+        "radii": list(ATOMIC_RADII.keys()),
+        "vdw_radii": list(VDW_RADII.keys()),
+    }
 
 
 def is_metal_element(symbol: str) -> bool:

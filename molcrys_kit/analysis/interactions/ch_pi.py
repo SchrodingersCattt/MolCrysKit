@@ -6,7 +6,7 @@ Crystal inputs enable periodic-image searches and molecule identity metadata.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import numpy as np
@@ -16,6 +16,7 @@ from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .base import AtomRef, BaseInteraction, RingRef, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import AtomLocalGeometry, LocalGeometryCache
+from .scoring import ScoringParams, composite_score, scaled_cutoff
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class CHPiInteractionCriteria:
     carbon_elements: tuple[str, ...] = ("C",)
     aromatic_only: bool = True
     search_radius_A: float | None = None
+    scoring_params: ScoringParams = field(default_factory=ScoringParams)
 
 
 @dataclass(init=False)
@@ -115,7 +117,8 @@ def find_ch_pi(
         images = enumerate_lattice_images(
             lattice,
             tuple(bool(v) for v in crystal.pbc),
-            criteria.search_radius_A or criteria.max_h_centroid_distance_A,
+            criteria.search_radius_A
+            or scaled_cutoff(criteria.max_h_centroid_distance_A, criteria.scoring_params),
         )
     else:
         lattice = None
@@ -147,10 +150,31 @@ def find_ch_pi(
                         translation = _translation(lattice, image)
                         centroid = np.asarray(ring.centroid_A, dtype=float) + translation
                         h_centroid_distance = float(np.linalg.norm(h_pos - centroid))
-                        if h_centroid_distance > criteria.max_h_centroid_distance_A:
+                        if h_centroid_distance > scaled_cutoff(
+                            criteria.max_h_centroid_distance_A,
+                            criteria.scoring_params,
+                        ):
                             continue
                         angle = vector_angle_deg(carbon_pos - h_pos, centroid - h_pos)
                         if angle < criteria.min_ch_centroid_angle_deg:
+                            continue
+                        score = composite_score(
+                            (
+                                (
+                                    h_centroid_distance,
+                                    criteria.scoring_params.ch_pi_h_centroid_distance0_A,
+                                    criteria.scoring_params.ch_pi_h_centroid_distance_sigma_A,
+                                    "lorentzian",
+                                ),
+                                (
+                                    angle,
+                                    criteria.scoring_params.ch_pi_angle0_deg,
+                                    criteria.scoring_params.ch_pi_angle_sigma_deg,
+                                    "gaussian",
+                                ),
+                            )
+                        )
+                        if score < criteria.scoring_params.score_threshold:
                             continue
 
                         carbon_ref = AtomRef.from_molecule(
@@ -184,8 +208,19 @@ def find_ch_pi(
                                 acceptor_identity=identities[ring_mol_idx] if identities else None,
                                 carbon_geometry=donor_lg.atom(carbon_idx),
                                 image=tuple(int(v) for v in image),
-                                translation_A=tuple(float(v) for v in translation) if lattice is not None else None,
-                                metadata={"criteria": _criteria_metadata(criteria)},
+                                translation_A=(
+                                    tuple(float(v) for v in translation)
+                                    if lattice is not None
+                                    else None
+                                ),
+                                score=score,
+                                metadata={
+                                    "criteria": _criteria_metadata(criteria),
+                                    "score_components": {
+                                        "h_centroid_distance_A": h_centroid_distance,
+                                        "ch_centroid_angle_deg": angle,
+                                    },
+                                },
                             )
                         )
     return interactions
@@ -227,4 +262,6 @@ def _criteria_metadata(criteria: CHPiInteractionCriteria) -> dict[str, Any]:
         "min_ch_centroid_angle_deg": criteria.min_ch_centroid_angle_deg,
         "carbon_elements": list(criteria.carbon_elements),
         "aromatic_only": criteria.aromatic_only,
+        "prefilter_factor": criteria.scoring_params.prefilter_factor,
+        "score_threshold": criteria.scoring_params.score_threshold,
     }

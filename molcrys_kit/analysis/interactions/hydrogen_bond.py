@@ -18,6 +18,7 @@ from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .base import AtomRef, BaseInteraction, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import AtomLocalGeometry, LocalGeometryCache
+from .scoring import ScoringParams, composite_score, normalized_vdw_distance, scaled_cutoff
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class HydrogenBondCriteria:
     min_donor_h_distance_A: float = BONDING_CONFIG["MIN_COVALENT_DISTANCE"]
     max_donor_h_distance_A: float = BONDING_CONFIG["MAX_COVALENT_DISTANCE"]
     search_radius_A: float | None = None
+    scoring_params: ScoringParams = field(default_factory=ScoringParams)
 
     @classmethod
     def from_legacy_max_distance(cls, max_distance: float) -> "HydrogenBondCriteria":
@@ -198,7 +200,11 @@ def find_hydrogen_bonds(
     if crystal is not None:
         lattice = np.asarray(crystal.lattice, dtype=float)
         pbc = tuple(bool(v) for v in crystal.pbc)
-        search_radius = criteria.search_radius_A or criteria.max_h_acceptor_distance_A
+        distance_prefilter = scaled_cutoff(
+            criteria.max_h_acceptor_distance_A,
+            criteria.scoring_params,
+        )
+        search_radius = criteria.search_radius_A or distance_prefilter
         images = enumerate_lattice_images(lattice, pbc, search_radius)
     else:
         lattice = None
@@ -257,11 +263,35 @@ def find_hydrogen_bonds(
                             continue
                         acc_atom_pos = acceptor_positions[acc_idx] + translation
                         h_acceptor_distance = float(np.linalg.norm(h_pos - acc_atom_pos))
-                        if h_acceptor_distance > criteria.max_h_acceptor_distance_A:
+                        distance_prefilter = scaled_cutoff(
+                            criteria.max_h_acceptor_distance_A,
+                            criteria.scoring_params,
+                        )
+                        if h_acceptor_distance > distance_prefilter:
                             continue
 
                         dha_angle = vector_angle_deg(donor_atom_pos - h_pos, acc_atom_pos - h_pos)
                         if dha_angle < criteria.min_dha_angle_deg:
+                            continue
+
+                        d_norm = normalized_vdw_distance(h_acceptor_distance, "H", acc_symbol)
+                        score = composite_score(
+                            (
+                                (
+                                    d_norm,
+                                    criteria.scoring_params.hbond_d_norm0,
+                                    criteria.scoring_params.hbond_d_norm_sigma,
+                                    "lorentzian",
+                                ),
+                                (
+                                    dha_angle,
+                                    criteria.scoring_params.hbond_angle0_deg,
+                                    criteria.scoring_params.hbond_angle_sigma_deg,
+                                    "gaussian",
+                                ),
+                            )
+                        )
+                        if score < criteria.scoring_params.score_threshold:
                             continue
 
                         donor_ref = AtomRef.from_molecule(
@@ -291,6 +321,13 @@ def find_hydrogen_bonds(
                                 "min_dha_angle_deg": criteria.min_dha_angle_deg,
                                 "donor_elements": list(criteria.donor_elements),
                                 "acceptor_elements": list(criteria.acceptor_elements),
+                                "prefilter_factor": criteria.scoring_params.prefilter_factor,
+                                "score_threshold": criteria.scoring_params.score_threshold,
+                            },
+                            "score_components": {
+                                "h_acceptor_d_norm": d_norm,
+                                "h_acceptor_distance_A": h_acceptor_distance,
+                                "dha_angle_deg": dha_angle,
                             }
                         }
                         hydrogen_bonds.append(
@@ -316,6 +353,7 @@ def find_hydrogen_bonds(
                                     if lattice is not None
                                     else None
                                 ),
+                                score=score,
                                 metadata=metadata,
                             )
                         )

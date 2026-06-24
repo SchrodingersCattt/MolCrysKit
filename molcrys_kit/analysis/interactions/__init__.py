@@ -19,6 +19,17 @@ from .ch_pi import CHPiInteraction, CHPiInteractionCriteria, find_ch_pi, find_ch
 from .h_h_contact import HHContact, HHContactCriteria, find_h_h_contacts
 from .halogen_bond import HalogenBond, HalogenBondCriteria, find_halogen_bonds
 from .hydrogen_bond import HydrogenBond, HydrogenBondCriteria, find_hydrogen_bonds
+from .profile import InteractionProfile, InteractionScoreSummary, interaction_profile
+from .scoring import (
+  DEFAULT_SCORING_PARAMS,
+  ScoringParams,
+  composite_score,
+  gaussian_kernel,
+  lorentzian_kernel,
+  normalized_vdw_distance,
+  scaled_cutoff,
+  vdw_radius_sum,
+)
 from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .local_geometry import (
     AtomLocalGeometry,
@@ -42,6 +53,8 @@ __all__ = [
     "HalogenBondCriteria",
     "HydrogenBond",
     "HydrogenBondCriteria",
+    "InteractionProfile",
+    "InteractionScoreSummary",
     "LocalGeometry",
     "LocalGeometryCache",
     "PiStacking",
@@ -49,7 +62,10 @@ __all__ = [
     "PiStackingSubtype",
     "RingGeometry",
     "RingRef",
+    "ScoringParams",
+    "DEFAULT_SCORING_PARAMS",
     "build_crystal_atom_offsets",
+    "composite_score",
     "find_ch_pi",
     "find_ch_pi_interactions",
     "find_h_h_contacts",
@@ -57,5 +73,11 @@ __all__ = [
     "find_hydrogen_bonds",
     "find_pi_stacking",
     "find_pi_stacks",
+    "gaussian_kernel",
     "get_bonding_threshold",
+    "interaction_profile",
+    "lorentzian_kernel",
+    "normalized_vdw_distance",
+    "scaled_cutoff",
+    "vdw_radius_sum",
 ]
