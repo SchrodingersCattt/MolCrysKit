@@ -22,6 +22,7 @@ from molcrys_kit.analysis.interactions import (
     find_hydrogen_bonds,
     find_pi_stacking,
     get_bonding_threshold,
+    interaction_profile,
 )
 from molcrys_kit.analysis.molecular_identity import ChemicalIdentity
 from molcrys_kit.constants import (
@@ -138,6 +139,8 @@ class TestHydrogenBond:
         assert hb.h_acceptor_distance_A == pytest.approx(1.84)
         assert hb.donor_acceptor_distance_A == pytest.approx(2.8)
         assert hb.dha_angle_deg == pytest.approx(180.0)
+        assert hb.score is not None
+        assert 0.8 < hb.score <= 1.0
         assert hb.image == (0, 0, 0)
 
     def test_find_hydrogen_bonds_detects_periodic_image(self):
@@ -272,6 +275,8 @@ class TestAdditionalInteractionDetectors:
         assert bond.acceptor.crystal_atom_index == 2
         assert bond.x_acceptor_distance_A == pytest.approx(3.0)
         assert bond.dxa_angle_deg == pytest.approx(180.0)
+        assert bond.score is not None
+        assert 0.6 < bond.score <= 1.0
 
     def test_find_pi_stacking_detects_parallel_aromatic_rings(self):
         ring1 = _benzene_like_molecule(z=0.0)
@@ -290,6 +295,7 @@ class TestAdditionalInteractionDetectors:
         assert stack.normal_angle_deg == pytest.approx(0.0)
         assert stack.lateral_offset_A == pytest.approx(0.0)
         assert stack.subtype == "face_centered_parallel"
+        assert stack.score == pytest.approx(1.0)
 
     def test_find_pi_stacking_classifies_displaced_parallel(self):
         ring1 = _benzene_like_molecule(z=0.0)
@@ -352,6 +358,8 @@ class TestAdditionalInteractionDetectors:
         assert interaction.ring.atom_refs[0].crystal_atom_index == 2
         assert interaction.h_centroid_distance_A == pytest.approx(1.4)
         assert interaction.ch_centroid_angle_deg == pytest.approx(180.0)
+        assert interaction.score is not None
+        assert 0.05 < interaction.score < 0.07
 
     def test_find_h_h_contacts_detects_intermediate_contact(self):
         mol1 = CrystalMolecule(Atoms(["H"], positions=[[0, 0, 0]]))
@@ -367,6 +375,30 @@ class TestAdditionalInteractionDetectors:
         assert contact.hydrogen1.crystal_atom_index == 0
         assert contact.hydrogen2.crystal_atom_index == 1
         assert contact.h_h_distance_A == pytest.approx(2.0)
+        assert contact.kind == "h_h_contact"
+        assert contact.score is not None
+        assert contact.score > 0.3
+
+    def test_interaction_profile_summarizes_scores(self):
+        donor = CrystalMolecule(
+            Atoms("OHH", positions=[[0, 0, 0], [0.96, 0, 0], [0, 0.96, 0]])
+        )
+        acceptor = CrystalMolecule(
+            Atoms("OHH", positions=[[2.8, 0, 0], [3.76, 0, 0], [2.8, 0.96, 0]])
+        )
+
+        profile = interaction_profile([donor, acceptor])
+
+        hbond_summary = profile.summaries["hydrogen_bond"]
+        assert hbond_summary.count == 1
+        assert hbond_summary.max == pytest.approx(hbond_summary.sum)
+        assert hbond_summary.mean == pytest.approx(hbond_summary.max)
+        assert hbond_summary.max > 0.8
+
+        contact_summary = profile.summaries["close_contact"]
+        raw_contacts = [item for item in profile.interactions if item.kind == "h_h_contact"]
+        assert contact_summary.count == len(raw_contacts)
+        assert contact_summary.count > 0
 
     def test_atom_ref_separates_crystal_and_asu_indices(self):
         mol1 = CrystalMolecule(Atoms(["H"], positions=[[0, 0, 0]]))
