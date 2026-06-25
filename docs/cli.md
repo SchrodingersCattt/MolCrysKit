@@ -1,6 +1,7 @@
 # MolCrysKit CLI
 
 MolCrysKit installs the `mck` command.
+All commands and subcommands support `-h`/`--help`.
 
 ```text
 mck [--verbose | --quiet] [--version]
@@ -18,6 +19,7 @@ mck io convert structure.cif -o structure.extxyz
 ```
 
 Output format is selected from the output extension: `.cif`, `.poscar`/`.vasp`, `.xyz`, or `.extxyz`.
+Whole-crystal `.xyz` output is flattened through ASE; cluster/molecule XYZ output uses MolCrysKit's writer and may include cluster-specific metadata columns.
 
 ## Operations
 

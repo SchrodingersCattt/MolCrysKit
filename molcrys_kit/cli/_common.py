@@ -66,6 +66,8 @@ def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[Molecular
         raise click.ClickException("POSCAR output requires a MolecularCrystal")
     if suffix == ".xyz":
         if isinstance(obj, MolecularCrystal):
+            # Whole-crystal XYZ output is a flattened ASE Atoms view.  The
+            # project writer below is intentionally molecule/cluster oriented.
             ase.io.write(str(file_path), obj.to_ase(), format="xyz")
             return
         if isinstance(obj, CrystalMolecule):

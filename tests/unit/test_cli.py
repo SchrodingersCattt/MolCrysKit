@@ -5,6 +5,8 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from molcrys_kit.cli import main
+from molcrys_kit.__main__ import main as module_main
+from scripts.carve_cluster import _translate_legacy_args
 
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "cif"
@@ -34,6 +36,13 @@ def test_io_convert_cif(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8").startswith("data_")
 
 
+def test_io_convert_rejects_unknown_output_format(tmp_path: Path) -> None:
+    output = tmp_path / "converted.unknown"
+    result = CliRunner().invoke(main, ["io", "convert", str(DAP4), "-o", str(output)])
+    assert result.exit_code != 0
+    assert "Unsupported output format" in result.output
+
+
 def test_operate_supercell(tmp_path: Path) -> None:
     output = tmp_path / "super.cif"
     result = CliRunner().invoke(
@@ -49,6 +58,12 @@ def test_analyze_bfdh() -> None:
     assert result.exit_code == 0
     assert "miller" in result.output
     assert "d_hkl" in result.output
+
+
+def test_analyze_bfdh_json() -> None:
+    result = CliRunner().invoke(main, ["analyze", "bfdh", str(DAP4), "--top-n", "1", "--json"])
+    assert result.exit_code == 0
+    assert '"miller_index"' in result.output
 
 
 def test_cluster_seed_options_are_mutually_exclusive(tmp_path: Path) -> None:
@@ -68,3 +83,35 @@ def test_cluster_seed_options_are_mutually_exclusive(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "Specify --seed-element OR --seed-index" in result.output
+
+
+def test_cluster_requires_seed(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "cluster", str(DAP4), "-o", str(tmp_path / "cluster")],
+    )
+    assert result.exit_code != 0
+    assert "Specify a seed" in result.output
+
+
+def test_carve_cluster_legacy_arg_translation_space_form() -> None:
+    assert _translate_legacy_args(["--cif", "bulk.cif", "--out", "cluster", "--seed-index", "1"]) == [
+        "bulk.cif",
+        "--output",
+        "cluster",
+        "--seed-index",
+        "1",
+    ]
+
+
+def test_carve_cluster_legacy_arg_translation_equals_form() -> None:
+    assert _translate_legacy_args(["--cif=bulk.cif", "--out=cluster", "--seed-index", "1"]) == [
+        "bulk.cif",
+        "--output=cluster",
+        "--seed-index",
+        "1",
+    ]
+
+
+def test_module_entrypoint_imports() -> None:
+    assert module_main is main

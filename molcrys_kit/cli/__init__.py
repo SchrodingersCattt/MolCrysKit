@@ -39,7 +39,7 @@ def analyze_group() -> None:
     """Analyze crystals and print reports."""
 
 
-# Import after group creation to avoid circular imports.
+# Register command modules after the Click groups exist.
 from .io_cmd import register_io_commands  # noqa: E402
 from .operate_cmd import register_operate_commands  # noqa: E402
 from .analyze_cmd import register_analyze_commands  # noqa: E402

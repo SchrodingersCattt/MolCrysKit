@@ -146,8 +146,7 @@ def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | 
 
 
 @click.command()
-@click.argument("input_arg", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--input", "input_opt", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="Input structure path. Prefer positional INPUT for new usage.")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output stem; writes <stem>__group<k>.xyz plus JSON sidecar.")
 @click.option("--mode", type=click.Choice(["bond_shells", "rcut"]), default="bond_shells", show_default=True)
 @click.option("--seed-element", type=str, default=None, help="Seed on every atom of this element.")
@@ -162,8 +161,7 @@ def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | 
 @click.option("--convention-reference", type=str, default="", help="Free-text citation/protocol note for the sidecar JSON.")
 @click.option("--no-stop-at-non-seed-metals", is_flag=True, help="Disable implicit metal-boundary rule.")
 def cluster(
-    input_arg: Path | None,
-    input_opt: Path | None,
+    input: Path,
     output: Path,
     mode: str,
     seed_element: str | None,
@@ -179,11 +177,6 @@ def cluster(
     no_stop_at_non_seed_metals: bool,
 ) -> None:
     """Carve finite, H-capped QM cluster models."""
-    if input_arg is not None and input_opt is not None:
-        raise click.UsageError("Use either positional INPUT or --input, not both.")
-    input = input_arg or input_opt
-    if input is None:
-        raise click.UsageError("Missing input structure path.")
     seed = _parse_seed(seed_element, seed_index)
     if mode == "rcut" and rcut is None:
         raise click.UsageError("--rcut is required when --mode rcut.")

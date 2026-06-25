@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import click
 
 from ._common import load_crystal, write_structure
+
+
+logger = logging.getLogger(__name__)
 
 
 @click.command()
@@ -22,8 +26,8 @@ def info(input: Path) -> None:
             f"a={a:.4f} b={b:.4f} c={c:.4f} "
             f"alpha={alpha:.2f} beta={beta:.2f} gamma={gamma:.2f}"
         )
-    except Exception:
-        pass
+    except (ArithmeticError, ValueError) as exc:
+        logger.debug("Could not compute lattice parameters for %s: %s", input, exc)
     click.echo("  Molecules:")
     for idx, molecule in enumerate(crystal.molecules):
         formula = molecule.get_chemical_formula()

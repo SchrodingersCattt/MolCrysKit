@@ -57,18 +57,42 @@ import sys
 from molcrys_kit.cli.operate_cmd import cluster
 
 
-def main() -> int:
+def _translate_legacy_args(argv: list[str]) -> list[str]:
+    """Translate legacy script flags to ``mck operate cluster`` arguments."""
+    translated: list[str] = []
+    idx = 0
+    while idx < len(argv):
+        arg = argv[idx]
+        if arg == "--cif":
+            if idx + 1 >= len(argv):
+                translated.append(arg)
+                idx += 1
+                continue
+            translated.append(argv[idx + 1])
+            idx += 2
+            continue
+        if arg.startswith("--cif="):
+            translated.append(arg.split("=", 1)[1])
+            idx += 1
+            continue
+        if arg == "--out":
+            translated.append("--output")
+            idx += 1
+            continue
+        if arg.startswith("--out="):
+            translated.append("--output=" + arg.split("=", 1)[1])
+            idx += 1
+            continue
+        translated.append(arg)
+        idx += 1
+    return translated
+
+
+def main() -> None:
     """Backward-compatible wrapper for ``mck operate cluster``."""
-    argv = list(sys.argv[1:])
-    if "--cif" in argv:
-        idx = argv.index("--cif")
-        argv[idx] = "--input"
-    if "--out" in argv:
-        idx = argv.index("--out")
-        argv[idx] = "--output"
+    argv = _translate_legacy_args(list(sys.argv[1:]))
     cluster.main(args=argv, prog_name="carve_cluster.py", standalone_mode=True)
-    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
