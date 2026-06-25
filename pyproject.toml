@@ -29,7 +29,11 @@ dependencies = [
     "networkx>=2.5.0",
     "ase>=3.26.0",
     "pymatgen>=2020.0.0",
+    "click>=8.0,<9",
 ]
+
+[project.scripts]
+mck = "molcrys_kit.cli:main"
 
 [project.optional-dependencies]
 vis = ["nglview", "py3Dmol"]
