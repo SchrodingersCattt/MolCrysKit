@@ -87,55 +87,20 @@ For exact reproduction of the published JCIM results, use the archived
 under `paper/`. The `main` branch may continue to evolve after publication.
 
 
-## Running with Docker
+## Docker / Cloud
 
-Two Dockerfiles are provided: `Dockerfile` (python:3.10-slim) for local use and
-`Dockerfile.bohrium` for the Bohrium cloud platform. Both install MolCrysKit
-from the GitHub archive.
-
-```bash
-git clone https://github.com/SchrodingersCattt/MolCrysKit.git
-cd MolCrysKit
-docker build -t molcryskit:latest .
-docker run --rm molcryskit:latest python /opt/molcryskit/scripts/docker_smoke_test.py
-docker run -it --rm -p 8888:8888 molcryskit:latest  # Jupyter
-```
-
-For Bohrium deployment, GHCR image publication, and mounting custom data, see
-the [Docker Guide](docs/docker.md).
+See [Docker Guide](docs/docker.md) for local Docker, Bohrium cloud deployment, and GHCR image publication.
 
 ## Documentation
 
-### Disorder Handling
-
-MolCrysKit resolves crystallographic disorder through two complementary paths:
-the **explicit path** processes CIF `_atom_site_disorder_assembly` / `_disorder_group`
-tags (e.g. SHELXL `PART` groups), while the **implicit SP path** handles
-partial-occupancy atoms on special positions without disorder tags (SHELX
-riding-H refinements). A motif-merge post-pass reconstructs isolated XH_n
-centres (NH4+, H2O), and three replica-generation modes (`optimal`, `random`,
-`enumerate`) support downstream ensemble workflows. Valence-completeness
-diagnostics flag incomplete H-shells automatically.
-
-For the full three-phase pipeline, edge-type priority table, solver modes, and
-symmetry-copy decoupling details, see [Architecture](docs/architecture.md).
-
-### Documentation Index
-
-| Document | Covers |
+| You are… | Start here |
 |---|---|
-| [Architecture](docs/architecture.md) | Core philosophy, disorder solver pipeline, edge types, solver modes |
-| [Tutorials](docs/tutorials.md) | Hydrogen completion, surface slabs, BFDH facets, cluster carving, molecule manipulation |
-| [API Reference](docs/api_reference.md) | Key classes and functions by module |
-| [Docker Guide](docs/docker.md) | Docker quick start, Bohrium cloud, GHCR archival, mounting data |
+| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) |
+| **AI agent (using the library)** | [API & Capabilities](docs/api.md) — read "Capability Map" then "Module Index" |
+| **AI agent (modifying code)** | [AGENTS.md](AGENTS.md) · [Architecture](docs/architecture.md) |
+| **Docker / cloud** | [Docker Guide](docs/docker.md) |
 
-## Project Structure
-
-See the [`molcrys_kit/`](molcrys_kit/) directory for source code and the [`scripts/`](scripts/) directory for utility scripts (e.g. disorder diagnostics, molecule identification, CIF processing).
-
-## Contributing
-
-Contributions are welcome! Please fork the repository and submit a pull request.
+[`molcrys_kit/`](molcrys_kit/) — source code · [`scripts/`](scripts/) — diagnostic utilities · [`examples/`](examples/) — CIF structure files
 
 ## License
 
