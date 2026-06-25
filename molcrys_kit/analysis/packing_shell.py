@@ -471,21 +471,116 @@ def _format_molecule_formula(symbols: Sequence[str]) -> str:
     return "".join(parts)
 
 
+def _active_disorder_mask(molecule) -> np.ndarray:
+    """Return atoms belonging to the dominant disorder branch of ``molecule``.
+
+    Molecules returned by disorder-aware bond perception may still contain
+    alternative positions from the same CIF disorder assembly. Counting every
+    alternative position makes a split perchlorate look like ``ClO7`` instead
+    of the physical ``ClO4`` moiety, which in turn breaks molecule-level
+    moiety matching for packing-shell/polyhedron analysis. For each non-empty
+    disorder assembly, keep the disorder group with the largest occupancy sum
+    and drop the other alternatives for centroid/formula/signature purposes.
+    Ties are resolved deterministically by atom count and then group label.
+    Ordered atoms are always kept.
+    """
+    symbols = list(molecule.get_chemical_symbols())
+    n_atoms = len(symbols)
+    mask = np.ones(n_atoms, dtype=bool)
+    if n_atoms == 0:
+        return mask
+
+    try:
+        from ..constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
+    except Exception:  # pragma: no cover - constants are part of MolCrysKit
+        return mask
+
+    try:
+        assemblies = np.asarray(molecule.get_array(KEY_ASSEMBLY), dtype=object)
+    except Exception:
+        return mask
+    if assemblies.shape[0] != n_atoms:
+        return mask
+
+    try:
+        groups = np.asarray(molecule.get_array(KEY_DISORDER_GROUP), dtype=object)
+    except Exception:
+        groups = np.zeros(n_atoms, dtype=object)
+    if groups.shape[0] != n_atoms:
+        groups = np.zeros(n_atoms, dtype=object)
+
+    try:
+        occupancies = np.asarray(molecule.get_array(KEY_OCCUPANCY), dtype=float)
+    except Exception:
+        occupancies = np.ones(n_atoms, dtype=float)
+    if occupancies.shape[0] != n_atoms:
+        occupancies = np.ones(n_atoms, dtype=float)
+
+    blank = {"", ".", "?"}
+    assembly_names = sorted(
+        {str(value).strip() for value in assemblies if str(value).strip() not in blank}
+    )
+    for assembly in assembly_names:
+        indices = [
+            i for i, value in enumerate(assemblies)
+            if str(value).strip() == assembly
+        ]
+        if not indices:
+            continue
+        scores: Dict[str, float] = {}
+        counts: Dict[str, int] = {}
+        for i in indices:
+            group = str(groups[i]).strip()
+            scores[group] = scores.get(group, 0.0) + float(occupancies[i])
+            counts[group] = counts.get(group, 0) + 1
+        if len(scores) <= 1:
+            continue
+        chosen = max(scores, key=lambda g: (scores[g], counts.get(g, 0), g))
+        for i in indices:
+            if str(groups[i]).strip() != chosen:
+                mask[i] = False
+    return mask
+
+
+def _molecule_formula_symbols(molecule) -> List[str]:
+    """Chemical symbols after collapsing disorder alternatives."""
+    symbols = list(molecule.get_chemical_symbols())
+    if not symbols:
+        return []
+    mask = _active_disorder_mask(molecule)
+    if mask.shape[0] != len(symbols):
+        return symbols
+    return [sym for sym, keep in zip(symbols, mask) if bool(keep)]
+
+
+def _molecule_heavy_signature(molecule) -> Tuple[Tuple[str, int], ...]:
+    """Heavy-atom signature after collapsing disorder alternatives."""
+    symbols = _molecule_formula_symbols(molecule)
+    return heavy_signature(dict(Counter(s for s in symbols if s != "H")))
+
+
 def _molecule_centre(molecule, kind: str) -> np.ndarray:
     """Return the Cartesian centre of ``molecule`` according to ``kind``."""
     positions = np.asarray(molecule.get_positions(), dtype=float)
     if positions.size == 0:
         raise ValueError("Cannot compute molecule centre: empty molecule.")
+    symbols = list(molecule.get_chemical_symbols())
+    active_mask = _active_disorder_mask(molecule)
+    use_active_mask = active_mask.shape[0] == len(symbols) and active_mask.any()
+    if use_active_mask:
+        positions = positions[active_mask]
+        symbols = [sym for sym, keep in zip(symbols, active_mask) if bool(keep)]
     if kind == "centroid":
         return positions.mean(axis=0)
     if kind == "com":
         masses = np.asarray(molecule.get_masses(), dtype=float)
+        if use_active_mask:
+            masses = masses[active_mask]
         total = float(masses.sum())
         if total <= 0:
             return positions.mean(axis=0)
         return np.average(positions, axis=0, weights=masses)
     if kind == "heavy_centroid":
-        symbols = list(molecule.get_chemical_symbols())
         mask = np.array([s != "H" for s in symbols], dtype=bool)
         if not mask.any():
             return positions.mean(axis=0)
@@ -749,7 +844,7 @@ def _find_polyhedra_molecule_level(
     sigs: List[Tuple[Tuple[str, int], ...]] = []
     formulas: List[str] = []
     for mol in molecules:
-        symbols = list(mol.get_chemical_symbols())
+        symbols = _molecule_formula_symbols(mol)
         sigs.append(heavy_signature(dict(Counter(s for s in symbols if s != "H"))))
         formulas.append(_format_molecule_formula(symbols))
 

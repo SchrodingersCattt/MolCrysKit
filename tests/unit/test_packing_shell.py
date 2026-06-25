@@ -15,6 +15,7 @@ from molcrys_kit.analysis.packing_shell import (
     find_polyhedra,
     hull_encloses_center,
 )
+from molcrys_kit.constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.polyhedra import convex_hull_payload, ideal_polyhedra_for_cn
 
@@ -419,6 +420,40 @@ def _toy_perchlorate_crystal(a: float = 6.0) -> MolecularCrystal:
     return MolecularCrystal(lattice=cell, molecules=[nh4, clo4])
 
 
+def _toy_disordered_perchlorate_crystal(a: float = 6.0) -> MolecularCrystal:
+    """Toy NH4/ClO4 packing shell where ClO4 has split O alternatives."""
+    cell = np.eye(3) * a
+    crys = _toy_perchlorate_crystal(a=a)
+    nh4 = crys.molecules[0]
+
+    clo4_centre = np.array([a / 2, a / 2, a / 2])
+    ordered = np.array([
+        [0.0, 0.0, 0.0],
+        [0.7, 0.7, 0.7],
+    ])
+    group_a = np.array([
+        [-0.7, -0.7, 0.7],
+        [0.7, -0.7, -0.7],
+        [-0.7, 0.7, -0.7],
+    ])
+    group_b = np.array([
+        [-0.9, -0.7, 0.7],
+        [0.9, -0.7, -0.7],
+        [-0.9, 0.7, -0.7],
+    ])
+    clo4 = Atoms(
+        symbols=["Cl", "O", "O", "O", "O", "O", "O", "O"],
+        positions=clo4_centre + np.vstack([ordered, group_a, group_b]),
+        cell=cell,
+        pbc=True,
+    )
+    clo4.set_array(KEY_ASSEMBLY, np.array(["", "", "A", "A", "A", "A", "A", "A"]))
+    clo4.set_array(KEY_DISORDER_GROUP, np.array([0, 0, 1, 1, 1, 2, 2, 2]))
+    clo4.set_array(KEY_OCCUPANCY, np.array([1.0, 1.0, 0.6, 0.6, 0.6, 0.4, 0.4, 0.4]))
+
+    return MolecularCrystal(lattice=cell, molecules=[nh4, clo4])
+
+
 def test_find_polyhedra_molecule_level_rocksalt_octahedron_with_cutoff():
     crys = _rocksalt_molecular_crystal(a=5.0)
     polys = find_polyhedra(crys, "N", "Cl", level="molecule", cutoff=3.0)
@@ -576,6 +611,25 @@ def test_find_polyhedra_molecule_level_moiety_string_matches_full_fragments():
     assert record["search_cutoff"] == pytest.approx(8.0)
     assert np.isclose(np.mean(record["shell_distances"]),
                       6.0 * np.sqrt(3) / 2, atol=1e-6)
+
+
+def test_find_polyhedra_molecule_level_collapses_disorder_alternatives():
+    """Split alternatives should still match the physical ClO4 moiety.
+
+    Without collapsing disorder alternatives, this toy perchlorate has one
+    ordered Cl, one ordered O, and six split O positions, so its raw heavy
+    signature is ClO7 and a ``"Cl O4"`` molecule-level query finds no ligand.
+    """
+    crys = _toy_disordered_perchlorate_crystal(a=6.0)
+
+    polys = find_polyhedra(crys, "N H4", "Cl O4", level="molecule", hard_cutoff=8.0)
+
+    assert len(polys) == 1
+    assert polys[0]["center_formula"] == "H4N"
+    assert polys[0]["shell_formula"] == "ClO4"
+    # hard_cutoff=8 captures the eight periodic ClO4-image neighbours of the
+    # toy CsCl-like NH4/ClO4 packing arrangement.
+    assert polys[0]["coordination_number"] == 8
 
 
 def test_find_polyhedra_molecule_level_dap4_nh4_octahedral_nearest_shell():
