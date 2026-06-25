@@ -91,6 +91,25 @@ under `paper/`. The `main` branch may continue to evolve after publication.
 
 See [Docker Guide](docs/docker.md) for local Docker, Bohrium cloud deployment, and GHCR image publication.
 
+## Command Line Interface
+
+Installing MolCrysKit also installs the `mck` command. The CLI is self-documenting;
+use `--help` at any level to see the exact arguments for your installed version:
+
+```bash
+mck --help
+mck io --help
+mck operate --help
+mck analyze --help
+mck operate cluster --help
+```
+
+The command groups roughly mirror the Python package layout:
+
+- `mck io ...` — summarize and convert structures (`info`, `convert`).
+- `mck operate ...` — generate modified structures (`disorder`, `add-h`, `slab`, `cluster`, `supercell`, `vacancy`, `desolvate`, `interpolate`).
+- `mck analyze ...` — print analysis reports (`bfdh`, `interactions`, `polyhedra`).
+
 ## Documentation
 
 | You are… | Start here |
@@ -98,7 +117,7 @@ See [Docker Guide](docs/docker.md) for local Docker, Bohrium cloud deployment, a
 | **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) |
 | **AI agent (using the library)** | [API & Capabilities](docs/api.md) — read "Capability Map" then "Module Index" |
 | **AI agent (modifying code)** | [AGENTS.md](AGENTS.md) · [Architecture](docs/architecture.md) |
-| **CLI** | [CLI Reference](docs/cli.md) |
+| **CLI** | Run `mck --help` after installation |
 | **Docker / cloud** | [Docker Guide](docs/docker.md) |
 
 [`molcrys_kit/`](molcrys_kit/) — source code · [`scripts/`](scripts/) — diagnostic utilities · [`examples/`](examples/) — CIF structure files

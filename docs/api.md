@@ -91,7 +91,7 @@ Geometry and rigid-body math helpers.
 ## See Also
 
 - Detailed workflows: [Tutorials](tutorials.md)
-- Command-line interface: [CLI Reference](cli.md)
+- Command-line interface: run `mck --help`
 - Disorder architecture: [Architecture](architecture.md)
 - Docker/cloud usage: [Docker Guide](docker.md)
 - Exact function signatures: source docstrings
