@@ -7,7 +7,7 @@ handling and molecule identity metadata.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import numpy as np
@@ -17,6 +17,7 @@ from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .base import AtomRef, BaseInteraction, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
 from .local_geometry import AtomLocalGeometry, LocalGeometryCache
+from .scoring import ScoringParams, composite_score, normalized_vdw_distance, scaled_cutoff
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class HalogenBondCriteria:
     halogen_elements: tuple[str, ...] = ("Cl", "Br", "I")
     acceptor_elements: tuple[str, ...] = ("N", "O", "S", "P", "F", "Cl", "Br", "I")
     search_radius_A: float | None = None
+    scoring_params: ScoringParams = field(default_factory=ScoringParams)
 
 
 @dataclass(init=False)
@@ -122,7 +124,8 @@ def find_halogen_bonds(
         images = enumerate_lattice_images(
             lattice,
             tuple(bool(v) for v in crystal.pbc),
-            criteria.search_radius_A or criteria.max_x_acceptor_distance_A,
+            criteria.search_radius_A
+            or scaled_cutoff(criteria.max_x_acceptor_distance_A, criteria.scoring_params),
         )
     else:
         lattice = None
@@ -158,10 +161,29 @@ def find_halogen_bonds(
                         continue
                     acc_pos = acceptor_positions[acc_idx] + translation
                     x_acc_distance = float(np.linalg.norm(halogen_pos - acc_pos))
-                    if x_acc_distance > criteria.max_x_acceptor_distance_A:
+                    if x_acc_distance > scaled_cutoff(criteria.max_x_acceptor_distance_A, criteria.scoring_params):
                         continue
                     dxa_angle = vector_angle_deg(donor_pos - halogen_pos, acc_pos - halogen_pos)
                     if dxa_angle < criteria.min_dxa_angle_deg:
+                        continue
+                    d_norm = normalized_vdw_distance(x_acc_distance, halogen_symbol, acc_symbol)
+                    score = composite_score(
+                        (
+                            (
+                                d_norm,
+                                criteria.scoring_params.halogen_d_norm0,
+                                criteria.scoring_params.halogen_d_norm_sigma,
+                                "lorentzian",
+                            ),
+                            (
+                                dxa_angle,
+                                criteria.scoring_params.halogen_angle0_deg,
+                                criteria.scoring_params.halogen_angle_sigma_deg,
+                                "gaussian",
+                            ),
+                        )
+                    )
+                    if score < criteria.scoring_params.score_threshold:
                         continue
 
                     donor_ref = AtomRef.from_molecule(
@@ -196,8 +218,20 @@ def find_halogen_bonds(
                             halogen_geometry=donor_lg.atom(halogen_idx),
                             acceptor_geometry=acceptor_lg.atom(acc_idx),
                             image=tuple(int(v) for v in image),
-                            translation_A=tuple(float(v) for v in translation) if lattice is not None else None,
-                            metadata={"criteria": _criteria_metadata(criteria)},
+                            translation_A=(
+                                tuple(float(v) for v in translation)
+                                if lattice is not None
+                                else None
+                            ),
+                            score=score,
+                            metadata={
+                                "criteria": _criteria_metadata(criteria),
+                                "score_components": {
+                                    "x_acceptor_d_norm": d_norm,
+                                    "x_acceptor_distance_A": x_acc_distance,
+                                    "dxa_angle_deg": dxa_angle,
+                                },
+                            },
                         )
                     )
     return bonds
@@ -232,4 +266,6 @@ def _criteria_metadata(criteria: HalogenBondCriteria) -> dict[str, Any]:
         "min_dxa_angle_deg": criteria.min_dxa_angle_deg,
         "halogen_elements": list(criteria.halogen_elements),
         "acceptor_elements": list(criteria.acceptor_elements),
+        "prefilter_factor": criteria.scoring_params.prefilter_factor,
+        "score_threshold": criteria.scoring_params.score_threshold,
     }

@@ -34,6 +34,7 @@
 | Find H-bonds | `find_hydrogen_bonds(mc)` | MC → `list[HydrogenBond]` |
 | Find π-stacking | `find_pi_stacking(mc)` | MC → `list[PiStacking]` |
 | Find halogen bonds | `find_halogen_bonds(mc)` | MC → `list[HalogenBond]` |
+| Interaction scoring profile | `interaction_profile(mc)` | MC → `InteractionProfile` |
 | Coordination polyhedra | `find_polyhedra(mc, A, B)` | MC → `list[PolyhedronRecord]` |
 
 ## Recipes
@@ -187,7 +188,11 @@ Also available: `translate_molecule(mc, idx, vector, fractional=False)` and `rot
 
 ```python
 from molcrys_kit.analysis import find_hydrogen_bonds, find_pi_stacking, find_halogen_bonds
-from molcrys_kit.analysis.interactions import find_h_h_contacts, find_ch_pi_interactions
+from molcrys_kit.analysis.interactions import (
+    find_h_h_contacts,
+    find_ch_pi_interactions,
+    interaction_profile,
+)
 
 crystal = mck.read_mol_crystal("bulk.cif")
 
@@ -197,6 +202,7 @@ pi_stacks = find_pi_stacking(crystal)
 halogen = find_halogen_bonds(crystal)
 hh = find_h_h_contacts(crystal)
 ch_pi = find_ch_pi_interactions(crystal)
+profile = interaction_profile(crystal)
 
 for hb in h_bonds:
     print(f"H-bond: {hb.donor} → {hb.acceptor}, "
@@ -204,6 +210,7 @@ for hb in h_bonds:
 for ps in pi_stacks:
     print(f"π-stack: {ps.ring_a} ↔ {ps.ring_b}, "
           f"centroid_dist={ps.centroid_distance:.2f} Å, type={ps.subtype}")
+print(profile.to_dict())
 ```
 
 ### 8. ExtXYZ Dataset Bundle for MLIP Training
@@ -370,6 +377,17 @@ Access these via: `from molcrys_kit.analysis.disorder import ...`
 | `find_h_h_contacts` | `interactions/h_h_contact.py` | Find all H···H contacts |
 | `get_bonding_threshold` | `interactions/bonding.py` | Element-pair bonding distance threshold |
 | `build_crystal_atom_offsets` | `interactions/base.py` | Build periodic image offset table |
+| `InteractionProfile` | `interactions/profile.py` | Aggregate score summaries plus raw interaction records |
+| `InteractionScoreSummary` | `interactions/profile.py` | Count/max/mean/sum statistics for one interaction family |
+| `interaction_profile` | `interactions/profile.py` | Run all weak-interaction detectors and summarize scores |
+| `ScoringParams` | `interactions/scoring.py` | Continuous weak-interaction scoring parameters |
+| `DEFAULT_SCORING_PARAMS` | `interactions/scoring.py` | Default scoring parameters for all detectors |
+| `composite_score` | `interactions/scoring.py` | Product score over Lorentzian/Gaussian dimensions |
+| `gaussian_kernel` | `interactions/scoring.py` | Gaussian score kernel |
+| `lorentzian_kernel` | `interactions/scoring.py` | Lorentzian score kernel |
+| `normalized_vdw_distance` | `interactions/scoring.py` | Distance normalized by vdW-radius sum |
+| `scaled_cutoff` | `interactions/scoring.py` | Legacy cutoff widened by scoring prefilter factor |
+| `vdw_radius_sum` | `interactions/scoring.py` | Sum of two vdW radii (Å) |
 | `AtomLocalGeometry` | `interactions/local_geometry.py` | Per-atom local coordination geometry |
 | `LocalGeometry` | `interactions/local_geometry.py` | Molecule-local neighbor/ring geometry |
 | `LocalGeometryCache` | `interactions/local_geometry.py` | Cached local geometry for crystal |
@@ -385,6 +403,7 @@ Access these via: `from molcrys_kit.analysis.interactions import ...`
 |---|---|---|
 | `ATOMIC_MASSES` | `constants/__init__.py` | Dict of element symbol → atomic mass (amu) |
 | `ATOMIC_RADII` | `constants/__init__.py` | Dict of element symbol → atomic radius (Å) |
+| `VDW_RADII` | `constants/__init__.py` | Dict of element symbol → van der Waals radius (Å) |
 | `METAL_ELEMENTS` | `constants/__init__.py` | Set of metal element symbols |
 | `METAL_THRESHOLD_FACTOR` | `constants/__init__.py` | Bond threshold multiplier for metals |
 | `NON_METAL_THRESHOLD_FACTOR` | `constants/__init__.py` | Bond threshold multiplier for non-metals |

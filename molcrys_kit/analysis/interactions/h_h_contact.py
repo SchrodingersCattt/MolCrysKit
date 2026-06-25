@@ -7,7 +7,7 @@ handling and molecule identity metadata.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import numpy as np
@@ -16,6 +16,7 @@ from ...structures.crystal import MolecularCrystal
 from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .base import AtomRef, BaseInteraction, build_crystal_atom_offsets
 from .geometry import enumerate_lattice_images, image_translation
+from .scoring import ScoringParams, composite_score, scaled_cutoff, vdw_radius_sum
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class HHContactCriteria:
     min_h_h_distance_A: float = 1.0
     max_h_h_distance_A: float = 2.4
     search_radius_A: float | None = None
+    scoring_params: ScoringParams = field(default_factory=ScoringParams)
 
 
 @dataclass(init=False)
@@ -103,7 +105,8 @@ def find_h_h_contacts(
         images = enumerate_lattice_images(
             lattice,
             tuple(bool(v) for v in crystal.pbc),
-            criteria.search_radius_A or criteria.max_h_h_distance_A,
+            criteria.search_radius_A
+            or scaled_cutoff(criteria.max_h_h_distance_A, criteria.scoring_params),
         )
     else:
         lattice = None
@@ -130,7 +133,23 @@ def find_h_h_contacts(
                     for h2_idx in h2_indices:
                         h2_pos = pos2[h2_idx] + translation
                         distance = float(np.linalg.norm(h1_pos - h2_pos))
-                        if not (criteria.min_h_h_distance_A <= distance <= criteria.max_h_h_distance_A):
+                        if not (
+                            criteria.min_h_h_distance_A
+                            <= distance
+                            <= scaled_cutoff(criteria.max_h_h_distance_A, criteria.scoring_params)
+                        ):
+                            continue
+                        score = composite_score(
+                            (
+                                (
+                                    distance,
+                                    vdw_radius_sum("H", "H"),
+                                    criteria.scoring_params.close_contact_distance_sigma_A,
+                                    "lorentzian",
+                                ),
+                            )
+                        )
+                        if score < criteria.scoring_params.score_threshold:
                             continue
                         h1_ref = AtomRef.from_molecule(
                             mol1,
@@ -153,8 +172,20 @@ def find_h_h_contacts(
                                 molecule1_identity=identities[mol1_idx] if identities else None,
                                 molecule2_identity=identities[mol2_idx] if identities else None,
                                 image=tuple(int(v) for v in image),
-                                translation_A=tuple(float(v) for v in translation) if lattice is not None else None,
-                                metadata={"criteria": _criteria_metadata(criteria)},
+                                translation_A=(
+                                    tuple(float(v) for v in translation)
+                                    if lattice is not None
+                                    else None
+                                ),
+                                score=score,
+                                metadata={
+                                    "criteria": _criteria_metadata(criteria),
+                                    "score_components": {
+                                        "h_h_distance_A": distance,
+                                        "h_h_vdw_sum_A": vdw_radius_sum("H", "H"),
+                                        "score_semantics": "vdw_close_contact",
+                                    },
+                                },
                             )
                         )
     return contacts
@@ -172,4 +203,6 @@ def _criteria_metadata(criteria: HHContactCriteria) -> dict[str, Any]:
     return {
         "min_h_h_distance_A": criteria.min_h_h_distance_A,
         "max_h_h_distance_A": criteria.max_h_h_distance_A,
+        "prefilter_factor": criteria.scoring_params.prefilter_factor,
+        "score_threshold": criteria.scoring_params.score_threshold,
     }
