@@ -33,7 +33,6 @@ PACKAGES: dict[str, str] = {
 }
 
 # Symbols expected to be in __all__ (or top-level module exports) but
-# Symbols expected to be in __all__ (or top-level module exports) but
 # intentionally omitted from docs/api.md Module Index.
 # Reasons: internal, deprecated, aliased elsewhere, or documented in
 # a sub-package section.
@@ -87,10 +86,11 @@ EXPECTED_MISSING: dict[str, Set[str]] = {
 
 
 def _extract_module_index_symbols(doc_text: str, label: str) -> Set[str]:
-    """Extract symbol names from a Module Index table section in docs/api.md.
+    """Extract backtick-quoted symbols from a Module Index section.
 
-    Headings look like: `` ### `mck.io` — Input / Output ``
-    Tables look like:    `` | `SymbolName` | `source/file.py` | Description | ``
+    Headings look like: ``### `mck.io```.
+    Compact sections may use bullets instead of tables; every public symbol
+    must still appear as a backtick-quoted token in its package section.
     """
     lines = doc_text.splitlines()
     in_section = False
@@ -105,9 +105,10 @@ def _extract_module_index_symbols(doc_text: str, label: str) -> Set[str]:
         if in_section and line.startswith("##"):
             break
         if in_section:
-            m = re.match(r"^\|\s*`([^`]+)`\s*\|", line)
-            if m:
-                symbols.add(m.group(1))
+            for m in re.finditer(r"`([^`]+)`", line):
+                symbol = m.group(1)
+                if re.fullmatch(r"[A-Za-z_]\w*", symbol):
+                    symbols.add(symbol)
 
     return symbols
 
@@ -186,8 +187,8 @@ def test_module_index_covers_all(
     assert not msgs, "\n\n".join(msgs)
 
 
-def test_at_a_glance_has_major_entries(api_text: str) -> None:
-    """Smoke test: At a Glance table includes the most critical entry points."""
+def test_capability_map_has_major_entries(api_text: str) -> None:
+    """Smoke test: Capability Map includes critical entry points."""
     required = [
         "read_mol_crystal",
         "add_hydrogens",
@@ -199,5 +200,5 @@ def test_at_a_glance_has_major_entries(api_text: str) -> None:
     ]
     missing = [s for s in required if s not in api_text]
     assert not missing, (
-        f"Critical symbols missing from At a Glance table: {missing}"
+        f"Critical symbols missing from Capability Map: {missing}"
     )
