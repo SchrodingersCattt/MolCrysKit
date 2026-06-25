@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -51,6 +52,109 @@ def test_io_convert_rejects_unknown_output_format(tmp_path: Path) -> None:
     result = CliRunner().invoke(main, ["io", "convert", str(DAP4), "-o", str(output)])
     assert result.exit_code != 0
     assert "Unsupported output format" in result.output
+
+
+def test_io_molecules_text() -> None:
+    result = CliRunner().invoke(main, ["io", "molecules", str(DAP4)])
+    assert result.exit_code == 0
+    assert "index" in result.output
+    assert "formula" in result.output
+    assert "species_id" in result.output
+
+
+def test_io_molecules_json() -> None:
+    result = CliRunner().invoke(main, ["io", "molecules", str(DAP4), "--json"])
+    assert result.exit_code == 0
+    rows = json.loads(result.output)
+    assert rows
+    assert rows[0]["index"] == 0
+    assert rows[0]["formula"]
+    assert rows[0]["atom_count"] > 0
+    assert len(rows[0]["centroid"]) == 3
+    assert rows[0]["species_id"]
+
+
+def test_io_extract_molecule_by_index(tmp_path: Path) -> None:
+    output = tmp_path / "mol.xyz"
+    result = CliRunner().invoke(
+        main,
+        ["io", "extract-molecule", str(DAP4), "-o", str(output), "--index", "0"],
+    )
+    assert result.exit_code == 0
+    assert output.exists()
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert int(lines[0]) > 0
+
+
+def test_io_extract_molecule_by_formula(tmp_path: Path) -> None:
+    rows_result = CliRunner().invoke(main, ["io", "molecules", str(DAP4), "--json"])
+    assert rows_result.exit_code == 0
+    formula = json.loads(rows_result.output)[0]["formula"]
+    output = tmp_path / "mol.xyz"
+    result = CliRunner().invoke(
+        main,
+        ["io", "extract-molecule", str(DAP4), "-o", str(output), "--formula", formula],
+    )
+    assert result.exit_code == 0
+    assert output.exists()
+
+
+def test_io_extract_molecule_all(tmp_path: Path) -> None:
+    output = tmp_path / "mol.xyz"
+    result = CliRunner().invoke(
+        main,
+        ["io", "extract-molecule", str(DAP4), "-o", str(output), "--all"],
+    )
+    assert result.exit_code == 0
+    assert list(tmp_path.glob("mol_*.xyz"))
+
+
+def test_io_extract_molecule_json_sidecar(tmp_path: Path) -> None:
+    output = tmp_path / "mol.xyz"
+    sidecar = tmp_path / "mol.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "io",
+            "extract-molecule",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--index",
+            "0",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["index"] == 0
+    assert payload["formula"]
+    assert len(payload["centroid"]) == 3
+    assert payload["output"] == str(output)
+
+
+def test_io_extract_molecule_center_vacuum_cif(tmp_path: Path) -> None:
+    output = tmp_path / "mol.cif"
+    result = CliRunner().invoke(
+        main,
+        [
+            "io",
+            "extract-molecule",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--index",
+            "0",
+            "--center-vacuum",
+            "10",
+            "--pbc",
+            "true",
+        ],
+    )
+    assert result.exit_code == 0
+    assert output.exists()
+    assert output.read_text(encoding="utf-8").startswith("data_")
 
 
 def test_operate_supercell(tmp_path: Path) -> None:
