@@ -117,7 +117,6 @@ The command groups roughly mirror the Python package layout:
 | **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) |
 | **AI agent (using the library)** | [API & Capabilities](docs/api.md) — read "Capability Map" then "Module Index" |
 | **AI agent (modifying code)** | [AGENTS.md](AGENTS.md) · [Architecture](docs/architecture.md) |
-| **CLI** | Run `mck --help` after installation |
 | **Docker / cloud** | [Docker Guide](docs/docker.md) |
 
 [`molcrys_kit/`](molcrys_kit/) — source code · [`scripts/`](scripts/) — diagnostic utilities · [`examples/`](examples/) — CIF structure files
