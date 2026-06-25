@@ -37,7 +37,7 @@ mck = "molcrys_kit.cli:main"
 
 [project.optional-dependencies]
 vis = ["nglview", "py3Dmol"]
-test = ["pytest>=6.0.0", "pytest-cov"]
+test = ["pytest>=6.0.0", "pytest-cov", "pytest-xdist"]
 dev = [
     "molcrys-kit[test,vis]",
     "build",
@@ -67,7 +67,8 @@ local_scheme = "no-local-version"
 fallback_version = "0.0.0+unknown"
 
 [tool.pytest.ini_options]
-addopts = "--cov=molcrys_kit --cov-report=term-missing --cov-report=html"
+# No default coverage/xdist: keep local runs fast.
+# CI workflows pass --cov and -n auto explicitly.
 
 [tool.coverage.run]
 omit = [
