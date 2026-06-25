@@ -36,4 +36,4 @@ jobs:
           python -m pip install -e ".[test]"
 
       - name: Run unit tests
-        run: pytest tests/unit
+        run: pytest tests/unit --cov=molcrys_kit --cov-report=term-missing -n auto
