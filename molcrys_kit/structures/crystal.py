@@ -441,6 +441,7 @@ class MolecularCrystal:
         """
         from ..constants.config import (
             KEY_OCCUPANCY, KEY_DISORDER_GROUP,
+            KEY_ASSEMBLY, KEY_LABEL,
         )
 
         n_total = sum(len(molecule) for molecule in self.molecules)
@@ -462,30 +463,33 @@ class MolecularCrystal:
         )
 
         # --- per-frame / per-atom arrays to propagate ---
-        # NOTE: We deliberately skip `assembly` (usually all empty strings) and
-        # `label` (usually duplicates `symbols`) because they cause extxyz
-        # column-count mismatches and carry no information for non-disordered
-        # crystals.  When they do carry information (real disorder), the
-        # provenance dict in atoms.info captures the full context.
+        # All disorder metadata arrays are propagated to ensure extxyz
+        # round-trip preserves the information needed for disorder resolution
+        # without re-reading the original CIF file.
         base_keys = {"numbers", "positions"}
-        skip_string_keys = {"assembly", "label"}
-        custom_keys = sorted(
+        string_disorder_keys = {KEY_ASSEMBLY, KEY_LABEL}
+        all_custom_keys = sorted(
             {
                 key
                 for molecule in self.molecules
                 for key in molecule.arrays.keys()
             }
             - base_keys
-            - skip_string_keys
-            - {KEY_OCCUPANCY, KEY_DISORDER_GROUP}
         )
-        disorder_keys = [KEY_OCCUPANCY, KEY_DISORDER_GROUP] + custom_keys
+
+        # Collect ALL per-atom arrays (string and numeric) in one pass.
+        def _collect_arrays(key_list):
+            """Return {key: values_list} for the given keys."""
+            arrays = {k: ([None] * n_total if can_restore_order else [])
+                      for k in key_list}
+            return arrays
+
+        all_arrays = _collect_arrays(all_custom_keys)
 
         if can_restore_order:
             symbols = [None] * n_total
             positions = np.zeros((n_total, 3), dtype=float)
             mol_idx = np.empty(n_total, dtype=int)
-            disorder_arrays = {k: [None] * n_total for k in disorder_keys}
             for i_mol, (molecule, indices) in enumerate(zip(self.molecules, indices_lists)):
                 molecule_symbols = molecule.get_chemical_symbols()
                 molecule_positions = molecule.get_positions()
@@ -494,28 +498,27 @@ class MolecularCrystal:
                     symbols[global_index] = molecule_symbols[local_index]
                     positions[global_index] = molecule_positions[local_index]
                     mol_idx[global_index] = i_mol
-                for k in disorder_keys:
+                for k in all_custom_keys:
                     arr = molecule.arrays.get(k)
                     if arr is not None:
                         for local_index, global_index in enumerate(indices):
-                            disorder_arrays[k][int(global_index)] = arr[local_index]
+                            all_arrays[k][int(global_index)] = arr[local_index]
         else:
             symbols = []
             positions = []
             mol_idx = np.empty(n_total, dtype=int)
-            disorder_arrays = {k: [] for k in disorder_keys}
             offset = 0
             for i_mol, molecule in enumerate(self.molecules):
                 symbols.extend(molecule.get_chemical_symbols())
                 positions.extend(molecule.get_positions())
                 n = len(molecule)
                 mol_idx[offset:offset + n] = i_mol
-                for k in disorder_keys:
+                for k in all_custom_keys:
                     arr = molecule.arrays.get(k)
                     if arr is not None:
-                        disorder_arrays[k].extend(arr)
+                        all_arrays[k].extend(arr)
                     else:
-                        disorder_arrays[k].extend([None] * n)
+                        all_arrays[k].extend([None] * n)
                 offset += n
 
         atoms = Atoms(
@@ -532,16 +535,19 @@ class MolecularCrystal:
                 )
             atoms.set_array(key, arr.copy())
 
-        # --- propagate only arrays with real non-default information ---
-        for k in disorder_keys:
-            vals = disorder_arrays[k]
-            if all(v is not None for v in vals):
+        # --- propagate per-atom arrays ---
+        for k in all_custom_keys:
+            vals = all_arrays[k]
+            if not all(v is not None for v in vals):
+                continue
+            if k in string_disorder_keys:
+                # Replace empty strings with "." to prevent ASE extxyz
+                # column collapse (whitespace-split format cannot represent
+                # empty string tokens).
+                sanitised = [v if v else "." for v in vals]
+                atoms.set_array(k, np.array(sanitised))
+            else:
                 arr = np.array(vals)
-                # Only write if there is actual non-default data
-                if k == KEY_OCCUPANCY and np.allclose(arr, 1.0):
-                    continue
-                if k == KEY_DISORDER_GROUP and np.all(arr == 0):
-                    continue
                 atoms.set_array(k, arr.astype(arr.dtype))
 
         # --- crystal-level info ---
@@ -590,16 +596,23 @@ class MolecularCrystal:
             return cls.from_ase(atoms, bond_scale=bond_scale)
 
         from ..constants.config import (
-            KEY_OCCUPANCY, KEY_DISORDER_GROUP,
+            KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY,
         )
+
+        # Desanitise string arrays: "." placeholder → "" (see to_ase)
+        asm_arr = atoms.arrays.get(KEY_ASSEMBLY)
+        if asm_arr is not None:
+            atoms.set_array(
+                KEY_ASSEMBLY,
+                np.array([("" if v == "." else v) for v in asm_arr]),
+            )
 
         n_mol = int(mol_idx.max()) + 1
         base_keys = {"numbers", "positions"}
-        string_metadata_keys = {"assembly", "label"}
         preserved_array_keys = [
             key
             for key in atoms.arrays.keys()
-            if key not in base_keys and key not in string_metadata_keys
+            if key not in base_keys
         ]
         molecules = []
         for i in range(n_mol):

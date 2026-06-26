@@ -46,7 +46,7 @@ Read/write interfaces.
 
 - Read: `read_mol_crystal`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
 - Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
-- Disorder: `scan_cif_disorder`, `DisorderInfo`
+- Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
 
 ### `mck.operations`
 Structure-changing workflows. Prefer functional helpers for simple tasks and classes for repeated/custom workflows.

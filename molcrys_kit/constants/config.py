@@ -5,11 +5,13 @@ This module provides access to configuration parameters and constants used throu
 """
 
 # Standard keys for disorder metadata
-KEY_OCCUPANCY = "occupancy"          # Default: 1.0
-KEY_DISORDER_GROUP = "disorder_group"  # Default: 0 as integer
-KEY_ASSEMBLY = "assembly"             # Default: "" empty string
-KEY_LABEL = "label"                   # Default: Atom element symbol
-KEY_SYM_OP_INDEX = "sym_op_index"     # Default: 0 as integer
+KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
+KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer
+KEY_ASSEMBLY = "assembly"                       # Default: "" empty string
+KEY_LABEL = "label"                             # Default: Atom element symbol
+KEY_SYM_OP_INDEX = "sym_op_index"               # Default: 0 as integer
+KEY_ASYM_ID = "asym_id"                         # Default: -1 as integer
+KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order" # Default: 1 as integer
 
 # Transition metals set
 TRANSITION_METALS = {
