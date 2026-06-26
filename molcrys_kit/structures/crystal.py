@@ -144,7 +144,7 @@ class MolecularCrystal:
         return f"MolecularCrystal(lattice={self.lattice.tolist()}, molecules_count={len(self.molecules)}, pbc={self.pbc})"
 
     @classmethod
-    def from_ase(cls, atoms: Atoms, bond_thresholds=None, max_atoms=None) -> "MolecularCrystal":
+    def from_ase(cls, atoms: Atoms, bond_thresholds=None, max_atoms=None, bond_scale: float = 1.0) -> "MolecularCrystal":
         """
         Create a MolecularCrystal from an ASE Atoms object.
 
@@ -176,7 +176,7 @@ class MolecularCrystal:
         pbc = tuple(atoms.get_pbc())
 
         # Identify molecular units using graph-based approach
-        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms)
+        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
 
         # Create and return a new MolecularCrystal instance
         return cls(lattice, molecules, pbc)

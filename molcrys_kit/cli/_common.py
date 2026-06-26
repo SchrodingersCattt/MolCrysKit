@@ -25,16 +25,21 @@ from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 CRYSTAL_INPUT_EXTENSIONS = {".cif", ".vasp", ".poscar", ".contcar", ".extxyz"}
 
 
-def load_crystal(path: str | Path) -> MolecularCrystal:
+def load_crystal(
+    path: str | Path,
+    *,
+    resolve_disorder: bool = False,
+    bond_scale: float = 1.0,
+) -> MolecularCrystal:
     """Load a MolecularCrystal from a supported structure file."""
     file_path = Path(path)
     suffix = file_path.suffix.lower()
     name = file_path.name.lower()
 
     if suffix == ".cif":
-        return read_mol_crystal(str(file_path))
+        return read_mol_crystal(str(file_path), resolve_disorder=resolve_disorder, bond_scale=bond_scale)
     if suffix in {".vasp", ".poscar"} or name in {"poscar", "contcar"}:
-        return read_poscar(str(file_path))
+        return read_poscar(str(file_path), bond_scale=bond_scale)
     if suffix == ".extxyz":
         crystal = read_extxyz(str(file_path))
         if isinstance(crystal, list):
