@@ -15,6 +15,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from molcrys_kit.analysis.disorder.process import (
+    generate_ordered_replicas_from_disordered_sites,
+)
 from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder, DisorderInfo
 from molcrys_kit.io.extxyz import read_extxyz, write_extxyz
 from molcrys_kit.constants.config import (
@@ -172,10 +175,6 @@ class TestGenerateReplicasCrystalPath:
         """Passing crystal= produces valid replicas (may differ in atom count
         from the CIF path due to coordinate precision in the mutual-exclusion
         graph, but must be non-empty and physically reasonable)."""
-        from molcrys_kit.analysis.disorder.process import (
-            generate_ordered_replicas_from_disordered_sites,
-        )
-
         cif_replicas = generate_ordered_replicas_from_disordered_sites(
             filepath=str(DAP4), method="optimal", generate_count=1,
         )
@@ -192,10 +191,6 @@ class TestGenerateReplicasCrystalPath:
 
     def test_crystal_path_after_roundtrip(self, tmp_xyz):
         """Disorder resolution works after extxyz round-trip (no CIF needed)."""
-        from molcrys_kit.analysis.disorder.process import (
-            generate_ordered_replicas_from_disordered_sites,
-        )
-
         crystal = read_mol_crystal(str(DAP4))
         write_extxyz(crystal, tmp_xyz)
         loaded = read_extxyz(tmp_xyz)
@@ -208,10 +203,6 @@ class TestGenerateReplicasCrystalPath:
 
     def test_enumerate_crystal_path(self):
         """Enumerate mode via crystal= produces alternatives."""
-        from molcrys_kit.analysis.disorder.process import (
-            generate_ordered_replicas_from_disordered_sites,
-        )
-
         crystal = read_mol_crystal(str(CAFFEINE))
         replicas = generate_ordered_replicas_from_disordered_sites(
             crystal=crystal, method="enumerate", generate_count=5, coupled=True,
@@ -221,11 +212,16 @@ class TestGenerateReplicasCrystalPath:
 
     def test_no_args_raises(self):
         """Neither filepath nor crystal → ValueError."""
-        from molcrys_kit.analysis.disorder.process import (
-            generate_ordered_replicas_from_disordered_sites,
-        )
-
         with pytest.raises(ValueError, match="Either"):
             generate_ordered_replicas_from_disordered_sites(
+                method="optimal", generate_count=1,
+            )
+
+    def test_both_args_raises(self):
+        """filepath AND crystal simultaneously → ValueError."""
+        crystal = read_mol_crystal(str(DAP4))
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            generate_ordered_replicas_from_disordered_sites(
+                filepath=str(DAP4), crystal=crystal,
                 method="optimal", generate_count=1,
             )

@@ -62,8 +62,15 @@ def generate_ordered_replicas_from_disordered_sites(
     Raises
     ------
     ValueError
-        If neither ``filepath`` nor ``crystal`` is provided.
+        If neither ``filepath`` nor ``crystal`` is provided, or if both
+        are provided simultaneously.
     """
+    if crystal is not None and filepath is not None:
+        raise ValueError(
+            "'filepath' and 'crystal' are mutually exclusive — "
+            "provide one or the other, not both."
+        )
+
     if crystal is not None:
         # --- in-memory path: reconstruct DisorderInfo from crystal arrays ---
         info = DisorderInfo.from_crystal(crystal)

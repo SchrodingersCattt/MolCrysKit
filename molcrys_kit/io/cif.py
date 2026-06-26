@@ -393,6 +393,8 @@ class DisorderInfo:
             self.asym_id = []
         if self.site_symmetry_order is None:
             self.site_symmetry_order = []
+        # lattice_matrix stays None when not available (e.g. legacy callers);
+        # from_crystal() and scan_cif_disorder() always set it.
 
     @property
     def has_disorder(self) -> bool:
@@ -927,8 +929,11 @@ def read_mol_crystal(
         contains `_chemical_formula_moiety`, the raw field is stored on
         `MolecularCrystal.formula_moiety` for downstream hydrogen completion.
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER
-    
+    from ..constants.config import (
+        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
+        KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+    )
+
     # First, extract disorder info from CIF file
     disorder_info = scan_cif_disorder(filepath)
     
