@@ -12,6 +12,8 @@ from molcrys_kit.__main__ import main as module_main
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "cif"
 DAP4 = DATA / "DAP-4.cif"
+CAFFEINE = DATA / "anhydrousCaffeine_CGD_2007_7_1406.cif"
+OCHTET12 = Path(__file__).resolve().parents[2] / "examples" / "OCHTET12.cif"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -37,6 +39,55 @@ def test_io_info() -> None:
     assert result.exit_code == 0
     assert "MolecularCrystal" in result.output
     assert "Total atoms" in result.output
+
+
+def test_io_info_shows_disorder_for_disordered_cif() -> None:
+    """``mck io info`` should print disorder stats for a disordered CIF."""
+    result = CliRunner().invoke(main, ["io", "info", str(DAP4)])
+    assert result.exit_code == 0, result.output
+    assert "Disorder:" in result.output
+    assert "Atoms with occupancy < 1.0:" in result.output
+    # DAP-4 has special-position disorder (occupancy < 1.0)
+    assert "none detected" not in result.output
+
+
+def test_io_info_shows_disorder_assemblies() -> None:
+    """``mck io info`` should show assemblies when present (caffeine CIF)."""
+    result = CliRunner().invoke(main, ["io", "info", str(CAFFEINE)])
+    assert result.exit_code == 0, result.output
+    assert "Disorder:" in result.output
+    assert "Assemblies:" in result.output
+
+
+def test_io_info_no_disorder_for_ordered_cif() -> None:
+    """``mck io info`` should report 'none detected' for ordered CIFs."""
+    result = CliRunner().invoke(main, ["io", "info", str(OCHTET12)])
+    assert result.exit_code == 0, result.output
+    assert "Disorder: none detected" in result.output
+
+
+def test_io_info_resolve_disorder_flag() -> None:
+    """--resolve-disorder should produce clean molecules without partial-occ fragments."""
+    result = CliRunner().invoke(
+        main, ["io", "info", str(CAFFEINE), "--resolve-disorder"]
+    )
+    assert result.exit_code == 0, result.output
+    # After disorder resolution, molecule list should be clean —
+    # no tiny single-atom or 2-atom fragments from disorder remnants
+    assert "CH2" not in result.output
+    assert "MolecularCrystal" in result.output
+
+
+def test_io_info_bond_scale_changes_output() -> None:
+    """--bond-scale < 1 should produce different molecule counts."""
+    default = CliRunner().invoke(main, ["io", "info", str(DAP4)])
+    scaled = CliRunner().invoke(
+        main, ["io", "info", str(DAP4), "--bond-scale", "0.5"]
+    )
+    assert default.exit_code == 0
+    assert scaled.exit_code == 0
+    # With tighter thresholds, output should differ
+    assert default.output != scaled.output
 
 
 def test_io_convert_cif(tmp_path: Path) -> None:
