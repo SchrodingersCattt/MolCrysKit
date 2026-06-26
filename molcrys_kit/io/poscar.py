@@ -18,6 +18,7 @@ def read_poscar(
     filepath: str,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     max_atoms: Optional[int] = None,
+    bond_scale: float = 1.0,
 ) -> MolecularCrystal:
     """
     Read a VASP POSCAR/CONTCAR file and return a MolecularCrystal object.
@@ -65,4 +66,5 @@ def read_poscar(
         atoms,
         bond_thresholds=bond_thresholds,
         max_atoms=max_atoms,
+        bond_scale=bond_scale,
     )

@@ -13,6 +13,7 @@ import click
 from molcrys_kit.analysis.molecular_identity import ChemicalIdentity
 
 from ._common import load_crystal, rows_to_json, write_structure
+from ..io.cif import scan_cif_disorder
 
 
 logger = logging.getLogger(__name__)
@@ -163,9 +164,13 @@ def _write_sidecar(path: Path, row: dict[str, Any], output_path: Path) -> None:
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-def info(input: Path) -> None:
+@click.option("--resolve-disorder", is_flag=True, default=False,
+              help="Resolve crystallographic disorder before molecule identification.")
+@click.option("--bond-scale", type=float, default=1.0, show_default=True,
+              help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
+def info(input: Path, resolve_disorder: bool, bond_scale: float) -> None:
     """Print a concise molecular-crystal summary."""
-    crystal = load_crystal(input)
+    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
     click.echo(crystal.summary().rstrip())
     try:
         a, b, c, alpha, beta, gamma = crystal.get_lattice_parameters()
@@ -181,13 +186,61 @@ def info(input: Path) -> None:
         formula = molecule.get_chemical_formula()
         click.echo(f"    [{idx}] {formula} atoms={len(molecule)}")
 
+    # ── disorder section ─────────────────────────────────────────────
+    if input.suffix.lower() == ".cif":
+        # CIF: use scan_cif_disorder for rich metadata
+        try:
+            dinfo = scan_cif_disorder(str(input))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not scan disorder for %s: %s", input, exc)
+            dinfo = None
+
+        if dinfo is not None and dinfo.has_disorder:
+            n_partial = sum(1 for occ in dinfo.occupancies if occ < 1.0)
+            assemblies = sorted(
+                {a for a in dinfo.assemblies if a and a != "."}
+            )
+            groups = sorted({g for g in dinfo.disorder_groups if g != 0})
+            special = (
+                sum(1 for s in dinfo.site_symmetry_order if s > 1)
+                if dinfo.site_symmetry_order
+                else 0
+            )
+            click.echo("  Disorder:")
+            click.echo(f"    Atoms with occupancy < 1.0: {n_partial}")
+            if assemblies:
+                click.echo(f"    Assemblies: {', '.join(assemblies)}")
+            if groups:
+                click.echo(f"    Disorder groups: {groups}")
+            if special:
+                click.echo(f"    Atoms on special positions: {special}")
+        else:
+            click.echo("  Disorder: none detected")
+    else:
+        # Non-CIF: check molecules for partial-occupancy atoms
+        from ..constants.config import KEY_OCCUPANCY
+        n_partial = 0
+        for mol in crystal.molecules:
+            occ = mol.arrays.get(KEY_OCCUPANCY)
+            if occ is not None:
+                n_partial += int((occ < 1.0 - 1e-6).sum())
+        if n_partial:
+            click.echo("  Disorder:")
+            click.echo(f"    Atoms with occupancy < 1.0: {n_partial}")
+        else:
+            click.echo("  Disorder: none detected")
+
 
 @click.command(name="molecules")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
-def molecules(input: Path, as_json: bool) -> None:
+@click.option("--resolve-disorder", is_flag=True, default=False,
+              help="Resolve crystallographic disorder before molecule identification.")
+@click.option("--bond-scale", type=float, default=1.0, show_default=True,
+              help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
+def molecules(input: Path, as_json: bool, resolve_disorder: bool, bond_scale: float) -> None:
     """List molecule inventory for a crystal."""
-    crystal = load_crystal(input)
+    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
     rows = _molecule_inventory(crystal)
     if as_json:
         click.echo(rows_to_json(rows))
@@ -216,6 +269,10 @@ def molecules(input: Path, as_json: bool) -> None:
 @click.option("--center-vacuum", type=float, help="Center each molecule in a box with this vacuum padding in angstrom.")
 @click.option("--pbc", type=click.BOOL, default=False, show_default=True, help="Set periodic boundary conditions on the extracted molecule.")
 @click.option("--json-sidecar", type=click.Path(dir_okay=False, path_type=Path), help="Write JSON metadata for the extracted molecule. With --all, this also acts as a template.")
+@click.option("--resolve-disorder", is_flag=True, default=False,
+              help="Resolve crystallographic disorder before molecule identification.")
+@click.option("--bond-scale", type=float, default=1.0, show_default=True,
+              help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
 def extract_molecule(
     input: Path,
     output: Path,
@@ -227,12 +284,14 @@ def extract_molecule(
     center_vacuum: float | None,
     pbc: bool,
     json_sidecar: Path | None,
+    resolve_disorder: bool,
+    bond_scale: float,
 ) -> None:
     """Extract one or more molecules from a crystal."""
     if center_vacuum is not None and center_vacuum < 0:
         raise click.UsageError("--center-vacuum must be non-negative.")
 
-    crystal = load_crystal(input)
+    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
     rows = _molecule_inventory(crystal)
     selected = _selected_molecule_indices(
         rows,
@@ -268,9 +327,13 @@ def extract_molecule(
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output path; extension selects the format.")
-def convert(input: Path, output: Path) -> None:
+@click.option("--resolve-disorder", is_flag=True, default=False,
+              help="Resolve crystallographic disorder before molecule identification.")
+@click.option("--bond-scale", type=float, default=1.0, show_default=True,
+              help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
+def convert(input: Path, output: Path, resolve_disorder: bool, bond_scale: float) -> None:
     """Convert a structure file by output extension."""
-    crystal = load_crystal(input)
+    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
     write_structure(crystal, output)
     click.echo(f"Wrote {output}")
 

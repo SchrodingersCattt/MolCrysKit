@@ -163,6 +163,7 @@ def _build_molecule_graph(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
+    bond_scale: float = 1.0,
 ) -> nx.Graph:
     """Build the bonded graph used for molecule identification."""
     from ..constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
@@ -227,7 +228,7 @@ def _build_molecule_graph(
                 radius_i, radius_j, is_metal_i, is_metal_j
             )
 
-        if distance < threshold:
+        if distance < threshold * bond_scale:
             # Store the EXACT vector that connects i to j
             crystal_graph.add_edge(i, j, vector=D_vec)
 
@@ -255,6 +256,7 @@ def identify_molecule_indices(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
+    bond_scale: float = 1.0,
 ) -> List[List[int]]:
     """
     Identify discrete molecular units and return their original atom indices.
@@ -269,6 +271,7 @@ def identify_molecule_indices(
         atoms,
         bond_thresholds=bond_thresholds,
         exclude_indices=exclude_indices,
+        bond_scale=bond_scale,
     )
     return _component_atom_indices(
         crystal_graph,
@@ -282,6 +285,7 @@ def identify_molecules(
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     max_atoms: Optional[int] = None,
     exclude_indices: Optional[set[int]] = None,
+    bond_scale: float = 1.0,
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -305,6 +309,7 @@ def identify_molecules(
         atoms,
         bond_thresholds=bond_thresholds,
         exclude_indices=exclude_indices,
+        bond_scale=bond_scale,
     )
     components = _component_atom_indices(
         crystal_graph,
@@ -388,25 +393,40 @@ class DisorderInfo:
         if self.site_symmetry_order is None:
             self.site_symmetry_order = []
 
-    def summary(self):
-        """Print statistics about the disorder information."""
-        print("Disorder Summary:")
-        print(f"  Total atoms: {len(self.labels)}")
-        print(f"  Unique elements: {len(set(self.symbols))}")
-        print(
+    @property
+    def has_disorder(self) -> bool:
+        """Return *True* if the structure contains any positional disorder.
+
+        Disorder is detected when at least one site has occupancy < 1.0 or
+        belongs to a non-zero disorder group.
+        """
+        if any(occ < 1.0 for occ in self.occupancies):
+            return True
+        if any(g != 0 for g in self.disorder_groups):
+            return True
+        return False
+
+    def summary(self) -> str:
+        """Return a multi-line string with disorder statistics."""
+        lines: List[str] = []
+        lines.append("Disorder Summary:")
+        lines.append(f"  Total atoms: {len(self.labels)}")
+        lines.append(f"  Unique elements: {len(set(self.symbols))}")
+        lines.append(
             f"  Atoms with occupancy < 1.0: {sum(1 for occ in self.occupancies if occ < 1.0)}"
         )
-        print(f"  Unique disorder groups: {len(set(self.disorder_groups))}")
-        print(
+        lines.append(f"  Unique disorder groups: {len(set(self.disorder_groups))}")
+        lines.append(
             f"  Disorder groups range: {min(self.disorder_groups)} to {max(self.disorder_groups)}"
         )
         if self.sym_op_indices:
-            print(f"  Unique sym op indices: {len(set(self.sym_op_indices))}")
+            lines.append(f"  Unique sym op indices: {len(set(self.sym_op_indices))}")
         if self.asym_id:
-            print(f"  Unique asym unit parents: {len(set(self.asym_id))}")
+            lines.append(f"  Unique asym unit parents: {len(set(self.asym_id))}")
         if self.site_symmetry_order:
             special = sum(1 for s in self.site_symmetry_order if s > 1)
-            print(f"  Atoms on special positions (site_sym_order>1): {special}")
+            lines.append(f"  Atoms on special positions (site_sym_order>1): {special}")
+        return "\n".join(lines)
 
 
 def _clean_species_string(species_string: str) -> str:
@@ -810,6 +830,8 @@ def read_mol_crystal(
     filepath: str,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     max_atoms: Optional[int] = None,
+    bond_scale: float = 1.0,
+    resolve_disorder: bool = False,
 ) -> MolecularCrystal:
     """
     Parse a CIF file with advanced molecular grouping.
@@ -840,6 +862,22 @@ def read_mol_crystal(
     
     # First, extract disorder info from CIF file
     disorder_info = scan_cif_disorder(filepath)
+    
+    if disorder_info.has_disorder:
+        if resolve_disorder:
+            from ..analysis.disorder.process import generate_ordered_replicas_from_disordered_sites
+            crystals = generate_ordered_replicas_from_disordered_sites(
+                filepath, generate_count=1, method="optimal",
+            )
+            return crystals[0]
+        else:
+            n_partial = sum(1 for o in disorder_info.occupancies if o < 1.0)
+            warnings.warn(
+                f"Structure contains disorder ({n_partial} atoms with occupancy < 1.0). "
+                "Molecule identification may include disorder fragments. "
+                "Use resolve_disorder=True or 'mck operate disorder' to resolve.",
+                stacklevel=2,
+            )
     
     # Parse the CIF file using pymatgen with special options for handling disordered structures
     # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
@@ -889,7 +927,7 @@ def read_mol_crystal(
         atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices[:len(symbols)], dtype=int))
     
     # Identify molecular units using graph-based approach
-    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms)
+    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
 
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
@@ -935,4 +973,4 @@ def parse_cif_advanced(
         DeprecationWarning,
         stacklevel=2,
     )
-    return read_mol_crystal(filepath, bond_thresholds, max_atoms=max_atoms)
+    return read_mol_crystal(filepath, bond_thresholds, max_atoms=max_atoms, bond_scale=1.0, resolve_disorder=False)

@@ -111,6 +111,7 @@ def write_extxyz(
 def read_extxyz(
     filepath: str,
     index: Union[int, slice, str, None] = None,
+    bond_scale: float = 1.0,
 ) -> Union[MolecularCrystal, List[MolecularCrystal]]:
     """Read one or more molecular crystals from an Extended XYZ file.
 
@@ -142,10 +143,10 @@ def read_extxyz(
         raise ValueError(f"No frames found in {filepath}")
 
     if isinstance(raw, Atoms):
-        return MolecularCrystal.from_ase_atoms(raw)
+        return MolecularCrystal.from_ase_atoms(raw, bond_scale=bond_scale)
 
     # list of Atoms
-    return [MolecularCrystal.from_ase_atoms(atoms) for atoms in raw]
+    return [MolecularCrystal.from_ase_atoms(atoms, bond_scale=bond_scale) for atoms in raw]
 
 
 def _normalise_frame_payload(payload, n_frames: int, name: str) -> list[dict]:
