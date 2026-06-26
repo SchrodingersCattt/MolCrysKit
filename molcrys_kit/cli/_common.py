@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 import ase.io
 import click
+import numpy as np
 
 from molcrys_kit.io import (
     read_extxyz,
@@ -58,6 +59,19 @@ def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[Molecular
         if isinstance(obj, MolecularCrystal):
             write_cif(obj, str(file_path))
             return
+        if isinstance(obj, CrystalMolecule):
+            lattice = np.asarray(obj.get_cell().array, dtype=float)
+            if np.allclose(lattice, 0) or abs(float(np.linalg.det(lattice))) < 1e-8:
+                raise click.ClickException(
+                    "CIF output for a molecule requires a non-zero cell; use --center-vacuum."
+                )
+            crystal = MolecularCrystal(
+                lattice=lattice,
+                molecules=[obj],
+                pbc=tuple(bool(flag) for flag in obj.get_pbc()),
+            )
+            write_cif(crystal, str(file_path))
+            return
         raise click.ClickException("CIF output requires a MolecularCrystal")
     if suffix in {".vasp", ".poscar"} or name in {"poscar", "contcar"}:
         if isinstance(obj, MolecularCrystal):
@@ -75,6 +89,9 @@ def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[Molecular
             return
         raise click.ClickException("XYZ output requires a MolecularCrystal or CrystalMolecule")
     if suffix == ".extxyz":
+        if isinstance(obj, CrystalMolecule):
+            ase.io.write(str(file_path), obj.to_ase(), format="extxyz")
+            return
         write_extxyz(obj, str(file_path))
         return
 
