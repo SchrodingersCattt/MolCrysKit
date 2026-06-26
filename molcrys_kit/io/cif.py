@@ -382,6 +382,7 @@ class DisorderInfo:
     sym_op_indices: List[int] = None  # New field for symmetry operation indices
     asym_id: List[int] = None  # Index of parent asymmetric-unit atom
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
+    lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -405,6 +406,73 @@ class DisorderInfo:
         if any(g != 0 for g in self.disorder_groups):
             return True
         return False
+
+    @classmethod
+    def from_crystal(cls, crystal) -> "DisorderInfo":
+        """Reconstruct a DisorderInfo from a MolecularCrystal's per-atom arrays.
+
+        This allows disorder resolution to work from extxyz-loaded crystals
+        without re-reading the original CIF file.
+
+        Parameters
+        ----------
+        crystal : MolecularCrystal
+            Crystal loaded via ``read_extxyz`` or ``read_mol_crystal``,
+            carrying disorder metadata in its per-atom arrays.
+
+        Returns
+        -------
+        DisorderInfo
+        """
+        from ..constants.config import (
+            KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
+            KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+        )
+
+        atoms = crystal.to_ase()
+        n = len(atoms)
+
+        symbols = atoms.get_chemical_symbols()
+
+        labels_arr = atoms.arrays.get(KEY_LABEL)
+        labels = list(labels_arr) if labels_arr is not None else list(symbols)
+
+        # Fractional coordinates
+        cell = atoms.get_cell()
+        frac_coords = cell.scaled_positions(atoms.get_positions())
+
+        occ_arr = atoms.arrays.get(KEY_OCCUPANCY)
+        occupancies = list(occ_arr) if occ_arr is not None else [1.0] * n
+
+        dg_arr = atoms.arrays.get(KEY_DISORDER_GROUP)
+        disorder_groups = list(int(x) for x in dg_arr) if dg_arr is not None else [0] * n
+
+        asm_arr = atoms.arrays.get(KEY_ASSEMBLY)
+        assemblies = list(asm_arr) if asm_arr is not None else [""] * n
+
+        soi_arr = atoms.arrays.get(KEY_SYM_OP_INDEX)
+        sym_op_indices = list(int(x) for x in soi_arr) if soi_arr is not None else list(range(n))
+
+        aid_arr = atoms.arrays.get(KEY_ASYM_ID)
+        asym_id = list(int(x) for x in aid_arr) if aid_arr is not None else list(range(n))
+
+        sso_arr = atoms.arrays.get(KEY_SITE_SYMMETRY_ORDER)
+        site_symmetry_order = list(int(x) for x in sso_arr) if sso_arr is not None else [1] * n
+
+        lattice_matrix = np.array(crystal.lattice, dtype=float)
+
+        return cls(
+            labels=labels,
+            symbols=symbols,
+            frac_coords=frac_coords,
+            occupancies=occupancies,
+            disorder_groups=disorder_groups,
+            assemblies=assemblies,
+            sym_op_indices=sym_op_indices,
+            asym_id=asym_id,
+            site_symmetry_order=site_symmetry_order,
+            lattice_matrix=lattice_matrix,
+        )
 
     def summary(self) -> str:
         """Return a multi-line string with disorder statistics."""
@@ -819,10 +887,11 @@ def scan_cif_disorder(filepath: str, *, expand_symmetry: bool = True) -> Disorde
         frac_coords=all_frac_coords,
         occupancies=all_occupancies,
         disorder_groups=all_disorder_groups,
-        assemblies=all_assemblies,  # Include assemblies in the return
-        sym_op_indices=all_sym_op_indices,  # Include symmetry operation indices in the return
-        asym_id=all_asym_ids,  # NEW: parent asymmetric-unit atom index
-        site_symmetry_order=all_site_sym_orders,  # NEW: site symmetry order
+        assemblies=all_assemblies,
+        sym_op_indices=all_sym_op_indices,
+        asym_id=all_asym_ids,
+        site_symmetry_order=all_site_sym_orders,
+        lattice_matrix=lattice_matrix,
     )
 
 
@@ -858,7 +927,7 @@ def read_mol_crystal(
         contains `_chemical_formula_moiety`, the raw field is stored on
         `MolecularCrystal.formula_moiety` for downstream hydrogen completion.
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER
     
     # First, extract disorder info from CIF file
     disorder_info = scan_cif_disorder(filepath)
@@ -925,6 +994,10 @@ def read_mol_crystal(
     atoms.set_array(KEY_LABEL, np.array(disorder_info.labels[:len(symbols)]))
     if disorder_info.sym_op_indices:
         atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices[:len(symbols)], dtype=int))
+    if disorder_info.asym_id:
+        atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id[:len(symbols)], dtype=int))
+    if disorder_info.site_symmetry_order:
+        atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order[:len(symbols)], dtype=int))
     
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)

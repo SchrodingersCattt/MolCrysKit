@@ -103,41 +103,27 @@ class CrystalMolecule(Atoms):
         **kwargs : dict
             Additional arguments passed to ASE Atoms constructor.
         """
-        from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
-
         if atoms is not None:
-            # Extract custom arrays before initializing
-            custom_arrays = {}
+            # Extract ALL custom arrays before initializing (super().__init__
+            # may reset them).  We preserve every non-base array so that
+            # disorder metadata (occupancy, disorder_group, assembly, label,
+            # sym_op_index, asym_id, site_symmetry_order, …) survives molecule
+            # construction.
+            base_keys = {"numbers", "positions"}
+            custom_arrays = {
+                key: arr.copy()
+                for key, arr in atoms.arrays.items()
+                if key not in base_keys
+            }
             n_atoms = len(atoms)
-            
-            # Save the custom disorder arrays if they exist
-            if KEY_OCCUPANCY in atoms.arrays:
-                custom_arrays[KEY_OCCUPANCY] = atoms.arrays[KEY_OCCUPANCY].copy()
-            if KEY_DISORDER_GROUP in atoms.arrays:
-                custom_arrays[KEY_DISORDER_GROUP] = atoms.arrays[KEY_DISORDER_GROUP].copy()
-            if KEY_ASSEMBLY in atoms.arrays:
-                custom_arrays[KEY_ASSEMBLY] = atoms.arrays[KEY_ASSEMBLY].copy()
-            if KEY_LABEL in atoms.arrays:
-                custom_arrays[KEY_LABEL] = atoms.arrays[KEY_LABEL].copy()
-            
+
             # Initialize from existing ASE Atoms object
             super().__init__(atoms)
-            
-            # Restore the custom disorder arrays after initialization
+
+            # Restore ALL custom arrays after initialization
             for key, value in custom_arrays.items():
-                # Make sure the array has the right length
                 if len(value) == n_atoms:
                     self.set_array(key, value)
-                else:
-                    # If lengths don't match, use default values
-                    if key == KEY_OCCUPANCY:
-                        self.set_array(key, np.full(n_atoms, 1.0))
-                    elif key == KEY_DISORDER_GROUP:
-                        self.set_array(key, np.full(n_atoms, 0, dtype=int))
-                    elif key == KEY_ASSEMBLY:
-                        self.set_array(key, np.array([''] * n_atoms))
-                    elif key == KEY_LABEL:
-                        self.set_array(key, np.array(self.get_chemical_symbols()))
         else:
             # Initialize with provided kwargs
             super().__init__(**kwargs)
