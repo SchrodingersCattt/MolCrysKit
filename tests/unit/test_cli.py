@@ -13,7 +13,8 @@ from molcrys_kit.__main__ import main as module_main
 DATA = Path(__file__).resolve().parents[1] / "data" / "cif"
 DAP4 = DATA / "DAP-4.cif"
 CAFFEINE = DATA / "anhydrousCaffeine_CGD_2007_7_1406.cif"
-OCHTET12 = Path(__file__).resolve().parents[2] / "examples" / "OCHTET12.cif"
+PETN = DATA / "PETN_PERYTN10.cif"
+ACETAMINOPHEN = DATA / "Acetaminophen_HXACAN.cif"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -61,7 +62,7 @@ def test_io_info_shows_disorder_assemblies() -> None:
 
 def test_io_info_no_disorder_for_ordered_cif() -> None:
     """``mck io info`` should report 'none detected' for ordered CIFs."""
-    result = CliRunner().invoke(main, ["io", "info", str(OCHTET12)])
+    result = CliRunner().invoke(main, ["io", "info", str(PETN)])
     assert result.exit_code == 0, result.output
     assert "Disorder: none detected" in result.output
 
