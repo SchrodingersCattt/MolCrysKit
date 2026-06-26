@@ -149,14 +149,28 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
     return "".join(out), changed
 
 
-def _pymatgen_cif_parser(filepath: str, **kwargs) -> CifParser:
-    """Create a CifParser, sanitising known numeric ``?`` fields if needed."""
-    with open(filepath, encoding="utf-8") as handle:
-        text = handle.read()
+def _pymatgen_cif_parser(
+    filepath: Optional[str] = None,
+    *,
+    cif_text: Optional[str] = None,
+    **kwargs,
+) -> CifParser:
+    """Create a CifParser, sanitising known numeric ``?`` fields if needed.
+
+    Either *filepath* (path to a CIF file) or *cif_text* (raw CIF string)
+    must be provided.  When *cif_text* is given no file I/O occurs.
+    """
+    if cif_text is not None:
+        text = cif_text
+    elif filepath is not None:
+        with open(filepath, encoding="utf-8") as handle:
+            text = handle.read()
+    else:
+        raise ValueError("Either 'filepath' or 'cif_text' must be provided.")
     sanitized, changed = _sanitize_cif_text_for_pymatgen(text)
     if changed:
         return CifParser.from_str(sanitized, **kwargs)
-    return CifParser(filepath, **kwargs)
+    return CifParser.from_str(text, **kwargs)
 
 
 def _build_molecule_graph(
@@ -638,28 +652,35 @@ def _are_coords_close(
     return distance < tol
 
 
-def scan_cif_disorder(filepath: str, *, expand_symmetry: bool = True) -> DisorderInfo:
+def scan_cif_disorder(
+    filepath: Optional[str] = None,
+    *,
+    cif_text: Optional[str] = None,
+    expand_symmetry: bool = True,
+) -> DisorderInfo:
     """
-    Scan a CIF file and extract raw disorder-related metadata without any logical processing.
+    Scan a CIF and extract raw disorder-related metadata.
 
-    This function extracts the raw data exactly as it appears in the CIF file, preserving
-    label suffixes and treating missing/invalid values as defaults.
-
-    This implementation now expands the asymmetric unit to the full unit cell
-    by applying symmetry operations, while preserving all disorder metadata.
+    Either *filepath* (path to a CIF file) or *cif_text* (raw CIF string)
+    must be provided.  When *cif_text* is given no file I/O occurs.
 
     Parameters
     ----------
-    filepath : str
+    filepath : str, optional
         Path to the CIF file.
+    cif_text : str, optional
+        Raw CIF content as a string (mutually exclusive with *filepath*).
 
     Returns
     -------
     DisorderInfo
         Object containing raw extracted disorder data for the full unit cell.
     """
-    # Parse the CIF file using pymatgen to get the raw data dictionary
-    parser = _pymatgen_cif_parser(filepath, occupancy_tolerance=1, site_tolerance=1e-2)
+    # Parse the CIF using pymatgen to get the raw data dictionary
+    parser = _pymatgen_cif_parser(
+        filepath, cif_text=cif_text,
+        occupancy_tolerance=1, site_tolerance=1e-2,
+    )
     cif_data = parser.as_dict()
 
     # We'll use the first data block for simplicity
@@ -898,44 +919,47 @@ def scan_cif_disorder(filepath: str, *, expand_symmetry: bool = True) -> Disorde
 
 
 def read_mol_crystal(
-    filepath: str,
+    filepath: Optional[str] = None,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     max_atoms: Optional[int] = None,
     bond_scale: float = 1.0,
     resolve_disorder: bool = False,
+    *,
+    cif_text: Optional[str] = None,
 ) -> MolecularCrystal:
     """
-    Parse a CIF file with advanced molecular grouping.
+    Parse a CIF with advanced molecular grouping.
 
-    This function attempts to identify discrete molecular units within the crystal.
+    Either *filepath* (path to a CIF file) or *cif_text* (raw CIF string)
+    must be provided.  When *cif_text* is given no file I/O occurs.
 
     Parameters
     ----------
-    filepath : str
+    filepath : str, optional
         Path to the CIF file.
     bond_thresholds : dict, optional
         Custom dictionary with atom pairs as keys and bonding thresholds as values.
-        Keys should be tuples of element symbols (e.g., ('H', 'O')), and values should
-        be the distance thresholds for bonding in Angstroms.
     max_atoms : int, optional
         Optional maximum molecule size passed to molecule identification.
-    max_atoms : int, optional
-        Optional maximum molecule size passed to molecule identification.
+    bond_scale : float
+        Scale factor for bonding thresholds.
+    resolve_disorder : bool
+        Resolve crystallographic disorder before molecule identification.
+    cif_text : str, optional
+        Raw CIF content as a string (mutually exclusive with *filepath*).
 
     Returns
     -------
     MolecularCrystal
-        Parsed crystal structure with identified molecular units.  When the CIF
-        contains `_chemical_formula_moiety`, the raw field is stored on
-        `MolecularCrystal.formula_moiety` for downstream hydrogen completion.
+        Parsed crystal structure with identified molecular units.
     """
     from ..constants.config import (
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
     )
 
-    # First, extract disorder info from CIF file
-    disorder_info = scan_cif_disorder(filepath)
+    # First, extract disorder info
+    disorder_info = scan_cif_disorder(filepath, cif_text=cif_text)
     
     if disorder_info.has_disorder:
         if resolve_disorder:
@@ -957,7 +981,10 @@ def read_mol_crystal(
     # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
     # Also using more tolerant parameters to handle CIF files with full coordinates
     try:
-        parser = _pymatgen_cif_parser(filepath, occupancy_tolerance=10, site_tolerance=1e-2)
+        parser = _pymatgen_cif_parser(
+            filepath, cif_text=cif_text,
+            occupancy_tolerance=10, site_tolerance=1e-2,
+        )
         # Use parse_structures instead of get_structures to avoid deprecation warning
         try:
             structures = parser.parse_structures()
@@ -967,7 +994,8 @@ def read_mol_crystal(
     except Exception:
         print("Warning: CIF parsing failed. Trying with more relaxed parameters...")
         parser = _pymatgen_cif_parser(
-            filepath, occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1
+            filepath, cif_text=cif_text,
+            occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1,
         )
         try:
             structures = parser.parse_structures()
