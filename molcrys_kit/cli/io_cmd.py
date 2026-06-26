@@ -186,8 +186,9 @@ def info(input: Path, resolve_disorder: bool, bond_scale: float) -> None:
         formula = molecule.get_chemical_formula()
         click.echo(f"    [{idx}] {formula} atoms={len(molecule)}")
 
-    # ── disorder section (CIF-only) ──────────────────────────────────
+    # ── disorder section ─────────────────────────────────────────────
     if input.suffix.lower() == ".cif":
+        # CIF: use scan_cif_disorder for rich metadata
         try:
             dinfo = scan_cif_disorder(str(input))
         except Exception as exc:  # noqa: BLE001
@@ -213,6 +214,19 @@ def info(input: Path, resolve_disorder: bool, bond_scale: float) -> None:
                 click.echo(f"    Disorder groups: {groups}")
             if special:
                 click.echo(f"    Atoms on special positions: {special}")
+        else:
+            click.echo("  Disorder: none detected")
+    else:
+        # Non-CIF: check molecules for partial-occupancy atoms
+        from ..constants.config import KEY_OCCUPANCY
+        n_partial = 0
+        for mol in crystal.molecules:
+            occ = mol.arrays.get(KEY_OCCUPANCY)
+            if occ is not None:
+                n_partial += int((occ < 1.0 - 1e-6).sum())
+        if n_partial:
+            click.echo("  Disorder:")
+            click.echo(f"    Atoms with occupancy < 1.0: {n_partial}")
         else:
             click.echo("  Disorder: none detected")
 

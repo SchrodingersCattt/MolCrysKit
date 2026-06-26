@@ -41,7 +41,7 @@ def load_crystal(
     if suffix in {".vasp", ".poscar"} or name in {"poscar", "contcar"}:
         return read_poscar(str(file_path), bond_scale=bond_scale)
     if suffix == ".extxyz":
-        crystal = read_extxyz(str(file_path))
+        crystal = read_extxyz(str(file_path), bond_scale=bond_scale)
         if isinstance(crystal, list):
             if not crystal:
                 raise click.ClickException(f"No frames found in {file_path}")

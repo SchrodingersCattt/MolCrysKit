@@ -567,7 +567,7 @@ class MolecularCrystal:
         return atoms
 
     @classmethod
-    def from_ase_atoms(cls, atoms: Atoms) -> "MolecularCrystal":
+    def from_ase_atoms(cls, atoms: Atoms, bond_scale: float = 1.0) -> "MolecularCrystal":
         """
         Reconstruct a MolecularCrystal from a flat ASE Atoms object
         that was produced by :meth:`to_ase`.
@@ -587,7 +587,7 @@ class MolecularCrystal:
         """
         mol_idx = atoms.arrays.get("molecule_index")
         if mol_idx is None:
-            return cls.from_ase(atoms)
+            return cls.from_ase(atoms, bond_scale=bond_scale)
 
         from ..constants.config import (
             KEY_OCCUPANCY, KEY_DISORDER_GROUP,
