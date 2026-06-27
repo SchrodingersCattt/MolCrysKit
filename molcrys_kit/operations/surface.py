@@ -4,6 +4,10 @@ Surface generation module for molecular crystals.
 This module provides tools for generating surface slabs from molecular crystals
 while preserving molecular topology during the cutting process.  It also
 provides termination enumeration and Tasker-aware termination selection.
+
+A primitive-cell reduction step is applied automatically for high-symmetry
+inputs (F/I/C/A/B-centered cells) to reduce node count before slab construction.
+Pass ``reduce_to_primitive=False`` to disable.
 """
 
 import warnings
@@ -15,6 +19,11 @@ from functools import reduce
 
 from ..structures.crystal import MolecularCrystal
 from ..utils.geometry import reduce_surface_lattice
+
+# Symmetry precision for SpacegroupAnalyzer when detecting the Bravais
+# lattice centering.  0.01 Å is tight enough to avoid false positives on
+# distorted cells but tolerant enough for typical experimental CIF coordinates.
+_DEFAULT_SYMPREC: float = 0.01
 
 
 def _extended_gcd(a, b):
@@ -142,7 +151,7 @@ class TopologicalSlabGenerator:
     centroid position.
     """
 
-    def __init__(self, crystal: MolecularCrystal):
+    def __init__(self, crystal: MolecularCrystal, *, reduce_to_primitive: bool = True):
         """
         Initialize the TopologicalSlabGenerator with a crystal structure.
 
@@ -150,7 +159,13 @@ class TopologicalSlabGenerator:
         ----------
         crystal : MolecularCrystal
             The molecular crystal to generate the surface slab from.
+        reduce_to_primitive : bool, optional
+            If True (default), automatically reduce non-primitive cells
+            (F/I/C-centered) to primitive cells.  This benefits all
+            downstream operations (build, enumerate_terminations, etc.).
         """
+        if reduce_to_primitive:
+            crystal = _try_reduce_to_primitive(crystal)
         self.crystal = crystal
 
     @staticmethod
@@ -1202,12 +1217,110 @@ def generate_slabs_with_terminations(
     return results
 
 
+def _try_reduce_to_primitive(crystal: MolecularCrystal) -> MolecularCrystal:
+    """
+    Attempt to reduce a conventional-cell crystal to its primitive cell.
+
+    For high-symmetry structures (e.g. F-centered cubic with 192 symops),
+    the conventional cell can contain thousands of nodes.  Reducing to the
+    primitive cell shrinks the node count by the centering multiplicity
+    (×4 for F, ×2 for I/C) without losing any crystallographic information.
+
+    The function is a no-op when:
+    - pymatgen or spglib is unavailable
+    - the structure is already primitive (P lattice)
+    - symmetry detection fails
+
+    Parameters
+    ----------
+    crystal : MolecularCrystal
+        Input crystal, possibly in a conventional (non-primitive) cell.
+
+    Returns
+    -------
+    MolecularCrystal
+        Primitive-cell crystal, or the original if reduction is not possible.
+    """
+    try:
+        from pymatgen.core import Lattice, Structure
+        from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+    except ImportError:
+        return crystal
+
+    try:
+        ase_atoms = crystal.to_ase()
+        species = [str(s) for s in ase_atoms.get_chemical_symbols()]
+        coords = ase_atoms.get_positions()
+        lattice = Lattice(ase_atoms.cell.array)
+        struct = Structure(lattice, species, coords, coords_are_cartesian=True)
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: ASE→pymatgen conversion failed ({exc}).",
+            stacklevel=2,
+        )
+        return crystal
+
+    # Guard: mixed-occupancy / disordered sites cannot be reliably reduced
+    # because find_primitive() may merge split sites.
+    if any(site.species.num_atoms > 1 for site in struct):
+        return crystal
+
+    try:
+        sga = SpacegroupAnalyzer(struct, symprec=_DEFAULT_SYMPREC)
+        sg_symbol = sga.get_space_group_symbol()
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: symmetry detection failed ({exc}).",
+            stacklevel=2,
+        )
+        return crystal
+
+    # The first character of a Hermann-Mauguin symbol encodes the Bravais
+    # lattice centering type (P/A/B/C/I/F/R).  See International Tables
+    # for Crystallography, Vol. A, Table 4.1.4.1.
+    centering = sg_symbol[0] if sg_symbol else "P"
+    if centering == "P":
+        return crystal
+
+    try:
+        prim_struct = sga.find_primitive()
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: find_primitive() failed ({exc}).",
+            stacklevel=2,
+        )
+        return crystal
+
+    if prim_struct is None or len(prim_struct) >= len(struct):
+        return crystal
+
+    try:
+        from ase import Atoms as AseAtoms
+
+        prim_atoms = AseAtoms(
+            symbols=[str(site.species.elements[0]) for site in prim_struct],
+            positions=[site.coords for site in prim_struct],
+            cell=prim_struct.lattice.matrix,
+            pbc=True,
+        )
+        prim_crystal = MolecularCrystal.from_ase(prim_atoms)
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: primitive→MolecularCrystal failed ({exc}).",
+            stacklevel=2,
+        )
+        return crystal
+
+    return prim_crystal
+
+
 def generate_topological_slab(
     crystal: MolecularCrystal,
     miller_indices: Tuple[int, int, int],
     layers: int = None,
     min_thickness: float = None,
     vacuum: float = 10.0,
+    reduce_to_primitive: bool = True,
 ) -> MolecularCrystal:
     """
     Public API wrapper to generate a topological surface slab.
@@ -1225,11 +1338,18 @@ def generate_topological_slab(
         If neither is provided, defaults to 3 layers.
     vacuum : float, optional
         Thickness of vacuum region to add above the slab (in Angstroms, default: 10.0).
+    reduce_to_primitive : bool, optional
+        If True (default), automatically reduce non-primitive cells
+        (F/I/C-centered) to primitive cells before slab generation.
+        This dramatically reduces node count for high-symmetry structures
+        without losing crystallographic information.
 
     Returns
     -------
     MolecularCrystal
         The generated surface slab as a MolecularCrystal object.
     """
-    generator = TopologicalSlabGenerator(crystal)
+    if reduce_to_primitive:
+        crystal = _try_reduce_to_primitive(crystal)
+    generator = TopologicalSlabGenerator(crystal, reduce_to_primitive=False)
     return generator.build(miller_indices, layers, min_thickness, vacuum)
