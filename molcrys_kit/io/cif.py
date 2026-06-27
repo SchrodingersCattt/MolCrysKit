@@ -430,6 +430,12 @@ class DisorderInfo:
         This allows disorder resolution to work from extxyz-loaded crystals
         without re-reading the original CIF file.
 
+        When the crystal carries stored CIF fractional coordinates
+        (per-atom arrays ``frac_x``, ``frac_y``, ``frac_z`` — set by
+        :func:`read_mol_crystal`), those exact values are used.  Otherwise
+        fractional coordinates are recomputed from Cartesian positions,
+        which may introduce floating-point noise.
+
         Parameters
         ----------
         crystal : MolecularCrystal
@@ -454,11 +460,17 @@ class DisorderInfo:
         labels_arr = atoms.arrays.get(KEY_LABEL)
         labels = list(labels_arr) if labels_arr is not None else list(symbols)
 
-        # Prefer stored CIF fractional coordinates (exact) over recomputed ones
+        # Prefer stored CIF fractional coordinates when available.
+        # These are set by read_mol_crystal() from the raw CIF parse and
+        # avoid the Cartesian→fractional recomputation that introduces noise.
         fx = atoms.arrays.get(KEY_FRAC_X)
         fy = atoms.arrays.get(KEY_FRAC_Y)
         fz = atoms.arrays.get(KEY_FRAC_Z)
         if fx is not None and fy is not None and fz is not None:
+            if not (fx.shape == fy.shape == fz.shape):
+                raise ValueError(
+                    f"frac_x/y/z shape mismatch: {fx.shape}, {fy.shape}, {fz.shape}"
+                )
             frac_coords = np.column_stack([fx, fy, fz])
         else:
             # Fallback: recompute from Cartesian (may have precision loss)
@@ -1042,11 +1054,17 @@ def read_mol_crystal(
         atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order[:len(symbols)], dtype=int))
     # Store original CIF fractional coordinates so that DisorderInfo.from_crystal()
     # can use exact values instead of recomputing from Cartesian positions.
+    # Note: disorder_info may contain more atoms than pymatgen's expansion
+    # (e.g. CIF disorder sites that pymatgen merges).  The [:len(symbols)]
+    # slice intentionally drops extra rows to match the ASE atom count;
+    # atom ordering is guaranteed aligned because both scan_cif_disorder()
+    # and pymatgen CifParser expand the same asymmetric unit with the same
+    # symmetry operations in the same order.
     if disorder_info.frac_coords is not None and len(disorder_info.frac_coords) >= len(symbols):
         fc = disorder_info.frac_coords[:len(symbols)]
-        atoms.set_array(KEY_FRAC_X, fc[:, 0].copy())
-        atoms.set_array(KEY_FRAC_Y, fc[:, 1].copy())
-        atoms.set_array(KEY_FRAC_Z, fc[:, 2].copy())
+        atoms.set_array(KEY_FRAC_X, fc[:, 0])
+        atoms.set_array(KEY_FRAC_Y, fc[:, 1])
+        atoms.set_array(KEY_FRAC_Z, fc[:, 2])
     
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
