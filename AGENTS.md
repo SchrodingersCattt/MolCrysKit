@@ -28,6 +28,8 @@ tests/unit/           Pytest regression suite
 ## Testing Rules
 
 - **Full suite must stay green.** Run `pytest tests/` before pushing.
+- Assume test cases may involve unpublished research;
+  sanitize committed data and avoid revealing system details in PRs.
 - Every bug-fix or new structural motif must add a regression case in
   `tests/unit/test_disorder_regression.py`: a `CifCase` entry **and** a
   targeted `test_<material>_topology()` that asserts per-molecule formula
