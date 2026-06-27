@@ -10,34 +10,7 @@ from typing import Dict, Optional
 from collections import defaultdict
 from ..structures.crystal import MolecularCrystal
 from ..constants.config import COMMON_SOLVENTS
-
-
-def _graph_invariant(graph: "nx.Graph") -> tuple:
-    """Compute a hashable topological invariant for fast isomorphism pre-check.
-
-    Two graphs can only be isomorphic if their invariants are equal.
-    The invariant is a tuple of:
-    1. (n_nodes, n_edges)
-    2. Sorted degree sequence
-    3. Sorted (element, degree) pair counts
-
-    This runs in O(N log N) and eliminates >99% of non-isomorphic pairs
-    before the O(N!) VF2 fallback is reached.
-    """
-    n_nodes = graph.number_of_nodes()
-    n_edges = graph.number_of_edges()
-
-    degrees = sorted(d for _, d in graph.degree())
-
-    # Element-degree signature: count of each (symbol, degree) pair
-    elem_deg_counts: dict[tuple[str, int], int] = {}
-    for node, deg in graph.degree():
-        sym = graph.nodes[node].get("symbol", "?")
-        key = (sym, deg)
-        elem_deg_counts[key] = elem_deg_counts.get(key, 0) + 1
-    elem_deg_sig = tuple(sorted(elem_deg_counts.items()))
-
-    return (n_nodes, n_edges, tuple(degrees), elem_deg_sig)
+from ..utils.graph import graph_invariant
 
 
 class StoichiometryAnalyzer:
@@ -108,7 +81,7 @@ class StoichiometryAnalyzer:
 
             for idx, molecule in mol_list:
                 mol_graph = molecule.graph
-                mol_invariant = _graph_invariant(mol_graph)
+                mol_invariant = graph_invariant(mol_graph)
                 is_new_topology = True
 
                 for topo_idx, (ref_graph, ref_inv, topo_mols) in enumerate(topology_groups):

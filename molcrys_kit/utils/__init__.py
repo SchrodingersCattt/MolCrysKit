@@ -4,6 +4,7 @@ Utility module for MolCrysKit.
 This module provides utility functions for molecular crystal operations.
 """
 
+from .graph import graph_invariant  # noqa: F401
 from .geometry import (
     frac_to_cart,
     cart_to_frac,
