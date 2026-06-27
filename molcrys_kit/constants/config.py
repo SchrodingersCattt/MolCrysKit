@@ -12,6 +12,9 @@ KEY_LABEL = "label"                             # Default: Atom element symbol
 KEY_SYM_OP_INDEX = "sym_op_index"               # Default: 0 as integer
 KEY_ASYM_ID = "asym_id"                         # Default: -1 as integer
 KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order" # Default: 1 as integer
+KEY_FRAC_X = "frac_x"                           # CIF fractional x-coordinate
+KEY_FRAC_Y = "frac_y"                           # CIF fractional y-coordinate
+KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
 
 # Transition metals set
 TRANSITION_METALS = {
