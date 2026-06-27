@@ -4,6 +4,10 @@ Surface generation module for molecular crystals.
 This module provides tools for generating surface slabs from molecular crystals
 while preserving molecular topology during the cutting process.  It also
 provides termination enumeration and Tasker-aware termination selection.
+
+A primitive-cell reduction step is applied automatically for high-symmetry
+inputs (F/I/C/A/B-centered cells) to reduce node count before slab construction.
+Pass ``reduce_to_primitive=False`` to disable.
 """
 
 import warnings
