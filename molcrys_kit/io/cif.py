@@ -397,6 +397,7 @@ class DisorderInfo:
     asym_id: List[int] = None  # Index of parent asymmetric-unit atom
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
     lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
+    formula_moiety: str = None  # _chemical_formula_moiety from CIF
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -702,6 +703,7 @@ def scan_cif_disorder(
         occupancy_tolerance=1, site_tolerance=1e-2,
     )
     cif_data = parser.as_dict()
+    formula_moiety = _extract_formula_moiety(parser)
 
     # We'll use the first data block for simplicity
     first_key = list(cif_data.keys())[0]
@@ -935,6 +937,7 @@ def scan_cif_disorder(
         asym_id=all_asym_ids,
         site_symmetry_order=all_site_sym_orders,
         lattice_matrix=lattice_matrix,
+        formula_moiety=formula_moiety,
     )
 
 
@@ -979,9 +982,13 @@ def read_mol_crystal(
         KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
     )
 
-    # First, extract disorder info
+    # Extract disorder info — this is now the SOLE authority for atomic
+    # positions, elements, and all disorder metadata.  We no longer use
+    # pymatgen parse_structures() for the Structure, eliminating the
+    # misalignment bug where two independent CIF expansion engines
+    # produced different atom counts/ordering.
     disorder_info = scan_cif_disorder(filepath, cif_text=cif_text)
-    
+
     if disorder_info.has_disorder:
         if resolve_disorder:
             from ..analysis.disorder.process import generate_ordered_replicas_from_disordered_sites
@@ -997,81 +1004,47 @@ def read_mol_crystal(
                 "Use resolve_disorder=True or 'mck operate disorder' to resolve.",
                 stacklevel=2,
             )
-    
-    # Parse the CIF file using pymatgen with special options for handling disordered structures
-    # Using occupancy_tolerance to handle disordered structures with '?' or other problematic values
-    # Also using more tolerant parameters to handle CIF files with full coordinates
-    try:
-        parser = _pymatgen_cif_parser(
-            filepath, cif_text=cif_text,
-            occupancy_tolerance=10, site_tolerance=1e-2,
-        )
-        # Use parse_structures instead of get_structures to avoid deprecation warning
-        try:
-            structures = parser.parse_structures()
-        except AttributeError:
-            # Fallback for older pymatgen versions
-            structures = parser.get_structures()
-    except Exception:
-        print("Warning: CIF parsing failed. Trying with more relaxed parameters...")
-        parser = _pymatgen_cif_parser(
-            filepath, cif_text=cif_text,
-            occupancy_tolerance=100, site_tolerance=1e-1, frac_tolerance=1e-1,
-        )
-        try:
-            structures = parser.parse_structures()
-        except AttributeError:
-            # Fallback for older pymatgen versions
-            structures = parser.get_structures()
 
-    formula_moiety = _extract_formula_moiety(parser)
+    # Build Cartesian coordinates from scan_cif_disorder's fractional coords
+    # and lattice matrix — both come from the same CIF parse, so they are
+    # guaranteed consistent.
+    lattice = disorder_info.lattice_matrix
+    symbols = disorder_info.symbols
+    frac_coords = disorder_info.frac_coords
+    positions = frac_coords @ lattice  # fractional → Cartesian
 
-    # For simplicity, we take the first structure
-    structure = structures[0]
-
-    # Extract lattice vectors
-    lattice = structure.lattice.matrix
-
-    # Create ASE Atoms object with cleaned symbols
-    symbols = [_clean_species_string(site.species_string) for site in structure.sites]
-    positions = structure.cart_coords
-    
-    # Use the disorder_info occupancies which contain the original values from CIF
-    # since pymatgen might have expanded them due to symmetry operations
     atoms = Atoms(symbols=symbols, positions=positions, cell=lattice, pbc=True)
-    
-    # Set disorder metadata arrays to the atoms object using the raw disorder information
-    # Make sure the number of atoms matches the disorder info
-    atoms.set_array(KEY_OCCUPANCY, np.array(disorder_info.occupancies[:len(symbols)]))
-    atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups[:len(symbols)], dtype=int))
-    atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies[:len(symbols)]))
-    atoms.set_array(KEY_LABEL, np.array(disorder_info.labels[:len(symbols)]))
+
+    # All disorder metadata comes from the same DisorderInfo — no alignment
+    # issue since everything is from a single CIF expansion pass.
+    n = len(symbols)
+    assert len(disorder_info.occupancies) == n, (
+        f"DisorderInfo/symbols length mismatch: "
+        f"{len(disorder_info.occupancies)} != {n}"
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array(disorder_info.occupancies))
+    atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups, dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies))
+    atoms.set_array(KEY_LABEL, np.array(disorder_info.labels))
     if disorder_info.sym_op_indices:
-        atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices[:len(symbols)], dtype=int))
+        atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices, dtype=int))
     if disorder_info.asym_id:
-        atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id[:len(symbols)], dtype=int))
+        atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id, dtype=int))
     if disorder_info.site_symmetry_order:
-        atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order[:len(symbols)], dtype=int))
-    # Store original CIF fractional coordinates so that DisorderInfo.from_crystal()
-    # can use exact values instead of recomputing from Cartesian positions.
-    # Note: disorder_info may contain more atoms than pymatgen's expansion
-    # (e.g. CIF disorder sites that pymatgen merges).  The [:len(symbols)]
-    # slice intentionally drops extra rows to match the ASE atom count;
-    # atom ordering is guaranteed aligned because both scan_cif_disorder()
-    # and pymatgen CifParser expand the same asymmetric unit with the same
-    # symmetry operations in the same order.
-    if disorder_info.frac_coords is not None and len(disorder_info.frac_coords) >= len(symbols):
-        fc = disorder_info.frac_coords[:len(symbols)]
-        atoms.set_array(KEY_FRAC_X, fc[:, 0])
-        atoms.set_array(KEY_FRAC_Y, fc[:, 1])
-        atoms.set_array(KEY_FRAC_Z, fc[:, 2])
-    
+        atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order, dtype=int))
+    # Store CIF fractional coordinates for exact round-trip via from_crystal()
+    atoms.set_array(KEY_FRAC_X, frac_coords[:, 0].copy())
+    atoms.set_array(KEY_FRAC_Y, frac_coords[:, 1].copy())
+    atoms.set_array(KEY_FRAC_Z, frac_coords[:, 2].copy())
+
+    # formula_moiety is extracted inside scan_cif_disorder from the same
+    # pymatgen CIF data dict — no second parse needed.
+    formula_moiety = disorder_info.formula_moiety
+
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
 
-    # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
-
     return MolecularCrystal(lattice, molecules, pbc, formula_moiety=formula_moiety)
 
 
