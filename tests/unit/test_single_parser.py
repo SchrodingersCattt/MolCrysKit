@@ -7,9 +7,9 @@ via crystal= produces the same results as filepath=.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder, DisorderInfo
@@ -99,3 +99,27 @@ class TestCifTextMatchesFilepath:
         from_file = read_mol_crystal(str(DAP4))
         from_text = read_mol_crystal(cif_text=text)
         assert from_file.get_total_nodes() == from_text.get_total_nodes()
+
+
+class TestElementLevelConsistency:
+    """Verify element symbols and counts match between paths."""
+
+    def test_elements_match_scan(self):
+        """Crystal elements must match scan_cif_disorder symbols exactly."""
+        di = scan_cif_disorder(str(DAP4))
+        crystal = read_mol_crystal(str(DAP4))
+        atoms = crystal.to_ase()
+        assert Counter(atoms.get_chemical_symbols()) == Counter(di.symbols)
+
+    def test_filepath_vs_crystal_elements(self):
+        """filepath= and crystal= replicas must have identical element counts."""
+        cif_reps = generate_ordered_replicas_from_disordered_sites(
+            filepath=str(DAP4), method="optimal", generate_count=1,
+        )
+        crystal = read_mol_crystal(str(DAP4))
+        mem_reps = generate_ordered_replicas_from_disordered_sites(
+            crystal=crystal, method="optimal", generate_count=1,
+        )
+        cif_elems = Counter(cif_reps[0].to_ase().get_chemical_symbols())
+        mem_elems = Counter(mem_reps[0].to_ase().get_chemical_symbols())
+        assert cif_elems == mem_elems

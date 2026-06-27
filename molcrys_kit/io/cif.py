@@ -397,6 +397,7 @@ class DisorderInfo:
     asym_id: List[int] = None  # Index of parent asymmetric-unit atom
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
     lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
+    formula_moiety: str = None  # _chemical_formula_moiety from CIF
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -702,6 +703,7 @@ def scan_cif_disorder(
         occupancy_tolerance=1, site_tolerance=1e-2,
     )
     cif_data = parser.as_dict()
+    formula_moiety = _extract_formula_moiety(parser)
 
     # We'll use the first data block for simplicity
     first_key = list(cif_data.keys())[0]
@@ -935,6 +937,7 @@ def scan_cif_disorder(
         asym_id=all_asym_ids,
         site_symmetry_order=all_site_sym_orders,
         lattice_matrix=lattice_matrix,
+        formula_moiety=formula_moiety,
     )
 
 
@@ -1015,29 +1018,28 @@ def read_mol_crystal(
     # All disorder metadata comes from the same DisorderInfo — no alignment
     # issue since everything is from a single CIF expansion pass.
     n = len(symbols)
-    atoms.set_array(KEY_OCCUPANCY, np.array(disorder_info.occupancies[:n]))
-    atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups[:n], dtype=int))
-    atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies[:n]))
-    atoms.set_array(KEY_LABEL, np.array(disorder_info.labels[:n]))
+    assert len(disorder_info.occupancies) == n, (
+        f"DisorderInfo/symbols length mismatch: "
+        f"{len(disorder_info.occupancies)} != {n}"
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array(disorder_info.occupancies))
+    atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups, dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies))
+    atoms.set_array(KEY_LABEL, np.array(disorder_info.labels))
     if disorder_info.sym_op_indices:
-        atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices[:n], dtype=int))
+        atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices, dtype=int))
     if disorder_info.asym_id:
-        atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id[:n], dtype=int))
+        atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id, dtype=int))
     if disorder_info.site_symmetry_order:
-        atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order[:n], dtype=int))
+        atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order, dtype=int))
     # Store CIF fractional coordinates for exact round-trip via from_crystal()
     atoms.set_array(KEY_FRAC_X, frac_coords[:, 0].copy())
     atoms.set_array(KEY_FRAC_Y, frac_coords[:, 1].copy())
     atoms.set_array(KEY_FRAC_Z, frac_coords[:, 2].copy())
 
-    # Extract formula_moiety from the CIF (lightweight pymatgen parse,
-    # does NOT call parse_structures — just reads the data dict).
-    formula_moiety = None
-    try:
-        parser = _pymatgen_cif_parser(filepath, cif_text=cif_text)
-        formula_moiety = _extract_formula_moiety(parser)
-    except Exception:
-        pass
+    # formula_moiety is extracted inside scan_cif_disorder from the same
+    # pymatgen CIF data dict — no second parse needed.
+    formula_moiety = disorder_info.formula_moiety
 
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
