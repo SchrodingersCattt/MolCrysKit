@@ -1202,12 +1202,86 @@ def generate_slabs_with_terminations(
     return results
 
 
+def _try_reduce_to_primitive(crystal: MolecularCrystal) -> MolecularCrystal:
+    """
+    Attempt to reduce a conventional-cell crystal to its primitive cell.
+
+    For high-symmetry structures (e.g. F-centered cubic with 192 symops),
+    the conventional cell can contain thousands of nodes.  Reducing to the
+    primitive cell shrinks the node count by the centering multiplicity
+    (×4 for F, ×2 for I/C) without losing any crystallographic information.
+
+    The function is a no-op when:
+    - pymatgen or spglib is unavailable
+    - the structure is already primitive (P lattice)
+    - symmetry detection fails
+
+    Parameters
+    ----------
+    crystal : MolecularCrystal
+        Input crystal, possibly in a conventional (non-primitive) cell.
+
+    Returns
+    -------
+    MolecularCrystal
+        Primitive-cell crystal, or the original if reduction is not possible.
+    """
+    try:
+        from pymatgen.core import Lattice, Structure
+        from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+    except ImportError:
+        return crystal
+
+    try:
+        ase_atoms = crystal.to_ase()
+        species = [str(s) for s in ase_atoms.get_chemical_symbols()]
+        coords = ase_atoms.get_positions()
+        lattice = Lattice(ase_atoms.cell.array)
+        struct = Structure(lattice, species, coords, coords_are_cartesian=True)
+    except Exception:
+        return crystal
+
+    try:
+        sga = SpacegroupAnalyzer(struct, symprec=0.01)
+        sg_symbol = sga.get_space_group_symbol()
+    except Exception:
+        return crystal
+
+    centering = sg_symbol[0] if sg_symbol else "P"
+    if centering == "P":
+        return crystal
+
+    try:
+        prim_struct = sga.find_primitive()
+    except Exception:
+        return crystal
+
+    if prim_struct is None or len(prim_struct) >= len(struct):
+        return crystal
+
+    try:
+        from ase import Atoms as AseAtoms
+
+        prim_atoms = AseAtoms(
+            symbols=[str(site.species.elements[0]) for site in prim_struct],
+            positions=[site.coords for site in prim_struct],
+            cell=prim_struct.lattice.matrix,
+            pbc=True,
+        )
+        prim_crystal = MolecularCrystal.from_ase(prim_atoms)
+    except Exception:
+        return crystal
+
+    return prim_crystal
+
+
 def generate_topological_slab(
     crystal: MolecularCrystal,
     miller_indices: Tuple[int, int, int],
     layers: int = None,
     min_thickness: float = None,
     vacuum: float = 10.0,
+    reduce_to_primitive: bool = True,
 ) -> MolecularCrystal:
     """
     Public API wrapper to generate a topological surface slab.
@@ -1225,11 +1299,18 @@ def generate_topological_slab(
         If neither is provided, defaults to 3 layers.
     vacuum : float, optional
         Thickness of vacuum region to add above the slab (in Angstroms, default: 10.0).
+    reduce_to_primitive : bool, optional
+        If True (default), automatically reduce non-primitive cells
+        (F/I/C-centered) to primitive cells before slab generation.
+        This dramatically reduces node count for high-symmetry structures
+        without losing crystallographic information.
 
     Returns
     -------
     MolecularCrystal
         The generated surface slab as a MolecularCrystal object.
     """
+    if reduce_to_primitive:
+        crystal = _try_reduce_to_primitive(crystal)
     generator = TopologicalSlabGenerator(crystal)
     return generator.build(miller_indices, layers, min_thickness, vacuum)
