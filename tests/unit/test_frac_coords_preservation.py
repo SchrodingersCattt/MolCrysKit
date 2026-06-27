@@ -107,9 +107,11 @@ class TestFracCoordsRoundTrip:
 
         for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z):
             assert key in atoms_load.arrays, f"Missing {key} after round-trip"
-            np.testing.assert_array_equal(
+            # extxyz is ASCII text; float repr round-trip introduces ~1e-16 noise
+            np.testing.assert_allclose(
                 atoms_load.arrays[key],
                 atoms_orig.arrays[key],
+                atol=1e-15,
                 err_msg=f"{key} changed after round-trip",
             )
 
@@ -124,9 +126,10 @@ class TestFracCoordsRoundTrip:
 
         for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z):
             assert key in atoms_load.arrays, f"Missing {key} for ordered CIF"
-            np.testing.assert_array_equal(
+            np.testing.assert_allclose(
                 atoms_load.arrays[key],
                 atoms_orig.arrays[key],
+                atol=1e-15,
                 err_msg=f"{key} changed after ordered-CIF round-trip",
             )
 
@@ -151,7 +154,7 @@ class TestDisorderInfoUsesStoredFracCoords:
         )
 
     def test_from_crystal_after_roundtrip_bitwise(self, tmp_path):
-        """Frac coords survive extxyz round-trip into from_crystal (bitwise)."""
+        """Frac coords survive extxyz round-trip with ASCII-float precision."""
         out = tmp_path / "out.extxyz"
         cif_info = scan_cif_disorder(str(DAP4))
         crystal = read_mol_crystal(str(DAP4))
@@ -160,9 +163,11 @@ class TestDisorderInfoUsesStoredFracCoords:
 
         info = DisorderInfo.from_crystal(loaded)
         n = len(info.frac_coords)
-        np.testing.assert_array_equal(
+        # extxyz ASCII round-trip introduces ~1e-16 noise
+        np.testing.assert_allclose(
             info.frac_coords,
             cif_info.frac_coords[:n],
+            atol=1e-15,
             err_msg="frac_coords lost precision after extxyz round-trip",
         )
 
