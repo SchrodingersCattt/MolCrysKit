@@ -147,7 +147,7 @@ class TopologicalSlabGenerator:
     centroid position.
     """
 
-    def __init__(self, crystal: MolecularCrystal):
+    def __init__(self, crystal: MolecularCrystal, *, reduce_to_primitive: bool = True):
         """
         Initialize the TopologicalSlabGenerator with a crystal structure.
 
@@ -155,7 +155,13 @@ class TopologicalSlabGenerator:
         ----------
         crystal : MolecularCrystal
             The molecular crystal to generate the surface slab from.
+        reduce_to_primitive : bool, optional
+            If True (default), automatically reduce non-primitive cells
+            (F/I/C-centered) to primitive cells.  This benefits all
+            downstream operations (build, enumerate_terminations, etc.).
         """
+        if reduce_to_primitive:
+            crystal = _try_reduce_to_primitive(crystal)
         self.crystal = crystal
 
     @staticmethod
@@ -1341,5 +1347,5 @@ def generate_topological_slab(
     """
     if reduce_to_primitive:
         crystal = _try_reduce_to_primitive(crystal)
-    generator = TopologicalSlabGenerator(crystal)
+    generator = TopologicalSlabGenerator(crystal, reduce_to_primitive=False)
     return generator.build(miller_indices, layers, min_thickness, vacuum)
