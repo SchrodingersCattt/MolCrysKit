@@ -1243,13 +1243,26 @@ def _try_reduce_to_primitive(crystal: MolecularCrystal) -> MolecularCrystal:
         coords = ase_atoms.get_positions()
         lattice = Lattice(ase_atoms.cell.array)
         struct = Structure(lattice, species, coords, coords_are_cartesian=True)
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: ASE→pymatgen conversion failed ({exc}).",
+            stacklevel=2,
+        )
+        return crystal
+
+    # Guard: mixed-occupancy / disordered sites cannot be reliably reduced
+    # because find_primitive() may merge split sites.
+    if any(site.species.num_atoms > 1 for site in struct):
         return crystal
 
     try:
         sga = SpacegroupAnalyzer(struct, symprec=_DEFAULT_SYMPREC)
         sg_symbol = sga.get_space_group_symbol()
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: symmetry detection failed ({exc}).",
+            stacklevel=2,
+        )
         return crystal
 
     # The first character of a Hermann-Mauguin symbol encodes the Bravais
@@ -1261,7 +1274,11 @@ def _try_reduce_to_primitive(crystal: MolecularCrystal) -> MolecularCrystal:
 
     try:
         prim_struct = sga.find_primitive()
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: find_primitive() failed ({exc}).",
+            stacklevel=2,
+        )
         return crystal
 
     if prim_struct is None or len(prim_struct) >= len(struct):
@@ -1277,7 +1294,11 @@ def _try_reduce_to_primitive(crystal: MolecularCrystal) -> MolecularCrystal:
             pbc=True,
         )
         prim_crystal = MolecularCrystal.from_ase(prim_atoms)
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"Primitive reduction skipped: primitive→MolecularCrystal failed ({exc}).",
+            stacklevel=2,
+        )
         return crystal
 
     return prim_crystal
