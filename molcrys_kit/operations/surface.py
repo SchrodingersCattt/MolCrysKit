@@ -16,6 +16,11 @@ from functools import reduce
 from ..structures.crystal import MolecularCrystal
 from ..utils.geometry import reduce_surface_lattice
 
+# Symmetry precision for SpacegroupAnalyzer when detecting the Bravais
+# lattice centering.  0.01 Å is tight enough to avoid false positives on
+# distorted cells but tolerant enough for typical experimental CIF coordinates.
+_DEFAULT_SYMPREC: float = 0.01
+
 
 def _extended_gcd(a, b):
     """
@@ -1242,11 +1247,14 @@ def _try_reduce_to_primitive(crystal: MolecularCrystal) -> MolecularCrystal:
         return crystal
 
     try:
-        sga = SpacegroupAnalyzer(struct, symprec=0.01)
+        sga = SpacegroupAnalyzer(struct, symprec=_DEFAULT_SYMPREC)
         sg_symbol = sga.get_space_group_symbol()
     except Exception:
         return crystal
 
+    # The first character of a Hermann-Mauguin symbol encodes the Bravais
+    # lattice centering type (P/A/B/C/I/F/R).  See International Tables
+    # for Crystallography, Vol. A, Table 4.1.4.1.
     centering = sg_symbol[0] if sg_symbol else "P"
     if centering == "P":
         return crystal
