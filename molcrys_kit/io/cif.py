@@ -443,6 +443,7 @@ class DisorderInfo:
         from ..constants.config import (
             KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
             KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+            KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
         )
 
         atoms = crystal.to_ase()
@@ -453,9 +454,16 @@ class DisorderInfo:
         labels_arr = atoms.arrays.get(KEY_LABEL)
         labels = list(labels_arr) if labels_arr is not None else list(symbols)
 
-        # Fractional coordinates
-        cell = atoms.get_cell()
-        frac_coords = cell.scaled_positions(atoms.get_positions())
+        # Prefer stored CIF fractional coordinates (exact) over recomputed ones
+        fx = atoms.arrays.get(KEY_FRAC_X)
+        fy = atoms.arrays.get(KEY_FRAC_Y)
+        fz = atoms.arrays.get(KEY_FRAC_Z)
+        if fx is not None and fy is not None and fz is not None:
+            frac_coords = np.column_stack([fx, fy, fz])
+        else:
+            # Fallback: recompute from Cartesian (may have precision loss)
+            cell = atoms.get_cell()
+            frac_coords = cell.scaled_positions(atoms.get_positions())
 
         occ_arr = atoms.arrays.get(KEY_OCCUPANCY)
         occupancies = list(occ_arr) if occ_arr is not None else [1.0] * n
@@ -956,6 +964,7 @@ def read_mol_crystal(
     from ..constants.config import (
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+        KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
     )
 
     # First, extract disorder info
@@ -1031,6 +1040,13 @@ def read_mol_crystal(
         atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id[:len(symbols)], dtype=int))
     if disorder_info.site_symmetry_order:
         atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order[:len(symbols)], dtype=int))
+    # Store original CIF fractional coordinates so that DisorderInfo.from_crystal()
+    # can use exact values instead of recomputing from Cartesian positions.
+    if disorder_info.frac_coords is not None and len(disorder_info.frac_coords) >= len(symbols):
+        fc = disorder_info.frac_coords[:len(symbols)]
+        atoms.set_array(KEY_FRAC_X, fc[:, 0].copy())
+        atoms.set_array(KEY_FRAC_Y, fc[:, 1].copy())
+        atoms.set_array(KEY_FRAC_Z, fc[:, 2].copy())
     
     # Identify molecular units using graph-based approach
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
