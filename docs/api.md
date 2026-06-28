@@ -17,6 +17,7 @@
 | Task | Entry point | Input | Output | More detail |
 |---|---|---|---|---|
 | Parse CIF | `mck.read_mol_crystal` | CIF path | `MolecularCrystal` | source docstring |
+| Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
@@ -38,6 +39,8 @@
 Core crystal data model.
 
 - Core: `MolAtom`, `CrystalMolecule`, `MolecularCrystal`, `CrystalTrajectory`, `Molecule`
+- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`
+  - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
 - Polyhedra reference data: `all_ideal_polyhedra`, `ideal_polyhedra_for_cn`, `convex_hull_payload`
 
