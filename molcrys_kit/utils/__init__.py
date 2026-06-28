@@ -30,6 +30,7 @@ from .geometry import (
 )
 
 __all__ = [
+    "graph_invariant",
     "frac_to_cart",
     "cart_to_frac",
     "normalize_vector",

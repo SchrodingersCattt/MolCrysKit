@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import networkx as nx
 
 
-def graph_invariant(graph: "nx.Graph") -> tuple:
+def graph_invariant(graph: "nx.Graph", node_attr: str = "symbol") -> tuple:
     """Compute a hashable topological invariant for fast isomorphism pre-check.
 
     Two graphs can only be isomorphic if their invariants are equal.
@@ -37,6 +37,9 @@ def graph_invariant(graph: "nx.Graph") -> tuple:
     ----------
     graph : nx.Graph
         NetworkX graph with optional node attributes.
+    node_attr : str, optional
+        Node attribute key to use for the element-degree signature.
+        Defaults to ``"symbol"``.
 
     Returns
     -------
@@ -63,7 +66,7 @@ def graph_invariant(graph: "nx.Graph") -> tuple:
     # Element-degree signature: count of each (attribute, degree) pair.
     attr_deg_counts: dict[tuple, int] = {}
     for node, deg in graph.degree():
-        attr_val = graph.nodes[node].get("symbol", "?")
+        attr_val = graph.nodes[node].get(node_attr, "?")
         key = (attr_val, deg)
         attr_deg_counts[key] = attr_deg_counts.get(key, 0) + 1
     attr_deg_sig = tuple(sorted(attr_deg_counts.items()))
