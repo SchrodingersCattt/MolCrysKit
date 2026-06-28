@@ -424,5 +424,5 @@ class TestEdgeCases:
         # Should complete in reasonable time (allow 30s for CI)
         assert elapsed < 30.0, f"ASU-first path took {elapsed:.2f}s (expected < 30s)"
         
-        # Verify results are correct
-        assert len(mc.molecules) == 40
+        # Verify results are correct (224 = 192 DAP + 24 ClO4 + 8 NH4-like)
+        assert len(mc.molecules) == 224
