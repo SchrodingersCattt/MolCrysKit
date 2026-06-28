@@ -1114,7 +1114,10 @@ def _parse_cif_asu(
         - List of symmetry operations
         - pymatgen Lattice object
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_ASYM_ID
+    from ..constants.config import (
+        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
+        KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+    )
 
     # Parse the CIF using pymatgen to get the raw data dictionary
     parser = _pymatgen_cif_parser(
@@ -1127,18 +1130,9 @@ def _parse_cif_asu(
     first_key = list(cif_data.keys())[0]
     data_block = cif_data[first_key]
 
-    # Parse symmetry operations from the CIF (do not auto-expand for now)
-    sym_ops = _parse_symmetry_operations(data_block, expand_symmetry=False)
-    
-    # Auto-expand if we have a declared space group but only identity operation
-    declared_sg = _declared_space_group(data_block)
-    if (
-        declared_sg is not None
-        and declared_sg.int_number > 1
-        and len(sym_ops) == 1
-        and len(declared_sg.symmetry_ops) > 1
-    ):
-        sym_ops = list(declared_sg.symmetry_ops)
+    # Parse symmetry operations — use expand_symmetry=True so that the
+    # symmetry-source policy is identical to scan_cif_disorder().
+    sym_ops = _parse_symmetry_operations(data_block, expand_symmetry=True)
 
     # Parse lattice for distance calculations
     try:
@@ -1229,6 +1223,21 @@ def _parse_cif_asu(
         else:
             assemblies.append("")
 
+    # Extract site symmetry order — same logic as scan_cif_disorder()
+    site_sym_orders_raw = data_block.get(
+        "_atom_site_site_symmetry_order",
+        data_block.get("_atom_site_symmetry_multiplicity", []),
+    )
+    site_sym_orders = []
+    for i in range(n_atoms):
+        if i < len(site_sym_orders_raw) and site_sym_orders_raw[i] not in [".", "?", None]:
+            try:
+                site_sym_orders.append(int(_extract_numeric_value(site_sym_orders_raw[i])))
+            except (ValueError, TypeError):
+                site_sym_orders.append(1)
+        else:
+            site_sym_orders.append(1)
+
     # Build Cartesian coordinates from fractional coords
     positions = frac_coords @ lattice.matrix  # fractional → Cartesian
 
@@ -1242,6 +1251,7 @@ def _parse_cif_asu(
     atoms.set_array(KEY_ASSEMBLY, np.array(assemblies))
     atoms.set_array(KEY_LABEL, np.array(labels))
     atoms.set_array(KEY_ASYM_ID, np.arange(n, dtype=int))
+    atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(site_sym_orders, dtype=int))
 
     return atoms, sym_ops, lattice
 
@@ -1285,7 +1295,7 @@ def _identify_molecules_asu_first(
     """
     from ..constants.config import (
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
-        KEY_SYM_OP_INDEX, KEY_ASYM_ID,
+        KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
     )
 
     # Parse CIF to get only the asymmetric unit atoms
@@ -1299,27 +1309,94 @@ def _identify_molecules_asu_first(
         bond_scale=bond_scale,
     )
 
-    # If the ASU atoms form one large connected component, signal fallback
+    # --- Giant-molecule fallback ---
+    # Only fall back when the ASU is a *single connected component* AND the
+    # space group has multiplicity > 1 AND we can compare the expected atom
+    # count from |G| * |ASU| against the unit-cell volume heuristic.
+    # A single-molecule ASU is perfectly valid for e.g. P1, molecular
+    # crystals with Z'=1, or network solids (NaCl, Diamond, SiO2).
     if len(asu_molecules) == 1 and len(asu_molecules[0]) == len(asu_atoms):
-        # This may indicate cross-disorder bonding or a non-molecular crystal
-        raise ValueError("ASU-first produced a giant molecule; falling back to standard path")
+        n_ops = len(sym_ops)
+        expected_atoms = n_ops * len(asu_atoms)
+        vol = abs(np.linalg.det(lattice.matrix))
+        # Heuristic: if the expected total exceeds ~50 atoms per Å³ of cell
+        # volume, the ASU is likely a network solid that was erroneously
+        # merged or cross-disorder bonding happened.  For legitimate
+        # structures (NaCl: 8 atoms in 179 ų) this ratio is always tiny.
+        atoms_per_vol = expected_atoms / max(vol, 1.0)
+        if atoms_per_vol > 0.5:
+            raise ValueError(
+                f"ASU-first: {expected_atoms} atoms in {vol:.0f} ų "
+                f"({atoms_per_vol:.2f} atoms/ų) suggests network/cross-disorder; "
+                "falling back to standard path"
+            )
 
-    # Now replicate each ASU molecule through all symmetry operations
-    all_molecules = []
+    # --- Replicate each ASU molecule through all symmetry operations ---
+    all_molecules: list = []
     lattice_matrix = lattice.matrix
+    inv_lattice = np.linalg.inv(lattice_matrix)
+
+    # Build a set of wrapped fractional "fingerprints" for fast O(1)
+    # duplicate lookup.  Key = (asu_mol_idx, rounded anchor frac coord).
+    # After the cheap hash check, an expensive atom-wise PBC comparison
+    # confirms duplicates so that hash collisions are harmless.
+    _seen_keys: set = set()
+
+    def _frac_fingerprint(frac_coords: np.ndarray) -> tuple:
+        """Round the wrapped anchor atom to a grid for hashing."""
+        anchor = np.mod(frac_coords[0], 1.0)
+        return tuple(np.round(anchor, decimals=3))
+
+    def _is_duplicate(
+        new_frac: np.ndarray, asu_mol_idx: int, existing_mols: list
+    ) -> bool:
+        """Check if the molecule is a special-position duplicate.
+
+        Uses a two-stage test:
+        1. Hash on (asu_mol_idx, anchor grid) for O(1) reject.
+        2. Atom-wise minimum-image comparison within the hash bucket.
+        """
+        key = (asu_mol_idx, _frac_fingerprint(new_frac))
+        if key not in _seen_keys:
+            _seen_keys.add(key)
+            return False
+
+        # Expensive confirmation: compare all atoms PBC-wise
+        for existing_mol in existing_mols:
+            if existing_mol.info.get("asu_molecule_index") != asu_mol_idx:
+                continue
+            ex_frac = existing_mol.positions @ inv_lattice
+            if len(ex_frac) != len(new_frac):
+                continue
+            # Atom-wise minimum-image distance
+            deltas = ex_frac - new_frac
+            deltas -= np.round(deltas)
+            cart_deltas = deltas @ lattice_matrix
+            dists = np.linalg.norm(cart_deltas, axis=1)
+            if np.max(dists) < special_position_tol:
+                return True
+        return False
 
     for asu_mol_idx, asu_mol in enumerate(asu_molecules):
-        asu_frac_coords = lattice.get_fractional_coords(asu_mol.positions)
+        asu_frac_coords = asu_mol.positions @ inv_lattice
 
         for op_idx, op in enumerate(sym_ops):
-            # Apply symmetry operation to get new fractional coordinates
-            new_frac_coords = op.operate(asu_frac_coords)
+            # Apply symmetry operation per atom (SymmOp.operate expects a
+            # single 3-vector; the vectorized form uses the rotation matrix
+            # and translation directly).
+            rot = op.rotation_matrix
+            tau = op.translation_vector
+            new_frac_coords = (rot @ asu_frac_coords.T).T + tau
 
-            # Wrap to unit cell (between 0 and 1)
+            # Wrap to unit cell [0, 1)
             new_frac_coords = np.mod(new_frac_coords, 1.0)
 
+            # Duplicate detection (special positions)
+            if _is_duplicate(new_frac_coords, asu_mol_idx, all_molecules):
+                continue
+
             # Convert back to Cartesian coordinates
-            new_positions = lattice.get_cartesian_coords(new_frac_coords)
+            new_positions = new_frac_coords @ lattice_matrix
 
             # Create the replicated molecule
             new_mol = CrystalMolecule(Atoms(
@@ -1347,19 +1424,117 @@ def _identify_molecules_asu_first(
             new_mol.info["sym_op_index"] = op_idx
             new_mol.info["asu_molecule_index"] = asu_mol_idx
 
-            # Check if this molecule is a duplicate (due to special positions)
-            is_duplicate = False
-            for existing_mol in all_molecules:
-                # Compare by centroid distance
-                centroid1 = np.mean(new_mol.positions, axis=0)
-                centroid2 = np.mean(existing_mol.positions, axis=0)
-                dist = minimum_image_distance(centroid1, centroid2, lattice_matrix)
-                if dist < special_position_tol:
-                    is_duplicate = True
-                    break
+            all_molecules.append(new_mol)
 
-            if not is_duplicate:
-                all_molecules.append(new_mol)
+    # --- Post-replication merge for special-position fragments ---
+    # When an ASU molecule sits on a special position (e.g. Cl on a 4-fold
+    # axis of ClO4), the ASU only contains a *fragment* of the physical
+    # molecule.  After replication, fragments from different symops that
+    # overlap spatially need to be merged.
+    #
+    # Strategy: collect all replicated atoms into one Atoms object, run
+    # identify_molecules to re-detect bonds, then rebuild.  This is only
+    # needed when there are ASU molecules with atoms on special positions
+    # (site_symmetry_order > 1), otherwise skip the expensive re-merge.
+    has_special = False
+    for mol in all_molecules:
+        sso = mol.arrays.get(KEY_SITE_SYMMETRY_ORDER)
+        if sso is not None and np.any(sso > 1):
+            has_special = True
+            break
+
+    if has_special:
+        from ase import Atoms as _Atoms
+
+        # Identify which ASU molecules have atoms on special positions
+        special_asu_indices = set()
+        normal_mols = []
+        special_mols = []
+        for mol in all_molecules:
+            sso = mol.arrays.get(KEY_SITE_SYMMETRY_ORDER)
+            asu_idx = mol.info.get("asu_molecule_index", -1)
+            if sso is not None and np.any(sso > 1):
+                special_asu_indices.add(asu_idx)
+                special_mols.append(mol)
+            else:
+                # Check if this molecule's ASU type was already flagged
+                if asu_idx in special_asu_indices:
+                    special_mols.append(mol)
+                else:
+                    normal_mols.append(mol)
+
+        # Re-check: some normal_mols might belong to special ASU types
+        # (the flag is set lazily as we encounter them)
+        final_normal = []
+        for mol in normal_mols:
+            asu_idx = mol.info.get("asu_molecule_index", -1)
+            if asu_idx in special_asu_indices:
+                special_mols.append(mol)
+            else:
+                final_normal.append(mol)
+
+        if special_mols:
+            # Collect all atoms from special-position molecules
+            sp_symbols = []
+            sp_positions = []
+            sp_asym_ids = []
+            for mol in special_mols:
+                sp_symbols.extend(mol.get_chemical_symbols())
+                sp_positions.extend(mol.positions.tolist())
+                aid = mol.arrays.get(KEY_ASYM_ID)
+                if aid is not None:
+                    sp_asym_ids.extend(aid.tolist())
+                else:
+                    sp_asym_ids.extend([-1] * len(mol))
+
+            # Deduplicate only same-asym_id same-element overlapping atoms
+            inv_lat = np.linalg.inv(lattice_matrix)
+            frac_sp = np.array(sp_positions) @ inv_lat
+            n_sp = len(sp_symbols)
+            keep_mask = np.ones(n_sp, dtype=bool)
+
+            # Group by (element, asym_id) for efficient dedup
+            from collections import defaultdict
+            groups: dict = defaultdict(list)
+            for idx in range(n_sp):
+                key = (sp_symbols[idx], sp_asym_ids[idx])
+                if key[1] >= 0:
+                    groups[key].append(idx)
+
+            for key, indices in groups.items():
+                if len(indices) <= 1:
+                    continue
+                for ii in range(len(indices)):
+                    i = indices[ii]
+                    if not keep_mask[i]:
+                        continue
+                    for jj in range(ii + 1, len(indices)):
+                        j = indices[jj]
+                        if not keep_mask[j]:
+                            continue
+                        delta = frac_sp[i] - frac_sp[j]
+                        delta -= np.round(delta)
+                        cart_d = delta @ lattice_matrix
+                        if np.linalg.norm(cart_d) < special_position_tol:
+                            keep_mask[j] = False
+
+            keep_idx = np.where(keep_mask)[0]
+            dedup_atoms = _Atoms(
+                symbols=[sp_symbols[i] for i in keep_idx],
+                positions=[sp_positions[i] for i in keep_idx],
+                cell=lattice_matrix,
+                pbc=True,
+            )
+
+            merged_special = identify_molecules(
+                dedup_atoms,
+                bond_thresholds=bond_thresholds,
+                max_atoms=max_atoms,
+                bond_scale=bond_scale,
+            )
+            all_molecules = final_normal + merged_special
+        else:
+            all_molecules = final_normal
 
     # Build the final MolecularCrystal
     pbc = (True, True, True)
