@@ -732,8 +732,8 @@ def test_dapo4_topology(cif_data_dir: str):
 
     _, n_atoms, _, formulas = _resolve(cif)
     assert n_atoms == 344
-    # Dication picks up one perchlorate O via disorder-connected bonds,
-    # producing C6H14N2O1 instead of bare C6H14N2.
+    # The dication C6H14N2O (diaminopropanol) carries its own hydroxyl
+    # O; this is the cation moiety from the CIF, not a perchlorate O.
     assert formulas.get("C6H14N2O1", 0) == 8, (
         f"Expected 8 × C6H14N2O1 dication, got: {dict(formulas)}"
     )
