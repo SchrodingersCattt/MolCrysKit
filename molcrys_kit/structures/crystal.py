@@ -181,6 +181,70 @@ class MolecularCrystal:
         # Create and return a new MolecularCrystal instance
         return cls(lattice, molecules, pbc)
 
+    @classmethod
+    def from_cif(
+        cls,
+        path: str,
+        bond_thresholds=None,
+        max_atoms=None,
+        bond_scale: float = 1.0,
+        use_asu_first: bool = False,
+    ) -> "MolecularCrystal":
+        """
+        Create a MolecularCrystal from a CIF file.
+
+        Parameters
+        ----------
+        path : str
+            Path to CIF file
+        bond_thresholds : dict, optional
+            Bond distance thresholds by element pair
+        max_atoms : int, optional
+            Maximum atoms per molecule
+        bond_scale : float, optional
+            Bond distance scaling factor
+        use_asu_first : bool
+            Use ASU-first approach (identify molecules on ASU, then replicate)
+            This is more efficient but requires proper symmetry handling.
+
+        Returns
+        -------
+        MolecularCrystal
+            Crystal with identified molecules
+            
+        Raises
+        ------
+        NotImplementedError
+            If use_asu_first=True (feature not yet implemented)
+        """
+        if use_asu_first:
+            # ASU-first path: identify molecules on ASU, then replicate via symops
+            from ..io.cif import _identify_molecules_asu_first, read_mol_crystal
+            try:
+                return _identify_molecules_asu_first(
+                    path,
+                    bond_thresholds=bond_thresholds,
+                    max_atoms=max_atoms,
+                    bond_scale=bond_scale,
+                )
+            except Exception:
+                # Fallback to standard path on any failure
+                return read_mol_crystal(
+                    path,
+                    bond_thresholds=bond_thresholds,
+                    max_atoms=max_atoms,
+                    bond_scale=bond_scale,
+                )
+        
+        # Standard path: expand to full cell, then identify molecules
+        from ..io.cif import read_mol_crystal
+        return read_mol_crystal(
+            path,
+            bond_thresholds=bond_thresholds,
+            max_atoms=max_atoms,
+            bond_scale=bond_scale,
+        )
+
     def get_default_atomic_radii(self):
         """
         Get the default atomic radii parameters.
