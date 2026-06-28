@@ -40,12 +40,14 @@ class PiStackingCriteria:
     """
 
     max_centroid_distance_A: float = 4.5
+    max_interplane_distance_A: float = 4.0
+    max_t_shape_centroid_distance_A: float = 6.5
     max_parallel_normal_angle_deg: float = 30.0
     min_t_shape_normal_angle_deg: float = 60.0
     max_t_shape_normal_angle_deg: float = 120.0
-    max_face_centered_offset_A: float = 0.75
-    max_parallel_lateral_offset_A: float = 2.0
-    max_t_shape_lateral_offset_A: float = 2.5
+    max_face_centered_offset_A: float = 1.0
+    max_parallel_lateral_offset_A: float = 2.5
+    max_t_shape_lateral_offset_A: float = 3.0
     aromatic_only: bool = True
     search_radius_A: float | None = None
     scoring_params: ScoringParams = field(default_factory=ScoringParams)
@@ -53,12 +55,14 @@ class PiStackingCriteria:
     def __init__(
         self,
         max_centroid_distance_A: float = 4.5,
+        max_interplane_distance_A: float = 4.0,
+        max_t_shape_centroid_distance_A: float = 6.5,
         max_parallel_normal_angle_deg: float = 30.0,
         min_t_shape_normal_angle_deg: float = 60.0,
         max_t_shape_normal_angle_deg: float = 120.0,
-        max_face_centered_offset_A: float = 0.75,
-        max_parallel_lateral_offset_A: float = 2.0,
-        max_t_shape_lateral_offset_A: float = 2.5,
+        max_face_centered_offset_A: float = 1.0,
+        max_parallel_lateral_offset_A: float = 2.5,
+        max_t_shape_lateral_offset_A: float = 3.0,
         aromatic_only: bool = True,
         search_radius_A: float | None = None,
         scoring_params: ScoringParams | None = None,
@@ -79,6 +83,16 @@ class PiStackingCriteria:
             self,
             "max_centroid_distance_A",
             float(max_centroid_distance_A),
+        )
+        object.__setattr__(
+            self,
+            "max_interplane_distance_A",
+            float(max_interplane_distance_A),
+        )
+        object.__setattr__(
+            self,
+            "max_t_shape_centroid_distance_A",
+            float(max_t_shape_centroid_distance_A),
         )
         object.__setattr__(
             self,
@@ -214,7 +228,7 @@ def find_pi_stacking(
             lattice,
             tuple(bool(v) for v in crystal.pbc),
             criteria.search_radius_A
-            or scaled_cutoff(criteria.max_centroid_distance_A, criteria.scoring_params),
+            or scaled_cutoff(criteria.max_t_shape_centroid_distance_A, criteria.scoring_params),
         )
     else:
         lattice = None
@@ -309,17 +323,25 @@ def _evaluate_ring_pair(
 ):
     """Evaluate one ring pair and return construction data if accepted.
 
-    The helper computes centroid distance, folded ring-normal angle, lateral
-    offset relative to the first ring plane, and stacking subtype.  It returns
-    populated ``RingRef`` objects plus geometry metrics, or ``None`` when the
-    pair fails any criterion.
+    Geometry is decomposed into a right triangle:
+      d = centroid-centroid distance (hypotenuse)
+      h = interplane distance (projection of d onto ring1 normal)
+      l = lateral offset (in-plane displacement)
+    Parallel stacking uses h for distance thresholds; T-shape uses d.
     """
     c1 = np.asarray(ring1.centroid_A, dtype=float)
     c2 = np.asarray(ring2.centroid_A, dtype=float) + translation
     centroid_vec = c2 - c1
     centroid_distance = float(np.linalg.norm(centroid_vec))
-    if centroid_distance > scaled_cutoff(criteria.max_centroid_distance_A, criteria.scoring_params):
+
+    # Coarse prefilter: reject if beyond max possible distance for any subtype
+    max_possible = max(
+        scaled_cutoff(criteria.max_centroid_distance_A, criteria.scoring_params),
+        scaled_cutoff(criteria.max_t_shape_centroid_distance_A, criteria.scoring_params),
+    )
+    if centroid_distance > max_possible:
         return None
+
     n1 = np.asarray(ring1.normal, dtype=float)
     n2 = np.asarray(ring2.normal, dtype=float)
     raw_angle = vector_angle_deg(n1, n2)
@@ -328,11 +350,29 @@ def _evaluate_ring_pair(
     if n1_norm == 0:
         return None
     n1_unit = n1 / n1_norm
-    lateral_vec = centroid_vec - np.dot(centroid_vec, n1_unit) * n1_unit
-    lateral_offset = float(np.linalg.norm(lateral_vec))
-    subtype = _classify_pi_stacking(normal_angle, lateral_offset, criteria)
+
+    # Decompose centroid vector into interplane (h) and lateral (l) components
+    interplane_distance = float(abs(np.dot(centroid_vec, n1_unit)))
+    lateral_offset = float(np.sqrt(max(centroid_distance**2 - interplane_distance**2, 0.0)))
+
+    # Subtype-specific filtering
+    subtype = _classify_pi_stacking(
+        normal_angle, lateral_offset, interplane_distance, centroid_distance, criteria,
+    )
     if subtype is None:
         return None
+
+    # Scoring: use interplane distance for parallel, centroid distance for T-shape
+    # with subtype-specific distance center and sigma
+    if subtype in ("face_centered_parallel", "displaced_parallel"):
+        score_distance = interplane_distance
+        dist0 = criteria.scoring_params.pi_centroid_distance0_A
+        dist_sigma = criteria.scoring_params.pi_centroid_distance_sigma_A
+    else:
+        score_distance = centroid_distance
+        dist0 = criteria.scoring_params.pi_t_shape_distance0_A
+        dist_sigma = criteria.scoring_params.pi_t_shape_distance_sigma_A
+
     angle0 = (
         criteria.scoring_params.pi_t_shape_angle0_deg
         if subtype == "T_shape"
@@ -341,9 +381,9 @@ def _evaluate_ring_pair(
     score = composite_score(
         (
             (
-                centroid_distance,
-                criteria.scoring_params.pi_centroid_distance0_A,
-                criteria.scoring_params.pi_centroid_distance_sigma_A,
+                score_distance,
+                dist0,
+                dist_sigma,
                 "lorentzian",
             ),
             (
@@ -377,15 +417,20 @@ def _evaluate_ring_pair(
 def _classify_pi_stacking(
     normal_angle: float,
     lateral_offset: float,
+    interplane_distance: float,
+    centroid_distance: float,
     criteria: PiStackingCriteria,
 ) -> PiStackingSubtype | None:
     """Classify ring-pair geometry as a supported pi-stacking subtype.
 
-    Parallel rings are split into face-centered and displaced cases by lateral
-    offset.  Nonparallel rings are accepted as T-shaped only within the
-    configured normal-angle window and lateral-offset cutoff.
+    Parallel rings are filtered by interplane distance h (not centroid
+    distance d), then split into face-centered and displaced by lateral
+    offset.  T-shaped rings use centroid distance d with a larger cutoff.
     """
     if normal_angle <= criteria.max_parallel_normal_angle_deg:
+        # Parallel: use interplane distance (h) as the primary filter
+        if interplane_distance > criteria.max_interplane_distance_A:
+            return None
         if lateral_offset <= criteria.max_face_centered_offset_A:
             return "face_centered_parallel"
         if lateral_offset <= criteria.max_parallel_lateral_offset_A:
@@ -395,6 +440,7 @@ def _classify_pi_stacking(
         criteria.min_t_shape_normal_angle_deg
         <= normal_angle
         <= criteria.max_t_shape_normal_angle_deg
+        and centroid_distance <= criteria.max_t_shape_centroid_distance_A
         and lateral_offset <= criteria.max_t_shape_lateral_offset_A
     ):
         return "T_shape"
@@ -412,6 +458,8 @@ def _criteria_metadata(criteria: PiStackingCriteria) -> dict[str, Any]:
     """Return a JSON-friendly snapshot of pi-stacking criteria."""
     return {
         "max_centroid_distance_A": criteria.max_centroid_distance_A,
+        "max_interplane_distance_A": criteria.max_interplane_distance_A,
+        "max_t_shape_centroid_distance_A": criteria.max_t_shape_centroid_distance_A,
         "max_parallel_normal_angle_deg": criteria.max_parallel_normal_angle_deg,
         "min_t_shape_normal_angle_deg": criteria.min_t_shape_normal_angle_deg,
         "max_t_shape_normal_angle_deg": criteria.max_t_shape_normal_angle_deg,
