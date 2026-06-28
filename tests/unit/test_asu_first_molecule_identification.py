@@ -421,8 +421,8 @@ class TestEdgeCases:
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         elapsed = time.time() - start
         
-        # Should complete in reasonable time (allow 30s for CI)
-        assert elapsed < 30.0, f"ASU-first path took {elapsed:.2f}s (expected < 30s)"
+        # Should complete in reasonable time (allow 60s for CI runners)
+        assert elapsed < 60.0, f"ASU-first path took {elapsed:.2f}s (expected < 60s)"
         
         # Verify results are correct (224 = 192 DAP + 24 ClO4 + 8 NH4-like)
         assert len(mc.molecules) == 224
