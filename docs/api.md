@@ -23,7 +23,7 @@
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
 | Add hydrogens | `add_hydrogens` | `MolecularCrystal` | `MolecularCrystal` | [Tutorials](tutorials.md) |
-| Generate slabs | `generate_topological_slab`, `generate_slabs_with_terminations` | crystal + Miller plane | slab(s) | [Tutorials](tutorials.md) — auto-reduces F/I/C-centered cells to primitive (set `reduce_to_primitive=False` to disable) |
+| Generate slabs | `generate_topological_slab`, `generate_slabs_with_terminations` | crystal + Miller plane | slab(s) | [Tutorials](tutorials.md) |
 | Rank facets | `enumerate_bfdh_facets` | crystal/lattice | `list[BFDHFacetInfo]` | [Tutorials](tutorials.md) |
 | Carve QM clusters | `ClusterCarver`, `carve_cluster` | crystal + seeds | `CrystalCluster` | [Tutorials](tutorials.md) |
 | Edit molecules | `translate_molecule`, `rotate_molecule`, `replace_molecule` | crystal + molecule index | `MolecularCrystal` | [Tutorials](tutorials.md) |

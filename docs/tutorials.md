@@ -144,9 +144,6 @@ from molcrys_kit.io.output import write_cif
 crystal = mck.read_mol_crystal('bulk.cif')
 
 # Generate a surface slab with specific Miller indices (layers or min_thickness required)
-# NOTE: For F/I/C-centered cells, the input crystal is automatically reduced
-# to its primitive cell before slab construction, dramatically lowering node
-# count for high-symmetry structures.  Pass reduce_to_primitive=False to disable.
 slab = generate_topological_slab(
     crystal=crystal,
     miller_indices=(1, 1, 0),  # Miller indices of the surface
