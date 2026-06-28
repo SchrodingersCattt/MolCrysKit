@@ -49,7 +49,6 @@ Read/write interfaces.
 
 - Read: `read_mol_crystal`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
-  - ASU-first path: `_identify_molecules_asu_first` (internal); use via `MolecularCrystal.from_cif(..., use_asu_first=True)`.
 - Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
 
