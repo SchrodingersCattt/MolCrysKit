@@ -31,6 +31,7 @@ from molcrys_kit.constants import (
     METAL_NON_METAL_THRESHOLD_FACTOR,
 )
 from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer
+from molcrys_kit.utils.graph import graph_invariant
 from molcrys_kit.analysis.chemical_env import (
     ChemicalEnvironment,
     CarbonSite,
@@ -458,6 +459,70 @@ class TestStoichiometryAnalyzer:
         assert len(analyzer.species_map) == 1
         unit = analyzer.get_simplest_unit()
         assert list(unit.values()) == [1]
+
+
+# =====================================================================
+# Graph Invariant
+# =====================================================================
+
+
+class TestGraphInvariant:
+    """Unit tests for graph_invariant() fast isomorphism pre-check."""
+
+    def test_identical_graphs(self):
+        g1 = nx.path_graph(4)
+        g2 = nx.path_graph(4)
+        assert graph_invariant(g1) == graph_invariant(g2)
+
+    def test_different_graphs(self):
+        g1 = nx.path_graph(4)
+        g2 = nx.cycle_graph(4)
+        assert graph_invariant(g1) != graph_invariant(g2)
+
+    def test_empty_graph(self):
+        g = nx.Graph()
+        inv = graph_invariant(g)
+        assert inv[0] == 0  # n_nodes
+        assert inv[1] == 0  # n_edges
+
+    def test_single_node(self):
+        g = nx.Graph()
+        g.add_node(0, symbol="C")
+        inv = graph_invariant(g)
+        assert inv[0] == 1
+        assert inv[1] == 0
+
+    def test_isomorphic_labeled_graphs(self):
+        g1 = nx.Graph()
+        g1.add_node(0, symbol="C")
+        g1.add_node(1, symbol="C")
+        g1.add_node(2, symbol="O")
+        g1.add_edges_from([(0, 1), (1, 2)])
+        g2 = nx.Graph()
+        g2.add_node(0, symbol="C")
+        g2.add_node(1, symbol="C")
+        g2.add_node(2, symbol="O")
+        g2.add_edges_from([(0, 2), (0, 1)])
+        # Same degree sequence + element-degree signature
+        assert graph_invariant(g1) == graph_invariant(g2)
+
+    def test_non_isomorphic_different_elements(self):
+        g1 = nx.path_graph(3)
+        for i in range(3):
+            g1.nodes[i]["symbol"] = "C"
+        g2 = nx.path_graph(3)
+        for i in range(3):
+            g2.nodes[i]["symbol"] = "O"
+        assert graph_invariant(g1) != graph_invariant(g2)
+
+    def test_custom_node_attr(self):
+        g = nx.path_graph(2)
+        g.nodes[0]["color"] = "red"
+        g.nodes[1]["color"] = "blue"
+        inv = graph_invariant(g, node_attr="color")
+        # Should have one ("?","?") default for each node if no "symbol" attr
+        inv_default = graph_invariant(g)
+        assert inv != inv_default
 
 
 # =====================================================================

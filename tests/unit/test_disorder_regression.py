@@ -717,3 +717,29 @@ def test_dap7_no_unphysical_proton_split(cif_data_dir: str):
                 f"{method} replica {replica_idx}: expected "
                 f"{expected_hydrazinium}× H5N2+, got {dict(moiety)}"
             )
+
+
+def test_dapo4_topology(cif_data_dir: str):
+    """DAP-O4: Fm-3c (IT 226), 8 diaminopropane dications + 24 perchlorate.
+
+    Regression guard for the graph-invariant pre-check: before the fix,
+    VF2 isomorphism on the large (>50-node) perchlorate molecular graphs
+    (from disorder-connected bond perception) ran in O(N!) time and hung
+    indefinitely.
+    """
+    cif = os.path.join(cif_data_dir, "DAP-O4.cif")
+    assert os.path.exists(cif), "DAP-O4.cif fixture not found"
+
+    _, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 344
+    # The dication C6H14N2O (diaminopropanol) carries its own hydroxyl
+    # O; this is the cation moiety from the CIF, not a perchlorate O.
+    assert formulas.get("C6H14N2O1", 0) == 8, (
+        f"Expected 8 × C6H14N2O1 dication, got: {dict(formulas)}"
+    )
+    assert formulas.get("Cl1O4", 0) == 24, (
+        f"Expected 24 × ClO4- anion, got: {dict(formulas)}"
+    )
+    assert formulas.get("H4N1", 0) == 8, (
+        f"Expected 8 × NH4+ (H4N1), got: {dict(formulas)}"
+    )

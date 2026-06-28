@@ -85,8 +85,9 @@ Element data and bond-detection thresholds.
 - Thresholds: `METAL_THRESHOLD_FACTOR`, `NON_METAL_THRESHOLD_FACTOR`, `METAL_NON_METAL_THRESHOLD_FACTOR`, `DEFAULT_NEIGHBOR_CUTOFF`
 
 ### `mck.utils`
-Geometry and rigid-body math helpers.
+Geometry, rigid-body math helpers, and graph utilities.
 
+- Graph: `graph_invariant`
 - Coordinates/PBC: `frac_to_cart`, `cart_to_frac`, `minimum_image_distance`, `minimum_image_vector`, `unwrap_positions_along_bonds`, `volume_of_cell`
 - Vector/angles: `normalize_vector`, `distance_between_points`, `angle_between_vectors`, `dihedral_angle`
 - Rotations/alignment: `skew_matrix`, `unskew_matrix`, `kabsch_align`, `rotation_to_axis_angle`, `rotation_log_vector`, `rotation_exp_vector`, `rotation_matrix_to_quaternion`, `quaternion_to_rotation_matrix`, `quaternion_slerp`
