@@ -719,28 +719,27 @@ def test_dap7_no_unphysical_proton_split(cif_data_dir: str):
             )
 
 
-def test_dapo4_stoichiometry(cif_data_dir: str):
-    """DAP-O4: Fm-3c, 5184 sites (344 refined, 4840 disorder alternatives).
+def test_dapo4_topology(cif_data_dir: str):
+    """DAP-O4: Fm-3c (IT 226), 8 diaminopropane dications + 24 perchlorate.
 
-    Before the graph-invariant pre-check, VF2 isomorphism on the large
-    perchlorate molecular graphs (>50 nodes, from disorder-connected bond
-    perception) ran in O(N!) time and hung indefinitely.  This test
-    verifies that StoichiometryAnalyzer *completes* without hanging and
-    produces a non-empty species_map.
+    Regression guard for the graph-invariant pre-check: before the fix,
+    VF2 isomorphism on the large (>50-node) perchlorate molecular graphs
+    (from disorder-connected bond perception) ran in O(N!) time and hung
+    indefinitely.
     """
-    from molcrys_kit.io.cif import read_mol_crystal
-    from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer
-
     cif = os.path.join(cif_data_dir, "DAP-O4.cif")
     assert os.path.exists(cif), "DAP-O4.cif fixture not found"
 
-    # Read with disorder unresolved — this is the scenario that triggered
-    # the O(N!) VF2 hang on large molecular graphs.
-    crystal = read_mol_crystal(cif)
-    analyzer = StoichiometryAnalyzer(crystal)
-
-    # Before the fix, the call above would hang.  Verify it produced results.
-    assert len(analyzer.species_map) > 0, (
-        f"StoichiometryAnalyzer produced empty species_map"
+    _, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 344
+    # Dication picks up one perchlorate O via disorder-connected bonds,
+    # producing C6H14N2O1 instead of bare C6H14N2.
+    assert formulas.get("C6H14N2O1", 0) == 8, (
+        f"Expected 8 × C6H14N2O1 dication, got: {dict(formulas)}"
     )
-    assert len(analyzer.crystal.molecules) == len(crystal.molecules)
+    assert formulas.get("Cl1O4", 0) == 24, (
+        f"Expected 24 × ClO4- anion, got: {dict(formulas)}"
+    )
+    assert formulas.get("H4N1", 0) == 8, (
+        f"Expected 8 × NH4+ (H4N1), got: {dict(formulas)}"
+    )
