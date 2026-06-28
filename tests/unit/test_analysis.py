@@ -396,10 +396,10 @@ class TestAdditionalInteractionDetectors:
         assert hbond_summary.mean == pytest.approx(hbond_summary.max)
         assert hbond_summary.max > 0.8
 
-        contact_summary = profile.summaries["close_contact"]
-        raw_contacts = [item for item in profile.interactions if item.kind == "h_h_contact"]
-        assert contact_summary.count == len(raw_contacts)
-        assert contact_summary.count > 0
+        # Profile no longer includes close_contact / ch_pi keys
+        assert "hydrogen_bond" in profile.summaries
+        assert "halogen_bond" in profile.summaries
+        assert "pi_stacking" in profile.summaries
 
     def test_atom_ref_separates_crystal_and_asu_indices(self):
         mol1 = CrystalMolecule(Atoms(["H"], positions=[[0, 0, 0]]))
