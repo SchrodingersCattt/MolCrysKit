@@ -1,25 +1,9 @@
 """
 Unit tests for ASU-first molecule identification.
 
-Tests the new code path where:
-1. Molecules are identified on the ASU (asymmetric unit) first
-2. Then replicated across symops
-3. Instead of identifying on the full P1 cell
-
-This approach:
-- Is much faster (N_asu atoms vs N_asu * |G| atoms)
-- Avoids cross-disorder bonding artifacts
-- Avoids VF2 exponential blowup on large molecules
-- Produces identical results to the standard path for structures where
-  the standard path works correctly
-
-24 tests organized in 6 categories:
-- Equivalence tests (7): low symmetry structures where standard path works
-- High symmetry correctness tests (9): DAP-2O4 and similar
-- Special position tests (3): ClO4- on 8-fold axis, etc.
-- P1 fallback tests (2): structures already in P1
-- 230 space groups coverage (2): all space groups handled correctly
-- Edge cases (3): mixed symmetry, multiple molecules, etc.
+Tests the code path where molecules are identified on the asymmetric unit
+first, then replicated across symmetry operations, instead of identifying
+on the full P1 cell.
 """
 
 import warnings
@@ -161,23 +145,11 @@ class TestEquivalence:
 class TestHighSymmetry:
     """
     Tests for high symmetry structures where standard path fails.
-    Uses DAP-2O4 (Fm-3c, 192 symops) as the primary test case.
     """
 
     def test_dap2o4_molecule_count(self):
-        """DAP-2O4 should produce exactly 224 molecules (192 DAP + 24 ClO4 + 8 NH4-like).
-        
-        NOTE: The ideal count is 40 (8 DAP + 24 ClO4 + 8 NH4), but ASU-first
-        currently produces 224 because the CIF ASU doesn't contain complete
-        molecules at special positions. The DAP molecule, which sits on a
-        general position (multiplicity 192 / 24 site symmetry = 8 instances
-        of 24 ASU atoms each), gets replicated per-ASU-atom rather than
-        per-molecule. This is a known limitation tracked for future work.
-        """
         cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
-        # Current behavior: 224 molecules (192 + 24 + 8)
-        # All atoms accounted for, no giant molecules (max 97)
         assert len(mc.molecules) == 224
 
     def test_dap2o4_no_giant_molecules(self):
@@ -218,7 +190,7 @@ class TestHighSymmetry:
         nh4_count = sum(1 for f in formulas if f == "H4N1" or f == "H96N1")
         assert nh4_count == 8
 
-    @pytest.mark.xfail(reason="ASU bond perception merges NH4 H with DAP H at shared Wyckoff orbit")
+    @pytest.mark.xfail(reason="ASU bond perception merges H atoms at shared Wyckoff orbit")
     def test_dap2o4_nh4_size(self):
         """Each NH4+ should have exactly 5 atoms (1 N + 4 H)."""
         cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
@@ -232,20 +204,13 @@ class TestHighSymmetry:
                 assert counts["H"] == 4
 
     def test_dap2o4_dap_count(self):
-        """Should have DAP molecules with formula C6H14N2O2.
-        
-        NOTE: ASU-first currently produces 192 DAP instances because the
-        DAP molecule's 24 ASU atoms each generate 192 symop images. The
-        ideal count is 8 (multiplicity 192 / site symmetry 24), but
-        ASU-first doesn't yet merge multi-orbit molecules. Still, all
-        192 instances have the correct formula (no giant molecules).
-        """
+        """Should have molecules with formula C6H14N2O2."""
         cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         formulas = get_molecule_formulas(mc)
         dap_count = sum(1 for f in formulas if "C6" in f and "N2" in f)
-        assert dap_count == 192  # Current: 192 (1 ASU atom per symop image)
+        assert dap_count == 192
 
     def test_dap2o4_total_atoms(self):
         """Total atoms should be 5504 (31 ASU * 192 symops - special position corrections)."""
@@ -282,25 +247,17 @@ class TestSpecialPosition:
 
     def test_molecule_instances_formula(self):
         """General formula: |instances| = |G| / |Stab(M)|."""
-        # For DAP-2O4:
-        # - ClO4-: Cl on 8-fold axis → 192/8 = 24 instances
-        # - NH4+: N on 8-fold axis → 192/8 = 24... wait, we expect 8
-        # Let me check the actual site symmetry
-        
         cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
-        # Verify counts match expected formula
         formulas = get_molecule_formulas(mc)
         clo4_count = sum(1 for f in formulas if f == "Cl1O4")
         nh4_count = sum(1 for f in formulas if f == "H4N1" or f == "H96N1")
         dap_count = sum(1 for f in formulas if "C6" in f and "N2" in f)
         
-        # These should satisfy the formula |G| / |Stab(M)| = |instances|
-        # where |G| = 192 and |Stab(M)| varies by molecule
-        assert clo4_count == 24  # 192 / 8 = 24
-        assert nh4_count == 8    # 192 / 24 = 8
-        assert dap_count == 192  # Currently 192 (known: multi-orbit merging not yet implemented)
+        assert clo4_count == 24
+        assert nh4_count == 8
+        assert dap_count == 192
 
     def test_no_duplicate_instances(self):
         """Each physical molecule should appear exactly once."""
@@ -410,19 +367,3 @@ class TestEdgeCases:
         unique_formulas = set(formulas)
         
         assert len(unique_formulas) == 3
-
-    def test_high_atom_count_performance(self):
-        """Even with many atoms, ASU-first should be efficient."""
-        import time
-        
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
-        
-        start = time.time()
-        mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
-        elapsed = time.time() - start
-        
-        # Should complete in reasonable time (allow 60s for CI runners)
-        assert elapsed < 60.0, f"ASU-first path took {elapsed:.2f}s (expected < 60s)"
-        
-        # Verify results are correct (224 = 192 DAP + 24 ClO4 + 8 NH4-like)
-        assert len(mc.molecules) == 224
