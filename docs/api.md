@@ -74,6 +74,8 @@ Disorder metadata, solving, and ordered-replica generation.
 ### `mck.analysis.interactions`
 Weak-interaction detection plus continuous scoring. Raw detectors return records; `interaction_profile` summarizes counts and scores.
 
+- `interaction_profile` aggregates three interaction families: hydrogen bonds, halogen bonds, and pi-stacking (parallel + T-shape). C-H···π is subsumed by T-shape pi-stacking; H···H close contacts are excluded as packing artifacts. The standalone detectors `find_ch_pi` and `find_h_h_contacts` remain importable.
+- Pi-stacking uses subtype-specific geometry: parallel stacking filters by interplane distance h; T-shape uses centroid distance d with a wider cutoff and scoring center.
 - Base/local identity: `AtomRef`, `RingRef`, `BaseInteraction`, `build_crystal_atom_offsets`, `AtomLocalGeometry`, `LocalGeometry`, `LocalGeometryCache`, `RingGeometry`, `ChemicalIdentity`, `ChemicalIdentityCache`
 - Detectors: `HydrogenBond`, `HydrogenBondCriteria`, `find_hydrogen_bonds`, `HalogenBond`, `HalogenBondCriteria`, `find_halogen_bonds`, `PiStacking`, `PiStackingCriteria`, `PiStackingSubtype`, `find_pi_stacking`, `find_pi_stacks`, `CHPiInteraction`, `CHPiInteractionCriteria`, `find_ch_pi`, `find_ch_pi_interactions`, `HHContact`, `HHContactCriteria`, `find_h_h_contacts`, `get_bonding_threshold`
 - Scoring/profile: `InteractionProfile`, `InteractionScoreSummary`, `interaction_profile`, `ScoringParams`, `DEFAULT_SCORING_PARAMS`, `composite_score`, `gaussian_kernel`, `lorentzian_kernel`, `normalized_vdw_distance`, `scaled_cutoff`, `vdw_radius_sum`

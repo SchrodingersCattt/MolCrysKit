@@ -32,11 +32,19 @@ PiStackingSubtype = Literal[
 class PiStackingCriteria:
     """Geometric thresholds for aromatic ring stacking.
 
-    Distances are in Å and angles are in degrees.  The criteria separate
-    parallel-stack classification from T-shaped classification.  Constructor
-    names ``max_normal_angle_deg`` and ``max_lateral_offset_A`` are accepted as
-    aliases for the parallel normal-angle and displaced-parallel lateral-offset
-    thresholds.
+    Distances are in Å and angles are in degrees.
+
+    Parallel stacking uses ``max_interplane_distance_A`` (the vertical
+    component h of the centroid–centroid vector projected onto the ring
+    normal) as the primary distance filter.  This prevents displaced-parallel
+    pairs with reasonable h but large lateral offset from being rejected.
+
+    T-shape stacking uses ``max_t_shape_centroid_distance_A`` (the full
+    centroid–centroid distance d) with a larger cutoff, since T-shape
+    geometry naturally produces larger d values.
+
+    Constructor names ``max_normal_angle_deg`` and ``max_lateral_offset_A``
+    are accepted as aliases for the parallel thresholds.
     """
 
     max_centroid_distance_A: float = 4.5
@@ -292,8 +300,20 @@ def find_pi_stacking(
                                     "criteria": _criteria_metadata(criteria),
                                     "score_components": {
                                         "centroid_distance_A": distance,
+                                        "interplane_distance_A": float(
+                                            abs(np.dot(
+                                                np.asarray(ring2.centroid_A) + _translation(lattice, image) - np.asarray(ring1.centroid_A),
+                                                np.asarray(ring1.normal) / max(np.linalg.norm(ring1.normal), 1e-10),
+                                            ))
+                                        ),
                                         "normal_angle_deg": angle,
                                         "lateral_offset_A": offset,
+                                        "score_distance_A": float(
+                                            distance if subtype == "T_shape" else abs(np.dot(
+                                                np.asarray(ring2.centroid_A) + _translation(lattice, image) - np.asarray(ring1.centroid_A),
+                                                np.asarray(ring1.normal) / max(np.linalg.norm(ring1.normal), 1e-10),
+                                            ))
+                                        ),
                                         "lateral_offset_weight": 1.0,
                                     },
                                 },
