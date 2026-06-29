@@ -60,6 +60,11 @@ class VacancyGenerator:
 
         # Validate that crystal has enough molecules of requested types
         for species_id, count in target_spec.items():
+            if species_id not in self.analyzer.species_map:
+                raise ValueError(
+                    f"Species '{species_id}' not found in crystal. "
+                    f"Available species: {sorted(self.analyzer.species_map)}"
+                )
             available_count = len(self.analyzer.species_map[species_id])
             if count > available_count:
                 raise ValueError(

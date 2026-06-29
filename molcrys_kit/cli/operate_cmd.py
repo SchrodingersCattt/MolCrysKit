@@ -25,6 +25,9 @@ from molcrys_kit.operations import (
 from ._common import echo_paths, load_crystal, write_crystal_sequence, write_structure
 
 
+_VALID_SLAB_TERMINATIONS = {"single", "tasker_preferred", "all"}
+
+
 def _parse_seed(seed_element: str | None, seed_index: tuple[int, ...] | None):
     if seed_element is not None and seed_index:
         raise click.UsageError("Specify --seed-element OR --seed-index, not both.")
@@ -112,6 +115,15 @@ def add_h(input: Path, output: Path, target_elements: tuple[str, ...], optimize_
 @click.option("--terminations", default="single", show_default=True, help="single, tasker_preferred, all, or a termination index.")
 def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | None, min_thickness: float | None, vacuum: float, terminations: str) -> None:
     """Generate a topology-preserving surface slab."""
+    if layers is None and min_thickness is None:
+        raise click.UsageError("Specify --layers N or --min-thickness T (at least one is required).")
+    if all(m == 0 for m in miller):
+        raise click.UsageError("Miller indices cannot all be zero.")
+    if terminations not in _VALID_SLAB_TERMINATIONS and not terminations.isdigit():
+        raise click.UsageError(
+            f"--terminations must be one of {sorted(_VALID_SLAB_TERMINATIONS)} "
+            f"or a termination index (integer), got {terminations!r}."
+        )
     crystal = load_crystal(input)
     if terminations == "single":
         result = generate_topological_slab(crystal, miller, layers=layers, min_thickness=min_thickness, vacuum=vacuum)
@@ -233,6 +245,8 @@ def cluster(
 @click.option("--scale", nargs=3, type=int, required=True, metavar="A B C", help="Supercell replication factors.")
 def supercell(input: Path, output: Path, scale: tuple[int, int, int]) -> None:
     """Create a supercell."""
+    if any(s < 1 for s in scale):
+        raise click.UsageError("--scale factors must each be >= 1.")
     result = create_supercell(load_crystal(input), scale)
     write_structure(result, output)
     click.echo(f"Wrote {output}")
@@ -247,7 +261,19 @@ def supercell(input: Path, output: Path, scale: tuple[int, int, int]) -> None:
 @click.option("--random-seed", type=int, default=None)
 def vacancy(input: Path, output: Path, species: tuple[tuple[str, str], ...], seed_index: int | None, method: str, random_seed: int | None) -> None:
     """Generate a vacancy by removing a molecule cluster."""
-    species_list = [{"species_id": sid, "count": int(count)} for sid, count in species] or None
+    if seed_index is not None and seed_index < 0:
+        raise click.UsageError("--seed-index must be non-negative.")
+    species_list: list[dict] | None = None
+    if species:
+        species_list = []
+        for sid, count_str in species:
+            try:
+                count = int(count_str)
+            except ValueError:
+                raise click.UsageError(f"--species COUNT must be an integer, got {count_str!r}.")
+            if count < 1:
+                raise click.UsageError(f"--species COUNT must be >= 1, got {count}.")
+            species_list.append({"species_id": sid, "count": count})
     result = generate_vacancy(load_crystal(input), species_list=species_list, seed_index=seed_index, method=method, random_seed=random_seed)
     write_structure(result, output)
     click.echo(f"Wrote {output}")
@@ -273,6 +299,8 @@ def desolvate(input: Path, output: Path, targets: tuple[str, ...]) -> None:
 @click.option("--include-endpoints/--exclude-endpoints", default=True, show_default=True)
 def interpolate(start: Path, end: Path, output: Path, method: str, n_images: int, include_endpoints: bool) -> None:
     """Interpolate crystal images between two endpoints."""
+    if n_images < 1:
+        raise click.UsageError("--n-images must be >= 1.")
     frames = interpolate_crystal(load_crystal(start), load_crystal(end), method=method, n_images=n_images, include_endpoints=include_endpoints)
     echo_paths(write_crystal_sequence(frames, output))
 
