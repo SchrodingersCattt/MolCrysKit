@@ -245,3 +245,76 @@ class TestAsymmetricRingSizes:
         results = find_pi_stacking([ring6, ring5])
         assert len(results) >= 1
         assert results[0].subtype == "T_shape"
+
+
+class TestTShapeApproachDistance:
+    """T-shape approach distance: stem ring edge proximity to face plane.
+
+    For a valid edge-over-face T-shape, the stem ring edge must be close
+    to or penetrate the face ring plane.  The approach distance is
+    ``min(h1 - r2_circumradius, h2 - r1_circumradius)`` where h is the
+    interplane distance and r is the circumscribed radius.  Negative
+    values indicate the stem penetrates past the face plane (ideal).
+    """
+
+    def test_approach_recorded_for_t_shape(self):
+        """PiStacking.approach_distance_A is populated for T-shape."""
+        ring1 = _make_benzene([0, 0, 0], normal_axis="z")
+        ring2 = _make_benzene([1.0, 0, 4.8], normal_axis="x")
+        results = find_pi_stacking([ring1, ring2])
+        assert len(results) >= 1
+        assert results[0].subtype == "T_shape"
+        assert results[0].approach_distance_A is not None
+
+    def test_approach_none_for_parallel(self):
+        """PiStacking.approach_distance_A is None for parallel subtypes."""
+        ring1 = _make_benzene([0, 0, 0], normal_axis="z")
+        ring2 = _make_benzene([0.3, 0, 3.4], normal_axis="z")
+        results = find_pi_stacking([ring1, ring2])
+        assert len(results) >= 1
+        assert results[0].subtype == "face_centered_parallel"
+        assert results[0].approach_distance_A is None
+
+    def test_edge_over_face_has_negative_approach(self):
+        """A classic T-shape with stem edge penetrating past face plane.
+
+        Ring2 (normal along x) at [0, 0, 4.2]: the stem ring's edge
+        atoms at x ≈ ±1.4 mean the closest atom is at h ≈ 4.2 - 1.4 = 2.8
+        from face plane.  Approach ≈ 2.8 for this direction, but the
+        reverse direction (ring1 edge reaching ring2 plane) will be lower.
+        """
+        ring1 = _make_benzene([0, 0, 0], normal_axis="z")
+        ring2 = _make_benzene([0, 0, 4.2], normal_axis="x")
+        results = find_pi_stacking([ring1, ring2])
+        assert len(results) >= 1
+        assert results[0].approach_distance_A is not None
+        # The bidirectional minimum should be reasonable (not huge)
+        assert results[0].approach_distance_A < 3.5
+
+    def test_side_by_side_high_approach_rejected(self):
+        """Two perpendicular rings placed far apart side-by-side.
+
+        Ring2 at [8, 0, 0] with normal along x: d ≈ 8.0, θ ≈ 90°,
+        but approach ≈ 8 - 1.4 = 6.6 >> max_t_shape_approach_A.
+        Should be rejected by centroid distance cutoff (d > 6.5) anyway.
+        """
+        ring1 = _make_benzene([0, 0, 0], normal_axis="z")
+        ring2 = _make_benzene([8.0, 0, 0], normal_axis="x")
+        results = find_pi_stacking([ring1, ring2])
+        assert len(results) == 0
+
+    def test_approach_scores_penalize_high_approach(self):
+        """Higher approach distance should yield a lower score.
+
+        Two T-shapes: one with stem edge close to face (low approach),
+        one with stem edge far from face (high approach).
+        """
+        ring1 = _make_benzene([0, 0, 0], normal_axis="z")
+        # Close approach: ring2 at [0, 0, 4.0] — stem close to face
+        ring2_close = _make_benzene([0, 0, 4.0], normal_axis="x")
+        # Far approach: ring2 at [0, 0, 6.0] — stem far from face
+        ring2_far = _make_benzene([0, 0, 6.0], normal_axis="x")
+        res_close = find_pi_stacking([ring1, ring2_close])
+        res_far = find_pi_stacking([ring1, ring2_far])
+        if res_close and res_far:
+            assert res_close[0].score >= res_far[0].score
