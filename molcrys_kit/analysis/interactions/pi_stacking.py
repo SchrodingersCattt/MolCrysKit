@@ -349,11 +349,16 @@ def _evaluate_ring_pair(
       l = lateral offset (in-plane displacement)
     Parallel stacking uses h for distance thresholds; T-shape uses d.
 
-    Both subtypes require a **ring-projection overlap check**: the
+    **Parallel** subtypes apply a coarse spatial prefilter: the
     approaching ring's centroid, projected onto the target ring's plane,
-    must fall within the target ring's circumscribed circle.  This
-    prevents false positives where rings are geometrically parallel or
-    perpendicular but spatially non-overlapping.
+    must fall within the target ring's circumscribed circle.  This is a
+    cheap superset bound — not a strict polygon-overlap test — that
+    rejects clearly non-overlapping parallel geometries.  The existing
+    ``max_parallel_lateral_offset_A`` cutoff remains the tight filter.
+
+    **T-shape** subtypes skip this projection check because the
+    approaching ring's centroid legitimately projects outside the face
+    ring's footprint in valid edge-over-face geometries.
     """
     c1 = np.asarray(ring1.centroid_A, dtype=float)
     c2 = np.asarray(ring2.centroid_A, dtype=float) + translation
@@ -388,25 +393,28 @@ def _evaluate_ring_pair(
     if subtype is None:
         return None
 
-    # Ring-projection overlap check: project ring2 centroid onto ring1's
-    # plane and verify the projection falls within ring1's circumscribed
-    # circle.  For T-shape the approaching ring's edge points at the
-    # target; for parallel the offset must keep the rings overlapping.
-    # The lateral_offset is exactly this projected distance.
-    r1_circumradius = _ring_circumradius(molecules[mol1_idx], ring1)
-    if lateral_offset > r1_circumradius:
-        # Also check the reverse: project ring1 centroid onto ring2's plane
-        n2_norm = np.linalg.norm(n2)
-        if n2_norm > 0:
-            n2_unit = n2 / n2_norm
-            lateral_on_ring2 = float(np.sqrt(max(
-                centroid_distance**2 - np.dot(centroid_vec, n2_unit)**2, 0.0,
-            )))
-            r2_circumradius = _ring_circumradius(molecules[mol2_idx], ring2)
-            if lateral_on_ring2 > r2_circumradius:
+    # Coarse spatial prefilter for parallel subtypes only.
+    # For parallel stacking, if the approaching centroid projects outside
+    # the target ring's circumscribed circle, the rings clearly do not
+    # overlap.  Bidirectional: if the forward check fails, try the
+    # reverse projection.
+    # T-shape is excluded because valid edge-over-face contacts have the
+    # stem centroid well outside the face ring's footprint by design.
+    if subtype in ("face_centered_parallel", "displaced_parallel"):
+        r1_circumradius = _ring_circumradius(molecules[mol1_idx], ring1)
+        if lateral_offset > r1_circumradius:
+            # Also check the reverse: project ring1 centroid onto ring2's plane
+            n2_norm = np.linalg.norm(n2)
+            if n2_norm > 0:
+                n2_unit = n2 / n2_norm
+                lateral_on_ring2 = float(np.sqrt(max(
+                    centroid_distance**2 - np.dot(centroid_vec, n2_unit)**2, 0.0,
+                )))
+                r2_circumradius = _ring_circumradius(molecules[mol2_idx], ring2)
+                if lateral_on_ring2 > r2_circumradius:
+                    return None
+            else:
                 return None
-        else:
-            return None
 
     # Scoring: use interplane distance for parallel, centroid distance for T-shape
     # with subtype-specific distance center and sigma
@@ -482,10 +490,10 @@ def _classify_pi_stacking(
         if lateral_offset <= criteria.max_parallel_lateral_offset_A:
             return "displaced_parallel"
         return None
-    # TODO: the 30°–60° normal-angle gap currently rejects all ring pairs
-    # in this range.  Some "tilted stacking" interactions may be physically
-    # meaningful but are excluded.  Consider adding a "tilted" subtype or
-    # narrowing the gap in a future PR.
+    # TODO(GH-84): the 30°–60° normal-angle gap currently rejects all
+    # ring pairs in this range.  Some "tilted stacking" interactions may
+    # be physically meaningful but are excluded.  Consider adding a
+    # "tilted" subtype or narrowing the gap in a future PR.
     if (
         criteria.min_t_shape_normal_angle_deg
         <= normal_angle
@@ -500,9 +508,10 @@ def _classify_pi_stacking(
 def _ring_circumradius(molecule, ring: RingGeometry) -> float:
     """Return the circumscribed radius of a ring (max centroid-to-vertex distance).
 
-    This is used for the projection overlap check: if the approaching ring's
-    centroid projection onto the target ring's plane falls outside this radius,
-    the two rings do not overlap spatially.
+    Used as a coarse spatial prefilter for **parallel** subtypes only:
+    if the approaching ring's centroid projection onto the target ring's
+    plane falls outside this radius, the rings clearly do not overlap.
+    This is a cheap superset bound, not a strict polygon test.
     """
     positions = molecule.get_positions()
     centroid = np.asarray(ring.centroid_A, dtype=float)
