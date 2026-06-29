@@ -212,3 +212,6 @@ molcrys_kit/_version.py
 
 # Local planning notes (scratch only; not part of the published source)
 plans/
+
+# Local temporary folder for scripting and testing
+_tmp/
