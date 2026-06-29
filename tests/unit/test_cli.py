@@ -209,6 +209,25 @@ def test_io_extract_molecule_center_vacuum_cif(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8").startswith("data_")
 
 
+def test_io_extract_molecule_rejects_multiple_selectors_before_load(tmp_path: Path) -> None:
+    output = tmp_path / "mol.xyz"
+    result = CliRunner().invoke(
+        main,
+        [
+            "io",
+            "extract-molecule",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--index",
+            "0",
+            "--largest",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Use only one molecule selector" in result.output
+
+
 def test_operate_supercell(tmp_path: Path) -> None:
     output = tmp_path / "super.cif"
     result = CliRunner().invoke(
@@ -217,6 +236,69 @@ def test_operate_supercell(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0
     assert output.exists()
+
+
+def test_operate_supercell_rejects_zero_scale(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "supercell", str(DAP4), "-o", str(tmp_path / "super.cif"), "--scale", "0", "1", "1"],
+    )
+    assert result.exit_code != 0
+    assert "--scale factors must each be >= 1." in result.output
+
+
+def test_slab_requires_layers_or_thickness(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "slab", str(DAP4), "-o", str(tmp_path / "slab.cif"), "--miller", "1", "1", "0"],
+    )
+    assert result.exit_code != 0
+    assert "Specify --layers N or --min-thickness T" in result.output
+
+
+def test_slab_rejects_all_zero_miller(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "slab", str(DAP4), "-o", str(tmp_path / "slab.cif"), "--miller", "0", "0", "0", "--layers", "1"],
+    )
+    assert result.exit_code != 0
+    assert "Miller indices cannot all be zero." in result.output
+
+
+def test_slab_rejects_invalid_terminations(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "slab", str(DAP4), "-o", str(tmp_path / "slab.cif"), "--miller", "1", "1", "0", "--layers", "1", "--terminations", "garbage"],
+    )
+    assert result.exit_code != 0
+    assert "--terminations must be one of" in result.output
+
+
+def test_vacancy_rejects_bad_species_count(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "vacancy", str(DAP4), "-o", str(tmp_path / "vacancy.cif"), "--species", "foo", "bar"],
+    )
+    assert result.exit_code != 0
+    assert "--species COUNT must be an integer" in result.output
+
+
+def test_vacancy_rejects_negative_seed_index(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "vacancy", str(DAP4), "-o", str(tmp_path / "vacancy.cif"), "--seed-index", "-1"],
+    )
+    assert result.exit_code != 0
+    assert "--seed-index must be non-negative." in result.output
+
+
+def test_interpolate_rejects_zero_images(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["operate", "interpolate", str(DAP4), str(DAP4), "-o", str(tmp_path / "traj.extxyz"), "--n-images", "0"],
+    )
+    assert result.exit_code != 0
+    assert "--n-images must be >= 1." in result.output
 
 
 def test_analyze_bfdh() -> None:
@@ -230,6 +312,21 @@ def test_analyze_bfdh_json() -> None:
     result = CliRunner().invoke(main, ["analyze", "bfdh", str(DAP4), "--top-n", "1", "--json"])
     assert result.exit_code == 0
     assert '"miller_index"' in result.output
+
+
+def test_bfdh_rejects_max_index_zero() -> None:
+    result = CliRunner().invoke(main, ["analyze", "bfdh", str(DAP4), "--max-index", "0"])
+    assert result.exit_code != 0
+    assert "--max-index must be >= 1." in result.output
+
+
+def test_polyhedra_rejects_non_positive_cutoff() -> None:
+    result = CliRunner().invoke(
+        main,
+        ["analyze", "polyhedra", str(DAP4), "--central", "Zn", "--ligand", "N", "--cutoff", "0"],
+    )
+    assert result.exit_code != 0
+    assert "--cutoff must be positive." in result.output
 
 
 def test_cluster_seed_options_are_mutually_exclusive(tmp_path: Path) -> None:

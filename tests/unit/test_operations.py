@@ -68,6 +68,12 @@ class TestVacancyGenerator:
         with pytest.raises(ValueError):
             gen.generate_vacancy(target_spec={"CO_1": 10})
 
+    def test_unknown_species_id_raises_with_available_species(self, simple_crystal):
+        gen = VacancyGenerator(simple_crystal)
+        with pytest.raises(ValueError, match=r"Species 'BAD_1' not found in crystal") as exc_info:
+            gen.generate_vacancy(target_spec={"BAD_1": 1})
+        assert "Available species:" in str(exc_info.value)
+
     def test_invalid_seed_index_raises(self, simple_crystal):
         gen = VacancyGenerator(simple_crystal)
         with pytest.raises(ValueError):

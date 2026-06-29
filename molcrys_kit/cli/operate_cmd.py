@@ -25,6 +25,9 @@ from molcrys_kit.operations import (
 from ._common import echo_paths, load_crystal, write_crystal_sequence, write_structure
 
 
+_VALID_SLAB_TERMINATIONS = {"single", "tasker_preferred", "all"}
+
+
 def _parse_seed(seed_element: str | None, seed_index: tuple[int, ...] | None):
     if seed_element is not None and seed_index:
         raise click.UsageError("Specify --seed-element OR --seed-index, not both.")
@@ -116,10 +119,9 @@ def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | 
         raise click.UsageError("Specify --layers N or --min-thickness T (at least one is required).")
     if all(m == 0 for m in miller):
         raise click.UsageError("Miller indices cannot all be zero.")
-    _VALID_TERMINATIONS = {"single", "tasker_preferred", "all"}
-    if terminations not in _VALID_TERMINATIONS and not terminations.isdigit():
+    if terminations not in _VALID_SLAB_TERMINATIONS and not terminations.isdigit():
         raise click.UsageError(
-            f"--terminations must be one of {sorted(_VALID_TERMINATIONS)} "
+            f"--terminations must be one of {sorted(_VALID_SLAB_TERMINATIONS)} "
             f"or a termination index (integer), got {terminations!r}."
         )
     crystal = load_crystal(input)
