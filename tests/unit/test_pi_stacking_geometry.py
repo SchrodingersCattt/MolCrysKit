@@ -41,19 +41,15 @@ class TestParallelUsesInterplaneDistance:
     """Parallel stacking should filter by interplane distance h, not centroid d."""
 
     def test_displaced_parallel_accepted(self):
-        """Two parallel rings with h=3.5 but large lateral offset (d=4.7).
+        """Two parallel rings with h=3.5 and lateral offset within ring radius.
 
-        Old code rejected this (d > 4.5). New code should accept (h < 4.0).
+        Old code rejected this (d > 4.5). New code should accept (h < 4.0)
+        when the centroid projection falls inside the target ring.
         """
         ring1 = _make_benzene([0, 0, 0], normal_axis="z")
-        ring2 = _make_benzene([3.2, 0, 3.5], normal_axis="z")  # h=3.5, l=3.2, d≈4.74
+        # l=1.2 < benzene circumradius ≈ 1.4 → projection check passes
+        ring2 = _make_benzene([1.2, 0, 3.5], normal_axis="z")  # h=3.5, l=1.2, d≈3.70
         results = find_pi_stacking([ring1, ring2])
-        # Should not be empty — displaced parallel with reasonable h
-        # (may or may not pass depending on lateral offset cutoff 2.5)
-        # Actually l=3.2 > 2.5, so this will be rejected by offset.
-        # Let's use l=2.0 instead:
-        ring2b = _make_benzene([2.0, 0, 3.5], normal_axis="z")  # h=3.5, l=2.0, d≈4.03
-        results = find_pi_stacking([ring1, ring2b])
         assert len(results) >= 1
         assert results[0].subtype == "displaced_parallel"
 
@@ -78,9 +74,13 @@ class TestTShapeUsesLargerCutoff:
         assert results[0].subtype == "T_shape"
 
     def test_t_shape_at_6A_accepted(self):
-        """Ring2 perpendicular at larger distance (h~5.5, l~2.0, d~5.85)."""
+        """Ring2 perpendicular at larger distance (h~5.5, l~1.0, d~5.59).
+
+        Projection of ring2 centroid onto ring1 plane must fall within
+        ring1 circumradius (~1.4) — l=1.0 satisfies this.
+        """
         ring1 = _make_benzene([0, 0, 0], normal_axis="z")
-        ring2 = _make_benzene([2.0, 0, 5.5], normal_axis="x")
+        ring2 = _make_benzene([1.0, 0, 5.5], normal_axis="x")  # l=1.0, d≈5.59
         results = find_pi_stacking([ring1, ring2])
         assert len(results) >= 1
         assert results[0].subtype == "T_shape"
