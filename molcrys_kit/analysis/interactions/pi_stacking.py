@@ -196,6 +196,11 @@ class PiStacking(BaseInteraction):
 
         ``plane_angle_deg`` defaults to ``normal_angle_deg`` for compatibility
         with the current ring-normal-based classification.
+
+        ``approach_distance_A`` records the stem-edge proximity to the face
+        ring plane for T-shape subtypes (negative = penetration past plane,
+        zero = contact, positive = separation).  ``None`` for parallel
+        subtypes where the metric is not applicable.
         """
         plane_angle = normal_angle_deg if plane_angle_deg is None else plane_angle_deg
         BaseInteraction.__init__(
