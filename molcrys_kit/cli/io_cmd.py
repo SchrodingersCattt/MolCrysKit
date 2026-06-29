@@ -290,6 +290,10 @@ def extract_molecule(
     """Extract one or more molecules from a crystal."""
     if center_vacuum is not None and center_vacuum < 0:
         raise click.UsageError("--center-vacuum must be non-negative.")
+    if _selector_count(index, formula, species_id, largest, all_molecules) > 1:
+        raise click.UsageError(
+            "Use only one molecule selector: --index, --formula, --species-id, --largest, or --all."
+        )
 
     crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
     rows = _molecule_inventory(crystal)
