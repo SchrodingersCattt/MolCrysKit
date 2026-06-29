@@ -45,6 +45,8 @@ class ScoringParams:
     pi_centroid_distance_sigma_A: float = 0.4
     pi_t_shape_distance0_A: float = 5.0
     pi_t_shape_distance_sigma_A: float = 1.0
+    pi_t_shape_approach0_A: float = 0.0
+    pi_t_shape_approach_sigma_A: float = 1.5
     pi_parallel_angle0_deg: float = 0.0
     pi_t_shape_angle0_deg: float = 90.0
     pi_angle_sigma_deg: float = 15.0

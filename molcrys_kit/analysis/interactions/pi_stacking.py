@@ -56,6 +56,7 @@ class PiStackingCriteria:
     max_face_centered_offset_A: float = 1.0
     max_parallel_lateral_offset_A: float = 2.5
     max_t_shape_lateral_offset_A: float = 3.0
+    max_t_shape_approach_A: float = 3.0
     aromatic_only: bool = True
     search_radius_A: float | None = None
     scoring_params: ScoringParams = field(default_factory=ScoringParams)
@@ -71,6 +72,7 @@ class PiStackingCriteria:
         max_face_centered_offset_A: float = 1.0,
         max_parallel_lateral_offset_A: float = 2.5,
         max_t_shape_lateral_offset_A: float = 3.0,
+        max_t_shape_approach_A: float = 3.0,
         aromatic_only: bool = True,
         search_radius_A: float | None = None,
         scoring_params: ScoringParams | None = None,
@@ -132,6 +134,11 @@ class PiStackingCriteria:
             "max_t_shape_lateral_offset_A",
             float(max_t_shape_lateral_offset_A),
         )
+        object.__setattr__(
+            self,
+            "max_t_shape_approach_A",
+            float(max_t_shape_approach_A),
+        )
         object.__setattr__(self, "aromatic_only", bool(aromatic_only))
         object.__setattr__(self, "search_radius_A", search_radius_A)
         object.__setattr__(self, "scoring_params", scoring_params or ScoringParams())
@@ -164,6 +171,7 @@ class PiStacking(BaseInteraction):
     normal_angle_deg: float
     plane_angle_deg: float
     lateral_offset_A: float
+    approach_distance_A: float | None
     subtype: PiStackingSubtype
 
     def __init__(
@@ -175,6 +183,7 @@ class PiStacking(BaseInteraction):
         normal_angle_deg: float,
         lateral_offset_A: float,
         subtype: PiStackingSubtype,
+        approach_distance_A: float | None = None,
         plane_angle_deg: float | None = None,
         molecule1_identity: ChemicalIdentity | None = None,
         molecule2_identity: ChemicalIdentity | None = None,
@@ -208,6 +217,9 @@ class PiStacking(BaseInteraction):
         self.normal_angle_deg = float(normal_angle_deg)
         self.plane_angle_deg = float(plane_angle)
         self.lateral_offset_A = float(lateral_offset_A)
+        self.approach_distance_A = (
+            float(approach_distance_A) if approach_distance_A is not None else None
+        )
         self.subtype = subtype
 
 
@@ -278,7 +290,7 @@ def find_pi_stacking(
                         if key in seen:
                             continue
                         seen.add(key)
-                        ring1_ref, ring2_ref, distance, angle, offset, subtype, score = result
+                        ring1_ref, ring2_ref, distance, angle, offset, subtype, score, approach = result
                         stacks.append(
                             PiStacking(
                                 ring1=ring1_ref,
@@ -287,6 +299,7 @@ def find_pi_stacking(
                                 normal_angle_deg=angle,
                                 lateral_offset_A=offset,
                                 subtype=subtype,
+                                approach_distance_A=approach,
                                 molecule1_identity=identities[mol1_idx] if identities else None,
                                 molecule2_identity=identities[mol2_idx] if identities else None,
                                 image=tuple(int(v) for v in image),
@@ -308,6 +321,7 @@ def find_pi_stacking(
                                         ),
                                         "normal_angle_deg": angle,
                                         "lateral_offset_A": offset,
+                                        "approach_distance_A": approach,
                                         "score_distance_A": float(
                                             distance if subtype == "T_shape" else abs(np.dot(
                                                 np.asarray(ring2.centroid_A) + _translation(lattice, image) - np.asarray(ring1.centroid_A),
@@ -358,7 +372,15 @@ def _evaluate_ring_pair(
 
     **T-shape** subtypes skip this projection check because the
     approaching ring's centroid legitimately projects outside the face
-    ring's footprint in valid edge-over-face geometries.
+    ring's footprint in valid edge-over-face geometries.  Instead,
+    T-shape uses an **approach distance** check: the minimum distance
+    from either ring's edge to the other ring's plane, computed as
+    ``min(h1 - r2_circumradius, h2 - r1_circumradius)``.  Negative
+    values indicate that the stem ring edge penetrates past the face
+    plane (ideal for edge-over-face contact).  A hard cutoff
+    ``max_t_shape_approach_A`` rejects clearly non-overlapping
+    side-by-side geometries, and the approach enters the score as a
+    third Lorentzian factor.
     """
     c1 = np.asarray(ring1.centroid_A, dtype=float)
     c2 = np.asarray(ring2.centroid_A, dtype=float) + translation
@@ -416,6 +438,28 @@ def _evaluate_ring_pair(
             else:
                 return None
 
+    # T-shape approach distance: how close the stem ring's nearest edge
+    # gets to the face ring's plane.  Computed bidirectionally (each ring
+    # as face) and the minimum is taken.  Negative = stem penetrates past
+    # face plane (ideal edge-over-face).
+    approach_distance: float | None = None
+    if subtype == "T_shape":
+        r1_circumradius = _ring_circumradius(molecules[mol1_idx], ring1)
+        r2_circumradius = _ring_circumradius(molecules[mol2_idx], ring2)
+        # Direction 1: ring1 as face, ring2 as stem
+        approach1 = interplane_distance - r2_circumradius
+        # Direction 2: ring2 as face, ring1 as stem
+        n2_norm = np.linalg.norm(n2)
+        if n2_norm > 0:
+            n2_unit = n2 / n2_norm
+            h2 = float(abs(np.dot(-centroid_vec, n2_unit)))
+        else:
+            h2 = centroid_distance
+        approach2 = h2 - r1_circumradius
+        approach_distance = min(approach1, approach2)
+        if approach_distance > criteria.max_t_shape_approach_A:
+            return None
+
     # Scoring: use interplane distance for parallel, centroid distance for T-shape
     # with subtype-specific distance center and sigma
     if subtype in ("face_centered_parallel", "displaced_parallel"):
@@ -432,22 +476,20 @@ def _evaluate_ring_pair(
         if subtype == "T_shape"
         else criteria.scoring_params.pi_parallel_angle0_deg
     )
-    score = composite_score(
-        (
-            (
-                score_distance,
-                dist0,
-                dist_sigma,
-                "lorentzian",
-            ),
-            (
-                normal_angle,
-                angle0,
-                criteria.scoring_params.pi_angle_sigma_deg,
-                "gaussian",
-            ),
-        )
-    )
+
+    score_components: list[tuple[float, float, float, str]] = [
+        (score_distance, dist0, dist_sigma, "lorentzian"),
+        (normal_angle, angle0, criteria.scoring_params.pi_angle_sigma_deg, "gaussian"),
+    ]
+    # T-shape: add approach distance as a third scoring dimension
+    if subtype == "T_shape" and approach_distance is not None:
+        score_components.append((
+            approach_distance,
+            criteria.scoring_params.pi_t_shape_approach0_A,
+            criteria.scoring_params.pi_t_shape_approach_sigma_A,
+            "lorentzian",
+        ))
+    score = composite_score(tuple(score_components))
     if score < criteria.scoring_params.score_threshold:
         return None
     ring1_ref = RingRef.from_molecule(
@@ -465,7 +507,7 @@ def _evaluate_ring_pair(
         image=image,
         crystal_atom_offset=atom_offsets[mol2_idx],
     )
-    return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset, subtype, score
+    return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset, subtype, score, approach_distance
 
 
 def _classify_pi_stacking(
@@ -539,6 +581,7 @@ def _criteria_metadata(criteria: PiStackingCriteria) -> dict[str, Any]:
         "max_face_centered_offset_A": criteria.max_face_centered_offset_A,
         "max_parallel_lateral_offset_A": criteria.max_parallel_lateral_offset_A,
         "max_t_shape_lateral_offset_A": criteria.max_t_shape_lateral_offset_A,
+        "max_t_shape_approach_A": criteria.max_t_shape_approach_A,
         "aromatic_only": criteria.aromatic_only,
         "prefilter_factor": criteria.scoring_params.prefilter_factor,
         "score_threshold": criteria.scoring_params.score_threshold,
