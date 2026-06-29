@@ -52,6 +52,7 @@ class DisorderGraphBuilder:
         self.info = info
         self.lattice = lattice
         self._coupled = coupled
+        self._pbc = getattr(info, 'pbc', None) or (True, True, True)
         self.graph = nx.Graph()
         self.conformers = []
         self.sp_completion_pairs = []
@@ -82,9 +83,19 @@ class DisorderGraphBuilder:
                 "Distance matrix will be %.0f MB. This may be slow.",
                 n, n * n * 8 / 1e6
             )
-        # Precompute distance matrix with PBC
+        # Precompute distance matrix with PBC (respecting actual periodicity)
         coord_diffs = coords[:, None, :] - coords[None, :, :]
-        coord_diffs = coord_diffs - np.round(coord_diffs)
+        # Apply minimum-image convention only along periodic axes.
+        # For non-periodic axes (e.g. vacuum direction of a slab with
+        # pbc=(True,True,False)), raw fractional differences are used so
+        # that atoms separated by the vacuum gap are not folded on top of
+        # each other.
+        pbc_mask = np.array(self._pbc, dtype=bool)
+        if pbc_mask.all():
+            # Fast path — fully periodic (common case)
+            coord_diffs = coord_diffs - np.round(coord_diffs)
+        else:
+            coord_diffs[..., pbc_mask] -= np.round(coord_diffs[..., pbc_mask])
         cart_diffs = np.einsum("nij,jk->nik", coord_diffs, self.lattice)
         self.dist_matrix = np.linalg.norm(cart_diffs, axis=2)
 

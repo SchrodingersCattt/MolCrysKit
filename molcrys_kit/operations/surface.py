@@ -430,12 +430,35 @@ class TopologicalSlabGenerator:
             applied_mols.append(mol_copy)
 
         # Stack layers
+        from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
+        # Determine max sym_op_index and asym_id across all base-layer
+        # molecules so that each stacked layer gets unique values.
+        _max_soi = 0
+        _max_aid = 0
+        for mol in applied_mols:
+            if KEY_SYM_OP_INDEX in mol.arrays:
+                _max_soi = max(_max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
+            if KEY_ASYM_ID in mol.arrays:
+                _max_aid = max(_max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
+
         all_mols = []
         for i in range(layers):
             layer_shift = i * stacking_vector
             for mol in applied_mols:
                 mol_layer = mol.copy()
                 mol_layer.positions = mol_layer.get_positions() + layer_shift
+                # Offset sym_op_index and asym_id so that each layer
+                # has unique provenance — prevents the disorder solver
+                # from merging atoms across different slab layers.
+                if i > 0:
+                    if KEY_SYM_OP_INDEX in mol_layer.arrays:
+                        mol_layer.arrays[KEY_SYM_OP_INDEX] = (
+                            mol_layer.arrays[KEY_SYM_OP_INDEX] + i * _max_soi
+                        )
+                    if KEY_ASYM_ID in mol_layer.arrays:
+                        mol_layer.arrays[KEY_ASYM_ID] = (
+                            mol_layer.arrays[KEY_ASYM_ID] + i * _max_aid
+                        )
                 all_mols.append(mol_layer)
 
         # Compute slab thickness
@@ -481,6 +504,12 @@ class TopologicalSlabGenerator:
             z_shift = 0.05 - min_z
         for mol in all_mols:
             mol.positions[:, 2] += z_shift
+
+        # Strip stale CIF fractional coordinates from every molecule —
+        # the slab lattice is completely different from the bulk CIF lattice.
+        from ..structures.molecule import strip_stale_frac_arrays
+        for mol in all_mols:
+            strip_stale_frac_arrays(mol)
 
         # Assemble final MolecularCrystal
         slab = MolecularCrystal(

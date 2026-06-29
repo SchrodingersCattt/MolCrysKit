@@ -138,19 +138,30 @@ class TestFracCoordsRoundTrip:
 
 
 class TestDisorderInfoUsesStoredFracCoords:
-    """DisorderInfo.from_crystal() uses stored frac coords, not recomputed."""
+    """DisorderInfo.from_crystal() recomputes frac coords from Cartesian.
 
-    def test_from_crystal_frac_coords_bitwise_equal(self):
-        """from_crystal frac_coords must be bitwise equal to CIF scan."""
+    Since from_crystal() deliberately ignores stored frac_x/y/z arrays
+    (they become stale after lattice-transforming operations like slab
+    cutting), we verify that recomputed coordinates are close to, but
+    not necessarily bitwise-equal to, the CIF-parsed values.
+    """
+
+    def test_from_crystal_frac_coords_close_to_cif(self):
+        """from_crystal frac_coords must be close to CIF scan values (mod 1)."""
         cif_info = scan_cif_disorder(str(DAP4))
         crystal = read_mol_crystal(str(DAP4))
         crystal_info = DisorderInfo.from_crystal(crystal)
 
         n = len(crystal_info.frac_coords)
-        np.testing.assert_array_equal(
-            crystal_info.frac_coords,
-            cif_info.frac_coords[:n],
-            err_msg="from_crystal should be bitwise equal to CIF values",
+        # Compare modulo 1 since CIF stores [0,1) but recomputed coords
+        # may be outside that range (e.g. -0.04 vs 0.96 are equivalent).
+        diff = crystal_info.frac_coords - cif_info.frac_coords[:n]
+        diff -= np.round(diff)
+        np.testing.assert_allclose(
+            diff,
+            0.0,
+            atol=1e-10,
+            err_msg="from_crystal frac_coords differ too much from CIF values",
         )
 
     def test_from_crystal_after_roundtrip_bitwise(self, tmp_path):
@@ -163,23 +174,30 @@ class TestDisorderInfoUsesStoredFracCoords:
 
         info = DisorderInfo.from_crystal(loaded)
         n = len(info.frac_coords)
-        # extxyz ASCII round-trip introduces ~1e-16 noise
+        # from_crystal always recomputes from Cartesian; extxyz round-trip
+        # adds further noise (~1e-10 from ASCII float repr) → compare
+        # modulo 1 with a tolerance that accommodates both effects.
+        diff = info.frac_coords - cif_info.frac_coords[:n]
+        diff -= np.round(diff)
         np.testing.assert_allclose(
-            info.frac_coords,
-            cif_info.frac_coords[:n],
-            atol=1e-15,
+            diff,
+            0.0,
+            atol=1e-9,
             err_msg="frac_coords lost precision after extxyz round-trip",
         )
 
     def test_caffeine_from_crystal_frac_coords(self):
-        """Assembly-disordered CIF (caffeine) also preserves frac coords."""
+        """Assembly-disordered CIF (caffeine) also gives close frac coords."""
         cif_info = scan_cif_disorder(str(CAFFEINE))
         crystal = read_mol_crystal(str(CAFFEINE))
         crystal_info = DisorderInfo.from_crystal(crystal)
 
         n = len(crystal_info.frac_coords)
-        np.testing.assert_array_equal(
-            crystal_info.frac_coords,
-            cif_info.frac_coords[:n],
+        diff = crystal_info.frac_coords - cif_info.frac_coords[:n]
+        diff -= np.round(diff)
+        np.testing.assert_allclose(
+            diff,
+            0.0,
+            atol=1e-10,
             err_msg="caffeine frac_coords mismatch",
         )

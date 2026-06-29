@@ -15,7 +15,7 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 
 from ..structures.crystal import MolecularCrystal
-from ..structures.molecule import CrystalMolecule
+from ..structures.molecule import CrystalMolecule, strip_stale_frac_arrays
 from ..utils.geometry import get_rotation_matrix, min_distance_between_atom_sets
 
 
@@ -202,6 +202,7 @@ class MoleculeManipulator:
         # Copy the target molecule and shift its positions
         mol_copy = self.crystal.molecules[molecule_index].copy()
         mol_copy.set_positions(mol_copy.get_positions() + vector)
+        strip_stale_frac_arrays(mol_copy)
 
         return _build_crystal_with_replaced_molecule(
             self.crystal, molecule_index, mol_copy
@@ -258,6 +259,7 @@ class MoleculeManipulator:
         translated = positions - pivot
         rotated = translated @ rot_mat.T
         mol_copy.set_positions(rotated + pivot)
+        strip_stale_frac_arrays(mol_copy)
 
         return _build_crystal_with_replaced_molecule(
             self.crystal, molecule_index, mol_copy

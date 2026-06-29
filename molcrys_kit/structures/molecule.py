@@ -17,6 +17,27 @@ from ..constants import (
     is_metal_element,
     DEFAULT_NEIGHBOR_CUTOFF,
 )
+from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
+
+
+def strip_stale_frac_arrays(atoms_obj) -> None:
+    """Remove stored CIF fractional-coordinate arrays from *atoms_obj*.
+
+    Operations that modify Cartesian positions or the lattice render the
+    CIF-origin ``frac_x``/``frac_y``/``frac_z`` arrays stale.  Calling this
+    helper after such operations prevents downstream code (e.g.
+    ``DisorderInfo.from_crystal()``) from silently using invalid fractional
+    coordinates.
+
+    Parameters
+    ----------
+    atoms_obj : ase.Atoms or CrystalMolecule
+        The atoms object whose stale fractional-coordinate arrays should be
+        removed.  If the arrays do not exist, this is a no-op.
+    """
+    for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z):
+        if key in atoms_obj.arrays:
+            del atoms_obj.arrays[key]
 
 
 class CrystalMolecule(Atoms):

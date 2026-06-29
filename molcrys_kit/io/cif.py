@@ -398,6 +398,7 @@ class DisorderInfo:
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
     lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
     formula_moiety: str = None  # _chemical_formula_moiety from CIF
+    pbc: tuple = None  # Periodic boundary conditions, e.g. (True, True, True)
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -408,6 +409,8 @@ class DisorderInfo:
             self.asym_id = []
         if self.site_symmetry_order is None:
             self.site_symmetry_order = []
+        if self.pbc is None:
+            self.pbc = (True, True, True)
         # lattice_matrix stays None when not available (e.g. legacy callers);
         # from_crystal() and scan_cif_disorder() always set it.
 
@@ -431,11 +434,11 @@ class DisorderInfo:
         This allows disorder resolution to work from extxyz-loaded crystals
         without re-reading the original CIF file.
 
-        When the crystal carries stored CIF fractional coordinates
-        (per-atom arrays ``frac_x``, ``frac_y``, ``frac_z`` — set by
-        :func:`read_mol_crystal`), those exact values are used.  Otherwise
-        fractional coordinates are recomputed from Cartesian positions,
-        which may introduce floating-point noise.
+        Fractional coordinates are always recomputed from Cartesian positions
+        and the crystal's current lattice.  Any stored CIF-origin
+        ``frac_x``/``frac_y``/``frac_z`` arrays are deliberately ignored
+        because they become stale after lattice-transforming operations
+        (slab cutting, supercell, etc.).
 
         Parameters
         ----------
@@ -450,7 +453,6 @@ class DisorderInfo:
         from ..constants.config import (
             KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
             KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
-            KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
         )
 
         atoms = crystal.to_ase()
@@ -461,22 +463,12 @@ class DisorderInfo:
         labels_arr = atoms.arrays.get(KEY_LABEL)
         labels = list(labels_arr) if labels_arr is not None else list(symbols)
 
-        # Prefer stored CIF fractional coordinates when available.
-        # These are set by read_mol_crystal() from the raw CIF parse and
-        # avoid the Cartesian→fractional recomputation that introduces noise.
-        fx = atoms.arrays.get(KEY_FRAC_X)
-        fy = atoms.arrays.get(KEY_FRAC_Y)
-        fz = atoms.arrays.get(KEY_FRAC_Z)
-        if fx is not None and fy is not None and fz is not None:
-            if not (fx.shape == fy.shape == fz.shape):
-                raise ValueError(
-                    f"frac_x/y/z shape mismatch: {fx.shape}, {fy.shape}, {fz.shape}"
-                )
-            frac_coords = np.column_stack([fx, fy, fz])
-        else:
-            # Fallback: recompute from Cartesian (may have precision loss)
-            cell = atoms.get_cell()
-            frac_coords = cell.scaled_positions(atoms.get_positions())
+        # Always recompute fractional coordinates from Cartesian positions
+        # and the current lattice.  Stored frac_x/y/z arrays are CIF-origin
+        # values that become invalid after any lattice transformation (slab
+        # cutting, supercell, perturbation, etc.).
+        cell = atoms.get_cell()
+        frac_coords = cell.scaled_positions(atoms.get_positions())
 
         occ_arr = atoms.arrays.get(KEY_OCCUPANCY)
         occupancies = list(occ_arr) if occ_arr is not None else [1.0] * n
@@ -498,6 +490,8 @@ class DisorderInfo:
 
         lattice_matrix = np.array(crystal.lattice, dtype=float)
 
+        pbc = tuple(crystal.pbc) if hasattr(crystal, 'pbc') else (True, True, True)
+
         return cls(
             labels=labels,
             symbols=symbols,
@@ -509,6 +503,7 @@ class DisorderInfo:
             asym_id=asym_id,
             site_symmetry_order=site_symmetry_order,
             lattice_matrix=lattice_matrix,
+            pbc=pbc,
         )
 
     def summary(self) -> str:
