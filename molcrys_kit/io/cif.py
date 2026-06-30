@@ -830,6 +830,41 @@ def scan_cif_disorder(
         else:
             site_sym_orders.append(1)
 
+    # --- Read MolCrysKit custom CIF fields (for round-trip fidelity) ---
+    # When a slab/supercell is written to CIF and later re-read, standard
+    # CIF fields can't carry sym_op_index or asym_id (P1 slabs have only
+    # the identity operation).  These custom _molcrys_* fields preserve the
+    # disorder provenance through the CIF round-trip.
+
+    _raw_molcrys_soi = data_block.get("_molcrys_sym_op_index", [])
+    _raw_molcrys_aid = data_block.get("_molcrys_asym_id", [])
+    _raw_molcrys_sso = data_block.get("_molcrys_site_symmetry_order", [])
+    # Only use the custom fields if their length matches n_atoms.
+    _have_custom_soi = len(_raw_molcrys_soi) >= n_atoms
+    _have_custom_aid = len(_raw_molcrys_aid) >= n_atoms
+    _have_custom_sso = len(_raw_molcrys_sso) >= n_atoms
+
+    molcrys_sym_op_indices = []
+    molcrys_asym_ids = []
+    molcrys_site_sym_orders = []
+
+    for i in range(n_atoms):
+        if _have_custom_soi:
+            try:
+                molcrys_sym_op_indices.append(int(_extract_numeric_value(_raw_molcrys_soi[i])))
+            except (ValueError, TypeError, IndexError):
+                molcrys_sym_op_indices.append(0)
+        if _have_custom_aid:
+            try:
+                molcrys_asym_ids.append(int(_extract_numeric_value(_raw_molcrys_aid[i])))
+            except (ValueError, TypeError, IndexError):
+                molcrys_asym_ids.append(-1)
+        if _have_custom_sso:
+            try:
+                molcrys_site_sym_orders.append(int(_extract_numeric_value(_raw_molcrys_sso[i])))
+            except (ValueError, TypeError, IndexError):
+                molcrys_site_sym_orders.append(1)
+
     # Ensure all arrays have the same length by padding if necessary
     min_len = n_atoms
     labels = (
@@ -916,9 +951,25 @@ def scan_cif_disorder(
             all_assemblies.append(
                 assemblies[i]
             )  # Copy the assembly ID to the new atom
-            all_sym_op_indices.append(op_idx)  # Store the symmetry operation index
-            all_asym_ids.append(i)  # NEW: track parent asymmetric-unit atom
-            all_site_sym_orders.append(site_sym_orders[i])  # NEW: site symmetry order
+
+            # Use custom _molcrys_* provenance when available (CIF round-trip
+            # for slabs/supercells where symmetry expansion is P1 identity).
+            # Otherwise fall back to symmetry-expansion-based defaults.
+            if _have_custom_soi and i < len(molcrys_sym_op_indices):
+                all_sym_op_indices.append(molcrys_sym_op_indices[i])
+            else:
+                all_sym_op_indices.append(op_idx)
+
+            if _have_custom_aid and i < len(molcrys_asym_ids):
+                all_asym_ids.append(molcrys_asym_ids[i])
+            else:
+                all_asym_ids.append(i)
+
+            if _have_custom_sso and i < len(molcrys_site_sym_orders):
+                all_site_sym_orders.append(molcrys_site_sym_orders[i])
+            else:
+                all_site_sym_orders.append(site_sym_orders[i])
+
             bucket.append(new_coord)
 
     # Convert lists to appropriate formats

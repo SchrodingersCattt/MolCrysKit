@@ -214,7 +214,10 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     str
         CIF format string if filename is None, otherwise None.
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
+    from ..constants.config import (
+        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
+        KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+    )
 
     lines = []
     lines.append("data_crystal")
@@ -266,6 +269,9 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     lines.append("  _atom_site_occupancy")
     lines.append("  _atom_site_disorder_group")
     lines.append("  _atom_site_disorder_assembly")
+    lines.append("  _molcrys_sym_op_index")
+    lines.append("  _molcrys_asym_id")
+    lines.append("  _molcrys_site_symmetry_order")
     lines.append("  _atom_site_U_iso_or_equiv")
     lines.append("  _atom_site_adp_type")
 
@@ -276,6 +282,9 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     all_disorder_groups = []
     all_assemblies = []
     all_labels = []
+    all_sym_op_indices = []
+    all_asym_ids = []
+    all_site_sym_orders = []
 
     for mol in crystal.molecules:
         # Get metadata arrays if they exist
@@ -299,12 +308,30 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
                 labels = mol.arrays[KEY_LABEL]
             else:
                 labels = np.array(mol.get_chemical_symbols())
+
+            if KEY_SYM_OP_INDEX in mol.arrays:
+                sym_op_indices = mol.arrays[KEY_SYM_OP_INDEX]
+            else:
+                sym_op_indices = np.full(len(mol), 0, dtype=int)
+
+            if KEY_ASYM_ID in mol.arrays:
+                asym_ids = mol.arrays[KEY_ASYM_ID]
+            else:
+                asym_ids = np.full(len(mol), -1, dtype=int)
+
+            if KEY_SITE_SYMMETRY_ORDER in mol.arrays:
+                site_sym_orders = mol.arrays[KEY_SITE_SYMMETRY_ORDER]
+            else:
+                site_sym_orders = np.full(len(mol), 1, dtype=int)
         else:
             # If mol doesn't have arrays attribute, use defaults
             occupancies = np.full(len(mol), 1.0)
             disorder_groups = np.full(len(mol), 0, dtype=int)
             assemblies = np.array([''] * len(mol))
             labels = np.array(mol.get_chemical_symbols())
+            sym_op_indices = np.full(len(mol), 0, dtype=int)
+            asym_ids = np.full(len(mol), -1, dtype=int)
+            site_sym_orders = np.full(len(mol), 1, dtype=int)
 
         symbols = mol.get_chemical_symbols()
         positions = mol.get_positions()
@@ -320,14 +347,19 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
             all_disorder_groups.append(int(disorder_groups[i]))  # Ensure integer
             all_assemblies.append(assemblies[i] if assemblies[i] else '.')
             all_labels.append(labels[i] if labels[i] else f"{symbols[i]}{i+1}")
+            all_sym_op_indices.append(int(sym_op_indices[i]))
+            all_asym_ids.append(int(asym_ids[i]))
+            all_site_sym_orders.append(int(site_sym_orders[i]))
 
     # Write atom positions with metadata
-    for i, (symbol, frac_pos, occ, group, assembly, label) in enumerate(
-        zip(all_symbols, all_frac_positions, all_occupancies, all_disorder_groups, all_assemblies, all_labels)
+    for i, (symbol, frac_pos, occ, group, assembly, label, soi, aid, sso) in enumerate(
+        zip(all_symbols, all_frac_positions, all_occupancies, all_disorder_groups,
+            all_assemblies, all_labels, all_sym_op_indices, all_asym_ids, all_site_sym_orders)
     ):
         lines.append(
             f"  {label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
-            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} .  Uiso"
+            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} "
+            f"{soi:4d} {aid:4d} {sso:2d} .  Uiso"
         )
 
     cif_string = "\n".join(lines) + "\n"

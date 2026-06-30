@@ -281,6 +281,19 @@ class MolecularCrystal:
 
         # Generate new molecules by replicating in all directions
         from .molecule import _strip_stale_frac_arrays
+        from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
+
+        # Determine max sym_op_index and asym_id across all original
+        # molecules so that each repeated cell gets unique values.
+        max_soi = 0
+        max_aid = 0
+        for mol in self.molecules:
+            if KEY_SYM_OP_INDEX in mol.arrays:
+                max_soi = max(max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
+            if KEY_ASYM_ID in mol.arrays:
+                max_aid = max(max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
+
+        cell_index = 0
         new_molecules = []
         for i, j, k in itertools.product(range(n1), range(n2), range(n3)):
             # Translation vector for this cell
@@ -295,7 +308,20 @@ class MolecularCrystal:
                 new_atoms.positions += np.dot(translation, self.lattice)
                 # Supercell lattice differs from the original; frac coords are stale.
                 _strip_stale_frac_arrays(new_atoms)
+                # Offset sym_op_index and asym_id so that each repeated
+                # cell has unique provenance — prevents the disorder
+                # solver from merging atoms across repeated cells.
+                if cell_index > 0:
+                    if KEY_SYM_OP_INDEX in new_atoms.arrays:
+                        new_atoms.arrays[KEY_SYM_OP_INDEX] = (
+                            new_atoms.arrays[KEY_SYM_OP_INDEX] + cell_index * max_soi
+                        )
+                    if KEY_ASYM_ID in new_atoms.arrays:
+                        new_atoms.arrays[KEY_ASYM_ID] = (
+                            new_atoms.arrays[KEY_ASYM_ID] + cell_index * max_aid
+                        )
                 new_molecules.append(new_atoms)
+            cell_index += 1
 
         return MolecularCrystal(new_lattice, new_molecules, self.pbc)
 

@@ -265,3 +265,166 @@ class TestDisorderThenSlabPipeline:
             assert len(mol) > 0
             # Acetaminophen is C8H9NO2 (20 atoms)
             assert len(mol) <= 30, f"Unexpectedly large molecule: {len(mol)} atoms"
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 tests: CIF round-trip preserves disorder provenance
+# ---------------------------------------------------------------------------
+
+
+class TestCifRoundTripDisorderProvenance:
+    """sym_op_index, asym_id, site_symmetry_order survive CIF write→read."""
+
+    @pytest.fixture
+    def dap4_crystal(self):
+        return read_mol_crystal(str(DAP4))
+
+    def test_cif_roundtrip_preserves_sym_op_index(self, tmp_path, dap4_crystal):
+        """sym_op_index survives slab → CIF → re-read."""
+        slab = generate_topological_slab(dap4_crystal, (1, 0, 0), layers=2, vacuum=10.0)
+
+        # Write to CIF and re-read
+        from molcrys_kit.io.output import write_cif
+        cif_path = tmp_path / "slab.cif"
+        write_cif(slab, str(cif_path))
+        re_read = read_mol_crystal(str(cif_path))
+
+        # Collect sym_op_index from original slab and re-read
+        slab_soi = []
+        for mol in slab.molecules:
+            if KEY_SYM_OP_INDEX in mol.arrays:
+                slab_soi.extend(mol.arrays[KEY_SYM_OP_INDEX].tolist())
+        re_read_soi = []
+        for mol in re_read.molecules:
+            if KEY_SYM_OP_INDEX in mol.arrays:
+                re_read_soi.extend(mol.arrays[KEY_SYM_OP_INDEX].tolist())
+
+        assert len(slab_soi) == len(re_read_soi), (
+            f"Atom count mismatch: {len(slab_soi)} vs {len(re_read_soi)}"
+        )
+        np.testing.assert_array_equal(
+            slab_soi, re_read_soi,
+            err_msg="sym_op_index lost/changed after CIF round-trip",
+        )
+
+    def test_cif_roundtrip_preserves_asym_id(self, tmp_path, dap4_crystal):
+        """asym_id survives slab → CIF → re-read."""
+        slab = generate_topological_slab(dap4_crystal, (1, 0, 0), layers=2, vacuum=10.0)
+
+        from molcrys_kit.io.output import write_cif
+        cif_path = tmp_path / "slab.cif"
+        write_cif(slab, str(cif_path))
+        re_read = read_mol_crystal(str(cif_path))
+
+        slab_aid = []
+        for mol in slab.molecules:
+            if KEY_ASYM_ID in mol.arrays:
+                slab_aid.extend(mol.arrays[KEY_ASYM_ID].tolist())
+        re_read_aid = []
+        for mol in re_read.molecules:
+            if KEY_ASYM_ID in mol.arrays:
+                re_read_aid.extend(mol.arrays[KEY_ASYM_ID].tolist())
+
+        assert len(slab_aid) == len(re_read_aid)
+        np.testing.assert_array_equal(
+            slab_aid, re_read_aid,
+            err_msg="asym_id lost/changed after CIF round-trip",
+        )
+
+    def test_cif_roundtrip_disorder_metadata_complete(self, tmp_path, dap4_crystal):
+        """All 7 disorder arrays survive CIF round-trip."""
+        slab = generate_topological_slab(dap4_crystal, (1, 0, 0), layers=2, vacuum=10.0)
+
+        from molcrys_kit.io.output import write_cif
+        cif_path = tmp_path / "slab.cif"
+        write_cif(slab, str(cif_path))
+
+        # Re-read via scan_cif_disorder (CLI path)
+        info = scan_cif_disorder(str(cif_path))
+        n = len(info.sym_op_indices)
+        assert n > 0
+        # All sym_op_indices should be non-negative
+        assert all(soi >= 0 for soi in info.sym_op_indices)
+        # All asym_ids should be present (not all -1)
+        assert any(aid != -1 for aid in info.asym_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 tests: Supercell disorder metadata
+# ---------------------------------------------------------------------------
+
+
+class TestSupercellDisorderMetadata:
+    """Supercell preserves disorder arrays and offsets sym_op_index/asym_id."""
+
+    @pytest.fixture
+    def dap4_crystal(self):
+        return read_mol_crystal(str(DAP4))
+
+    def test_get_supercell_preserves_arrays(self, dap4_crystal):
+        """get_supercell must preserve occupancy, disorder_group, assembly, label."""
+        sc = dap4_crystal.get_supercell(2, 1, 1)
+
+        for mol in sc.molecules:
+            assert KEY_OCCUPANCY in mol.arrays
+            assert KEY_DISORDER_GROUP in mol.arrays
+            assert KEY_ASSEMBLY in mol.arrays
+            assert KEY_LABEL in mol.arrays
+
+    def test_get_supercell_strips_frac_coords(self, dap4_crystal):
+        """get_supercell must strip stale frac_x/y/z."""
+        sc = dap4_crystal.get_supercell(2, 1, 1)
+
+        for mol in sc.molecules:
+            assert KEY_FRAC_X not in mol.arrays, "frac_x survived supercell"
+            assert KEY_FRAC_Y not in mol.arrays, "frac_y survived supercell"
+            assert KEY_FRAC_Z not in mol.arrays, "frac_z survived supercell"
+
+    def test_get_supercell_unique_sym_op_index(self, dap4_crystal):
+        """sym_op_index must be unique across repeated cells in supercell."""
+        sc = dap4_crystal.get_supercell(2, 2, 1)
+
+        # Molecules 0..n-1 = cell (0,0), n..2n-1 = cell (0,1),
+        # 2n..3n-1 = cell (1,0), 3n..4n-1 = cell (1,1)
+        n_per_cell = len(dap4_crystal.molecules)
+        cell_soi_sets = []
+        for cell_idx in range(4):
+            cell_sois = set()
+            start = cell_idx * n_per_cell
+            end = start + n_per_cell
+            for mol in sc.molecules[start:end]:
+                if KEY_SYM_OP_INDEX in mol.arrays:
+                    cell_sois.update(mol.arrays[KEY_SYM_OP_INDEX].tolist())
+            cell_soi_sets.append(cell_sois)
+
+        # All cells must have disjoint sym_op_index sets
+        if all(s for s in cell_soi_sets):
+            for i in range(len(cell_soi_sets)):
+                for j in range(i + 1, len(cell_soi_sets)):
+                    overlap = cell_soi_sets[i] & cell_soi_sets[j]
+                    assert not overlap, (
+                        f"Cell {i} and cell {j} share sym_op_index: {overlap}"
+                    )
+
+    def test_create_supercell_equals_get_supercell(self, dap4_crystal):
+        """create_supercell delegates to get_supercell — results identical."""
+        from molcrys_kit.operations.builders import create_supercell
+        sc1 = dap4_crystal.get_supercell(2, 1, 1)
+        sc2 = create_supercell(dap4_crystal, (2, 1, 1))
+
+        # Same number of molecules
+        assert len(sc1.molecules) == len(sc2.molecules)
+        # Same number of atoms
+        n1 = sum(len(m) for m in sc1.molecules)
+        n2 = sum(len(m) for m in sc2.molecules)
+        assert n1 == n2
+
+    def test_create_supercell_fractional_sanitation(self, dap4_crystal):
+        """create_supercell output should be clean for disorder resolution."""
+        from molcrys_kit.operations.builders import create_supercell
+        sc = create_supercell(dap4_crystal, (2, 1, 1))
+
+        # from_crystal should work on the supercell
+        info = DisorderInfo.from_crystal(sc)
+        assert info.pbc == dap4_crystal.pbc
+        assert len(info.sym_op_indices) == sum(len(m) for m in sc.molecules)
