@@ -39,9 +39,8 @@
 Core crystal data model.
 
 - Core: `MolAtom`, `CrystalMolecule`, `MolecularCrystal`, `CrystalTrajectory`, `Molecule`
-- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`, `MolecularCrystal.get_supercell(n1, n2, n3)`
+- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
-  - `get_supercell`: creates a supercell by replicating molecules (preserving per-atom disorder metadata arrays); `create_supercell` in `mck.operations` delegates here.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
 - Polyhedra reference data: `all_ideal_polyhedra`, `ideal_polyhedra_for_cn`, `convex_hull_payload`
 
