@@ -23,6 +23,10 @@ def _miller_text(value) -> str:
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
 def bfdh(input: Path, max_index: int, top_n: int, as_json: bool) -> None:
     """Rank low-index facets using BFDH morphology."""
+    if max_index < 1:
+        raise click.UsageError("--max-index must be >= 1.")
+    if top_n < 1:
+        raise click.UsageError("--top-n must be >= 1.")
     facets = enumerate_bfdh_facets(load_crystal(input), max_index=max_index, top_n=top_n)
     if as_json:
         click.echo(rows_to_json(facets))
@@ -64,6 +68,8 @@ def interactions(input: Path, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
 def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float | None, as_json: bool) -> None:
     """Enumerate coordination polyhedra."""
+    if cutoff is not None and cutoff <= 0:
+        raise click.UsageError("--cutoff must be positive.")
     rows = find_polyhedra(load_crystal(input), central=central, ligand=ligand, level=level, cutoff=cutoff)
     if as_json:
         click.echo(rows_to_json(rows))

@@ -107,6 +107,9 @@ def _selected_molecule_indices(
     all_molecules: bool,
 ) -> list[int]:
     """Resolve CLI selector options to one or more molecule indices."""
+    # Keep this guard even though extract_molecule() pre-validates the same
+    # selector exclusivity at the CLI entrypoint. This helper remains a second
+    # line of defense for any future non-CLI callers or refactors.
     selector_count = _selector_count(index, formula, species_id, largest, all_molecules)
     if selector_count > 1:
         raise click.UsageError(
