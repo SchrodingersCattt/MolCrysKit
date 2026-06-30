@@ -11,6 +11,7 @@ import warnings
 from typing import Dict, List, Optional
 from ase import Atoms
 from ..structures.crystal import MolecularCrystal
+from ..structures.molecule import _strip_stale_frac_arrays
 from ..analysis.chemical_env import ChemicalEnvironment
 from ..analysis.formula_moiety import match_molecule_to_fragment, parse_moiety_string
 from ..utils.geometry import (
@@ -730,6 +731,7 @@ class HydrogenCompleter:
             # Create a new molecule with shifted positions
             new_mol = mol.copy()
             new_mol.set_positions(new_positions)
+            _strip_stale_frac_arrays(new_mol)
 
             wrapped_molecules.append(new_mol)
 
@@ -845,3 +847,4 @@ class HydrogenCompleter:
             new_positions[h_idx] = positions[atom1_idx] + rotated_h_vector
 
         mol.set_positions(new_positions)
+        _strip_stale_frac_arrays(mol)

@@ -4,9 +4,9 @@ Structure builders for molecular crystals.
 This module provides functionality to build complex structures from simpler units.
 """
 
-import numpy as np
 from typing import Tuple
 
+import numpy as np
 
 from ..structures.crystal import MolecularCrystal
 
@@ -27,22 +27,13 @@ def create_supercell(
     Returns
     -------
     MolecularCrystal
-        Supercell structure.  CIF `formula_moiety` metadata is not propagated
-        because the molecule partitioning is rebuilt for the repeated cell.
+        Supercell structure.  Delegates to
+        :meth:`MolecularCrystal.get_supercell` which internally copies
+        molecules (preserving all per-atom disorder metadata arrays) and
+        offsets ``sym_op_index``/``asym_id`` across repeated cells to
+        prevent cross-copy merging in the disorder solver.
     """
-
-    # Get the ASE Atoms object using the to_ase method
-    atoms = crystal.to_ase()
-
-    # Create the supercell using ASE's repeat method with the scaling factors
-    supercell = atoms.repeat(scaling_factors)
-
-    # Rebuild the crystal structure from the supercell
-    from ..io.cif import identify_molecules
-
-    molecules = identify_molecules(supercell)
-
-    return MolecularCrystal(supercell.cell.copy(), molecules, crystal.pbc)
+    return crystal.get_supercell(*scaling_factors)
 
 
 def create_defect_structure(
