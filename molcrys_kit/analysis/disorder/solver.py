@@ -133,7 +133,8 @@ class DisorderSolver:
 
                 # Calculate pairwise distances between atoms in the group
                 # Using ASE's get_distances which handles PBC
-                _pbc = getattr(self.info, 'pbc', None) or (True, True, True)
+                _pbc = getattr(self.info, 'pbc', None)
+                _pbc = _pbc if _pbc is not None else (True, True, True)
                 dist_matrix = get_distances(
                     cart_coords, cart_coords, cell=self.lattice, pbc=_pbc
                 )[1]
@@ -1774,7 +1775,8 @@ class DisorderSolver:
             o_frac = self.info.frac_coords[partial_O_indices]   # (n_o, 3)
             d_frac = self.info.frac_coords[disq_indices]         # (n_d, 3)
             diff = o_frac[:, None, :] - d_frac[None, :, :]      # (n_o, n_d, 3)
-            _pbc = np.array(getattr(self.info, 'pbc', None) or (True, True, True), dtype=bool)
+            _info_pbc = getattr(self.info, 'pbc', None)
+            _pbc = np.array(_info_pbc if _info_pbc is not None else (True, True, True), dtype=bool)
             if _pbc.all():
                 diff = diff - np.round(diff)
             else:
@@ -1932,7 +1934,8 @@ class DisorderSolver:
         selected_symbols = [self.info.symbols[i] for i in independent_set]
         selected_frac_coords = self.info.frac_coords[independent_set]
 
-        pbc = getattr(self.info, 'pbc', None) or (True, True, True)
+        _info_pbc = getattr(self.info, 'pbc', None)
+        pbc = _info_pbc if _info_pbc is not None else (True, True, True)
 
         atoms = Atoms(
             symbols=selected_symbols,

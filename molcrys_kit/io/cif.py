@@ -385,6 +385,9 @@ class DisorderInfo:
       which expanded copies share the same crystallographic site)
     - site_symmetry_order: Site symmetry order for each atom (from CIF field
       _atom_site_site_symmetry_order). Values > 1 indicate special positions.
+    - pbc: Periodic boundary conditions as a 3-tuple of bools, e.g.
+      ``(True, True, True)`` for fully periodic or ``(True, True, False)``
+      for a slab.  Defaults to ``(True, True, True)``.
     """
 
     labels: List[str]
@@ -398,7 +401,7 @@ class DisorderInfo:
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
     lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
     formula_moiety: str = None  # _chemical_formula_moiety from CIF
-    pbc: tuple = None  # Periodic boundary conditions, e.g. (True, True, True)
+    pbc: Tuple[bool, bool, bool] = None  # Periodic boundary conditions
 
     def __post_init__(self):
         if self.assemblies is None:

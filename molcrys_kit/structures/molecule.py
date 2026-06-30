@@ -20,7 +20,7 @@ from ..constants import (
 from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
 
 
-def strip_stale_frac_arrays(atoms_obj) -> None:
+def _strip_stale_frac_arrays(atoms_obj) -> None:
     """Remove stored CIF fractional-coordinate arrays from *atoms_obj*.
 
     Operations that modify Cartesian positions or the lattice render the
@@ -28,6 +28,8 @@ def strip_stale_frac_arrays(atoms_obj) -> None:
     helper after such operations prevents downstream code (e.g.
     ``DisorderInfo.from_crystal()``) from silently using invalid fractional
     coordinates.
+
+    This is an internal helper — not part of the public API.
 
     Parameters
     ----------

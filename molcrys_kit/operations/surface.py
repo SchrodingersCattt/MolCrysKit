@@ -14,6 +14,8 @@ from math import gcd
 from functools import reduce
 
 from ..structures.crystal import MolecularCrystal
+from ..structures.molecule import _strip_stale_frac_arrays
+from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
 from ..utils.geometry import reduce_surface_lattice
 
 
@@ -430,16 +432,15 @@ class TopologicalSlabGenerator:
             applied_mols.append(mol_copy)
 
         # Stack layers
-        from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
         # Determine max sym_op_index and asym_id across all base-layer
         # molecules so that each stacked layer gets unique values.
-        _max_soi = 0
-        _max_aid = 0
+        max_soi = 0
+        max_aid = 0
         for mol in applied_mols:
             if KEY_SYM_OP_INDEX in mol.arrays:
-                _max_soi = max(_max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
+                max_soi = max(max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
             if KEY_ASYM_ID in mol.arrays:
-                _max_aid = max(_max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
+                max_aid = max(max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
 
         all_mols = []
         for i in range(layers):
@@ -453,11 +454,11 @@ class TopologicalSlabGenerator:
                 if i > 0:
                     if KEY_SYM_OP_INDEX in mol_layer.arrays:
                         mol_layer.arrays[KEY_SYM_OP_INDEX] = (
-                            mol_layer.arrays[KEY_SYM_OP_INDEX] + i * _max_soi
+                            mol_layer.arrays[KEY_SYM_OP_INDEX] + i * max_soi
                         )
                     if KEY_ASYM_ID in mol_layer.arrays:
                         mol_layer.arrays[KEY_ASYM_ID] = (
-                            mol_layer.arrays[KEY_ASYM_ID] + i * _max_aid
+                            mol_layer.arrays[KEY_ASYM_ID] + i * max_aid
                         )
                 all_mols.append(mol_layer)
 
@@ -507,9 +508,8 @@ class TopologicalSlabGenerator:
 
         # Strip stale CIF fractional coordinates from every molecule —
         # the slab lattice is completely different from the bulk CIF lattice.
-        from ..structures.molecule import strip_stale_frac_arrays
         for mol in all_mols:
-            strip_stale_frac_arrays(mol)
+            _strip_stale_frac_arrays(mol)
 
         # Assemble final MolecularCrystal
         slab = MolecularCrystal(

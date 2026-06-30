@@ -164,7 +164,7 @@ class TestDisorderInfoUsesStoredFracCoords:
             err_msg="from_crystal frac_coords differ too much from CIF values",
         )
 
-    def test_from_crystal_after_roundtrip_bitwise(self, tmp_path):
+    def test_from_crystal_after_roundtrip_close(self, tmp_path):
         """Frac coords survive extxyz round-trip with ASCII-float precision."""
         out = tmp_path / "out.extxyz"
         cif_info = scan_cif_disorder(str(DAP4))

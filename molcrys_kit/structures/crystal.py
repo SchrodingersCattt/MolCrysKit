@@ -280,7 +280,7 @@ class MolecularCrystal:
         )
 
         # Generate new molecules by replicating in all directions
-        from .molecule import strip_stale_frac_arrays
+        from .molecule import _strip_stale_frac_arrays
         new_molecules = []
         for i, j, k in itertools.product(range(n1), range(n2), range(n3)):
             # Translation vector for this cell
@@ -294,7 +294,7 @@ class MolecularCrystal:
                 # Apply translation
                 new_atoms.positions += np.dot(translation, self.lattice)
                 # Supercell lattice differs from the original; frac coords are stale.
-                strip_stale_frac_arrays(new_atoms)
+                _strip_stale_frac_arrays(new_atoms)
                 new_molecules.append(new_atoms)
 
         return MolecularCrystal(new_lattice, new_molecules, self.pbc)
@@ -432,7 +432,7 @@ class MolecularCrystal:
         the original CIF fractional coordinates.
         """
         from ..analysis.interactions import get_bonding_threshold
-        from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
+        from .molecule import _strip_stale_frac_arrays
 
         unwrapped_molecules = []
 
@@ -501,9 +501,7 @@ class MolecularCrystal:
 
             # Strip stale CIF fractional coordinates — the unwrapped
             # Cartesian positions are no longer consistent with them.
-            for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z):
-                if key in new_mol.arrays:
-                    del new_mol.arrays[key]
+            _strip_stale_frac_arrays(new_mol)
 
             unwrapped_molecule = CrystalMolecule(new_mol, self, check_pbc=False)
             unwrapped_molecules.append(unwrapped_molecule)

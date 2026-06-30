@@ -190,20 +190,28 @@ class TestUniqueLayerMetadata:
         crystal = read_mol_crystal(str(DAP4))
         slab = generate_topological_slab(crystal, (1, 0, 0), layers=3, vacuum=10.0)
 
-        # Collect all sym_op_index values per layer
+        # Partition slab molecules into layers.
         # With 3 layers, molecules 0..n-1 are layer 0, n..2n-1 are layer 1, etc.
         n_mols_per_layer = len(crystal.get_unwrapped_molecules())
-        all_soi = []
-        for mol in slab.molecules:
-            if KEY_SYM_OP_INDEX in mol.arrays:
-                all_soi.extend(mol.arrays[KEY_SYM_OP_INDEX].tolist())
 
-        # If sym_op_index arrays exist, verify uniqueness
-        if all_soi:
-            # With 3 layers, we expect 3x the number of unique values
-            # compared to a single layer
-            n_total = len(all_soi)
-            assert n_total > 0
+        layer_soi_sets = []
+        for layer_idx in range(3):
+            layer_sois = set()
+            start = layer_idx * n_mols_per_layer
+            end = start + n_mols_per_layer
+            for mol in slab.molecules[start:end]:
+                if KEY_SYM_OP_INDEX in mol.arrays:
+                    layer_sois.update(mol.arrays[KEY_SYM_OP_INDEX].tolist())
+            layer_soi_sets.append(layer_sois)
+
+        # If sym_op_index arrays exist, verify cross-layer disjointness
+        if all(s for s in layer_soi_sets):
+            for i in range(len(layer_soi_sets)):
+                for j in range(i + 1, len(layer_soi_sets)):
+                    overlap = layer_soi_sets[i] & layer_soi_sets[j]
+                    assert not overlap, (
+                        f"Layer {i} and layer {j} share sym_op_index values: {overlap}"
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +226,10 @@ class TestDisorderThenSlabPipeline:
         """DAN-2: resolve disorder → cut slab produces correct element totals."""
         # Step 1: Resolve disorder
         replicas = generate_ordered_replicas_from_disordered_sites(str(DAN2))
-        ordered = replicas[0] if isinstance(replicas[0], tuple) is False else replicas[0][0]
+        if isinstance(replicas[0], tuple):
+            ordered = replicas[0][0]
+        else:
+            ordered = replicas[0]
 
         # Verify disorder resolution produced correct counts
         elem_counter = Counter()

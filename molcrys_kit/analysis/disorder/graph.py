@@ -52,7 +52,8 @@ class DisorderGraphBuilder:
         self.info = info
         self.lattice = lattice
         self._coupled = coupled
-        self._pbc = getattr(info, 'pbc', None) or (True, True, True)
+        _pbc = getattr(info, 'pbc', None)
+        self._pbc = _pbc if _pbc is not None else (True, True, True)
         self.graph = nx.Graph()
         self.conformers = []
         self.sp_completion_pairs = []
