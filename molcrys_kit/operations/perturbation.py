@@ -6,7 +6,7 @@ and perturbations to molecular crystals and individual molecules.
 """
 
 import numpy as np
-from ..structures.molecule import CrystalMolecule
+from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
 from ..utils.geometry import get_rotation_matrix
 
 
@@ -32,6 +32,7 @@ def apply_gaussian_displacement_molecule(
     # Apply displacements
     new_positions = positions + displacements
     molecule.set_positions(new_positions)
+    _strip_stale_frac_arrays(molecule)
 
 
 def apply_gaussian_displacement_crystal(crystal, sigma: float) -> None:
@@ -77,6 +78,7 @@ def apply_directional_displacement(
     # Apply displacement
     new_positions = positions + displacement
     molecule.set_positions(new_positions)
+    _strip_stale_frac_arrays(molecule)
 
 
 def apply_random_rotation(molecule: CrystalMolecule, max_angle: float = 10.0) -> None:
@@ -120,3 +122,4 @@ def apply_random_rotation(molecule: CrystalMolecule, max_angle: float = 10.0) ->
 
     # Update positions
     molecule.set_positions(new_positions)
+    _strip_stale_frac_arrays(molecule)

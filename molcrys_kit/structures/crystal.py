@@ -280,6 +280,7 @@ class MolecularCrystal:
         )
 
         # Generate new molecules by replicating in all directions
+        from .molecule import _strip_stale_frac_arrays
         new_molecules = []
         for i, j, k in itertools.product(range(n1), range(n2), range(n3)):
             # Translation vector for this cell
@@ -292,6 +293,8 @@ class MolecularCrystal:
                 new_atoms.info.pop("atom_indices", None)
                 # Apply translation
                 new_atoms.positions += np.dot(translation, self.lattice)
+                # Supercell lattice differs from the original; frac coords are stale.
+                _strip_stale_frac_arrays(new_atoms)
                 new_molecules.append(new_atoms)
 
         return MolecularCrystal(new_lattice, new_molecules, self.pbc)
@@ -421,28 +424,40 @@ class MolecularCrystal:
 
         Uses robust bonding thresholds instead of hardcoded cutoffs to ensure consistency
         with molecule identification logic.
+
+        Per-atom metadata arrays (occupancy, disorder_group, assembly, label,
+        sym_op_index, asym_id, etc.) are preserved on the returned molecules.
+        Stale CIF fractional-coordinate arrays (frac_x/y/z) are stripped
+        because the unwrapped Cartesian positions no longer correspond to
+        the original CIF fractional coordinates.
         """
         from ..analysis.interactions import get_bonding_threshold
+        from .molecule import _strip_stale_frac_arrays
 
         unwrapped_molecules = []
 
         for molecule in self.molecules:
-            # 1. Prepare a temp object with the CRYSTAL's lattice/PBC
-            temp_atoms = molecule.to_ase()
-            temp_atoms.set_cell(self.lattice)
-            temp_atoms.set_pbc(self.pbc)
+            # 1. Build a lightweight bare Atoms for neighbor_list only.
+            #    Using molecule.to_ase() would drop per-atom metadata; instead
+            #    we create a minimal object with the crystal's lattice/PBC.
+            bare = Atoms(
+                symbols=molecule.get_chemical_symbols(),
+                positions=molecule.get_positions(),
+                cell=self.lattice,
+                pbc=self.pbc,
+            )
 
-            symbols = temp_atoms.get_chemical_symbols()
+            symbols = bare.get_chemical_symbols()
 
             # 2. Use neighbor_list('D') to get exact vectors
             # Use a slightly larger cutoff to catch all potential bonds
             i_list, j_list, d_list, D_vectors = neighbor_list(
-                "ijdD", temp_atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF
+                "ijdD", bare, cutoff=DEFAULT_NEIGHBOR_CUTOFF
             )
 
             # 3. Build a temporary graph to traverse
             g = nx.Graph()
-            g.add_nodes_from(range(len(temp_atoms)))
+            g.add_nodes_from(range(len(bare)))
 
             # Add edges based on robust bonding threshold
             for k, (u, v, d_vec, dist) in enumerate(
@@ -472,16 +487,23 @@ class MolecularCrystal:
             # 4. BFS Traversal to unwrap
             positions, completed = unwrap_positions_along_bonds(
                 g,
-                range(len(temp_atoms)),
-                temp_atoms.get_positions(),
+                range(len(bare)),
+                bare.get_positions(),
                 max_atoms=max_atoms,
             )
 
-            # 5. Create new CrystalMolecule
-            new_mol_atoms = temp_atoms.copy()
-            new_mol_atoms.set_positions(positions)
-            new_mol_atoms.info["unwrap_completed"] = completed
-            unwrapped_molecule = CrystalMolecule(new_mol_atoms, self, check_pbc=False)
+            # 5. Create new CrystalMolecule from a COPY of the original
+            #    molecule (preserving all per-atom arrays), then overwrite
+            #    positions with the unwrapped result.
+            new_mol = molecule.copy()
+            new_mol.set_positions(positions)
+            new_mol.info["unwrap_completed"] = completed
+
+            # Strip stale CIF fractional coordinates — the unwrapped
+            # Cartesian positions are no longer consistent with them.
+            _strip_stale_frac_arrays(new_mol)
+
+            unwrapped_molecule = CrystalMolecule(new_mol, self, check_pbc=False)
             unwrapped_molecules.append(unwrapped_molecule)
 
         return unwrapped_molecules

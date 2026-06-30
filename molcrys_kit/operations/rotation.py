@@ -5,7 +5,7 @@ This module provides functions for rotating molecules and crystals.
 """
 
 import numpy as np
-from ..structures.molecule import CrystalMolecule
+from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
 from ..utils.geometry import get_rotation_matrix
 
 
@@ -46,6 +46,7 @@ def _rotate_molecule_around_point(
 
     # Update molecule positions
     molecule.set_positions(new_positions)
+    _strip_stale_frac_arrays(molecule)
 
 
 def rotate_molecule_at_center(
