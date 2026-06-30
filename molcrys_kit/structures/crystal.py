@@ -292,6 +292,10 @@ class MolecularCrystal:
                 max_soi = max(max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
             if KEY_ASYM_ID in mol.arrays:
                 max_aid = max(max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
+        # Floor to 1 so the offset is non-trivial even when the
+        # original molecules lack sym_op_index/asym_id arrays.
+        max_soi = max(max_soi, 1)
+        max_aid = max(max_aid, 1)
 
         cell_index = 0
         new_molecules = []

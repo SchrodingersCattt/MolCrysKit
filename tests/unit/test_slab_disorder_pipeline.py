@@ -397,9 +397,11 @@ class TestSupercellDisorderMetadata:
                     cell_sois.update(mol.arrays[KEY_SYM_OP_INDEX].tolist())
             cell_soi_sets.append(cell_sois)
 
-        # All cells must have disjoint sym_op_index sets
-        if all(s for s in cell_soi_sets):
-            for i in range(len(cell_soi_sets)):
+        # All cells must have disjoint sym_op_index sets; fail-loud if
+        # any cell unexpectedly lacks the array.
+        for s in cell_soi_sets:
+            assert s, "Some cells have no sym_op_index array"
+        for i in range(len(cell_soi_sets)):
                 for j in range(i + 1, len(cell_soi_sets)):
                     overlap = cell_soi_sets[i] & cell_soi_sets[j]
                     assert not overlap, (
