@@ -151,13 +151,13 @@ class TestHighSymmetry:
     """
 
     def test_dap2o4_molecule_count(self):
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         assert len(mc.molecules) == 224
 
     def test_dap2o4_no_giant_molecules(self):
         """No molecule should exceed 100 atoms (was 576 before ASU-first)."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         for mol in mc.molecules:
@@ -165,7 +165,7 @@ class TestHighSymmetry:
 
     def test_dap2o4_clo4_count(self):
         """Should have exactly 24 ClO4- molecules."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         formulas = get_molecule_formulas(mc)
@@ -174,7 +174,7 @@ class TestHighSymmetry:
 
     def test_dap2o4_clo4_size(self):
         """Each ClO4- should have exactly 5 atoms (1 Cl + 4 O)."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         for mol in mc.molecules:
@@ -186,7 +186,7 @@ class TestHighSymmetry:
 
     def test_dap2o4_nh4_count(self):
         """Should have exactly 8 NH4+ molecules (N with only H neighbors)."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         formulas = get_molecule_formulas(mc)
@@ -200,7 +200,7 @@ class TestHighSymmetry:
     @pytest.mark.xfail(reason="ASU bond perception merges H atoms at shared Wyckoff orbit")
     def test_dap2o4_nh4_size(self):
         """Each NH4+ should have exactly 5 atoms (1 N + 4 H)."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         for mol in mc.molecules:
@@ -212,7 +212,7 @@ class TestHighSymmetry:
 
     def test_dap2o4_dap_count(self):
         """Should have molecules with formula C6H14N2O2."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         formulas = get_molecule_formulas(mc)
@@ -222,7 +222,7 @@ class TestHighSymmetry:
     def test_dap2o4_total_atoms(self):
         """Total atoms should be consistent (ASU-first deduplicates some
         special-position H atoms, so count may be lower than standard path)."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         # Standard path gives 5504; ASU-first with special-position dedup
         # gives fewer due to H atom dedup at shared Wyckoff orbits.
@@ -233,7 +233,7 @@ class TestHighSymmetry:
 
     def test_dap2o4_stoichiometry_no_hang(self):
         """StoichiometryAnalyzer should complete without hanging."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         analyzer = StoichiometryAnalyzer(mc)
@@ -248,7 +248,7 @@ class TestSpecialPosition:
 
     def test_clo4_on_8fold_axis(self):
         """ClO4- on 8-fold axis (Fm-3m) should produce correct number of instances."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         # Fm-3c has 192 symops
@@ -260,7 +260,7 @@ class TestSpecialPosition:
 
     def test_molecule_instances_formula(self):
         """General formula: |instances| = |G| / |Stab(M)|."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         formulas = get_molecule_formulas(mc)
@@ -278,7 +278,7 @@ class TestSpecialPosition:
 
     def test_no_duplicate_instances(self):
         """Each physical molecule should appear exactly once."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         # Check that no two molecules have overlapping atom positions
@@ -376,7 +376,7 @@ class TestEdgeCases:
 
     def test_multiple_asu_molecules(self):
         """Multiple different molecules in ASU should be handled."""
-        cif_path = EXAMPLES_DIR / "DAP-2O4.cif"
+        cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
         
         # DAP-2O4 has 3 different molecule types in ASU
