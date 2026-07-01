@@ -348,6 +348,46 @@ class TestCifRoundTripDisorderProvenance:
         # All asym_ids should be present (not all -1)
         assert any(aid != -1 for aid in info.asym_id)
 
+    def test_cif_roundtrip_label_not_polluted_by_molcrys_fields(self, tmp_path, dap4_crystal):
+        """Labels must not be polluted by `_molcrys_*` provenance fields."""
+        slab = generate_topological_slab(dap4_crystal, (1, 0, 0), layers=2, vacuum=10.0)
+
+        from molcrys_kit.io.output import write_cif
+        cif_path = tmp_path / "slab.cif"
+        write_cif(slab, str(cif_path))
+
+        re_read = read_mol_crystal(str(cif_path))
+        for mol in re_read.molecules:
+            if KEY_LABEL in mol.arrays:
+                for label in mol.arrays[KEY_LABEL]:
+                    text = str(label)
+                    assert not text.startswith("_molcrys_"), (
+                        f"Polluted atom label after CIF round-trip: {text}"
+                    )
+                    assert not text.startswith("_"), (
+                        f"Atom label should not start with underscore: {text}"
+                    )
+
+    def test_new_cif_uses_separate_molcrys_side_table(self, tmp_path, dap4_crystal):
+        """Writer should keep `_molcrys_*` provenance out of `_atom_site_*` loop."""
+        slab = generate_topological_slab(dap4_crystal, (1, 0, 0), layers=2, vacuum=10.0)
+
+        from molcrys_kit.io.output import write_cif
+        cif_path = tmp_path / "slab.cif"
+        write_cif(slab, str(cif_path))
+        text = cif_path.read_text(encoding="utf-8")
+
+        assert "_molcrys_atom_index" in text
+        assert "_molcrys_sym_op_index" in text
+
+        atom_site_header = text.find("  _atom_site_label")
+        assert atom_site_header != -1
+        atom_site_loop_start = text.rfind("loop_", 0, atom_site_header)
+        next_loop_start = text.find("loop_", atom_site_header)
+        atom_site_block = text[atom_site_loop_start:next_loop_start]
+        assert "_atom_site_label" in atom_site_block
+        assert "_molcrys_sym_op_index" not in atom_site_block
+
 
 # ---------------------------------------------------------------------------
 # Phase 2 tests: Supercell disorder metadata

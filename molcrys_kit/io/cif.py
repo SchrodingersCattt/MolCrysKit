@@ -9,6 +9,7 @@ from typing import List, Tuple, Optional, Dict
 import itertools
 import warnings
 import re
+import logging
 import numpy as np
 import networkx as nx
 from dataclasses import dataclass
@@ -30,6 +31,9 @@ from ..constants import (
 )
 from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bonds
 from ..constants import DEFAULT_NEIGHBOR_CUTOFF
+
+
+logger = logging.getLogger(__name__)
 
 
 class SymmetryAutoExpandedWarning(UserWarning):
@@ -147,6 +151,66 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
             k += 1
         i = k
     return "".join(out), changed
+
+
+def _extract_custom_molcrys_provenance_rows(text: str) -> Dict[int, Tuple[int, int, int]]:
+    """Parse optional `_molcrys_*` provenance side-table from raw CIF text.
+
+    New-format CIFs write atom-site data using only standard `_atom_site_*`
+    fields and place MolCrysKit provenance in a second loop keyed by atom
+    index:
+
+    - `_molcrys_atom_index`
+    - `_molcrys_sym_op_index`
+    - `_molcrys_asym_id`
+    - `_molcrys_site_symmetry_order`
+
+    Returns `{atom_index: (sym_op_index, asym_id, site_sym_order)}`.
+    Malformed rows are skipped conservatively.
+    """
+    lines = text.splitlines()
+    i = 0
+    rows: Dict[int, Tuple[int, int, int]] = {}
+    required = {
+        "_molcrys_atom_index",
+        "_molcrys_sym_op_index",
+        "_molcrys_asym_id",
+        "_molcrys_site_symmetry_order",
+    }
+    while i < len(lines):
+        if lines[i].strip().lower() != "loop_":
+            i += 1
+            continue
+        j = i + 1
+        tags: list[str] = []
+        while j < len(lines) and lines[j].lstrip().startswith("_"):
+            tags.append(lines[j].strip().split()[0])
+            j += 1
+        if not tags or not required.issubset(tags):
+            i = j
+            continue
+        tag_to_idx = {tag: idx for idx, tag in enumerate(tags)}
+        k = j
+        while k < len(lines):
+            stripped = lines[k].strip()
+            if not stripped:
+                k += 1
+                continue
+            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+                break
+            tokens = stripped.split()
+            if len(tokens) == len(tags):
+                try:
+                    atom_index = int(tokens[tag_to_idx["_molcrys_atom_index"]])
+                    sym_op_index = int(tokens[tag_to_idx["_molcrys_sym_op_index"]])
+                    asym_id = int(tokens[tag_to_idx["_molcrys_asym_id"]])
+                    site_sym_order = int(tokens[tag_to_idx["_molcrys_site_symmetry_order"]])
+                    rows[atom_index] = (sym_op_index, asym_id, site_sym_order)
+                except (TypeError, ValueError, IndexError):
+                    pass
+            k += 1
+        i = k
+    return rows
 
 
 def _pymatgen_cif_parser(
@@ -700,6 +764,10 @@ def scan_cif_disorder(
         filepath, cif_text=cif_text,
         occupancy_tolerance=1, site_tolerance=1e-2,
     )
+    raw_text = cif_text
+    if raw_text is None and filepath is not None:
+        with open(filepath, encoding="utf-8") as handle:
+            raw_text = handle.read()
     cif_data = parser.as_dict()
     formula_moiety = _extract_formula_moiety(parser)
 
@@ -839,6 +907,7 @@ def scan_cif_disorder(
     _raw_molcrys_soi = data_block.get("_molcrys_sym_op_index", [])
     _raw_molcrys_aid = data_block.get("_molcrys_asym_id", [])
     _raw_molcrys_sso = data_block.get("_molcrys_site_symmetry_order", [])
+    _side_table = _extract_custom_molcrys_provenance_rows(raw_text or "")
     # Only use the custom fields if their length matches n_atoms.
     # Warn when the raw field has more entries than expected — may
     # indicate a hand-edited or corrupted CIF.
@@ -852,15 +921,21 @@ def scan_cif_disorder(
                 "CIF field %s has %d entries, expected %d; extra ignored.",
                 label, len(raw), limit,
             )
-    _have_custom_soi = len(_raw_molcrys_soi) >= n_atoms
-    _have_custom_aid = len(_raw_molcrys_aid) >= n_atoms
-    _have_custom_sso = len(_raw_molcrys_sso) >= n_atoms
+    _have_custom_soi = len(_raw_molcrys_soi) >= n_atoms or bool(_side_table)
+    _have_custom_aid = len(_raw_molcrys_aid) >= n_atoms or bool(_side_table)
+    _have_custom_sso = len(_raw_molcrys_sso) >= n_atoms or bool(_side_table)
 
     molcrys_sym_op_indices = []
     molcrys_asym_ids = []
     molcrys_site_sym_orders = []
 
     for i in range(n_atoms):
+        if i in _side_table:
+            soi, aid, sso = _side_table[i]
+            molcrys_sym_op_indices.append(soi)
+            molcrys_asym_ids.append(aid)
+            molcrys_site_sym_orders.append(sso)
+            continue
         if _have_custom_soi:
             try:
                 molcrys_sym_op_indices.append(int(_extract_numeric_value(_raw_molcrys_soi[i])))

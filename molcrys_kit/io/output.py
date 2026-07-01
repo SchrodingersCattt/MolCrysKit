@@ -6,6 +6,7 @@ This module provides functions for writing molecular crystal data to various for
 
 import json
 import os
+import re
 from io import StringIO
 from typing import Optional, Sequence
 import warnings
@@ -213,6 +214,14 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     -------
     str
         CIF format string if filename is None, otherwise None.
+
+    Notes
+    -----
+    Disorder provenance (`sym_op_index`, `asym_id`, `site_symmetry_order`) is
+    written in a separate `_molcrys_*` side-table loop keyed by atom index,
+    rather than mixed into the `_atom_site_*` loop. This avoids label / column
+    misalignment in some third-party CIF parsers and viewers while preserving
+    MolCrysKit round-trip fidelity.
     """
     from ..constants.config import (
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
@@ -269,9 +278,6 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     lines.append("  _atom_site_occupancy")
     lines.append("  _atom_site_disorder_group")
     lines.append("  _atom_site_disorder_assembly")
-    lines.append("  _molcrys_sym_op_index")
-    lines.append("  _molcrys_asym_id")
-    lines.append("  _molcrys_site_symmetry_order")
     lines.append("  _atom_site_U_iso_or_equiv")
     lines.append("  _atom_site_adp_type")
 
@@ -351,16 +357,35 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
             all_asym_ids.append(int(asym_ids[i]))
             all_site_sym_orders.append(int(site_sym_orders[i]))
 
-    # Write atom positions with metadata
+    def _sanitise_label(label, symbol: str, atom_index: int) -> str:
+        text = str(label).strip() if label is not None else ""
+        if not text or text.startswith("_") or text.startswith("_molcrys_"):
+            return f"{symbol}{atom_index + 1}"
+        if not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", text):
+            return f"{symbol}{atom_index + 1}"
+        return text
+
+    # Write atom positions with standard atom-site metadata only.
     for i, (symbol, frac_pos, occ, group, assembly, label, soi, aid, sso) in enumerate(
         zip(all_symbols, all_frac_positions, all_occupancies, all_disorder_groups,
             all_assemblies, all_labels, all_sym_op_indices, all_asym_ids, all_site_sym_orders)
     ):
+        safe_label = _sanitise_label(label, symbol, i)
         lines.append(
-            f"  {label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
-            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} "
-            f"{soi:4d} {aid:4d} {sso:2d} .  Uiso"
+            f"  {safe_label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
+            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} .  Uiso"
         )
+
+    lines.append("")
+    lines.append("loop_")
+    lines.append("  _molcrys_atom_index")
+    lines.append("  _molcrys_sym_op_index")
+    lines.append("  _molcrys_asym_id")
+    lines.append("  _molcrys_site_symmetry_order")
+    for i, (soi, aid, sso) in enumerate(
+        zip(all_sym_op_indices, all_asym_ids, all_site_sym_orders)
+    ):
+        lines.append(f"  {i:4d} {soi:4d} {aid:4d} {sso:2d}")
 
     cif_string = "\n".join(lines) + "\n"
 
