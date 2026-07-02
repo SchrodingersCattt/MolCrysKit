@@ -245,13 +245,12 @@ class DisorderGraphBuilder:
         different assemblies are spatially close (< site radius), meaning
         they would be incorrectly merged into one conformer.
 
-        This fixes VOSNEZ-type cases where CIF marks all minor components as
-        group=1 across 5 different assemblies, causing conformer identification
-        to merge bonded-neighbor atoms from different sites.
+        Handles cases where CIF marks all minor components with the same
+        group number across multiple assemblies, causing conformer
+        identification to merge bonded-neighbor atoms from different sites.
 
-        Does NOT split when atoms in different assemblies are far apart (like
-        MAF-4 where group=1 appears in both assembly 'A' and 'C' at different
-        positions — those are legitimate independent disorder sites).
+        Does NOT split when atoms in different assemblies are far apart
+        (legitimate independent disorder sites sharing a group number).
         """
         n = len(self.info.labels)
         radius = DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]  # 2.2 Å — bonded neighbor distance
@@ -370,7 +369,7 @@ class DisorderGraphBuilder:
             return
 
         # If ALL remaining partial-occ atoms have empty assembly, this is pure
-        # implicit SP disorder (e.g., DAP-4 NH4+ H atoms) — skip.
+        # implicit SP disorder (orientational H on special positions) — skip.
         has_any_assembly = any(
             bool(self.info.assemblies[i] if i < len(self.info.assemblies) else "")
             for i in partial_g0
@@ -785,9 +784,8 @@ class DisorderGraphBuilder:
                         # describe the SAME crystallographic site, i.e. share
                         # at least one sym_op_index.  When the sym_op sets
                         # are disjoint they're distinct sites and must
-                        # coexist (this is the SHELXL convention used by
-                        # e.g. DAI-X1, where -2 and -1 jointly fill the 8
-                        # symmetry copies of one ligand).
+                        # coexist (SHELXL convention where negative PARTs
+                        # jointly fill symmetry copies of one ligand).
                         if part_a < 0 and part_b < 0:
                             if self.info.sym_op_indices:
                                 sop_a = {
@@ -808,7 +806,7 @@ class DisorderGraphBuilder:
                         # bonded neighbors (e.g., S/Se in a chelating ligand).
                         # EXCEPTION: if centroids nearly overlap (< 1.5 Å),
                         # they're at the same physical site and ARE alternatives
-                        # (e.g., MAF-4 O4W asm='A' vs O4W' asm='B').
+                        # (e.g., water O in assembly A vs O' in assembly B).
                         if part_a > 0 and part_b > 0:
                             asm_a = set(
                                 self.info.assemblies[aa]
@@ -1054,9 +1052,9 @@ class DisorderGraphBuilder:
         that would handle them via valence/tetrahedral decomposition.  Specifically,
         H atoms whose nearest bonded non-H neighbor is partial-occupancy (e.g.,
         water H bonded to O with occ<1) are included because C2b skips such
-        centers.  H atoms bonded to full-occ centers (e.g., N4 in DAP-4) are
-        excluded — their disorder is orientational and handled by tetrahedral
-        decomposition from that full-occ center.
+        centers.  H atoms bonded to full-occ centres are excluded — their
+        disorder is orientational and handled by tetrahedral decomposition
+        from that full-occ center.
         """
         has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
         if not has_asym_info:
@@ -1076,12 +1074,11 @@ class DisorderGraphBuilder:
         # Exception: "multi-site" SP disorder.  When a group of symmetry-
         # equivalent H copies (same asym_id) has round(n_copies * occ) > 1,
         # the H is NOT pure orientational disorder about a single center
-        # (DAP-4 NH4+ case, round(4 * 0.25) = 1).  It is genuine multi-site
-        # SP disorder where only a subset of the copies coexist (DAP-7
-        # hydrazinium H1C case, round(4 * 0.5) = 2).  Valence decomposition
-        # cannot resolve this because it only sees one center at a time;
-        # include such H atoms in SP clustering so pairwise conflicts are
-        # added correctly.
+        # (e.g., round(4 * 0.25) = 1 is orientational).  It is genuine
+        # multi-site SP disorder where only a subset of the copies coexist
+        # (e.g., round(4 * 0.5) = 2).  Valence decomposition cannot resolve
+        # this because it only sees one center at a time; include such H
+        # atoms in SP clustering so pairwise conflicts are added correctly.
         h_needs_sp_clustering = set()
         n_atoms = len(self.info.labels)
 
@@ -1148,9 +1145,9 @@ class DisorderGraphBuilder:
                 # (line ~486).  We only use site_sym_order as a positive signal:
                 # order > 1 guarantees SP disorder; order == 1 is ambiguous and
                 # must be allowed through so the downstream check can decide.
-                # (Removing the order<=1 skip fixes NatComm-1 S1/N1 which are on
-                # general positions but still have fractional occupancy because
-                # 24 symops generate 24 copies of which only 6 can coexist.)
+                # (Removing the order<=1 skip fixes atoms on general positions
+                # that still have fractional occupancy because many symops
+                # generate copies of which only a subset can coexist.)
                 if self.info.symbols[i] in ("H", "D"):
                     if i not in h_needs_sp_clustering:
                         continue
@@ -1159,12 +1156,12 @@ class DisorderGraphBuilder:
         # Pre-compute connected-component fragment ids over full-occupancy
         # heavy atoms.  This is only needed when there are multi-site H
         # atoms whose proximity-only clustering can be misled by lattice
-        # coincidences (DAP-7 H1C: copies anchored to different hydrazinium
-        # cations happen to lie 1.44 Å apart, making them look like SP
-        # equivalents even though they belong to chemically distinct
-        # cations).  Bucketing H copies by their nearest full-occ anchor's
-        # fragment restores the correct semantics: only H atoms anchored
-        # to the same chemical fragment compete for the same proton site.
+        # coincidences (copies anchored to different molecular cations may
+        # lie within bonding distance, making them look like SP equivalents
+        # even though they belong to chemically distinct fragments).
+        # Bucketing H copies by their nearest full-occ anchor's fragment
+        # restores the correct semantics: only H atoms anchored to the
+        # same chemical fragment compete for the same proton site.
         heavy_anchor_fragment: dict = {}
         if multi_site_h:
             heavy_graph = nx.Graph()
@@ -1405,8 +1402,7 @@ class DisorderGraphBuilder:
                 # atoms whose partial occupancy arises from sso > 1, NOT from
                 # genuine disorder.  Their expanded neighbours are all legitimate
                 # framework bonds; generating mutual-exclusion edges between them
-                # would incorrectly forbid co-existing framework atoms (e.g.
-                # S1/N1/C1/Cd1 in NatComm-1).
+                # would incorrectly forbid co-existing framework atoms.
                 center_dg = self.info.disorder_groups[center_idx]
                 center_occ = self.info.occupancies[center_idx]
                 if center_dg == 0 and center_occ < 1.0:
@@ -1415,7 +1411,7 @@ class DisorderGraphBuilder:
                 # Skip valence decomposition for centers with explicit disorder
                 # groups (dg != 0).  These are already handled by conformer and
                 # explicit conflict logic; adding valence conflicts would create
-                # spurious exclusion edges (e.g. Cl3-O in ClO4- of PAP-HM4).
+                # spurious exclusion edges.
                 if center_dg != 0:
                     continue
 
