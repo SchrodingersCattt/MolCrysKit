@@ -391,9 +391,9 @@ class DisorderGraphBuilder:
             if len(atom_list) <= 1:
                 continue
 
-            # Spatial clustering: group atoms that are within `radius` of each
-            # other (same site), split those that are far apart (different sites).
-            # Use union-find to build connected components.
+            # Spatial clustering: group atoms that are bonded to each other
+            # (same molecular fragment) vs isolated at separate sites.
+            # Use union-find with bonding threshold to form connected components.
             parent = {i: i for i in atom_list}
 
             def find(x):
@@ -406,10 +406,13 @@ class DisorderGraphBuilder:
                 if root_a != root_b:
                     parent[root_b] = root_a
 
-            # Connect atoms within radius
+            # Connect atoms that are bonded (within bonding threshold)
             for idx_a, i in enumerate(atom_list):
+                sym_i = self.info.symbols[i]
                 for j in atom_list[idx_a + 1:]:
-                    if self.dist_matrix[i, j] < radius:
+                    sym_j = self.info.symbols[j]
+                    dist = self.dist_matrix[i, j]
+                    if self._are_bonded(sym_i, sym_j, dist, g, g):
                         union(i, j)
 
             # Extract clusters
@@ -419,6 +422,13 @@ class DisorderGraphBuilder:
                 clusters.setdefault(root, []).append(i)
 
             if len(clusters) <= 1:
+                continue
+
+            # Only split if ALL clusters are single atoms (true site-occupancy
+            # disorder at independent crystallographic positions). Multi-atom
+            # clusters indicate molecular fragments of the same conformational
+            # alternative — those must stay together.
+            if any(len(c) > 1 for c in clusters.values()):
                 continue
 
             # Multiple spatially separated sites — split.

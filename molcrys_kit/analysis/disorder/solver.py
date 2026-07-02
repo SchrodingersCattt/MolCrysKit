@@ -1401,11 +1401,15 @@ class DisorderSolver:
         return totals
 
     def _has_mixed_element_alternatives(self) -> bool:
-        """Return True if any decision component has alternatives with
-        different element sets (occupancy disorder / solid solution).
+        """Return True if any decision component has single-atom alternatives
+        with different elements (site-occupancy disorder / solid solution).
 
-        When this is True, element-totals stabilisation must be skipped
-        because different replicas legitimately have different compositions.
+        Only activates for true site-occupancy cases where each alternative
+        in a component is a single atom (or small group of the same element)
+        and the elements differ across alternatives.  Whole-molecule
+        orientational disorder (e.g., imidazole ring flips where C and N
+        swap positions) is excluded because the alternatives are multi-atom
+        fragments, not single-site substitutions.
         """
         group_graph = self._build_group_conflict_graph()
         if group_graph.number_of_nodes() == 0:
@@ -1414,13 +1418,17 @@ class DisorderSolver:
         for component in _nx.connected_components(group_graph):
             # Collect element sets per group in this component
             element_sets: list[frozenset] = []
+            all_single_element = True
             for group_idx in component:
                 atoms = group_graph.nodes[group_idx]["atoms"]
                 elements = frozenset(self.info.symbols[a] for a in atoms)
                 element_sets.append(elements)
-            # If any two groups in the same component have different elements,
-            # this is occupancy disorder with element variation.
-            if len(set(element_sets)) > 1:
+                # A "single-element group" has all atoms of the same element
+                if len(elements) > 1:
+                    all_single_element = False
+            # Only flag as mixed-element if ALL groups in the component are
+            # single-element (pure site-occupancy), and they differ.
+            if all_single_element and len(set(element_sets)) > 1:
                 return True
         return False
 
