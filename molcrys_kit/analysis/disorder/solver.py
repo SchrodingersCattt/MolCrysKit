@@ -1400,6 +1400,30 @@ class DisorderSolver:
             totals[symbol] = totals.get(symbol, 0) + 1
         return totals
 
+    def _has_mixed_element_alternatives(self) -> bool:
+        """Return True if any decision component has alternatives with
+        different element sets (occupancy disorder / solid solution).
+
+        When this is True, element-totals stabilisation must be skipped
+        because different replicas legitimately have different compositions.
+        """
+        group_graph = self._build_group_conflict_graph()
+        if group_graph.number_of_nodes() == 0:
+            return False
+        import networkx as _nx
+        for component in _nx.connected_components(group_graph):
+            # Collect element sets per group in this component
+            element_sets: list[frozenset] = []
+            for group_idx in component:
+                atoms = group_graph.nodes[group_idx]["atoms"]
+                elements = frozenset(self.info.symbols[a] for a in atoms)
+                element_sets.append(elements)
+            # If any two groups in the same component have different elements,
+            # this is occupancy disorder with element variation.
+            if len(set(element_sets)) > 1:
+                return True
+        return False
+
     def _selected_complete_motif_count(
         self, independent_set: List[int], center_symbol: str
     ) -> int:
@@ -1663,13 +1687,22 @@ class DisorderSolver:
             reference_set = cleaned_sets[0]
             reference_totals = self._selected_element_totals(reference_set)
             reference_nh4 = self._selected_complete_motif_count(reference_set, "N")
+
+            # Determine whether element-totals stabilisation should apply.
+            # For occupancy disorder (solid solutions), different replicas
+            # legitimately have different element compositions (e.g., Na vs N).
+            # Only enforce element-total invariance when ALL decision
+            # alternatives in a component have the same element set.
+            allow_element_variation = self._has_mixed_element_alternatives()
+
             stabilised_sets = [reference_set]
             for cleaned_set in cleaned_sets[1:]:
                 use_reference = False
                 if method == "enumerate":
-                    use_reference = (
-                        self._selected_element_totals(cleaned_set) != reference_totals
-                    )
+                    if not allow_element_variation:
+                        use_reference = (
+                            self._selected_element_totals(cleaned_set) != reference_totals
+                        )
                 else:
                     use_reference = self._has_too_close_contact(cleaned_set)
                     if reference_nh4:

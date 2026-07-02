@@ -124,6 +124,7 @@ class DisorderGraphBuilder:
         # atoms that CIF authors left at group=0 (common in CCDC data).
         self._promote_partial_framework_atoms()
         self._split_shared_groups_across_assemblies()
+        self._split_shared_groups_by_spatial_separation()
         self._infer_groups_from_occupancy_complement()
         self._identify_conformers()
         self._identify_sp_completion_pairs()
@@ -338,6 +339,120 @@ class DisorderGraphBuilder:
             logger.info(
                 "Split %d atoms from shared disorder groups spanning "
                 "multiple assemblies into unique per-assembly groups.",
+                split_count,
+            )
+
+    def _split_shared_groups_by_spatial_separation(self):
+        """
+        Split a single disorder_group spanning spatially separated sites
+        (within the same symop) into independent groups — one per site.
+
+        This fixes solid solutions like Na/NH₄⁺ disorder at multiple
+        crystallographically independent sites that share the same disorder_group
+        tag but lack assembly labels (e.g., 2465024: Na1/N3 at site A,
+        Na2/N4 at site B, both marked group=1 vs group=2, but no assembly).
+
+        Strategy: for each positive group, collect atoms with empty assembly,
+        cluster them by spatial proximity within the same symop, and assign
+        each cluster a unique synthetic group.
+
+        Only acts on atoms from symop=0 to avoid splitting genuine symmetry
+        equivalents (cross-symop copies of the same physical site).
+        """
+        n = len(self.info.labels)
+        radius = DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]  # 1.5 Å site-match threshold
+
+        # Collect (group) → atom indices for group!=0, asm='', symop=0
+        group_no_asm: dict[int, list[int]] = {}
+        for i in range(n):
+            g = self.info.disorder_groups[i]
+            if g <= 0:
+                continue
+            asm = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+            if asm:
+                continue
+            sop = (
+                self.info.sym_op_indices[i]
+                if i < len(self.info.sym_op_indices)
+                else 0
+            )
+            if sop != 0:
+                continue
+            group_no_asm.setdefault(g, []).append(i)
+
+        max_group = max(
+            (abs(g) for g in self.info.disorder_groups if g != 0),
+            default=0,
+        )
+        next_group = max_group + 1
+        split_count = 0
+
+        for g, atom_list in group_no_asm.items():
+            if len(atom_list) <= 1:
+                continue
+
+            # Spatial clustering: group atoms that are within `radius` of each
+            # other (same site), split those that are far apart (different sites).
+            # Use union-find to build connected components.
+            parent = {i: i for i in atom_list}
+
+            def find(x):
+                if parent[x] != x:
+                    parent[x] = find(parent[x])
+                return parent[x]
+
+            def union(a, b):
+                root_a, root_b = find(a), find(b)
+                if root_a != root_b:
+                    parent[root_b] = root_a
+
+            # Connect atoms within radius
+            for idx_a, i in enumerate(atom_list):
+                for j in atom_list[idx_a + 1:]:
+                    if self.dist_matrix[i, j] < radius:
+                        union(i, j)
+
+            # Extract clusters
+            clusters: dict[int, list[int]] = {}
+            for i in atom_list:
+                root = find(i)
+                clusters.setdefault(root, []).append(i)
+
+            if len(clusters) <= 1:
+                continue
+
+            # Multiple spatially separated sites — split.
+            # Keep the first cluster with original group, reassign others.
+            # Propagate to all symmetry copies via asym_id.
+            has_asym = hasattr(self.info, "asym_id") and self.info.asym_id
+            cluster_list = sorted(clusters.values(), key=lambda c: c[0])
+            for cluster in cluster_list[1:]:
+                new_g = next_group
+                next_group += 1
+                # Collect asym_ids of atoms in this cluster
+                cluster_asym_ids = set()
+                for atom_idx in cluster:
+                    if has_asym and atom_idx < len(self.info.asym_id):
+                        cluster_asym_ids.add(self.info.asym_id[atom_idx])
+
+                # Reassign all atoms with matching asym_id AND same original group
+                for i in range(n):
+                    if self.info.disorder_groups[i] != g:
+                        continue
+                    if has_asym and i < len(self.info.asym_id):
+                        if self.info.asym_id[i] not in cluster_asym_ids:
+                            continue
+                    elif i not in cluster:
+                        continue
+                    self.info.disorder_groups[i] = new_g
+                    if self.graph.has_node(i):
+                        self.graph.nodes[i]["disorder_group"] = new_g
+                    split_count += 1
+
+        if split_count:
+            logger.info(
+                "Split %d atoms from shared disorder groups at spatially "
+                "separated sites (no assembly labels) into unique per-site groups.",
                 split_count,
             )
 
@@ -2081,7 +2196,9 @@ class DisorderGraphBuilder:
                         for t in part_a_atoms + part_b_atoms:
                             if self._is_same_parent_pair(r, t):
                                 continue
-                            add_or_promote_edge(self.graph, r, t, "valence_geometry")
+                            add_or_promote_edge(
+                                self.graph, r, t, "valence_geometry"
+                            )
                     return
 
     def _find_tetrahedral_groups(self, atom_indices, cart_positions):
