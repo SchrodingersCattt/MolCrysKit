@@ -124,6 +124,12 @@ DISORDER_CONFIG = {
     "WATER_O_H_CUTOFF": 1.4,          # Å — O-H bond for water completeness check
     "WATER_O_H_SWEEP_CUTOFF": 2.0,    # Å — wider sweep: remove H near an incomplete water O
     "WATER_O_HEAVY_BOND_CUTOFF": 2.0, # Å — O-C/N/S/P bond cutoff (disqualifies O from being water)
+    # Tolerance for occupancy-complement detection in synthetic PART inference.
+    # Two atoms are considered complementary if abs(occ_A + occ_B - 1.0) <= this.
+    # Value of 0.10 accounts for typical CIF refinement rounding (occupancies
+    # reported to 2-3 decimal places) and minor deviations from ideal site
+    # filling in multi-component disorder (e.g., 0.52 + 0.47 = 0.99).
+    "OCCUPANCY_COMPLEMENT_TOLERANCE": 0.10,
     # Maximum neighbor count for tetrahedral/trigonal clique decomposition.
     # C(16,4) = 1820 candidates — manageable.  C(30,4) = 27405 — too slow.
     "CLIQUE_DECOMP_MAX_NEIGHBORS": 16,
