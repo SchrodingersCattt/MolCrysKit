@@ -61,7 +61,16 @@ class DisorderGraphBuilder:
         self._sp_completion_pair_keys = set()
 
         # Add nodes
+        # Normalize assembly labels: CIF uses '.' or '?' for "not specified";
+        # DisorderInfo.from_crystal() may preserve these as non-empty strings.
+        # Canonicalize to empty string for consistent downstream checks.
         for i in range(len(info.labels)):
+            raw_asm = info.assemblies[i] if i < len(info.assemblies) else ""
+            asm = "" if str(raw_asm) in ("", ".", "?") else str(raw_asm)
+            # Also normalize the info list in-place so all downstream code
+            # (conformer identification, explicit conflicts) sees clean values.
+            if i < len(info.assemblies):
+                info.assemblies[i] = asm
             self.graph.add_node(
                 i,
                 label=info.labels[i],
@@ -69,7 +78,7 @@ class DisorderGraphBuilder:
                 frac_coord=info.frac_coords[i],
                 occupancy=info.occupancies[i],
                 disorder_group=info.disorder_groups[i],
-                assembly=info.assemblies[i] if i < len(info.assemblies) else "",
+                assembly=asm,
             )
 
         self._precompute_metrics()
