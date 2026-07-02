@@ -110,6 +110,11 @@ class DisorderGraphBuilder:
         """
         Build the exclusion graph using the Conformer-Centric Architecture.
         """
+        # Pre-processing: infer synthetic disorder groups for partial-occ
+        # atoms that CIF authors left at group=0 (common in CCDC data).
+        self._promote_partial_framework_atoms()
+        self._split_shared_groups_across_assemblies()
+        self._infer_groups_from_occupancy_complement()
         self._identify_conformers()
         self._identify_sp_completion_pairs()
         self._add_conformer_conflicts()
@@ -119,6 +124,430 @@ class DisorderGraphBuilder:
         self._resolve_valence_conflicts()
         self.graph.graph["sp_completion_pairs"] = self.sp_completion_pairs
         return self.graph
+
+        self._add_explicit_conflicts()
+        self._add_geometric_conflicts()
+        self._add_implicit_sp_conflicts()
+        self._resolve_valence_conflicts()
+        self.graph.graph["sp_completion_pairs"] = self.sp_completion_pairs
+        return self.graph
+
+    # ------------------------------------------------------------------
+    # Synthetic PART inference for partial-occupancy atoms left at group=0
+    # ------------------------------------------------------------------
+
+    def _promote_partial_framework_atoms(self):
+        """
+        Category A fix: promote group=0, occ<1 atoms that share an assembly
+        with a group!=0 atom into the complementary group.
+
+        CIF convention allows the "major component" to be marked group=0
+        while only the minor alternative carries a proper disorder_group.
+        This method detects such pairs (same assembly, occupancy-complement,
+        spatial overlap) and assigns the major component a synthetic group so
+        that _add_explicit_conflicts can wire them correctly.
+        """
+        n = len(self.info.labels)
+        tolerance = DISORDER_CONFIG.get("OCCUPANCY_COMPLEMENT_TOLERANCE", 0.10)
+        radius = DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]
+
+        # Collect existing non-zero groups per assembly (asymmetric-unit level)
+        asm_groups: dict[str, set[int]] = {}
+        for i in range(n):
+            asm = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+            g = self.info.disorder_groups[i]
+            if asm and g != 0:
+                asm_groups.setdefault(asm, set()).add(g)
+
+        if not asm_groups:
+            return  # No assemblies with disorder annotations at all
+
+        # Determine the synthetic group number to assign to promoted atoms.
+        # Strategy: for a 2-group assembly {g}, the complement is max+1.
+        # For multi-group assemblies, we use pair matching below.
+        max_group = max(
+            (abs(g) for g in self.info.disorder_groups if g != 0),
+            default=0,
+        )
+        next_synthetic = max_group + 1
+
+        promoted_count = 0
+        for i in range(n):
+            if self.info.disorder_groups[i] != 0:
+                continue
+            occ_i = self.info.occupancies[i]
+            if occ_i >= 1.0:
+                continue
+            asm_i = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+            if not asm_i:
+                continue
+            if asm_i not in asm_groups:
+                continue
+
+            # Find a complementary partner in same assembly with group!=0
+            # that is at the same spatial site.
+            best_partner = None
+            best_dist = radius
+            for j in range(n):
+                if i == j:
+                    continue
+                if self.info.disorder_groups[j] == 0:
+                    continue
+                asm_j = self.info.assemblies[j] if j < len(self.info.assemblies) else ""
+                if asm_j != asm_i:
+                    continue
+                # Check spatial overlap
+                dist = self.dist_matrix[i, j]
+                if dist >= radius:
+                    continue
+                # Check occupancy complementarity
+                occ_sum = occ_i + self.info.occupancies[j]
+                if abs(occ_sum - 1.0) > tolerance:
+                    continue
+                # Prefer closest
+                if dist < best_dist:
+                    best_dist = dist
+                    best_partner = j
+
+            if best_partner is not None:
+                # Assign a synthetic group that is different from the partner's
+                partner_group = self.info.disorder_groups[best_partner]
+                existing_in_asm = asm_groups[asm_i]
+                # If the assembly only has one group, assign next_synthetic
+                if len(existing_in_asm) == 1:
+                    synthetic_group = next_synthetic
+                    # Only increment once per assembly
+                    if synthetic_group not in asm_groups.get(asm_i, set()):
+                        asm_groups[asm_i].add(synthetic_group)
+                        next_synthetic += 1
+                else:
+                    # Multi-group assembly: find the group that ISN'T the partner
+                    others = existing_in_asm - {partner_group}
+                    synthetic_group = min(others) if others else next_synthetic
+
+                self.info.disorder_groups[i] = synthetic_group
+                # Update the graph node attribute too
+                if self.graph.has_node(i):
+                    self.graph.nodes[i]["disorder_group"] = synthetic_group
+                promoted_count += 1
+
+        if promoted_count:
+            logger.info(
+                "Promoted %d partial-occ framework atoms to synthetic "
+                "disorder groups (Category A inference).",
+                promoted_count,
+            )
+
+    def _split_shared_groups_across_assemblies(self):
+        """
+        Split a single disorder_group that spans multiple assemblies into
+        separate groups — one per assembly — but ONLY when atoms from
+        different assemblies are spatially close (< site radius), meaning
+        they would be incorrectly merged into one conformer.
+
+        This fixes VOSNEZ-type cases where CIF marks all minor components as
+        group=1 across 5 different assemblies, causing conformer identification
+        to merge bonded-neighbor atoms from different sites.
+
+        Does NOT split when atoms in different assemblies are far apart (like
+        MAF-4 where group=1 appears in both assembly 'A' and 'C' at different
+        positions — those are legitimate independent disorder sites).
+        """
+        n = len(self.info.labels)
+        radius = DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]  # 2.2 Å — bonded neighbor distance
+
+        # Collect (group, assembly) → atom indices, only for positive group!=0
+        group_asm: dict[int, dict[str, list[int]]] = {}
+        for i in range(n):
+            g = self.info.disorder_groups[i]
+            if g <= 0:
+                continue
+            asm = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+            if not asm:
+                continue
+            group_asm.setdefault(g, {}).setdefault(asm, []).append(i)
+
+        # Find groups that span multiple assemblies AND have spatially close
+        # atoms across assemblies (indicating they'd be merged in conformers).
+        max_group = max(
+            (abs(g) for g in self.info.disorder_groups if g != 0),
+            default=0,
+        )
+        next_group = max_group + 1
+        split_count = 0
+
+        for g, asm_dict in group_asm.items():
+            if len(asm_dict) <= 1:
+                continue
+
+            # Check if any atom pair across assemblies AND within the same
+            # symop is spatially close.  Cross-symop proximity is just crystal
+            # packing — not an indication that atoms belong to the same site.
+            assemblies_sorted = sorted(asm_dict.keys())
+            has_close_pair = False
+            for idx_a, asm_a in enumerate(assemblies_sorted):
+                if has_close_pair:
+                    break
+                for asm_b in assemblies_sorted[idx_a + 1:]:
+                    for i in asm_dict[asm_a]:
+                        if has_close_pair:
+                            break
+                        sop_i = (
+                            self.info.sym_op_indices[i]
+                            if i < len(self.info.sym_op_indices)
+                            else 0
+                        )
+                        for j in asm_dict[asm_b]:
+                            sop_j = (
+                                self.info.sym_op_indices[j]
+                                if j < len(self.info.sym_op_indices)
+                                else 0
+                            )
+                            if sop_i != sop_j:
+                                continue
+                            if self.dist_matrix[i, j] < radius:
+                                has_close_pair = True
+                                break
+                    if has_close_pair:
+                        break
+
+            if not has_close_pair:
+                continue
+
+            # Spatially close atoms in different assemblies — split.
+            # Keep the first assembly with the original group, re-assign others.
+            for asm in assemblies_sorted[1:]:
+                new_g = next_group
+                next_group += 1
+                for atom_idx in asm_dict[asm]:
+                    self.info.disorder_groups[atom_idx] = new_g
+                    if self.graph.has_node(atom_idx):
+                        self.graph.nodes[atom_idx]["disorder_group"] = new_g
+                    split_count += 1
+
+        if split_count:
+            logger.info(
+                "Split %d atoms from shared disorder groups spanning "
+                "multiple assemblies into unique per-assembly groups.",
+                split_count,
+            )
+
+    def _infer_groups_from_occupancy_complement(self):
+        """
+        Category B fix: for structures where ALL disordered atoms are group=0,
+        infer synthetic groups from occupancy-complement pairs at overlapping
+        sites, then expand via bond connectivity to form complete fragments.
+
+        Detects whole-molecule orientational disorder and site-occupancy disorder
+        that CIF authors annotated only via occupancy (no PART/group tags).
+
+        All symmetry copies of the same asymmetric-unit fragment get the SAME
+        assembly label and group number, so that --coupled mode works correctly.
+        """
+        n = len(self.info.labels)
+        tolerance = DISORDER_CONFIG.get("OCCUPANCY_COMPLEMENT_TOLERANCE", 0.10)
+        radius = DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]
+
+        # Only activate if there are group=0 partial-occ atoms with no partner.
+        # We need at least SOME atoms with a non-empty assembly label to
+        # anchor the pairing.  Structures where ALL partial-occ atoms have
+        # empty assembly are implicit SP disorder (orientational copies on
+        # special positions) — those are handled by _add_implicit_sp_conflicts.
+        partial_g0 = [
+            i for i in range(n)
+            if self.info.disorder_groups[i] == 0
+            and self.info.occupancies[i] < 1.0
+        ]
+        if not partial_g0:
+            return
+
+        # Check that we still have unresolved atoms (Phase 1 might have fixed them)
+        partial_g0 = [
+            i for i in partial_g0
+            if self.info.disorder_groups[i] == 0
+        ]
+        if not partial_g0:
+            return
+
+        # If ALL remaining partial-occ atoms have empty assembly, this is pure
+        # implicit SP disorder (e.g., DAP-4 NH4+ H atoms) — skip.
+        has_any_assembly = any(
+            bool(self.info.assemblies[i] if i < len(self.info.assemblies) else "")
+            for i in partial_g0
+        )
+        if not has_any_assembly:
+            return
+
+        # Strategy: work on the ASYMMETRIC UNIT only (sym_op=0), infer groups
+        # there, then propagate to all symmetry copies.
+        has_sym = hasattr(self.info, "sym_op_indices") and self.info.sym_op_indices
+        if has_sym:
+            asym_partial = [i for i in partial_g0 if self.info.sym_op_indices[i] == 0]
+        else:
+            asym_partial = partial_g0
+
+        if not asym_partial:
+            return
+
+        # Group partial-occ atoms by their occupancy value (rounded)
+        occ_clusters: dict[float, list[int]] = {}
+        for i in asym_partial:
+            occ_key = round(self.info.occupancies[i], 3)
+            occ_clusters.setdefault(occ_key, []).append(i)
+
+        # Find occupancy-complement pairs (occ_A + occ_B ≈ 1.0)
+        occ_values = sorted(occ_clusters.keys())
+        complement_pairs: list[tuple[float, float]] = []
+        for idx_a, occ_a in enumerate(occ_values):
+            for occ_b in occ_values[idx_a:]:
+                if abs(occ_a + occ_b - 1.0) <= tolerance:
+                    complement_pairs.append((occ_a, occ_b))
+
+        if not complement_pairs:
+            return
+
+        # For each complement pair, find seed atoms that overlap spatially
+        max_group = max(
+            (abs(g) for g in self.info.disorder_groups if g != 0),
+            default=0,
+        )
+        synthetic_base = max_group + 100  # Large offset for clarity
+        assigned_asym = set()
+        asm_counter = 0
+
+        # Build asym_id → [atom indices across all sym_ops] mapping
+        asym_to_symcopies: dict[int, list[int]] = {}
+        if has_sym:
+            for i in partial_g0:
+                asym_id = self.info.asym_id[i] if i < len(self.info.asym_id) else i
+                asym_to_symcopies.setdefault(asym_id, []).append(i)
+
+        for occ_a, occ_b in complement_pairs:
+            atoms_a = [i for i in occ_clusters.get(occ_a, []) if i not in assigned_asym]
+            atoms_b = [i for i in occ_clusters.get(occ_b, []) if i not in assigned_asym]
+            if occ_a == occ_b:
+                atoms_b = atoms_a
+
+            # Find spatial overlap seeds within asymmetric unit
+            for i in atoms_a:
+                if i in assigned_asym:
+                    continue
+                for j in atoms_b:
+                    if j in assigned_asym or j == i:
+                        continue
+                    if self.dist_matrix[i, j] >= radius:
+                        continue
+                    # Found a seed pair in the asymmetric unit!
+                    group_a = synthetic_base
+                    group_b = synthetic_base + 1
+                    synthetic_base += 2
+                    asm_label = f"syn_{asm_counter}"
+                    asm_counter += 1
+
+                    # Expand fragments within the asymmetric unit
+                    fragment_a = self._expand_fragment(i, occ_a, assigned_asym, asym_partial)
+                    fragment_b = self._expand_fragment(j, occ_b, assigned_asym, asym_partial)
+
+                    # Assign groups to the asymmetric unit fragments
+                    for atom_idx in fragment_a:
+                        assigned_asym.add(atom_idx)
+                    for atom_idx in fragment_b:
+                        assigned_asym.add(atom_idx)
+
+                    # Now propagate to ALL symmetry copies:
+                    # For each atom in the asym fragment, find all its sym copies
+                    # and assign them the same group + assembly.
+                    all_assigned = set()
+
+                    if has_sym:
+                        for atom_idx in fragment_a:
+                            asym_id = self.info.asym_id[atom_idx] if atom_idx < len(self.info.asym_id) else atom_idx
+                            copies = asym_to_symcopies.get(asym_id, [atom_idx])
+                            for copy_idx in copies:
+                                self.info.disorder_groups[copy_idx] = group_a
+                                if copy_idx < len(self.info.assemblies):
+                                    self.info.assemblies[copy_idx] = asm_label
+                                if self.graph.has_node(copy_idx):
+                                    self.graph.nodes[copy_idx]["disorder_group"] = group_a
+                                    self.graph.nodes[copy_idx]["assembly"] = asm_label
+                                all_assigned.add(copy_idx)
+
+                        for atom_idx in fragment_b:
+                            asym_id = self.info.asym_id[atom_idx] if atom_idx < len(self.info.asym_id) else atom_idx
+                            copies = asym_to_symcopies.get(asym_id, [atom_idx])
+                            for copy_idx in copies:
+                                self.info.disorder_groups[copy_idx] = group_b
+                                if copy_idx < len(self.info.assemblies):
+                                    self.info.assemblies[copy_idx] = asm_label
+                                if self.graph.has_node(copy_idx):
+                                    self.graph.nodes[copy_idx]["disorder_group"] = group_b
+                                    self.graph.nodes[copy_idx]["assembly"] = asm_label
+                                all_assigned.add(copy_idx)
+                    else:
+                        # No symmetry info: just assign directly
+                        for atom_idx in fragment_a:
+                            self.info.disorder_groups[atom_idx] = group_a
+                            if atom_idx < len(self.info.assemblies):
+                                self.info.assemblies[atom_idx] = asm_label
+                            if self.graph.has_node(atom_idx):
+                                self.graph.nodes[atom_idx]["disorder_group"] = group_a
+                                self.graph.nodes[atom_idx]["assembly"] = asm_label
+                            all_assigned.add(atom_idx)
+
+                        for atom_idx in fragment_b:
+                            self.info.disorder_groups[atom_idx] = group_b
+                            if atom_idx < len(self.info.assemblies):
+                                self.info.assemblies[atom_idx] = asm_label
+                            if self.graph.has_node(atom_idx):
+                                self.graph.nodes[atom_idx]["disorder_group"] = group_b
+                                self.graph.nodes[atom_idx]["assembly"] = asm_label
+                            all_assigned.add(atom_idx)
+
+        total_assigned = sum(
+            1 for i in range(n)
+            if self.info.disorder_groups[i] != 0
+            and any(
+                self.info.assemblies[i].startswith("syn_")
+                for _ in [None]
+                if i < len(self.info.assemblies)
+            )
+        )
+        if total_assigned:
+            logger.info(
+                "Inferred synthetic disorder groups for %d atoms "
+                "from occupancy-complement pairing (Category B inference).",
+                total_assigned,
+            )
+
+    def _expand_fragment(
+        self, seed: int, target_occ: float, already_assigned: set, candidates: list
+    ) -> list[int]:
+        """
+        Expand from a seed atom along bonded neighbors that share the same
+        occupancy, forming a complete molecular fragment.
+        """
+        tolerance = DISORDER_CONFIG.get("OCCUPANCY_COMPLEMENT_TOLERANCE", 0.10)
+        fragment = [seed]
+        visited = {seed}
+        queue = [seed]
+
+        while queue:
+            current = queue.pop(0)
+            for other in candidates:
+                if other in visited or other in already_assigned:
+                    continue
+                if abs(self.info.occupancies[other] - target_occ) > tolerance:
+                    continue
+                # Check bonding distance
+                dist = self.dist_matrix[current, other]
+                sym_i = self.info.symbols[current]
+                sym_j = self.info.symbols[other]
+                if self._are_bonded(sym_i, sym_j, dist, 0, 0):
+                    visited.add(other)
+                    fragment.append(other)
+                    queue.append(other)
+
+        return fragment
 
     def _identify_conformers(self):
         """
@@ -373,6 +802,28 @@ class DisorderGraphBuilder:
                                 }
                                 if sop_a.isdisjoint(sop_b):
                                     continue
+                        # For POSITIVE PART groups in different assemblies,
+                        # proximity does NOT mean they're alternatives — they
+                        # are independent disorder sites that happen to be
+                        # bonded neighbors (e.g., S/Se in a chelating ligand).
+                        # EXCEPTION: if centroids nearly overlap (< 1.5 Å),
+                        # they're at the same physical site and ARE alternatives
+                        # (e.g., MAF-4 O4W asm='A' vs O4W' asm='B').
+                        if part_a > 0 and part_b > 0:
+                            asm_a = set(
+                                self.info.assemblies[aa]
+                                for aa in atoms_a
+                                if aa < len(self.info.assemblies)
+                            )
+                            asm_b = set(
+                                self.info.assemblies[bb]
+                                for bb in atoms_b
+                                if bb < len(self.info.assemblies)
+                            )
+                            if asm_a and asm_b and asm_a.isdisjoint(asm_b):
+                                # Only skip if NOT overlapping at same site
+                                if centroid_dist > DISORDER_CONFIG["SP_COMPLETION_MATCH_DISTANCE"]:
+                                    continue
                         self._add_conflict_edge(atoms_a, atoms_b, "logical_alternative")
                         continue
 
@@ -420,10 +871,21 @@ class DisorderGraphBuilder:
         n_atoms = len(self.info.labels)
         for i in range(n_atoms):
             if self.info.disorder_groups[i] == 0:
-                continue
+                # Belt-and-suspenders: even if synthetic inference missed this
+                # atom, still check if it's partial-occ and shares an assembly
+                # with a group!=0 atom.  Only activate for atoms WITH an
+                # assembly label — empty-assembly partial-occ atoms are
+                # implicit SP disorder handled by _add_implicit_sp_conflicts.
+                asm_i = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+                if self.info.occupancies[i] >= 1.0 or not asm_i:
+                    continue
+                # Partial-occ group=0 with assembly: fall through to check for
+                # same-assembly conflicts with group!=0 atoms below.
             for j in range(i + 1, n_atoms):
                 if self.info.disorder_groups[j] == 0:
-                    continue
+                    asm_j = self.info.assemblies[j] if j < len(self.info.assemblies) else ""
+                    if self.info.occupancies[j] >= 1.0 or not asm_j:
+                        continue
                 if self.info.disorder_groups[i] == self.info.disorder_groups[j]:
                     continue
 
@@ -544,7 +1006,18 @@ class DisorderGraphBuilder:
                         self.info.sym_op_indices[i] == self.info.sym_op_indices[j]
                     )
                 if g_i > 0 and g_j > 0 and g_i != g_j and same_sym_site:
-                    threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+                    # Only use the wide clash threshold if atoms are in the
+                    # SAME assembly (true alternatives at the same site).
+                    # Cross-assembly atoms (e.g., neighboring S/Se in a
+                    # chelating ligand) are NOT alternatives — they coexist.
+                    asm_i = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+                    asm_j = self.info.assemblies[j] if j < len(self.info.assemblies) else ""
+                    if asm_i and asm_j and asm_i == asm_j:
+                        threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+                    elif not asm_i and not asm_j:
+                        threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+                    else:
+                        threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
                 else:
                     threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
 

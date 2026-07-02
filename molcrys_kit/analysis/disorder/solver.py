@@ -52,6 +52,10 @@ class DisorderSolver:
             3x3 matrix representing the lattice vectors
         """
         self.info = info
+        # Protect against in-place mutation of coordinates during SP-completion
+        # snapping.  Multiple solve calls (e.g. enumerate + random) must see
+        # the original CIF coordinates.
+        self.info.frac_coords = info.frac_coords.copy()
         self.graph = graph
         self.lattice = lattice
         self._coupled = coupled
