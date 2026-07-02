@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import networkx as nx
 import re
+from collections import deque as _deque
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
@@ -148,7 +149,7 @@ class DisorderGraphBuilder:
         that _add_explicit_conflicts can wire them correctly.
         """
         n = len(self.info.labels)
-        tolerance = DISORDER_CONFIG.get("OCCUPANCY_COMPLEMENT_TOLERANCE", 0.10)
+        tolerance = DISORDER_CONFIG["OCCUPANCY_COMPLEMENT_TOLERANCE"]
         radius = DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]
 
         # Collect existing non-zero groups per assembly (asymmetric-unit level)
@@ -344,7 +345,7 @@ class DisorderGraphBuilder:
         assembly label and group number, so that --coupled mode works correctly.
         """
         n = len(self.info.labels)
-        tolerance = DISORDER_CONFIG.get("OCCUPANCY_COMPLEMENT_TOLERANCE", 0.10)
+        tolerance = DISORDER_CONFIG["OCCUPANCY_COMPLEMENT_TOLERANCE"]
         radius = DISORDER_CONFIG["SP_COMPLETION_SITE_RADIUS"]
 
         # Only activate if there are group=0 partial-occ atoms with no partner.
@@ -505,11 +506,8 @@ class DisorderGraphBuilder:
         total_assigned = sum(
             1 for i in range(n)
             if self.info.disorder_groups[i] != 0
-            and any(
-                self.info.assemblies[i].startswith("syn_")
-                for _ in [None]
-                if i < len(self.info.assemblies)
-            )
+            and i < len(self.info.assemblies)
+            and self.info.assemblies[i].startswith("syn_")
         )
         if total_assigned:
             logger.info(
@@ -525,13 +523,13 @@ class DisorderGraphBuilder:
         Expand from a seed atom along bonded neighbors that share the same
         occupancy, forming a complete molecular fragment.
         """
-        tolerance = DISORDER_CONFIG.get("OCCUPANCY_COMPLEMENT_TOLERANCE", 0.10)
+        tolerance = DISORDER_CONFIG["OCCUPANCY_COMPLEMENT_TOLERANCE"]
         fragment = [seed]
         visited = {seed}
-        queue = [seed]
+        queue = _deque([seed])
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             for other in candidates:
                 if other in visited or other in already_assigned:
                     continue
