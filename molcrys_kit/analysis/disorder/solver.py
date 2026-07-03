@@ -52,10 +52,6 @@ class DisorderSolver:
             3x3 matrix representing the lattice vectors
         """
         self.info = info
-        # Protect against in-place mutation of coordinates during SP-completion
-        # snapping.  Multiple solve calls (e.g. enumerate + random) must see
-        # the original CIF coordinates.
-        self.info.frac_coords = info.frac_coords.copy()
         self.graph = graph
         self.lattice = lattice
         self._coupled = coupled
@@ -181,9 +177,9 @@ class DisorderSolver:
                 # to one another (no internal exclusion edge), so they keep
                 # their rigid body — possibly split into sub-bodies if the
                 # bond subgraph is disconnected after removing the conflict
-                # atoms.  This happens when partial-occ H protons compete
-                # (within one cation), while full-occ heavy atoms should
-                # always coexist.
+                # atoms.  This is the case e.g. for DAP-7 hydrazinium where
+                # only the H1C protons compete (occ=0.5 within one cation),
+                # while N1 + H1D + H1E (full occupancy) should always coexist.
                 for comp in components:
                     comp_list = list(comp)
                     comp_atoms = [group_atoms[i] for i in comp_list]
@@ -234,7 +230,7 @@ class DisorderSolver:
     # the bond cutoff because of overlapping split positions.  Ammonium
     # (N) keeps the permissive policy because its 24-orientation SP
     # disorder produces soft conflict edges between every H pair, so any
-    # rejection there drops the whole NH4+ motif.
+    # rejection there drops the whole NH4+ motif (the original PAP-4 bug).
     _MOTIF_SOFT_CONFLICTS = frozenset({
         "geometric", "valence_geometry", "implicit_sp",
     })
@@ -274,17 +270,17 @@ class DisorderSolver:
            ignored *within* the motif.  Those passes mark every H that
            looks geometrically suspect as exclusive of its neighbours,
            which is over-cautious for highly-disordered SP centres
-           (e.g., NH4+ at a 24-orientation special position) where any
-           chemically valid tetrahedron of H atoms necessarily uses split
-           positions that the SP pass treats as exclusive.
+           (e.g. PAP-4's NH4+ at a 24-orientation special position) where
+           any chemically valid tetrahedron of H atoms necessarily uses
+           split positions that the SP pass treats as exclusive.
 
         3. Merging the selected ``{X, H, ...}`` into a single rigid-body
            group, replacing the per-atom singletons.
 
         Typical cases:
-          * Disordered water — O + 2 H from different asym_ids.
-          * NH4+ on a special position — N + 4 H from one tetrahedral
-            orientation, picked out of multiple split positions.
+          * MAF-4 / ZIF-8 water — O + 2 H from different asym_ids.
+          * PAP-4 NH4+ — N + 4 H from one tetrahedral orientation, picked
+            out of ~30 split positions.
         """
         n_atoms = len(self.info.labels)
 
@@ -551,10 +547,10 @@ class DisorderSolver:
         # disorder position (e.g. two H1D atoms pointing in slightly different
         # but near-parallel directions) before exhausting the other sites.
         #
-        # When fewer distinct asym_ids are present (e.g., NH4+ where only
-        # two labels cover all H sites but a valid tetrahedron uses 3+1),
-        # enforcing the guard would incorrectly cap the count.  In that
-        # case we fall back to the original angle-only heuristic.
+        # When fewer distinct asym_ids are present (e.g. DAP-4 NH4+ where only
+        # H3A and H3B label two sites but a valid tetrahedron uses 3×H3A +
+        # 1×H3B), enforcing the guard would incorrectly cap the count at 2.
+        # In that case we fall back to the original angle-only heuristic.
         has_asym = bool(self.info.asym_id)
         if has_asym:
             candidate_asym_ids = {
@@ -798,11 +794,11 @@ class DisorderSolver:
                 continue
 
             # [FIX] Skip groups where ALL atoms have zero base occupancy.
-            # These are dummy/placeholder atoms that should never appear in a
-            # physical structure.  In random mode, tiny noise would give them
-            # positive randomized_weight, letting them slip past the score>0
-            # check.  Using the canonical occupancy from DisorderInfo prevents
-            # this.
+            # These are dummy/placeholder atoms (e.g., N01 in caffeine2) that
+            # should never appear in a physical structure.  In random mode,
+            # tiny noise would give them positive randomized_weight, letting
+            # them slip past the score>0 check.  Using the canonical occupancy
+            # from DisorderInfo prevents this.
             base_occs = [self.info.occupancies[node] for node in group
                          if node < len(self.info.occupancies)]
             if base_occs and all(occ <= 0.0 for occ in base_occs):
@@ -1650,7 +1646,7 @@ class DisorderSolver:
 
         # Post-process: remove orphan H/D atoms that lack bonded heavy-atom
         # partners in the survived set.  This fixes cross-asym-id water
-        # disorder where O and H are clustered independently.
+        # disorder (e.g., MAF-4) where O and H are clustered independently.
         cleaned_sets = []
         for independent_set in independent_sets:
             repaired_set = self._repair_motifs_in_set(independent_set)
@@ -1728,7 +1724,7 @@ class DisorderSolver:
         Remove chemically impossible fragments from the independent set.
 
         Pass 1 — Orphan H: Remove H/D atoms that lack a bonded heavy-atom
-        partner within the survived set.  In disordered water structures, O
+        partner within the survived set.  In structures like MAF-4, water O
         and H have different asym_ids and are resolved independently by the
         SP conflict clustering.  An isolated H atom is chemically impossible.
 
