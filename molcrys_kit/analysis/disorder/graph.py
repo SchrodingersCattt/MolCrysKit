@@ -554,7 +554,11 @@ class DisorderGraphBuilder:
                     # not genuinely bonded pairs.  The _are_bonded heuristic
                     # would incorrectly classify close S-S or Cd-Cd copies
                     # as "bonded" and prevent conflict edge creation.
-                    if is_implicit_sp_disorder or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
+                    # Also skip for atoms closer than OVERLAP_SITE_THRESHOLD:
+                    # no real chemical bond exists at dist < 0.4 A — this is
+                    # a same-site occupancy alternative.
+                    overlap = dist < DISORDER_CONFIG["OVERLAP_SITE_THRESHOLD"]
+                    if is_implicit_sp_disorder or overlap or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
                         add_or_promote_edge(
                             self.graph, i, j, "geometric", distance=dist
                         )

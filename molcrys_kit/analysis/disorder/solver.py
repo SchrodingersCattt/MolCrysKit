@@ -121,8 +121,62 @@ class DisorderSolver:
                         break
 
                 if not whole_group_has_conflict:
-                    # No internal conflicts at all — keep the whole group as one rigid body
-                    self.atom_groups.append(group_atoms)
+                    # No internal conflicts at all — but check if the group
+                    # spans multiple crystallographically independent sites
+                    # (different asym_id).  If so, split by bond connectivity
+                    # so each site becomes an independent decision.
+                    # Only applies to explicitly disordered atoms (group!=0);
+                    # group=0 atoms are handled by geometric/SP conflict logic.
+                    disorder_group = self.info.disorder_groups[group_atoms[0]]
+                    has_asym = hasattr(self.info, "asym_id") and self.info.asym_id
+                    if has_asym and disorder_group != 0:
+                        asym_ids_in_group = set(
+                            self.info.asym_id[a] for a in group_atoms
+                            if a < len(self.info.asym_id)
+                        )
+                    else:
+                        asym_ids_in_group = set()
+
+                    if len(asym_ids_in_group) <= 1:
+                        # All same site — keep as one rigid body
+                        self.atom_groups.append(group_atoms)
+                        continue
+                    # Multiple independent sites with no conflicts: use
+                    # asym_id-aware clustering to split by site while keeping
+                    # symop copies together.
+                    group_coords = self.info.frac_coords[group_atoms]
+                    cart_coords = np.dot(group_coords, self.lattice)
+                    _pbc = getattr(self.info, 'pbc', None)
+                    _pbc = _pbc if _pbc is not None else (True, True, True)
+                    dist_matrix = get_distances(
+                        cart_coords, cart_coords, cell=self.lattice, pbc=_pbc
+                    )[1]
+                    temp_graph = nx.Graph()
+                    temp_graph.add_nodes_from(range(len(group_atoms)))
+                    # Connect same-asym_id atoms (symop copies of same site)
+                    from collections import defaultdict
+                    asym_buckets: dict = defaultdict(list)
+                    for local_i, atom_idx in enumerate(group_atoms):
+                        if atom_idx < len(self.info.asym_id):
+                            asym_buckets[self.info.asym_id[atom_idx]].append(local_i)
+                    for bucket in asym_buckets.values():
+                        for k in range(len(bucket) - 1):
+                            temp_graph.add_edge(bucket[k], bucket[k + 1])
+                    # Connect bonded atoms
+                    for i in range(len(group_atoms)):
+                        for j in range(i + 1, len(group_atoms)):
+                            symbol_i = self.info.symbols[group_atoms[i]]
+                            symbol_j = self.info.symbols[group_atoms[j]]
+                            radius_i = get_atomic_radius(symbol_i) if has_atomic_radius(symbol_i) else 0.5
+                            radius_j = get_atomic_radius(symbol_j) if has_atomic_radius(symbol_j) else 0.5
+                            is_metal_i = is_metal_element(symbol_i)
+                            is_metal_j = is_metal_element(symbol_j)
+                            threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
+                            if dist_matrix[i, j] < threshold:
+                                temp_graph.add_edge(i, j)
+                    # Each connected component becomes a rigid body
+                    for comp in nx.connected_components(temp_graph):
+                        self.atom_groups.append([group_atoms[i] for i in sorted(comp)])
                     continue
 
                 # There are internal conflicts: use spatial clustering to split into
