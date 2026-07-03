@@ -236,6 +236,23 @@ CASES: list[CifCase] = [
         "DAP-7", "DAP-7.cif", 88,
         expected_element_totals={"C": 12, "Cl": 6, "H": 38, "N": 8, "O": 24},
     ),
+    # overlap_ag_n: metal/ammonium site-occupancy disorder where Ag and N
+    # sit at the exact same coordinates (dist=0).  The OVERLAP_SITE_THRESHOLD
+    # fix ensures a geometric conflict edge is created despite _are_bonded
+    # returning True for close metal-nonmetal pairs.  Ag must be excluded
+    # from the optimal (N-dominant) replica.
+    CifCase(
+        "overlap-ag-n", "overlap_ag_n.cif", 324,
+        expected_element_totals={"C": 48, "Cl": 24, "H": 132, "N": 24, "O": 96},
+    ),
+    # multisite_na_nh4: Na/NH4+ solid solution at two crystallographically
+    # independent sites sharing the same disorder_group.  The solver must
+    # split the group by asym_id so each site is an independent decision
+    # (4 combinations for 2 sites x 2 choices in coupled mode).
+    CifCase(
+        "multisite-na-nh4", "multisite_na_nh4.cif", 304,
+        expected_element_totals={"C": 48, "Cl": 24, "H": 112, "N": 24, "O": 96},
+    ),
 ]
 
 
@@ -742,4 +759,29 @@ def test_dapo4_topology(cif_data_dir: str):
     )
     assert formulas.get("H4N1", 0) == 8, (
         f"Expected 8 × NH4+ (H4N1), got: {dict(formulas)}"
+    )
+
+
+def test_overlap_ag_n_no_ag_in_optimal(cif_data_dir: str):
+    """Ag/N at the same site: Ag (occ=0.18) must be excluded from optimal."""
+    cif = os.path.join(cif_data_dir, "overlap_ag_n.cif")
+    assert os.path.exists(cif), "overlap_ag_n.cif fixture not found"
+
+    _, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 324
+    # Ag must not appear in the optimal replica (N is higher occupancy)
+    ag_count = sum(v for k, v in formulas.items() if "Ag" in k)
+    assert ag_count == 0, f"Ag should be excluded from optimal, got: {dict(formulas)}"
+
+
+def test_multisite_na_nh4_enumerate_count(cif_data_dir: str):
+    """Na/NH4+ at 2 independent sites must produce 4 replicas (coupled)."""
+    cif = os.path.join(cif_data_dir, "multisite_na_nh4.cif")
+    assert os.path.exists(cif), "multisite_na_nh4.cif fixture not found"
+
+    replicas = generate_ordered_replicas_from_disordered_sites(
+        cif, method="enumerate", generate_count=10, coupled=True,
+    )
+    assert len(replicas) == 4, (
+        f"Expected 4 replicas (2 sites x 2 choices), got {len(replicas)}"
     )
