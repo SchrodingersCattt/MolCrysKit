@@ -249,8 +249,9 @@ CASES: list[CifCase] = [
     # independent sites sharing the same disorder_group.  The solver must
     # split the group by asym_id so each site is an independent decision
     # (4 combinations for 2 sites x 2 choices in coupled mode).
+    # 8 defects: bare N atoms without H (CIF has no riding H for NH4+).
     CifCase(
-        "multisite-na-nh4", "multisite_na_nh4.cif", 304,
+        "multisite-na-nh4", "multisite_na_nh4.cif", 304, expected_defects=8,
         expected_element_totals={"C": 48, "Cl": 24, "H": 112, "N": 24, "O": 96},
     ),
 ]
