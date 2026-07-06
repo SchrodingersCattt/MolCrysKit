@@ -1450,6 +1450,53 @@ class DisorderSolver:
             totals[symbol] = totals.get(symbol, 0) + 1
         return totals
 
+    def _parse_expected_element_totals(self) -> dict[str, int] | None:
+        """Parse formula_moiety * Z into expected element-count dict."""
+        import re as _re
+        fm = self.info.formula_moiety
+        z = self.info.z_value
+        if not fm or not z:
+            return None
+        totals: dict[str, int] = {}
+        for comp in fm.split(","):
+            comp = comp.strip()
+            mult_match = _re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
+            if mult_match:
+                multiplier = float(mult_match.group(1))
+                inner = mult_match.group(2)
+            else:
+                multiplier = 1.0
+                inner = comp
+            inner = _re.sub(r"\d+[+-]$", "", inner).strip()
+            inner = _re.sub(r"[+-]$", "", inner).strip()
+            for match in _re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
+                element = match.group(1)
+                count_str = match.group(2)
+                if not element:
+                    continue
+                count = int(count_str) if count_str else 1
+                totals[element] = totals.get(element, 0) + int(
+                    round(multiplier * count)
+                )
+        for el in list(totals):
+            totals[el] *= z
+        return totals if totals else None
+
+    def _is_formula_valid(self, independent_set: List[int]) -> bool:
+        """Return True when selected atoms match formula_moiety * Z."""
+        expected = self._parse_expected_element_totals()
+        if not expected:
+            return True
+        return self._selected_element_totals(independent_set) == expected
+
+    def _postprocess_independent_set(self, independent_set: List[int]) -> List[int]:
+        """Apply the standard disorder-cleanup pipeline to one candidate set."""
+        repaired_set = self._repair_motifs_in_set(independent_set)
+        completed_set = self._apply_sp_completion(repaired_set)
+        completed_set = self._remove_too_close_sp_hydrogens(completed_set)
+        cleaned_set = self._remove_orphan_hydrogens(completed_set)
+        return self._relocate_overcoord_sp_hydrogens(cleaned_set)
+
     def _selected_complete_motif_count(
         self, independent_set: List[int], center_symbol: str
     ) -> int:
@@ -1703,11 +1750,24 @@ class DisorderSolver:
         # disorder (e.g., MAF-4) where O and H are clustered independently.
         cleaned_sets = []
         for independent_set in independent_sets:
-            repaired_set = self._repair_motifs_in_set(independent_set)
-            completed_set = self._apply_sp_completion(repaired_set)
-            completed_set = self._remove_too_close_sp_hydrogens(completed_set)
-            cleaned_set = self._remove_orphan_hydrogens(completed_set)
-            cleaned_sets.append(self._relocate_overcoord_sp_hydrogens(cleaned_set))
+            cleaned_sets.append(self._postprocess_independent_set(independent_set))
+
+        # --- Formula-based stoichiometry filter ---
+        if cleaned_sets and self.info.formula_moiety and self.info.z_value:
+            valid = [s for s in cleaned_sets if self._is_formula_valid(s)]
+            if method == "random" and len(valid) < (num_structures or 1):
+                # Reject sampling has low hit rate for linkage disorder;
+                # fall back to enumerating the valid set and sampling from it.
+                all_enum = self._solve_enumerate(None)
+                all_cleaned = [self._postprocess_independent_set(s) for s in all_enum]
+                all_valid = [s for s in all_cleaned if self._is_formula_valid(s)]
+                if all_valid:
+                    rng_sample = _random_module.Random(random_seed)
+                    target = num_structures or 1
+                    sampled = [rng_sample.choice(all_valid) for _ in range(target)]
+                    valid = sampled
+            if valid:
+                cleaned_sets = valid
 
         if cleaned_sets and method in {"random", "enumerate"}:
             reference_set = cleaned_sets[0]

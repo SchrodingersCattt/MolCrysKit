@@ -465,6 +465,7 @@ class DisorderInfo:
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
     lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
     formula_moiety: str = None  # _chemical_formula_moiety from CIF
+    z_value: int = None  # _cell_formula_units_Z from CIF
     pbc: Tuple[bool, bool, bool] = None  # Periodic boundary conditions
 
     def __post_init__(self):
@@ -775,6 +776,15 @@ def scan_cif_disorder(
     first_key = list(cif_data.keys())[0]
     data_block = cif_data[first_key]
 
+    # Parse Z value (_cell_formula_units_Z)
+    z_raw = data_block.get("_cell_formula_units_Z")
+    z_value = None
+    if z_raw and str(z_raw).strip() not in (".", "?", ""):
+        try:
+            z_value = int(float(_extract_numeric_value(str(z_raw))))
+        except (ValueError, TypeError):
+            z_value = None
+
     # Parse symmetry operations from the CIF
     sym_ops = _parse_symmetry_operations(
         data_block, expand_symmetry=expand_symmetry
@@ -1076,6 +1086,7 @@ def scan_cif_disorder(
         site_symmetry_order=all_site_sym_orders,
         lattice_matrix=lattice_matrix,
         formula_moiety=formula_moiety,
+        z_value=z_value,
     )
 
 
