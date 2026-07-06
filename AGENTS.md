@@ -63,13 +63,14 @@ tests/unit/           Pytest regression suite
   `docs/api.md` — both the "Capability Map" and the "Module Index".
 - When adding a new **user-facing feature**, add it to the Capability Map
   and optionally add a detailed tutorial in `docs/tutorials.md`.
-- When adding or changing a CLI subcommand, update the README CLI overview
-  if the command tree changes and add a smoke or regression test in
-  `tests/unit/test_cli.py`.
+- When adding or changing a CLI subcommand, update `docs/cli.md` and the
+  README CLI overview if the command tree changes, and add a smoke or
+  regression test in `tests/unit/test_cli.py`.
 - The Module Index should stay in sync with each sub-package `__init__.py`
   `__all__` list.
 - **CI validates this automatically**: `tests/unit/test_docs_api_sync.py`
-  compares every `__all__` symbol against `docs/api.md` Module Index sections.
+  compares every `__all__` symbol against `docs/api.md` Module Index sections
+  and verifies all CLI subcommands are listed in `docs/cli.md`.
   Run `pytest tests/unit/test_docs_api_sync.py -v` locally before pushing.
 
 ---
