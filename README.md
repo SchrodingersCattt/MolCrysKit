@@ -15,6 +15,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Disorder Handling: Process disordered structures with graph algorithms
 - Topological Surface Generation: Create surface slabs while preserving molecular topology
 - Hydrogen Completion: Add hydrogen atoms with heuristic geometric placement rules
+- LLM-based AI agent Friendliness: Try on https://matmaster.bohrium.com/matmaster or build your own skill for your agent
 
 ## Installation
 
