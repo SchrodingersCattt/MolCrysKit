@@ -48,6 +48,12 @@ from .packing_shell import (
     planarity_analysis,
 )
 from .shape import classify_shell, cshm, topology_signature
+from .volume import (
+    calculate_accessible_boundary,
+    calculate_atomic_volumes,
+    calculate_total_volume,
+    min_distance_to_boundary,
+)
 
 
 __all__ = [
@@ -103,4 +109,8 @@ __all__ = [
     "hull_encloses_center",
     "planarity_analysis",
     "topology_signature",
+    "calculate_accessible_boundary",
+    "calculate_atomic_volumes",
+    "calculate_total_volume",
+    "min_distance_to_boundary",
 ]
