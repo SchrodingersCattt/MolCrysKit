@@ -1482,12 +1482,75 @@ class DisorderSolver:
             totals[el] *= z
         return totals if totals else None
 
+    def _parse_expected_molecule_counts(self) -> dict[str, int] | None:
+        """Parse formula_moiety * Z into expected per-molecule formula counts.
+
+        Returns a dict mapping sorted element formula (e.g. 'C5FeN6O') to the
+        expected number of occurrences in the unit cell, or None if metadata
+        is unavailable.
+        """
+        import re as _re
+        fm = self.info.formula_moiety
+        z = self.info.z_value
+        if not fm or not z:
+            return None
+        counts: dict[str, int] = {}
+        for comp in fm.split(","):
+            comp = comp.strip()
+            mult_match = _re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
+            if mult_match:
+                multiplier = int(round(float(mult_match.group(1))))
+                inner = mult_match.group(2)
+            else:
+                multiplier = 1
+                inner = comp
+            # Remove charge
+            inner = _re.sub(r"\d+[+-]$", "", inner).strip()
+            inner = _re.sub(r"[+-]$", "", inner).strip()
+            # Parse into element dict then produce sorted formula string
+            elem_dict: dict[str, int] = {}
+            for match in _re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
+                element = match.group(1)
+                count_str = match.group(2)
+                if not element:
+                    continue
+                c = int(count_str) if count_str else 1
+                elem_dict[element] = elem_dict.get(element, 0) + c
+            # Build canonical formula string: elements sorted alphabetically
+            formula = "".join(
+                f"{el}{elem_dict[el]}" if elem_dict[el] > 1 else el
+                for el in sorted(elem_dict)
+            )
+            if formula:
+                counts[formula] = counts.get(formula, 0) + multiplier * z
+        return counts if counts else None
+
     def _is_formula_valid(self, independent_set: List[int]) -> bool:
-        """Return True when selected atoms match formula_moiety * Z."""
-        expected = self._parse_expected_element_totals()
-        if not expected:
+        """Return True when selected atoms match formula_moiety * Z.
+
+        Two-stage check:
+        1. Global element totals must match (fast).
+        2. Per-molecule formulas must match the declared moiety composition.
+        """
+        expected_totals = self._parse_expected_element_totals()
+        if not expected_totals:
             return True
-        return self._selected_element_totals(independent_set) == expected
+        if self._selected_element_totals(independent_set) != expected_totals:
+            return False
+
+        # Per-molecule check: reconstruct crystal, get molecule formulas
+        expected_molecules = self._parse_expected_molecule_counts()
+        if not expected_molecules:
+            return True
+        try:
+            crystal = self._reconstruct_crystal(independent_set)
+            actual: dict[str, int] = {}
+            for mol in crystal.molecules:
+                formula = mol.get_chemical_formula()
+                actual[formula] = actual.get(formula, 0) + 1
+            return actual == expected_molecules
+        except Exception:
+            return False
 
     def _postprocess_independent_set(self, independent_set: List[int]) -> List[int]:
         """Apply the standard disorder-cleanup pipeline to one candidate set."""
@@ -1754,20 +1817,26 @@ class DisorderSolver:
 
         # --- Formula-based stoichiometry filter ---
         if cleaned_sets and self.info.formula_moiety and self.info.z_value:
-            valid = [s for s in cleaned_sets if self._is_formula_valid(s)]
-            if method == "random" and len(valid) < (num_structures or 1):
-                # Reject sampling has low hit rate for linkage disorder;
-                # fall back to enumerating the valid set and sampling from it.
-                all_enum = self._solve_enumerate(None)
-                all_cleaned = [self._postprocess_independent_set(s) for s in all_enum]
-                all_valid = [s for s in all_cleaned if self._is_formula_valid(s)]
-                if all_valid:
-                    rng_sample = _random_module.Random(random_seed)
-                    target = num_structures or 1
-                    sampled = [rng_sample.choice(all_valid) for _ in range(target)]
-                    valid = sampled
-            if valid:
-                cleaned_sets = valid
+            expected = self._parse_expected_element_totals()
+            if expected:
+                valid = [s for s in cleaned_sets
+                         if self._is_formula_valid(s)]
+                if method == "random" and len(valid) < (num_structures or 1):
+                    # Reject sampling has low hit rate for linkage disorder;
+                    # fall back to capped enumeration and sample from valid set.
+                    all_enum = self._solve_enumerate(64)
+                    all_cleaned = [self._postprocess_independent_set(s)
+                                   for s in all_enum]
+                    all_valid = [s for s in all_cleaned
+                                 if self._is_formula_valid(s)]
+                    if all_valid:
+                        rng_sample = _random_module.Random(random_seed)
+                        target = num_structures or 1
+                        sampled = [rng_sample.choice(all_valid)
+                                   for _ in range(target)]
+                        valid = sampled
+                if valid:
+                    cleaned_sets = valid
 
         if cleaned_sets and method in {"random", "enumerate"}:
             reference_set = cleaned_sets[0]
