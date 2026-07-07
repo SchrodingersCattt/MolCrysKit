@@ -183,16 +183,25 @@ def calculate_total_volume(
     # Pre-compute squared radii
     radii_sq = radii ** 2
 
+    # Hoist meshgrid outside z-loop (grid_xy is identical for every slice)
+    xx, yy = np.meshgrid(axes[0], axes[1], indexing="ij")
+    grid_xy = np.column_stack([xx.ravel(), yy.ravel()])  # (nx*ny, 2)
+    n_grid = len(grid_xy)
+
     for iz in range(nz):
         z = axes[2][iz]
-        # Grid of (x, y) points for this slice
-        xx, yy = np.meshgrid(axes[0], axes[1], indexing="ij")
-        grid_xy = np.column_stack([xx.ravel(), yy.ravel()])  # (nx*ny, 2)
-        n_grid = len(grid_xy)
 
-        # Check if any atom covers these grid points
+        # Pre-filter: only atoms whose z-extent overlaps this slice
+        dz_all = np.abs(z - positions[:, 2])
+        nearby_mask = dz_all <= radii
+        nearby_indices = np.where(nearby_mask)[0]
+
+        if len(nearby_indices) == 0:
+            continue
+
+        # Check if any nearby atom covers these grid points
         occupied = np.zeros(n_grid, dtype=bool)
-        for i in range(len(positions)):
+        for i in nearby_indices:
             dx = grid_xy[:, 0] - positions[i, 0]
             dy = grid_xy[:, 1] - positions[i, 1]
             dz = z - positions[i, 2]

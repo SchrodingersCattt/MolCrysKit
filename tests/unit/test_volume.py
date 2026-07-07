@@ -9,8 +9,8 @@ import pytest
 from ase import Atoms
 
 from molcrys_kit.analysis.volume import (
-    _fibonacci_sphere,
-    _get_radius,
+    _fibonacci_sphere,  # Private — tested for coverage
+    _get_radius,  # Private — tested for coverage
     calculate_accessible_boundary,
     calculate_atomic_volumes,
     calculate_total_volume,
@@ -84,14 +84,23 @@ class TestGetRadius:
         r_c = _get_radius("C", "covalent")
         assert 0.5 < r_c < 1.0  # C covalent ~0.76
 
-    def test_vdw_fallback_to_covalent(self):
+    def test_vdw_fallback_to_covalent(self, monkeypatch):
         """Element with covalent but no vdw should use covalent×1.2."""
-        # Use a hypothetical case — for testing, force a symbol not in VDW_RADII
-        # Since we can't easily mock the constants, test the fallback path
-        # by directly checking a rare element that might not have vdw data.
-        # Instead, just verify the function doesn't crash for common elements.
-        r = _get_radius("H", "vdw")
-        assert r > 0
+        import molcrys_kit.analysis.volume as vol_mod
+        # Temporarily make has_vdw_radius return False for "C"
+        original_has_vdw = vol_mod.has_vdw_radius
+        monkeypatch.setattr(vol_mod, "has_vdw_radius", lambda s: False if s == "C" else original_has_vdw(s))
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            r = _get_radius("C", "vdw")
+
+        # Should return covalent × 1.2
+        from molcrys_kit.constants import get_atomic_radius
+        expected = get_atomic_radius("C") * 1.2
+        np.testing.assert_allclose(r, expected, rtol=1e-10)
+        assert len(w) == 1
+        assert "covalent" in str(w[0].message).lower()
 
     def test_final_fallback_warning(self):
         """Unknown element should produce warning and return 1.5."""
