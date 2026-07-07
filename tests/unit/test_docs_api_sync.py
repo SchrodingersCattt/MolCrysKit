@@ -202,3 +202,47 @@ def test_capability_map_has_major_entries(api_text: str) -> None:
     assert not missing, (
         f"Critical symbols missing from Capability Map: {missing}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI docs sync
+# ---------------------------------------------------------------------------
+
+DOCS_CLI = REPO_ROOT / "docs" / "cli.md"
+
+
+def _get_click_commands() -> Set[str]:
+    """Recursively collect all registered Click leaf-command names."""
+    import click
+    from molcrys_kit.cli import main as cli_main
+
+    names: Set[str] = set()
+
+    def _walk(group: click.BaseCommand) -> None:
+        if isinstance(group, click.Group):
+            ctx = click.Context(group)
+            for name in group.list_commands(ctx):
+                cmd = group.get_command(ctx, name)
+                if isinstance(cmd, click.Group):
+                    _walk(cmd)
+                else:
+                    names.add(name)
+
+    _walk(cli_main)
+    return names
+
+
+def test_cli_doc_covers_all_commands() -> None:
+    """Every registered CLI subcommand must appear in docs/cli.md."""
+    if not DOCS_CLI.exists():
+        pytest.skip(f"{DOCS_CLI} not found")
+    cli_text = DOCS_CLI.read_text(encoding="utf-8")
+    registered = _get_click_commands()
+    assert registered, "No CLI commands discovered — check molcrys_kit.cli imports."
+
+    missing = {cmd for cmd in registered if cmd not in cli_text}
+    assert not missing, (
+        "CLI commands registered but missing from docs/cli.md:\n"
+        + "\n".join(f"  - {c}" for c in sorted(missing))
+        + "\n→ Add them to docs/cli.md"
+    )
