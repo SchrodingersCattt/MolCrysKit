@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import networkx as nx
 import re
+from collections import defaultdict
 from typing import List
 from itertools import combinations
 from .info import DisorderInfo
@@ -100,6 +101,25 @@ class DisorderGraphBuilder:
         cart_diffs = np.einsum("nij,jk->nik", coord_diffs, self.lattice)
         self.dist_matrix = np.linalg.norm(cart_diffs, axis=2)
 
+        # Precompute close pairs: all (i, j) with i < j and dist < cutoff.
+        # This is the maximum distance at which ANY edge (bond or conflict)
+        # can be generated.  Derived from constants so it auto-updates if
+        # thresholds are changed.
+        self._close_pair_cutoff = max(
+            BONDING_THRESHOLDS["GENERAL_THRESHOLD_MAX"],
+            DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"],
+            DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"],
+        )
+        close_mask = np.triu(self.dist_matrix < self._close_pair_cutoff, k=1)
+        self._close_pairs = np.argwhere(close_mask)  # shape (K, 2)
+        self._close_pair_dists = self.dist_matrix[
+            self._close_pairs[:, 0], self._close_pairs[:, 1]
+        ]
+        logger.debug(
+            "Close pairs: %d / %d total (cutoff=%.2f Å)",
+            len(self._close_pairs), n * (n - 1) // 2, self._close_pair_cutoff
+        )
+
         self.root_labels = []
         for label in self.info.labels:
             match = re.match(r"([A-Za-z]+[0-9]*)", label)
@@ -134,37 +154,34 @@ class DisorderGraphBuilder:
         bond_graph = nx.Graph()
         bond_graph.add_nodes_from(range(n_atoms))
 
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                group_i = self.info.disorder_groups[i]
-                group_j = self.info.disorder_groups[j]
+        # Vectorized pre-filtering: only iterate close pairs (dist < cutoff)
+        dg = self.info.disorder_groups
+        symbols = self.info.symbols
+        sym_ops = self.info.sym_op_indices if has_sym_info else None
 
-                # Check bonding validity
-                if (group_i == group_j and group_i != 0) or (
-                    group_i == 0 or group_j == 0
-                ):
-                    # Anti-Frankenstein: Do not bond two disordered atoms if they come from different SymOps
-                    if group_i != 0 and group_j != 0 and has_sym_info:
-                        idx_i = (
-                            self.info.sym_op_indices[i]
-                            if i < len(self.info.sym_op_indices)
-                            else 0
-                        )
-                        idx_j = (
-                            self.info.sym_op_indices[j]
-                            if j < len(self.info.sym_op_indices)
-                            else 0
-                        )
-                        if idx_i != idx_j:
-                            continue
+        for idx in range(len(self._close_pairs)):
+            i, j = int(self._close_pairs[idx, 0]), int(self._close_pairs[idx, 1])
+            group_i = dg[i]
+            group_j = dg[j]
 
-                    dist = self.dist_matrix[i, j]
-                    symbol_i = self.info.symbols[i]
-                    symbol_j = self.info.symbols[j]
+            # Check bonding validity
+            if (group_i == group_j and group_i != 0) or (
+                group_i == 0 or group_j == 0
+            ):
+                # Anti-Frankenstein: Do not bond two disordered atoms if they come from different SymOps
+                if group_i != 0 and group_j != 0 and has_sym_info:
+                    idx_i = sym_ops[i] if i < len(sym_ops) else 0
+                    idx_j = sym_ops[j] if j < len(sym_ops) else 0
+                    if idx_i != idx_j:
+                        continue
 
-                    if self._are_bonded(symbol_i, symbol_j, dist, group_i, group_j):
-                        if not (group_i < 0 and group_j < 0 and group_i != group_j):
-                            bond_graph.add_edge(i, j)
+                dist = self._close_pair_dists[idx]
+                symbol_i = symbols[i]
+                symbol_j = symbols[j]
+
+                if self._are_bonded(symbol_i, symbol_j, dist, group_i, group_j):
+                    if not (group_i < 0 and group_j < 0 and group_i != group_j):
+                        bond_graph.add_edge(i, j)
 
         molecule_components = list(nx.connected_components(bond_graph))
         self.conformers = []
@@ -418,150 +435,122 @@ class DisorderGraphBuilder:
 
     def _add_explicit_conflicts(self):
         n_atoms = len(self.info.labels)
+        dg = self.info.disorder_groups
+        sym_ops = self.info.sym_op_indices if self.info.sym_op_indices else None
+
+        # --- Path 1: Same-assembly conflicts (distance-independent) ---
+        # Group disordered atoms by assembly label for O(A × D_a²) iteration
+        assembly_groups = defaultdict(list)  # assembly_label -> list of atom indices
+        no_assembly_disordered = []  # disordered atoms without assembly label
+
         for i in range(n_atoms):
-            if self.info.disorder_groups[i] == 0:
+            if dg[i] == 0:
                 continue
-            for j in range(i + 1, n_atoms):
-                if self.info.disorder_groups[j] == 0:
-                    continue
-                if self.info.disorder_groups[i] == self.info.disorder_groups[j]:
-                    continue
+            assembly = self.graph.nodes[i]["assembly"]
+            if assembly:
+                assembly_groups[assembly].append(i)
+            else:
+                no_assembly_disordered.append(i)
 
-                assembly_i = self.graph.nodes[i]["assembly"]
-                assembly_j = self.graph.nodes[j]["assembly"]
-
-                has_conflict = False
-                if assembly_i and assembly_j and assembly_i == assembly_j:
-                    g_i = self.info.disorder_groups[i]
-                    g_j = self.info.disorder_groups[j]
-                    # In decoupled mode, one assembly label describes the
-                    # asymmetric-unit disorder model; expanded symmetry copies
-                    # should make independent PART choices.  Only atoms from
-                    # the same symmetry provenance compete.
-                    # Negative PARTs keep the historical guard in both modes:
-                    # their assembly label is shared across symmetry copies.
-                    if (
-                        self.info.sym_op_indices
-                        and (not self._coupled or (g_i < 0 and g_j < 0))
-                    ):
-                        sop_i = (
-                            self.info.sym_op_indices[i]
-                            if i < len(self.info.sym_op_indices)
-                            else None
-                        )
-                        sop_j = (
-                            self.info.sym_op_indices[j]
-                            if j < len(self.info.sym_op_indices)
-                            else None
-                        )
-                        if (
-                            sop_i is not None
-                            and sop_j is not None
-                            and sop_i != sop_j
-                        ):
+        for _assembly_label, members in assembly_groups.items():
+            for mi in range(len(members)):
+                i = members[mi]
+                g_i = dg[i]
+                for mj in range(mi + 1, len(members)):
+                    j = members[mj]
+                    g_j = dg[j]
+                    if g_i == g_j:
+                        continue
+                    # Sym-op guard: in decoupled mode (or negative PARTs),
+                    # only atoms from the same symmetry provenance compete.
+                    if sym_ops and (not self._coupled or (g_i < 0 and g_j < 0)):
+                        sop_i = sym_ops[i] if i < len(sym_ops) else None
+                        sop_j = sym_ops[j] if j < len(sym_ops) else None
+                        if (sop_i is not None and sop_j is not None
+                                and sop_i != sop_j):
                             continue
-                    has_conflict = True
-                elif not assembly_i and not assembly_j:
-                    if (
-                        self.dist_matrix[i, j]
-                        < DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]
-                    ):
-                        has_conflict = True
+                    add_or_promote_edge(self.graph, i, j, "explicit")
 
-                if has_conflict:
+        # --- Path 2: No-assembly conflicts (distance-dependent, use close_pairs) ---
+        if no_assembly_disordered:
+            no_asm_set = set(no_assembly_disordered)
+            threshold = DISORDER_CONFIG["ASSEMBLY_CONFLICT_THRESHOLD"]
+            for idx in range(len(self._close_pairs)):
+                i, j = int(self._close_pairs[idx, 0]), int(self._close_pairs[idx, 1])
+                if i not in no_asm_set or j not in no_asm_set:
+                    continue
+                if dg[i] == dg[j]:
+                    continue
+                if self._close_pair_dists[idx] < threshold:
                     add_or_promote_edge(self.graph, i, j, "explicit")
 
     def _add_geometric_conflicts(self):
-        n_atoms = len(self.info.labels)
         has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
+        dg = self.info.disorder_groups
+        occs = self.info.occupancies
+        symbols = self.info.symbols
+        asym_ids = self.info.asym_id if has_asym_info else None
+        sym_ops = self.info.sym_op_indices if self.info.sym_op_indices else None
 
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                dist = self.dist_matrix[i, j]
-                g_i = self.info.disorder_groups[i]
-                g_j = self.info.disorder_groups[j]
+        for idx in range(len(self._close_pairs)):
+            i, j = int(self._close_pairs[idx, 0]), int(self._close_pairs[idx, 1])
+            dist = self._close_pair_dists[idx]
+            g_i = dg[i]
+            g_j = dg[j]
 
-                # Skip same-parent pairs that are true periodic copies (NOT
-                # competing disorder alternatives).  Full-occupancy same-parent
-                # atoms and explicit-dg same-parent atoms are always periodic
-                # copies.  But partial-occ dg=0 same-parent atoms are genuinely
-                # overlapping copies that need geometric conflict detection.
-                if has_asym_info:
-                    ai_i = self.info.asym_id[i] if i < len(self.info.asym_id) else -1
-                    ai_j = self.info.asym_id[j] if j < len(self.info.asym_id) else -1
-                    if ai_i == ai_j and g_i == g_j:
-                        # Same parent, same disorder group — skip UNLESS both
-                        # are partial-occupancy with dg=0 (special-position
-                        # disorder without explicit labels).
-                        # Require strictly positive occupancy: zero-occ atoms
-                        # are dummy/placeholder positions, not disorder copies.
-                        occ_i = self.info.occupancies[i]
-                        occ_j = self.info.occupancies[j]
-                        if not (g_i == 0
-                                and 0 < occ_i < 1.0
-                                and 0 < occ_j < 1.0):
-                            continue
+            # Skip same-parent pairs that are true periodic copies (NOT
+            # competing disorder alternatives).  Full-occupancy same-parent
+            # atoms and explicit-dg same-parent atoms are always periodic
+            # copies.  But partial-occ dg=0 same-parent atoms are genuinely
+            # overlapping copies that need geometric conflict detection.
+            if has_asym_info:
+                ai_i = asym_ids[i] if i < len(asym_ids) else -1
+                ai_j = asym_ids[j] if j < len(asym_ids) else -1
+                if ai_i == ai_j and g_i == g_j:
+                    occ_i = occs[i]
+                    occ_j = occs[j]
+                    if not (g_i == 0
+                            and 0 < occ_i < 1.0
+                            and 0 < occ_j < 1.0):
+                        continue
 
-                # Check if this is an implicit special-position disorder pair:
-                # same parent, same dg=0, both partial occupancy.
-                is_implicit_sp_disorder = False
-                if has_asym_info and g_i == 0 and g_j == 0:
-                    ai_i = self.info.asym_id[i] if i < len(self.info.asym_id) else -1
-                    ai_j = self.info.asym_id[j] if j < len(self.info.asym_id) else -1
-                    if (ai_i == ai_j
-                            and 0 < self.info.occupancies[i] < 1.0
-                            and 0 < self.info.occupancies[j] < 1.0):
-                        is_implicit_sp_disorder = True
+            # Check if this is an implicit special-position disorder pair:
+            # same parent, same dg=0, both partial occupancy.
+            is_implicit_sp_disorder = False
+            if has_asym_info and g_i == 0 and g_j == 0:
+                ai_i = asym_ids[i] if i < len(asym_ids) else -1
+                ai_j = asym_ids[j] if j < len(asym_ids) else -1
+                if (ai_i == ai_j
+                        and 0 < occs[i] < 1.0
+                        and 0 < occs[j] < 1.0):
+                    is_implicit_sp_disorder = True
 
-                symbol_i = self.info.symbols[i]
-                symbol_j = self.info.symbols[j]
+            symbol_i = symbols[i]
+            symbol_j = symbols[j]
 
-                # Threshold selection:
-                # - Explicit disorder pairs (different dg): use DISORDER_CLASH_THRESHOLD
-                # - Everything else (including implicit SP disorder): HARD_SPHERE_THRESHOLD
-                # NOTE: Implicit SP disorder is handled separately by
-                # _add_implicit_sp_conflicts() using proximity clustering, which is
-                # more robust than a fixed threshold for both heavy atoms and H.
-                # Only apply the wide DISORDER_CLASH_THRESHOLD (2.2 Å) when
-                # BOTH atoms belong to *positive* explicit disorder groups at
-                # the same crystallographic site.  In decoupled mode, symmetry
-                # copies of one assembly are independent and should only be
-                # screened by the conservative hard-sphere threshold.
-                # Different *negative* PART groups
-                # (e.g. PART -1 vs PART -2) are distinct chemical species that
-                # coexist in the structure (e.g. perchlorate O vs NH4+ H) and
-                # must NOT be treated as disorder alternatives — use the
-                # conservative HARD_SPHERE_THRESHOLD (0.85 Å) instead to avoid
-                # false conflict edges that would exclude one species entirely.
-                same_sym_site = True
-                if (
-                    not self._coupled
-                    and self.info.sym_op_indices
-                    and i < len(self.info.sym_op_indices)
-                    and j < len(self.info.sym_op_indices)
-                ):
-                    same_sym_site = (
-                        self.info.sym_op_indices[i] == self.info.sym_op_indices[j]
+            # Threshold selection:
+            # - Explicit disorder pairs (different positive dg, same sym site):
+            #   use DISORDER_CLASH_THRESHOLD (2.2 Å)
+            # - Everything else: HARD_SPHERE_THRESHOLD (0.85 Å)
+            same_sym_site = True
+            if (
+                not self._coupled
+                and sym_ops
+                and i < len(sym_ops)
+                and j < len(sym_ops)
+            ):
+                same_sym_site = (sym_ops[i] == sym_ops[j])
+            if g_i > 0 and g_j > 0 and g_i != g_j and same_sym_site:
+                threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
+            else:
+                threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
+
+            if dist < threshold:
+                overlap = dist < DISORDER_CONFIG["OVERLAP_SITE_THRESHOLD"]
+                if is_implicit_sp_disorder or overlap or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
+                    add_or_promote_edge(
+                        self.graph, i, j, "geometric", distance=dist
                     )
-                if g_i > 0 and g_j > 0 and g_i != g_j and same_sym_site:
-                    threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
-                else:
-                    threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
-
-                if dist < threshold:
-                    # For implicit SP disorder, SKIP the _are_bonded check.
-                    # These are overlapping disorder copies of the same atom,
-                    # not genuinely bonded pairs.  The _are_bonded heuristic
-                    # would incorrectly classify close S-S or Cd-Cd copies
-                    # as "bonded" and prevent conflict edge creation.
-                    # Also skip for atoms closer than OVERLAP_SITE_THRESHOLD:
-                    # no real chemical bond exists at dist < 0.4 A — this is
-                    # a same-site occupancy alternative.
-                    overlap = dist < DISORDER_CONFIG["OVERLAP_SITE_THRESHOLD"]
-                    if is_implicit_sp_disorder or overlap or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
-                        add_or_promote_edge(
-                            self.graph, i, j, "geometric", distance=dist
-                        )
 
     def _add_implicit_sp_conflicts(self):
         """
@@ -891,18 +880,19 @@ class DisorderGraphBuilder:
         for i in range(n_atoms):
             connectivity_graph.add_node(i)
 
-        # Simple connectivity for valence check
-        for i in range(n_atoms):
-            for j in range(i + 1, n_atoms):
-                if self.dist_matrix[i, j] < 2.0:
-                    if self._are_bonded(
-                        self.info.symbols[i],
-                        self.info.symbols[j],
-                        self.dist_matrix[i, j],
-                        self.info.disorder_groups[i],
-                        self.info.disorder_groups[j],
-                    ):
-                        connectivity_graph.add_edge(i, j)
+        # Simple connectivity for valence check — iterate only close pairs
+        symbols = self.info.symbols
+        dg = self.info.disorder_groups
+        for idx in range(len(self._close_pairs)):
+            if self._close_pair_dists[idx] >= 2.0:
+                continue
+            i, j = int(self._close_pairs[idx, 0]), int(self._close_pairs[idx, 1])
+            if self._are_bonded(
+                symbols[i], symbols[j],
+                self._close_pair_dists[idx],
+                dg[i], dg[j],
+            ):
+                connectivity_graph.add_edge(i, j)
 
         for center_idx in range(n_atoms):
             neighbors = list(connectivity_graph.neighbors(center_idx))
