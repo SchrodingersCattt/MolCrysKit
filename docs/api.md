@@ -68,6 +68,15 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Facets/shape: `BFDHFacetInfo`, `enumerate_bfdh_facets`, `enumerate_low_index_millers`, `classify_shell`, `cshm`, `topology_signature`
 - Chemistry/formula/charge: `ChemicalEnvironment`, `Fragment`, `parse_moiety_string`, `match_molecule_to_fragment`, `heavy_signature`, `MolChargeResult`, `assign_mol_formal_charges`, `compute_topo_signature`
 - Packing/polyhedra: `find_polyhedra`, `detect_coordination_number`, `detect_prism_vs_antiprism`, `angular_rmsd_vs_ideals`, `compute_angular_signature`, `hull_encloses_center`, `planarity_analysis`, `DEFAULT_POLYHEDRON_SEARCH_CUTOFF`, `DEFAULT_MOLECULAR_SEARCH_CUTOFF`, `DEFAULT_CENTROID_OFFSET_FRAC`
+- Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
+
+### `mck.analysis.volume`
+Van der Waals volume estimation and solvent-accessible boundary computation.
+
+- `calculate_atomic_volumes(atoms, radii_type="vdw")` — per-atom spherical volumes (4/3 π r³) using VdW or covalent radii.
+- `calculate_total_volume(atoms, radii_type="vdw", overlap_correction=False)` — total volume as simple sum or overlap-corrected (3-D occupancy grid, voxel_size=0.2 Å).
+- `calculate_accessible_boundary(atoms, probe_radius=1.4, radii_type="vdw", n_sphere_points=50)` — Shrake-Rupley style surface point generation; returns (M, 3) Cartesian array of solvent-accessible boundary points.
+- `min_distance_to_boundary(new_positions, boundary_points, lattice=None, pbc=None)` — minimum distance from query positions to boundary; supports periodic boundary conditions via minimum image convention.
 
 ### `mck.analysis.disorder`
 Disorder metadata, solving, and ordered-replica generation.

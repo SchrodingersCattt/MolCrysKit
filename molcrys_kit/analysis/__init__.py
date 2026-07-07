@@ -48,6 +48,12 @@ from .packing_shell import (
     planarity_analysis,
 )
 from .shape import classify_shell, cshm, topology_signature
+from .volume import (
+    calculate_accessible_boundary,
+    calculate_atomic_volumes,
+    calculate_total_volume,
+    min_distance_to_boundary,
+)
 
 
 __all__ = [
@@ -97,10 +103,14 @@ __all__ = [
     "parse_moiety_string",
     "detect_coordination_number",
     "detect_prism_vs_antiprism",
+    "calculate_accessible_boundary",
+    "calculate_atomic_volumes",
+    "calculate_total_volume",
     "enumerate_bfdh_facets",
     "enumerate_low_index_millers",
     "find_polyhedra",
     "hull_encloses_center",
+    "min_distance_to_boundary",
     "planarity_analysis",
     "topology_signature",
 ]
