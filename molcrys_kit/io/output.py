@@ -8,7 +8,7 @@ import json
 import os
 import re
 from io import StringIO
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 import warnings
 
 import ase.io
@@ -621,8 +621,8 @@ def write_trajectory(
     filename: str,
     *,
     format: str = "extxyz",
-    info: Optional[Sequence[dict] | dict] = None,
-    arrays: Optional[Sequence[dict] | dict] = None,
+    info: Optional[Union[Sequence[dict], dict]] = None,
+    arrays: Optional[Union[Sequence[dict], dict]] = None,
     append: bool = False,
     **write_kwargs,
 ) -> str:
