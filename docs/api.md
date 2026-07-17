@@ -82,6 +82,7 @@ Van der Waals volume estimation and solvent-accessible boundary computation.
 Disorder metadata, solving, and ordered-replica generation.
 
 - `DisorderInfo`, `DisorderSolver`, `generate_ordered_replicas_from_disordered_sites`, `is_minor_site`, `DisorderProvenance`
+- `DisorderInfo` carries CIF-derived metadata including the chemical formula moiety and Z value for stoichiometry validation during disorder resolution.
 
 ### `mck.analysis.interactions`
 Weak-interaction detection plus continuous scoring. Raw detectors return records; `interaction_profile` summarizes counts and scores.

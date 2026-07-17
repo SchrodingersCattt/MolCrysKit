@@ -25,6 +25,7 @@ from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 from ...constants.config import DISORDER_CONFIG
 from ...analysis.interactions import get_bonding_threshold
+from ...analysis.formula_moiety import parse_moiety_string
 
 
 class DisorderSolver:
@@ -1450,6 +1451,132 @@ class DisorderSolver:
             totals[symbol] = totals.get(symbol, 0) + 1
         return totals
 
+    def _parse_expected_element_totals(self) -> dict[str, int] | None:
+        """Parse formula_moiety * Z into expected element-count dict.
+
+        Returns None when metadata is unavailable, signalling that the
+        stoichiometry filter should be skipped.
+        """
+        if hasattr(self, "_cached_expected_element_totals"):
+            return self._cached_expected_element_totals
+        result = self._do_parse_expected_element_totals()
+        self._cached_expected_element_totals = result
+        return result
+
+    def _do_parse_expected_element_totals(self) -> dict[str, int] | None:
+        fm = self.info.formula_moiety
+        z = self.info.z_value
+        if not fm or not z:
+            return None
+        fragments = parse_moiety_string(fm)
+        if not fragments:
+            return None
+        totals: dict[str, int] = {}
+        for frag in fragments:
+            for element, count in frag.composition.items():
+                totals[element] = totals.get(element, 0) + int(
+                    round(frag.multiplier * count)
+                )
+        for el in list(totals):
+            totals[el] *= z
+        # Remove elements with zero count (can happen with fractional multipliers)
+        totals = {el: c for el, c in totals.items() if c > 0}
+        return totals if totals else None
+
+    def _parse_expected_molecule_counts(self) -> dict[str, int] | None:
+        """Parse formula_moiety * Z into expected per-molecule formula counts.
+
+        Returns a dict mapping Hill-notation formula (e.g. 'C5FeN6O') to the
+        expected number of occurrences in the unit cell, or None if metadata
+        is unavailable.
+
+        Uses Hill system ordering (C first, H second, remaining elements
+        alphabetically) to match the output of ASE Atoms.get_chemical_formula().
+        """
+        if hasattr(self, "_cached_expected_molecule_counts"):
+            return self._cached_expected_molecule_counts
+        result = self._do_parse_expected_molecule_counts()
+        self._cached_expected_molecule_counts = result
+        return result
+
+    @staticmethod
+    def _hill_formula(elem_dict: dict[str, int]) -> str:
+        """Build a Hill-notation formula string from an element-count dict.
+
+        Hill system: C first, H second, then remaining elements in
+        alphabetical order.  This matches ASE's default
+        ``Atoms.get_chemical_formula()`` output.
+        """
+        if not elem_dict:
+            return ""
+        ordered: list[str] = []
+        # Carbon first, then Hydrogen, then rest alphabetically
+        if "C" in elem_dict:
+            ordered.append("C")
+            if "H" in elem_dict:
+                ordered.append("H")
+        remaining = sorted(el for el in elem_dict if el not in ordered)
+        ordered.extend(remaining)
+        parts: list[str] = []
+        for el in ordered:
+            c = elem_dict[el]
+            parts.append(f"{el}{c}" if c > 1 else el)
+        return "".join(parts)
+
+    def _do_parse_expected_molecule_counts(self) -> dict[str, int] | None:
+        fm = self.info.formula_moiety
+        z = self.info.z_value
+        if not fm or not z:
+            return None
+        fragments = parse_moiety_string(fm)
+        if not fragments:
+            return None
+        counts: dict[str, int] = {}
+        for frag in fragments:
+            multiplier = int(round(frag.multiplier))
+            formula = self._hill_formula(frag.composition)
+            if formula:
+                counts[formula] = counts.get(formula, 0) + multiplier * z
+        return counts if counts else None
+
+    def _is_formula_valid(self, independent_set: List[int]) -> bool:
+        """Return True when selected atoms match formula_moiety * Z.
+
+        Two-stage check:
+        1. Global element totals must match (fast).
+        2. Per-molecule formulas must match the declared moiety composition.
+        """
+        expected_totals = self._parse_expected_element_totals()
+        if not expected_totals:
+            return True
+        if self._selected_element_totals(independent_set) != expected_totals:
+            return False
+
+        # Per-molecule check: reconstruct crystal, get molecule formulas
+        expected_molecules = self._parse_expected_molecule_counts()
+        if not expected_molecules:
+            return True
+        try:
+            crystal = self._reconstruct_crystal(independent_set)
+            actual: dict[str, int] = {}
+            for mol in crystal.molecules:
+                formula = mol.get_chemical_formula()
+                actual[formula] = actual.get(formula, 0) + 1
+            return actual == expected_molecules
+        except Exception:
+            logger.debug(
+                "Formula validation reconstruction failed", exc_info=True
+            )
+            return False
+
+    def _postprocess_independent_set(self, independent_set: List[int]) -> List[int]:
+        """Apply the standard disorder-cleanup pipeline to one candidate set."""
+        repaired_set = self._repair_motifs_in_set(independent_set)
+        completed_set = self._apply_sp_completion(repaired_set)
+        completed_set = self._remove_too_close_sp_hydrogens(completed_set)
+        cleaned_set = self._remove_orphan_hydrogens(completed_set)
+        return self._relocate_overcoord_sp_hydrogens(cleaned_set)
+
     def _selected_complete_motif_count(
         self, independent_set: List[int], center_symbol: str
     ) -> int:
@@ -1656,6 +1783,15 @@ class DisorderSolver:
         List[MolecularCrystal] or List[Tuple[MolecularCrystal, List[int]]]
             List of ordered molecular crystal structures, optionally paired
             with the selected source atom indices.
+
+        Notes:
+        ------
+        When ``formula_moiety`` and ``z_value`` are available in the CIF
+        metadata, a post-processing stoichiometry filter rejects candidate
+        solutions whose element totals or per-molecule formulas do not match
+        the declared composition.  For 'random' mode, if reject-sampling
+        yields too few valid structures, a capped enumeration fallback is
+        used (controlled by DISORDER_CONFIG["FORMULA_FILTER_ENUM_CAP"]).
         """
         # Initialize atom groups (Identify Rigid Bodies)
         self.atom_groups = []
@@ -1703,11 +1839,34 @@ class DisorderSolver:
         # disorder (e.g., MAF-4) where O and H are clustered independently.
         cleaned_sets = []
         for independent_set in independent_sets:
-            repaired_set = self._repair_motifs_in_set(independent_set)
-            completed_set = self._apply_sp_completion(repaired_set)
-            completed_set = self._remove_too_close_sp_hydrogens(completed_set)
-            cleaned_set = self._remove_orphan_hydrogens(completed_set)
-            cleaned_sets.append(self._relocate_overcoord_sp_hydrogens(cleaned_set))
+            cleaned_sets.append(self._postprocess_independent_set(independent_set))
+
+        # --- Formula-based stoichiometry filter ---
+        if cleaned_sets and self.info.formula_moiety and self.info.z_value:
+            expected = self._parse_expected_element_totals()
+            if expected:
+                valid = [s for s in cleaned_sets
+                         if self._is_formula_valid(s)]
+                if method == "random" and len(valid) < (num_structures or 1):
+                    # Reject sampling has low hit rate for linkage disorder;
+                    # fall back to capped enumeration and sample from valid set.
+                    from ...constants.config import DISORDER_CONFIG
+                    enum_cap = DISORDER_CONFIG.get(
+                        "FORMULA_FILTER_ENUM_CAP", 64
+                    )
+                    all_enum = self._solve_enumerate(enum_cap)
+                    all_cleaned = [self._postprocess_independent_set(s)
+                                   for s in all_enum]
+                    all_valid = [s for s in all_cleaned
+                                 if self._is_formula_valid(s)]
+                    if all_valid:
+                        rng_sample = _random_module.Random(random_seed)
+                        target = num_structures or 1
+                        sampled = [rng_sample.choice(all_valid)
+                                   for _ in range(target)]
+                        valid = sampled
+                if valid:
+                    cleaned_sets = valid
 
         if cleaned_sets and method in {"random", "enumerate"}:
             reference_set = cleaned_sets[0]
