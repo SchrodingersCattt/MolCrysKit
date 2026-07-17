@@ -129,6 +129,10 @@ DISORDER_CONFIG = {
     # C(16,4) = 1820 candidates — manageable.  C(30,4) = 27405 — too slow.
     "CLIQUE_DECOMP_MAX_NEIGHBORS": 16,
     "SKIP_METAL_VALENCE_CHECK": True,  # Skip metal valence checks
+    # Cap for fallback enumeration in the formula-based stoichiometry filter.
+    # When random sampling yields too few valid solutions, enumerate up to this
+    # many candidates and filter by formula before sampling.
+    "FORMULA_FILTER_ENUM_CAP": 64,
 }
 
 # Bonding thresholds for disorder analysis

@@ -1451,8 +1451,18 @@ class DisorderSolver:
         return totals
 
     def _parse_expected_element_totals(self) -> dict[str, int] | None:
-        """Parse formula_moiety * Z into expected element-count dict."""
-        import re as _re
+        """Parse formula_moiety * Z into expected element-count dict.
+
+        Returns None when metadata is unavailable, signalling that the
+        stoichiometry filter should be skipped.
+        """
+        if hasattr(self, "_cached_expected_element_totals"):
+            return self._cached_expected_element_totals
+        result = self._do_parse_expected_element_totals()
+        self._cached_expected_element_totals = result
+        return result
+
+    def _do_parse_expected_element_totals(self) -> dict[str, int] | None:
         fm = self.info.formula_moiety
         z = self.info.z_value
         if not fm or not z:
@@ -1460,16 +1470,17 @@ class DisorderSolver:
         totals: dict[str, int] = {}
         for comp in fm.split(","):
             comp = comp.strip()
-            mult_match = _re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
+            mult_match = re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
             if mult_match:
                 multiplier = float(mult_match.group(1))
                 inner = mult_match.group(2)
             else:
                 multiplier = 1.0
                 inner = comp
-            inner = _re.sub(r"\d+[+-]$", "", inner).strip()
-            inner = _re.sub(r"[+-]$", "", inner).strip()
-            for match in _re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
+            # Remove trailing charges: "2+", "+", "3-", "-"
+            inner = re.sub(r"\d+[+-]$", "", inner).strip()
+            inner = re.sub(r"[+-]$", "", inner).strip()
+            for match in re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
                 element = match.group(1)
                 count_str = match.group(2)
                 if not element:
@@ -1480,16 +1491,51 @@ class DisorderSolver:
                 )
         for el in list(totals):
             totals[el] *= z
+        # Remove elements with zero count (can happen with fractional multipliers)
+        totals = {el: c for el, c in totals.items() if c > 0}
         return totals if totals else None
 
     def _parse_expected_molecule_counts(self) -> dict[str, int] | None:
         """Parse formula_moiety * Z into expected per-molecule formula counts.
 
-        Returns a dict mapping sorted element formula (e.g. 'C5FeN6O') to the
+        Returns a dict mapping Hill-notation formula (e.g. 'C5FeN6O') to the
         expected number of occurrences in the unit cell, or None if metadata
         is unavailable.
+
+        Uses Hill system ordering (C first, H second, remaining elements
+        alphabetically) to match the output of ASE Atoms.get_chemical_formula().
         """
-        import re as _re
+        if hasattr(self, "_cached_expected_molecule_counts"):
+            return self._cached_expected_molecule_counts
+        result = self._do_parse_expected_molecule_counts()
+        self._cached_expected_molecule_counts = result
+        return result
+
+    @staticmethod
+    def _hill_formula(elem_dict: dict[str, int]) -> str:
+        """Build a Hill-notation formula string from an element-count dict.
+
+        Hill system: C first, H second, then remaining elements in
+        alphabetical order.  This matches ASE's default
+        ``Atoms.get_chemical_formula()`` output.
+        """
+        if not elem_dict:
+            return ""
+        ordered: list[str] = []
+        # Carbon first, then Hydrogen, then rest alphabetically
+        if "C" in elem_dict:
+            ordered.append("C")
+            if "H" in elem_dict:
+                ordered.append("H")
+        remaining = sorted(el for el in elem_dict if el not in ordered)
+        ordered.extend(remaining)
+        parts: list[str] = []
+        for el in ordered:
+            c = elem_dict[el]
+            parts.append(f"{el}{c}" if c > 1 else el)
+        return "".join(parts)
+
+    def _do_parse_expected_molecule_counts(self) -> dict[str, int] | None:
         fm = self.info.formula_moiety
         z = self.info.z_value
         if not fm or not z:
@@ -1497,30 +1543,26 @@ class DisorderSolver:
         counts: dict[str, int] = {}
         for comp in fm.split(","):
             comp = comp.strip()
-            mult_match = _re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
+            mult_match = re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
             if mult_match:
                 multiplier = int(round(float(mult_match.group(1))))
                 inner = mult_match.group(2)
             else:
                 multiplier = 1
                 inner = comp
-            # Remove charge
-            inner = _re.sub(r"\d+[+-]$", "", inner).strip()
-            inner = _re.sub(r"[+-]$", "", inner).strip()
-            # Parse into element dict then produce sorted formula string
+            # Remove trailing charges: "2+", "+", "3-", "-"
+            inner = re.sub(r"\d+[+-]$", "", inner).strip()
+            inner = re.sub(r"[+-]$", "", inner).strip()
+            # Parse into element dict then produce Hill formula string
             elem_dict: dict[str, int] = {}
-            for match in _re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
+            for match in re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
                 element = match.group(1)
                 count_str = match.group(2)
                 if not element:
                     continue
                 c = int(count_str) if count_str else 1
                 elem_dict[element] = elem_dict.get(element, 0) + c
-            # Build canonical formula string: elements sorted alphabetically
-            formula = "".join(
-                f"{el}{elem_dict[el]}" if elem_dict[el] > 1 else el
-                for el in sorted(elem_dict)
-            )
+            formula = self._hill_formula(elem_dict)
             if formula:
                 counts[formula] = counts.get(formula, 0) + multiplier * z
         return counts if counts else None
@@ -1766,6 +1808,15 @@ class DisorderSolver:
         List[MolecularCrystal] or List[Tuple[MolecularCrystal, List[int]]]
             List of ordered molecular crystal structures, optionally paired
             with the selected source atom indices.
+
+        Notes:
+        ------
+        When ``formula_moiety`` and ``z_value`` are available in the CIF
+        metadata, a post-processing stoichiometry filter rejects candidate
+        solutions whose element totals or per-molecule formulas do not match
+        the declared composition.  For 'random' mode, if reject-sampling
+        yields too few valid structures, a capped enumeration fallback is
+        used (controlled by DISORDER_CONFIG["FORMULA_FILTER_ENUM_CAP"]).
         """
         # Initialize atom groups (Identify Rigid Bodies)
         self.atom_groups = []
@@ -1824,7 +1875,11 @@ class DisorderSolver:
                 if method == "random" and len(valid) < (num_structures or 1):
                     # Reject sampling has low hit rate for linkage disorder;
                     # fall back to capped enumeration and sample from valid set.
-                    all_enum = self._solve_enumerate(64)
+                    from ...constants.config import DISORDER_CONFIG
+                    enum_cap = DISORDER_CONFIG.get(
+                        "FORMULA_FILTER_ENUM_CAP", 64
+                    )
+                    all_enum = self._solve_enumerate(enum_cap)
                     all_cleaned = [self._postprocess_independent_set(s)
                                    for s in all_enum]
                     all_valid = [s for s in all_cleaned
