@@ -25,6 +25,7 @@ from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 from ...constants.config import DISORDER_CONFIG
 from ...analysis.interactions import get_bonding_threshold
+from ...analysis.formula_moiety import parse_moiety_string
 
 
 class DisorderSolver:
@@ -1467,27 +1468,14 @@ class DisorderSolver:
         z = self.info.z_value
         if not fm or not z:
             return None
+        fragments = parse_moiety_string(fm)
+        if not fragments:
+            return None
         totals: dict[str, int] = {}
-        for comp in fm.split(","):
-            comp = comp.strip()
-            mult_match = re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
-            if mult_match:
-                multiplier = float(mult_match.group(1))
-                inner = mult_match.group(2)
-            else:
-                multiplier = 1.0
-                inner = comp
-            # Remove trailing charges: "2+", "+", "3-", "-"
-            inner = re.sub(r"\d+[+-]$", "", inner).strip()
-            inner = re.sub(r"[+-]$", "", inner).strip()
-            for match in re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
-                element = match.group(1)
-                count_str = match.group(2)
-                if not element:
-                    continue
-                count = int(count_str) if count_str else 1
+        for frag in fragments:
+            for element, count in frag.composition.items():
                 totals[element] = totals.get(element, 0) + int(
-                    round(multiplier * count)
+                    round(frag.multiplier * count)
                 )
         for el in list(totals):
             totals[el] *= z
@@ -1540,29 +1528,13 @@ class DisorderSolver:
         z = self.info.z_value
         if not fm or not z:
             return None
+        fragments = parse_moiety_string(fm)
+        if not fragments:
+            return None
         counts: dict[str, int] = {}
-        for comp in fm.split(","):
-            comp = comp.strip()
-            mult_match = re.match(r"^([\d.]+)\s*\((.+)\)\s*$", comp)
-            if mult_match:
-                multiplier = int(round(float(mult_match.group(1))))
-                inner = mult_match.group(2)
-            else:
-                multiplier = 1
-                inner = comp
-            # Remove trailing charges: "2+", "+", "3-", "-"
-            inner = re.sub(r"\d+[+-]$", "", inner).strip()
-            inner = re.sub(r"[+-]$", "", inner).strip()
-            # Parse into element dict then produce Hill formula string
-            elem_dict: dict[str, int] = {}
-            for match in re.finditer(r"([A-Z][a-z]?)(\d*)", inner):
-                element = match.group(1)
-                count_str = match.group(2)
-                if not element:
-                    continue
-                c = int(count_str) if count_str else 1
-                elem_dict[element] = elem_dict.get(element, 0) + c
-            formula = self._hill_formula(elem_dict)
+        for frag in fragments:
+            multiplier = int(round(frag.multiplier))
+            formula = self._hill_formula(frag.composition)
             if formula:
                 counts[formula] = counts.get(formula, 0) + multiplier * z
         return counts if counts else None
@@ -1592,6 +1564,9 @@ class DisorderSolver:
                 actual[formula] = actual.get(formula, 0) + 1
             return actual == expected_molecules
         except Exception:
+            logger.debug(
+                "Formula validation reconstruction failed", exc_info=True
+            )
             return False
 
     def _postprocess_independent_set(self, independent_set: List[int]) -> List[int]:
