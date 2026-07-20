@@ -1160,8 +1160,14 @@ def orient_lattice(
     Returns
     -------
     Tuple[np.ndarray, np.ndarray]
-        ``(rotated_lattice, rotation_matrix)`` where
-        ``rotated_lattice = lattice @ rotation_matrix``.
+        ``(rotated_lattice, rotation_matrix)`` where *rotation_matrix* is a
+        proper orthogonal matrix (det = +1). ``rotated_lattice`` equals
+        ``lattice @ rotation_matrix`` **after** applying a tilt normalization
+        step that ensures LAMMPS triclinic compatibility
+        (``|xy| ≤ ax/2``, ``|xz| ≤ ax/2``, ``|yz| ≤ by/2``). The
+        normalization adds integer multiples of in-plane vectors to the
+        stacking vector — a lattice-equivalent transformation that does not
+        change the physical crystal.
 
     Raises
     ------
@@ -1227,6 +1233,38 @@ def orient_lattice(
         M = M_z @ P
 
     rotated_lattice = lattice @ M
+
+    # ------------------------------------------------------------------
+    # Tilt normalization (LAMMPS triclinic convention):
+    #   |xy| ≤ 0.5*ax,  |xz| ≤ 0.5*ax,  |yz| ≤ 0.5*by
+    # This adds integer multiples of in-plane vectors to the stacking
+    # vector — a lattice-equivalent transformation that does not change
+    # the physical structure, only the cell description.
+    # After this step, rotated_lattice may differ from lattice @ M by
+    # an integer combination of rows 0 and 1 in row 2.
+    # ------------------------------------------------------------------
+    ax = rotated_lattice[0, 0]
+    if abs(ax) > _GEOM_EPS:
+        # xy: project of row[1] onto row[0] direction
+        if abs(rotated_lattice[1, 0]) > 0.5 * abs(ax):
+            n = round(rotated_lattice[1, 0] / ax)
+            rotated_lattice[1] -= n * rotated_lattice[0]
+        # xz: project of row[2] onto row[0] direction
+        if abs(rotated_lattice[2, 0]) > 0.5 * abs(ax):
+            n = round(rotated_lattice[2, 0] / ax)
+            rotated_lattice[2] -= n * rotated_lattice[0]
+    by = rotated_lattice[1, 1]
+    if abs(by) > _GEOM_EPS:
+        # yz: project of row[2] onto row[1] direction
+        if abs(rotated_lattice[2, 1]) > 0.5 * abs(by):
+            n = round(rotated_lattice[2, 1] / by)
+            rotated_lattice[2] -= n * rotated_lattice[1]
+    # Recheck xz after yz flip (yz flip adds row[1] which has xy component)
+    if abs(ax) > _GEOM_EPS:
+        if abs(rotated_lattice[2, 0]) > 0.5 * abs(ax):
+            n = round(rotated_lattice[2, 0] / ax)
+            rotated_lattice[2] -= n * rotated_lattice[0]
+
     return rotated_lattice, M
 
 

@@ -143,6 +143,76 @@ class TestOrientLattice:
         with pytest.raises(ValueError, match="collinear"):
             orient_lattice(degenerate, target_axis=2)
 
+    def test_tilt_normalization(self):
+        """orient_lattice must enforce LAMMPS tilt constraints."""
+        # Construct a lattice where the stacking vector has large xz tilt
+        # after naive rotation (simulates HMX [3,1,1] scenario)
+        lattice = np.array([
+            [14.0, 0.0, 0.0],
+            [-4.0, 24.0, 0.0],
+            [9.0, -7.0, 1.5],   # xz/ax = 9/14 = 0.64 > 0.5 without fix
+        ])
+        rotated, M = orient_lattice(lattice, target_axis=2)
+        ax = abs(rotated[0, 0])
+        by = abs(rotated[1, 1])
+        # LAMMPS tilt constraints
+        assert abs(rotated[1, 0]) <= 0.5 * ax + 1e-10, \
+            f"|xy|={abs(rotated[1, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
+        assert abs(rotated[2, 0]) <= 0.5 * ax + 1e-10, \
+            f"|xz|={abs(rotated[2, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
+        assert abs(rotated[2, 1]) <= 0.5 * by + 1e-10, \
+            f"|yz|={abs(rotated[2, 1]):.4f} > 0.5*by={0.5*by:.4f}"
+        # Volume must be preserved
+        np.testing.assert_allclose(
+            abs(np.linalg.det(rotated)),
+            abs(np.linalg.det(lattice)),
+            rtol=1e-10,
+        )
+        # M must still be a proper rotation
+        np.testing.assert_allclose(M @ M.T, np.eye(3), atol=1e-10)
+        np.testing.assert_allclose(np.linalg.det(M), 1.0, atol=1e-10)
+
+    def test_tilt_normalization_extreme(self):
+        """Extreme tilt in multiple components simultaneously."""
+        lattice = np.array([
+            [8.0, 0.0, 0.0],
+            [7.0, 5.0, 0.0],    # xy/ax = 7/8 = 0.875 > 0.5
+            [6.0, 4.0, 3.0],    # xz/ax = 6/8 = 0.75, yz/by would be large
+        ])
+        rotated, M = orient_lattice(lattice, target_axis=2)
+        ax = abs(rotated[0, 0])
+        by = abs(rotated[1, 1])
+        assert abs(rotated[1, 0]) <= 0.5 * ax + 1e-10
+        assert abs(rotated[2, 0]) <= 0.5 * ax + 1e-10
+        assert abs(rotated[2, 1]) <= 0.5 * by + 1e-10
+        np.testing.assert_allclose(
+            abs(np.linalg.det(rotated)),
+            abs(np.linalg.det(lattice)),
+            rtol=1e-10,
+        )
+
+    def test_tilt_normalization_xz_recheck(self):
+        """yz flip can push xz out of bounds; recheck must fix it."""
+        # row[1] has xy=-4; after yz-flip row[2] gains -(-4)=+4 in x,
+        # making xz=2+4=6 > 0.5*10=5 → recheck branch fires.
+        lattice = np.array([
+            [10.0, 0.0, 0.0],
+            [-4.0, 8.0, 0.0],
+            [2.0, 7.0, 2.0],
+        ])
+        rotated, M = orient_lattice(lattice, target_axis=2)
+        ax = abs(rotated[0, 0])
+        by = abs(rotated[1, 1])
+        assert abs(rotated[1, 0]) <= 0.5 * ax + 1e-10
+        assert abs(rotated[2, 0]) <= 0.5 * ax + 1e-10
+        assert abs(rotated[2, 1]) <= 0.5 * by + 1e-10
+        np.testing.assert_allclose(
+            abs(np.linalg.det(rotated)),
+            abs(np.linalg.det(lattice)),
+            rtol=1e-10,
+        )
+        np.testing.assert_allclose(M @ M.T, np.eye(3), atol=1e-10)
+
 
 # ---------------------------------------------------------------------------
 # get_surface_basis tests
@@ -302,3 +372,41 @@ class TestReorientCrystal:
         # When the raw basis is already near-optimal, reduction is a no-op.
         # Verify at minimum that reduction doesn't make things worse.
         assert abs(angle_reduced - 90) <= abs(angle_raw - 90) + 0.1
+
+    def test_lammps_tilt_constraint(self, nacl_crystal):
+        """Reoriented lattice must satisfy LAMMPS tilt constraints."""
+        for direction in [(1, 0, 0), (1, 1, 0), (1, 1, 1), (0, 0, 1)]:
+            _, info = reorient_crystal(nacl_crystal, direction, target_axis="z")
+            L = info.rotated_lattice
+            ax = abs(L[0, 0])
+            by = abs(L[1, 1])
+            assert abs(L[1, 0]) <= 0.5 * ax + 1e-10, \
+                f"dir={direction}: |xy|={abs(L[1, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
+            assert abs(L[2, 0]) <= 0.5 * ax + 1e-10, \
+                f"dir={direction}: |xz|={abs(L[2, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
+            assert abs(L[2, 1]) <= 0.5 * by + 1e-10, \
+                f"dir={direction}: |yz|={abs(L[2, 1]):.4f} > 0.5*by={0.5*by:.4f}"
+
+    def test_lammps_tilt_constraint_monoclinic(self):
+        """Monoclinic high-index reorientation must satisfy tilt constraints."""
+        from molcrys_kit.io.cif import read_mol_crystal
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        path = os.path.join(project_root, "examples", "OCHTET12.cif")
+        if not os.path.exists(path):
+            pytest.skip("OCHTET12.cif not found")
+        crystal = read_mol_crystal(path)
+
+        # [3,1,1] on monoclinic HMX previously violated |xz| < 0.5*ax
+        for direction in [(3, 1, 1), (1, 2, 3), (2, 1, 0)]:
+            _, info = reorient_crystal(crystal, direction, target_axis="z")
+            L = info.rotated_lattice
+            ax = abs(L[0, 0])
+            by = abs(L[1, 1])
+            assert abs(L[1, 0]) <= 0.5 * ax + 1e-10, \
+                f"dir={direction}: |xy|={abs(L[1, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
+            assert abs(L[2, 0]) <= 0.5 * ax + 1e-10, \
+                f"dir={direction}: |xz|={abs(L[2, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
+            assert abs(L[2, 1]) <= 0.5 * by + 1e-10, \
+                f"dir={direction}: |yz|={abs(L[2, 1]):.4f} > 0.5*by={0.5*by:.4f}"
