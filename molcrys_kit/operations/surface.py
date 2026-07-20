@@ -176,7 +176,9 @@ def get_surface_basis(
     g = _gcd_multiple([h, k, l])
     h, k, l = h // g, k // g, l // g
 
-    # Handle special case where plane is parallel to z-axis (001)
+    # Degenerate case: h=k=0 makes gcd(h,k)=0, so the extended-GCD path
+    # below would divide by zero.  The answer is trivial: in-plane vectors
+    # are the a and b axes, stacking along c.
     if h == 0 and k == 0:
         v1 = np.array([1, 0, 0], dtype=int)
         v2 = np.array([0, 1, 0], dtype=int)
