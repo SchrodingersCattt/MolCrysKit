@@ -29,7 +29,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 </p>
 
 <p align="center">
-  <img src="docs/images/03_topological_surface.png" width="406"><br>
+  <img src="docs/images/03_topological_surface.png" width="496"><br>
   <em>Topological Surface Generation</em>
 </p>
 
