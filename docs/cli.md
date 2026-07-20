@@ -42,6 +42,7 @@ mck operate cluster --help
 | `vacancy INPUT` | Generate vacancy defects | `-o OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `desolvate INPUT` | Remove solvent molecules | `-o OUTPUT`, `--targets STR` (repeatable, required) |
 | `interpolate START END` | Interpolate between structures | `-o OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
+| `reorient INPUT` | Reorient crystal for axis-aligned simulations | `-o OUTPUT`, `--direction H K L`, `--target-axis {x,y,z}` (default: z), `--no-reduce` |
 
 ### `mck analyze` — Analyze crystals and print reports
 
@@ -97,6 +98,16 @@ mck operate cluster structure.cif -o cluster.xyz --seed-index 42 --mode rcut --r
 ```bash
 # (001) slab with 5 layers and 15 Å vacuum
 mck operate slab structure.cif -o slab_001.cif --miller 0 0 1 --layers 5 --vacuum 15.0
+```
+
+### Crystal Reorientation
+
+```bash
+# Reorient crystal so [110] direction is along Z (for MSST shock simulations)
+mck operate reorient structure.cif -o reoriented.cif --direction 1 1 0
+
+# Align [111] along X axis
+mck operate reorient structure.cif -o reoriented.cif --direction 1 1 1 --target-axis x
 ```
 
 ## See Also

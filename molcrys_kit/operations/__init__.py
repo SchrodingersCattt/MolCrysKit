@@ -25,6 +25,7 @@ from .surface import (
     TerminationInfo,
     enumerate_terminations,
     generate_slabs_with_terminations,
+    get_surface_basis,
 )
 
 from .hydrogen_completion import HydrogenCompleter, add_hydrogens
@@ -54,6 +55,8 @@ from .interpolation import (
     interpolate_pose,
     match_molecules,
 )
+
+from .reorientation import reorient_crystal, ReorientationInfo
 
 __all__ = [
     "apply_gaussian_displacement_molecule",
@@ -92,4 +95,7 @@ __all__ = [
     "interpolate_molecule",
     "interpolate_pose",
     "match_molecules",
+    "get_surface_basis",
+    "reorient_crystal",
+    "ReorientationInfo",
 ]

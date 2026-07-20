@@ -1130,6 +1130,144 @@ def reduce_surface_lattice(
     return v1, v2
 
 
+def orient_lattice(
+    lattice: np.ndarray, target_axis: int = 2
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Rotate a lattice so that row[0] aligns with the first in-plane Cartesian
+    axis, row[1] lies in the in-plane subspace, and the surface normal (cross
+    product of row[0] and row[1]) points along *target_axis*.
+
+    The rotation is a proper rotation (det = +1) expressed as a 3×3 matrix
+    for right-multiplication: ``rotated = original @ M``.
+
+    For ``target_axis=2`` (default, Z), the result is the standard LAMMPS
+    triclinic convention:
+
+    - ``lattice[0] @ M`` → along X
+    - ``lattice[1] @ M`` → in XY plane (y ≥ 0)
+    - ``lattice[2] @ M`` → has positive z component
+
+    Parameters
+    ----------
+    lattice : np.ndarray
+        3×3 array of lattice vectors as rows.
+    target_axis : int
+        Cartesian axis index (0 = X, 1 = Y, 2 = Z) that the surface normal
+        (i.e. the stacking direction, perpendicular to rows 0 and 1) should
+        be aligned to.
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        ``(rotated_lattice, rotation_matrix)`` where *rotation_matrix* is a
+        proper orthogonal matrix (det = +1). ``rotated_lattice`` equals
+        ``lattice @ rotation_matrix`` **after** applying a tilt normalization
+        step that ensures LAMMPS triclinic compatibility
+        (``|xy| ≤ ax/2``, ``|xz| ≤ ax/2``, ``|yz| ≤ by/2``). The
+        normalization adds integer multiples of in-plane vectors to the
+        stacking vector — a lattice-equivalent transformation that does not
+        change the physical crystal.
+
+    Raises
+    ------
+    ValueError
+        If *target_axis* is not 0, 1, or 2, or if the first two lattice
+        rows are collinear.
+    """
+    if target_axis not in (0, 1, 2):
+        raise ValueError(f"target_axis must be 0, 1, or 2, got {target_axis}")
+
+    a = lattice[0]
+    b = lattice[1]
+
+    # Build orthonormal frame: x along a, y in ab-plane, z = x × y
+    x_axis = a / np.linalg.norm(a)
+    b_proj = b - np.dot(b, x_axis) * x_axis
+    b_proj_norm = np.linalg.norm(b_proj)
+    if b_proj_norm < _GEOM_EPS:
+        raise ValueError("First two lattice rows are collinear; cannot orient.")
+    y_axis = b_proj / b_proj_norm
+    z_axis = np.cross(x_axis, y_axis)
+    z_axis /= np.linalg.norm(z_axis)
+
+    # Enforce key LAMMPS triclinic constraint for target_axis=Z:
+    #   rotated[2] = (cx, cy, cz) with cz > 0
+    # This ensures the stacking/shock direction has positive Z projection.
+    # The normal direction (cross of rows 0,1) may point in ±Z — that's fine
+    # for LAMMPS; the sign depends on the handedness of the in-plane basis.
+    #
+    # Additionally ensure b_y > 0 for conventional box shape.
+    # With det(M)=+1, only two axes can be flipped simultaneously.
+    c = lattice[2]
+
+    # 1. Ensure c_z > 0 (stacking vector projection along frame normal)
+    if np.dot(c, z_axis) < 0:
+        y_axis = -y_axis
+        z_axis = -z_axis
+
+    # 2. Ensure b_y > 0 (projection of b onto in-plane y)
+    #    If flipping is needed, negate x and y (keeps z, keeps det=+1).
+    if np.dot(b, y_axis) < 0:
+        x_axis = -x_axis
+        y_axis = -y_axis
+
+    # M_z: rotation that puts normal along Z (standard orientation)
+    M_z = np.stack([x_axis, y_axis, z_axis], axis=1)
+
+    if target_axis == 2:
+        M = M_z
+    else:
+        # Apply a proper-rotation permutation P (det=+1) that maps the
+        # Z-aligned normal to the target axis.
+        if target_axis == 0:
+            # Cyclic permutation mapping Z→X, X→Y, Y→Z
+            P = np.array([[0, 1, 0],
+                          [0, 0, 1],
+                          [1, 0, 0]], dtype=float)
+        else:  # target_axis == 1
+            # −90° rotation around X-axis: maps Z→Y
+            P = np.array([[1, 0, 0],
+                          [0, 0, 1],
+                          [0, -1, 0]], dtype=float)
+        M = M_z @ P
+
+    rotated_lattice = lattice @ M
+
+    # ------------------------------------------------------------------
+    # Tilt normalization (LAMMPS triclinic convention):
+    #   |xy| ≤ 0.5*ax,  |xz| ≤ 0.5*ax,  |yz| ≤ 0.5*by
+    # This adds integer multiples of in-plane vectors to the stacking
+    # vector — a lattice-equivalent transformation that does not change
+    # the physical structure, only the cell description.
+    # After this step, rotated_lattice may differ from lattice @ M by
+    # an integer combination of rows 0 and 1 in row 2.
+    # ------------------------------------------------------------------
+    ax = rotated_lattice[0, 0]
+    if abs(ax) > _GEOM_EPS:
+        # xy: project of row[1] onto row[0] direction
+        if abs(rotated_lattice[1, 0]) > 0.5 * abs(ax):
+            n = round(rotated_lattice[1, 0] / ax)
+            rotated_lattice[1] -= n * rotated_lattice[0]
+        # xz: project of row[2] onto row[0] direction
+        if abs(rotated_lattice[2, 0]) > 0.5 * abs(ax):
+            n = round(rotated_lattice[2, 0] / ax)
+            rotated_lattice[2] -= n * rotated_lattice[0]
+    by = rotated_lattice[1, 1]
+    if abs(by) > _GEOM_EPS:
+        # yz: project of row[2] onto row[1] direction
+        if abs(rotated_lattice[2, 1]) > 0.5 * abs(by):
+            n = round(rotated_lattice[2, 1] / by)
+            rotated_lattice[2] -= n * rotated_lattice[1]
+    # Recheck xz after yz flip (yz flip adds row[1] which has xy component)
+    if abs(ax) > _GEOM_EPS:
+        if abs(rotated_lattice[2, 0]) > 0.5 * abs(ax):
+            n = round(rotated_lattice[2, 0] / ax)
+            rotated_lattice[2] -= n * rotated_lattice[0]
+
+    return rotated_lattice, M
+
+
 def min_distance_between_atom_sets(
     positions_a: np.ndarray,
     positions_b: np.ndarray,

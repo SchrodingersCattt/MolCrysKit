@@ -16,7 +16,7 @@ from functools import reduce
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import _strip_stale_frac_arrays
 from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
-from ..utils.geometry import reduce_surface_lattice
+from ..utils.geometry import reduce_surface_lattice, orient_lattice
 
 
 def _extended_gcd(a, b):
@@ -134,6 +134,109 @@ class _FrameData:
     inv_rotated_lattice: np.ndarray   # (3, 3)
 
 
+def get_surface_basis(
+    h: int, k: int, l: int, lattice: np.ndarray, reduce_2d: bool = True
+) -> np.ndarray:
+    """
+    Derive the integer basis transformation matrix for a surface plane.
+
+    Given Miller indices (h, k, l) and a lattice, this function finds two
+    in-plane lattice vectors and a third stacking vector perpendicular to the
+    plane.  The in-plane vectors are optionally Gauss-reduced for
+    near-orthogonality.
+
+    Parameters
+    ----------
+    h, k, l : int
+        Miller indices of the surface plane.
+    lattice : np.ndarray
+        3×3 array of lattice vectors as rows.
+    reduce_2d : bool
+        If True (default), apply 2D Gauss lattice reduction to the in-plane
+        vectors.  Set to False to skip reduction (useful when the caller
+        needs the raw integer basis).
+
+    Returns
+    -------
+    np.ndarray
+        3×3 integer transformation matrix (column vectors).  The new cell is
+        given by ``transformation_matrix.T @ lattice`` (row vectors).
+        Rows 0 and 1 of the result lie in the surface plane; row 2 is the
+        stacking direction satisfying h·w₀ + k·w₁ + l·w₂ = 1.
+
+    Raises
+    ------
+    ValueError
+        If all Miller indices are zero or no stacking vector can be found.
+    """
+    if h == 0 and k == 0 and l == 0:
+        raise ValueError("Miller indices cannot all be zero")
+
+    # Reduce Miller indices to be coprime
+    g = _gcd_multiple([h, k, l])
+    h, k, l = h // g, k // g, l // g
+
+    # Degenerate case: h=k=0 makes gcd(h,k)=0, so the extended-GCD path
+    # below would divide by zero.  The answer is trivial: in-plane vectors
+    # are the a and b axes, stacking along c.
+    if h == 0 and k == 0:
+        v1 = np.array([1, 0, 0], dtype=int)
+        v2 = np.array([0, 1, 0], dtype=int)
+        stacking_vector = np.array([0, 0, 1 if l > 0 else -1], dtype=int)
+        transformation_matrix = np.array([v1, v2, stacking_vector]).T
+        return transformation_matrix
+    else:
+        g_hk, p, q = _extended_gcd(h, k)
+        v1 = np.array([k // g_hk, -h // g_hk, 0], dtype=int)
+        v2 = np.array([p * l, q * l, -g_hk], dtype=int)
+
+    # Find the stacking vector via Bezout's identity
+    stacking_vector = None
+    for w in range(max(abs(l), g_hk) + 1):
+        rhs = 1 - l * w
+        if h == 0:
+            if rhs % k == 0:
+                stacking_vector = np.array([0, rhs // k, w], dtype=int)
+                break
+        elif k == 0:
+            if rhs % h == 0:
+                stacking_vector = np.array([rhs // h, 0, w], dtype=int)
+                break
+        else:
+            if (rhs % g_hk) == 0:
+                p_hk = p * (rhs // g_hk)
+                q_hk = q * (rhs // g_hk)
+                stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
+                break
+
+    if stacking_vector is None:
+        raise ValueError(
+            f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})"
+        )
+
+    # Convert the initial v1 and v2 vectors to Cartesian coordinates
+    v1_cart = np.dot(v1, lattice)
+    v2_cart = np.dot(v2, lattice)
+
+    if reduce_2d:
+        # Apply Gauss reduction to get more orthogonal surface vectors
+        v1_cart, v2_cart = reduce_surface_lattice(v1_cart, v2_cart, lattice)
+
+    # Convert (possibly reduced) vectors back to lattice coordinates
+    inv_lattice = np.linalg.inv(lattice)
+    v1_reduced_lat = np.dot(v1_cart, inv_lattice)
+    v2_reduced_lat = np.dot(v2_cart, inv_lattice)
+
+    # Round to integers to get the transformation matrix
+    v1_int = np.round(v1_reduced_lat).astype(int)
+    v2_int = np.round(v2_reduced_lat).astype(int)
+
+    # Construct the transformation matrix (as column vectors)
+    transformation_matrix = np.array([v1_int, v2_int, stacking_vector]).T
+
+    return transformation_matrix
+
+
 class TopologicalSlabGenerator:
     """
     Generates surface slabs from molecular crystals while preserving molecular topology.
@@ -155,138 +258,9 @@ class TopologicalSlabGenerator:
         """
         self.crystal = crystal
 
-    @staticmethod
-    def _get_standard_rotation_matrix(lattice: np.ndarray) -> np.ndarray:
-        """
-        Returns a rotation matrix M such that:
-        - lattice[0] @ M aligns with X axis
-        - lattice[1] @ M lies in XY plane (Y >= 0)
-        - lattice[2] @ M points generally +Z
-        All input/output are row vectors. Use right-multiplication: rotated = original @ M
-        """
-        a = lattice[0]
-        b = lattice[1]
-        # Normalize a to X
-        x_axis = a / np.linalg.norm(a)
-        # Remove x component from b, then normalize to get Y
-        b_proj = b - np.dot(b, x_axis) * x_axis
-        y_axis = b_proj / np.linalg.norm(b_proj)
-        # Z is right-handed
-        z_axis = np.cross(x_axis, y_axis)
-        z_axis /= np.linalg.norm(z_axis)
-        # Ensure z points generally +Z (not -Z)
-        if z_axis[2] < 0:
-            y_axis = -y_axis
-            z_axis = -z_axis
-        # Compose rotation matrix (columns are new axes)
-        M = np.stack([x_axis, y_axis, z_axis], axis=1)
-        return M
-
     def _get_primitive_surface_vectors(self, h: int, k: int, l: int) -> np.ndarray:
-        """
-        Derives the integer basis transformation matrix (3x3) for the surface.
-
-        Given Miller indices (h, k, l), this method finds two in-plane lattice
-        vectors (u, v) that lie in the plane and a third vector (w) that is
-        perpendicular to the plane (stacking direction).
-
-        Parameters
-        ----------
-        h, k, l : int
-            Miller indices of the surface plane.
-
-        Returns
-        -------
-        np.ndarray
-            3x3 transformation matrix where rows are the new basis vectors
-            in terms of the original lattice coordinates.
-
-        Raises
-        ------
-        ValueError
-            If all Miller indices are zero.
-        """
-        if h == 0 and k == 0 and l == 0:
-            raise ValueError("Miller indices cannot all be zero")
-
-        # Reduce Miller indices to be coprime
-        g = _gcd_multiple([h, k, l])
-        h, k, l = h // g, k // g, l // g
-
-        # Handle special case where plane is parallel to z-axis (001)
-        if h == 0 and k == 0:
-            # (001) surface
-            v1 = np.array([1, 0, 0], dtype=int)
-            v2 = np.array([0, 1, 0], dtype=int)
-            stacking_vector = np.array([0, 0, 1 if l > 0 else -1], dtype=int)
-
-            transformation_matrix = np.array([v1, v2, stacking_vector]).T
-            return transformation_matrix
-        else:
-            # General case using Extended Euclidean Algorithm
-            g_hk, p, q = _extended_gcd(h, k)
-            # v1 is perpendicular to [h, k, l] and primitive along its direction
-            v1 = np.array([k // g_hk, -h // g_hk, 0], dtype=int)
-            # v2 completes the primitive basis for the plane
-            v2 = np.array([p * l, q * l, -g_hk], dtype=int)
-
-        # Find the stacking vector (v3) such that h*v3[0] + k*v3[1] + l*v3[2] = 1 (Bezout's identity)
-        # We need to solve h*u + k*v + l*w = 1 for integers u, v, w
-        # Since gcd(h, k, l) = 1, a solution exists
-        stacking_vector = None
-        for w in range(
-            max(abs(l), g_hk) + 1
-        ):  # Changed from abs(l) + 1 to max(abs(l), g_hk) + 1 to ensure we check enough values
-            # Now solve h*u + k*v = 1 - l*w
-            rhs = 1 - l * w
-            # Solve h*u + k*v = rhs - l*w for u and v
-            # Using the extended Euclidean algorithm approach
-            if h == 0:
-                if rhs % k == 0:
-                    stacking_vector = np.array([0, rhs // k, w], dtype=int)
-                    break
-            elif k == 0:
-                if rhs % h == 0:
-                    stacking_vector = np.array([rhs // h, 0, w], dtype=int)
-                    break
-            else:
-                # Use extended Euclidean to find a particular solution
-                # g_hk was already calculated earlier, no need to recalculate
-                if (rhs % g_hk) == 0:  # Check if solution exists
-                    # Scale the solution (p and q were calculated earlier)
-                    p_hk = p * (rhs // g_hk)
-                    q_hk = q * (rhs // g_hk)
-                    stacking_vector = np.array([p_hk, q_hk, w], dtype=int)
-                    break
-
-        if stacking_vector is None:
-            raise ValueError(
-                f"Could not find a suitable stacking vector for plane ({h}, {k}, {l})"
-            )
-
-        # Get the original lattice to use for surface lattice reduction
-        old_lattice = self.crystal.lattice
-
-        # Convert the initial v1 and v2 vectors to Cartesian coordinates
-        v1_cart = np.dot(v1, old_lattice)
-        v2_cart = np.dot(v2, old_lattice)
-
-        # Apply Gauss reduction to get more orthogonal surface vectors
-        v1_reduced, v2_reduced = reduce_surface_lattice(v1_cart, v2_cart, old_lattice)
-
-        # Convert the reduced vectors back to lattice coordinates
-        inv_lattice = np.linalg.inv(old_lattice)
-        v1_reduced_lat = np.dot(v1_reduced, inv_lattice)
-        v2_reduced_lat = np.dot(v2_reduced, inv_lattice)
-
-        # Round to integers to get the transformation matrix
-        v1_int = np.round(v1_reduced_lat).astype(int)
-        v2_int = np.round(v2_reduced_lat).astype(int)
-
-        # Construct the transformation matrix (as column vectors)
-        transformation_matrix = np.array([v1_int, v2_int, stacking_vector]).T
-
-        return transformation_matrix
+        """Delegate to the public :func:`get_surface_basis` function."""
+        return get_surface_basis(h, k, l, self.crystal.lattice)
 
     def _prepare_frame(self, h: int, k: int, l: int) -> "_FrameData":
         """
@@ -316,9 +290,8 @@ class TopologicalSlabGenerator:
             transformation_matrix.T @ old_lattice
         )  # shape (3,3), row vectors
 
-        # 2. Rotate to standard orientation
-        M = self._get_standard_rotation_matrix(raw_surface_lattice)
-        rotated_lattice = raw_surface_lattice @ M  # shape (3,3), row vectors
+        # 2. Rotate to standard orientation (normal along Z)
+        rotated_lattice, M = orient_lattice(raw_surface_lattice, target_axis=2)
 
         # 3. Get stacking vector in rotated frame
         stacking_vector = rotated_lattice[2]
