@@ -373,40 +373,50 @@ class TestReorientCrystal:
         # Verify at minimum that reduction doesn't make things worse.
         assert abs(angle_reduced - 90) <= abs(angle_raw - 90) + 0.1
 
-    def test_lammps_tilt_constraint(self, nacl_crystal):
-        """Reoriented lattice must satisfy LAMMPS tilt constraints."""
+    def test_lammps_tilt_constraint(self, acetaminophen_crystal):
+        """Reoriented lattice satisfies LAMMPS tilt and topology is preserved."""
+        orig_sizes = sorted(len(m) for m in acetaminophen_crystal.molecules)
         for direction in [(1, 0, 0), (1, 1, 0), (1, 1, 1), (0, 0, 1)]:
-            _, info = reorient_crystal(nacl_crystal, direction, target_axis="z")
+            result, info = reorient_crystal(
+                acetaminophen_crystal, direction, target_axis="z"
+            )
             L = info.rotated_lattice
             ax = abs(L[0, 0])
             by = abs(L[1, 1])
+            # Tilt constraints
             assert abs(L[1, 0]) <= 0.5 * ax + 1e-10, \
                 f"dir={direction}: |xy|={abs(L[1, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
             assert abs(L[2, 0]) <= 0.5 * ax + 1e-10, \
                 f"dir={direction}: |xz|={abs(L[2, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
             assert abs(L[2, 1]) <= 0.5 * by + 1e-10, \
                 f"dir={direction}: |yz|={abs(L[2, 1]):.4f} > 0.5*by={0.5*by:.4f}"
+            # Topology preserved: molecule sizes unchanged
+            result_sizes = sorted(len(m) for m in result.molecules)
+            assert result_sizes == orig_sizes, \
+                f"dir={direction}: molecule sizes changed {orig_sizes} -> {result_sizes}"
 
-    def test_lammps_tilt_constraint_monoclinic(self):
-        """Monoclinic high-index reorientation must satisfy tilt constraints."""
-        from molcrys_kit.io.cif import read_mol_crystal
-        project_root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        path = os.path.join(project_root, "examples", "OCHTET12.cif")
-        if not os.path.exists(path):
-            pytest.skip("OCHTET12.cif not found")
-        crystal = read_mol_crystal(path)
+    def test_lammps_tilt_constraint_monoclinic(self, acetaminophen_crystal):
+        """High-index reorientation satisfies tilt and preserves topology.
 
-        # [3,1,1] on monoclinic HMX previously violated |xz| < 0.5*ax
+        Acetaminophen is monoclinic (P2₁/c, β≈115°). [3,1,1] and similar
+        high indices previously violated |xz| < 0.5*ax before the tilt-fix.
+        """
+        orig_sizes = sorted(len(m) for m in acetaminophen_crystal.molecules)
         for direction in [(3, 1, 1), (1, 2, 3), (2, 1, 0)]:
-            _, info = reorient_crystal(crystal, direction, target_axis="z")
+            result, info = reorient_crystal(
+                acetaminophen_crystal, direction, target_axis="z"
+            )
             L = info.rotated_lattice
             ax = abs(L[0, 0])
             by = abs(L[1, 1])
+            # Tilt constraints
             assert abs(L[1, 0]) <= 0.5 * ax + 1e-10, \
                 f"dir={direction}: |xy|={abs(L[1, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
             assert abs(L[2, 0]) <= 0.5 * ax + 1e-10, \
                 f"dir={direction}: |xz|={abs(L[2, 0]):.4f} > 0.5*ax={0.5*ax:.4f}"
             assert abs(L[2, 1]) <= 0.5 * by + 1e-10, \
                 f"dir={direction}: |yz|={abs(L[2, 1]):.4f} > 0.5*by={0.5*by:.4f}"
+            # Topology preserved
+            result_sizes = sorted(len(m) for m in result.molecules)
+            assert result_sizes == orig_sizes, \
+                f"dir={direction}: molecule sizes changed {orig_sizes} -> {result_sizes}"
