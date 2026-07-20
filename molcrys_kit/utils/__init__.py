@@ -27,6 +27,7 @@ from .geometry import (
     quaternion_slerp,
     unwrap_positions_along_bonds,
     volume_of_cell,
+    orient_lattice,
 )
 
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     "quaternion_slerp",
     "unwrap_positions_along_bonds",
     "volume_of_cell",
+    "orient_lattice",
 ]

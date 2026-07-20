@@ -380,3 +380,42 @@ def test_carve_cluster_legacy_arg_translation_equals_form() -> None:
 
 def test_module_entrypoint_imports() -> None:
     assert module_main is main
+
+
+# ---------------------------------------------------------------------------
+# operate reorient
+# ---------------------------------------------------------------------------
+
+def test_reorient_basic(tmp_path: Path) -> None:
+    """Smoke test: mck operate reorient should produce an output file."""
+    out = tmp_path / "reoriented.cif"
+    result = CliRunner().invoke(
+        main,
+        ["operate", "reorient", str(ACETAMINOPHEN), "-o", str(out), "--direction", "1", "1", "0"],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    assert "d-spacing" in result.output
+    assert "supercell factor" in result.output
+
+
+def test_reorient_target_axis_x(tmp_path: Path) -> None:
+    """Reorient with --target-axis x."""
+    out = tmp_path / "reoriented.cif"
+    result = CliRunner().invoke(
+        main,
+        ["operate", "reorient", str(ACETAMINOPHEN), "-o", str(out), "--direction", "1", "0", "0", "--target-axis", "x"],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_reorient_rejects_zero_direction(tmp_path: Path) -> None:
+    """(0,0,0) direction should fail."""
+    out = tmp_path / "reoriented.cif"
+    result = CliRunner().invoke(
+        main,
+        ["operate", "reorient", str(ACETAMINOPHEN), "-o", str(out), "--direction", "0", "0", "0"],
+    )
+    assert result.exit_code != 0
+    assert "cannot be (0, 0, 0)" in result.output

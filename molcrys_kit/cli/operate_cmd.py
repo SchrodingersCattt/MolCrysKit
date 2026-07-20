@@ -19,6 +19,7 @@ from molcrys_kit.operations import (
     generate_topological_slab,
     generate_vacancy,
     interpolate_crystal,
+    reorient_crystal,
     remove_solvents,
 )
 
@@ -305,6 +306,30 @@ def interpolate(start: Path, end: Path, output: Path, method: str, n_images: int
     echo_paths(write_crystal_sequence(frames, output))
 
 
+@click.command()
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output file path.")
+@click.option("--direction", nargs=3, type=int, required=True, metavar="H K L", help="Miller indices of the direction to align.")
+@click.option("--target-axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True, help="Cartesian axis to align the direction to.")
+@click.option("--no-reduce", is_flag=True, default=False, help="Skip 2D Gauss reduction of in-plane vectors.")
+def reorient(input: Path, output: Path, direction: tuple[int, int, int], target_axis: str, no_reduce: bool) -> None:
+    """Reorient a crystal so that a Miller direction aligns with a Cartesian axis.
+
+    Useful for setting up MSST shock simulations or strain loading along
+    arbitrary crystallographic directions.
+    """
+    if all(d == 0 for d in direction):
+        raise click.UsageError("Direction cannot be (0, 0, 0).")
+    crystal = load_crystal(input)
+    result, info = reorient_crystal(crystal, direction, target_axis=target_axis, reduce_2d=not no_reduce)
+    write_structure(result, output)
+    click.echo(
+        f"Wrote {output}  |  d-spacing: {info.d_spacing:.4f} Å  |  "
+        f"supercell factor: {info.supercell_factor}x  |  "
+        f"surface area: {info.surface_area:.2f} Å²"
+    )
+
+
 def register_operate_commands(group: click.Group) -> None:
     group.add_command(disorder)
     group.add_command(add_h)
@@ -314,3 +339,4 @@ def register_operate_commands(group: click.Group) -> None:
     group.add_command(vacancy)
     group.add_command(desolvate)
     group.add_command(interpolate)
+    group.add_command(reorient)
