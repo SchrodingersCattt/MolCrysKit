@@ -31,7 +31,6 @@ from math import gcd
 from typing import Any, Sequence
 
 import numpy as np
-from ase.data import atomic_numbers, covalent_radii
 from ase.neighborlist import neighbor_list
 
 from ..constants import ATOMIC_RADII
@@ -178,15 +177,33 @@ def _ensure_molecular_crystal(crystal):
     )
 
 
-def _ase_radii(atoms) -> np.ndarray:
-    """Build per-atom covalent radii array from ASE Atoms."""
+def _atom_radii(atoms) -> np.ndarray:
+    """Build per-atom covalent radii array from ASE Atoms.
+
+    Uses MolCrysKit ``ATOMIC_RADII`` as the primary source (consistent with
+    bond detection in ``check_bond_distances`` and the rest of the library).
+    Falls back to 0.7 Å for unknown elements.
+    """
     symbols = atoms.get_chemical_symbols()
     n = len(atoms)
     radii = np.empty(n)
     for i, s in enumerate(symbols):
-        zi = atomic_numbers.get(s, 0)
-        radii[i] = float(covalent_radii[zi]) if zi < len(covalent_radii) else 0.7
+        radii[i] = ATOMIC_RADII.get(s, 0.7)
     return radii
+
+
+def _deduplicate_pairs(
+    i_arr: np.ndarray, j_arr: np.ndarray, d_arr: np.ndarray
+) -> list[tuple[int, int, float]]:
+    """De-duplicate symmetric (i,j)/(j,i) pairs from neighbor_list output."""
+    pairs: list[tuple[int, int, float]] = []
+    seen: set[tuple[int, int]] = set()
+    for ii, jj, dd in zip(i_arr, j_arr, d_arr):
+        pair_key = (min(int(ii), int(jj)), max(int(ii), int(jj)))
+        if pair_key not in seen:
+            seen.add(pair_key)
+            pairs.append((pair_key[0], pair_key[1], float(dd)))
+    return pairs
 
 
 # ─── Atom-Level Checks ────────────────────────────────────────────────────────
@@ -233,7 +250,7 @@ def check_hard_clash(
             details={"clash_count": 0, "pairs": [], "scale_used": scale, "tolerance_used": tolerance},
         )
 
-    radii = _ase_radii(atoms)
+    radii = _atom_radii(atoms)
     max_cutoff = scale * 2 * radii.max() + abs(tolerance)
     i_idx, j_idx, dists = neighbor_list("ijd", atoms, cutoff=max_cutoff)
 
@@ -248,16 +265,7 @@ def check_hard_clash(
     cutoffs = np.maximum(0.0, scale * (radii[i_idx] + radii[j_idx]) - tolerance)
     clashing_mask = dists < cutoffs
 
-    # De-duplicate pairs (neighbor_list returns i<j and j<i)
-    pairs: list[tuple[int, int, float]] = []
-    seen: set[tuple[int, int]] = set()
-    for idx in np.where(clashing_mask)[0]:
-        i, j = int(i_idx[idx]), int(j_idx[idx])
-        pair_key = (min(i, j), max(i, j))
-        if pair_key not in seen:
-            seen.add(pair_key)
-            pairs.append((pair_key[0], pair_key[1], float(dists[idx])))
-
+    pairs = _deduplicate_pairs(i_idx[clashing_mask], j_idx[clashing_mask], dists[clashing_mask])
     clash_count = len(pairs)
     passed = clash_count == 0
     message = "No clashes found." if passed else f"{clash_count} hard clash(es) detected."
@@ -329,7 +337,7 @@ def check_intermolecular_clash(
         )
 
     symbols = atoms.get_chemical_symbols()
-    radii = _ase_radii(atoms)
+    radii = _atom_radii(atoms)
     max_cutoff = scale * 2 * radii.max() + abs(tolerance)
 
     # 'ijdS' — shift vector S != [0,0,0] means atoms are in different images
@@ -374,15 +382,7 @@ def check_intermolecular_clash(
 
     ci, cj, cd = ci[valid], cj[valid], cd[valid]
 
-    # De-duplicate
-    pairs: list[tuple[int, int, float]] = []
-    seen: set[tuple[int, int]] = set()
-    for ii, jj, dd in zip(ci, cj, cd):
-        pair_key = (min(int(ii), int(jj)), max(int(ii), int(jj)))
-        if pair_key not in seen:
-            seen.add(pair_key)
-            pairs.append((pair_key[0], pair_key[1], float(dd)))
-
+    pairs = _deduplicate_pairs(ci, cj, cd)
     clash_count = len(pairs)
     passed = clash_count <= max_clashes
     message = (
@@ -444,7 +444,7 @@ def check_isolated_atoms(
                 isolated_indices.append(atom_offset)
                 isolated_elements.append(syms[0])
             atom_offset += len(syms)
-    except Exception:
+    except (AttributeError, TypeError, IndexError):
         # Fallback: no molecule information available
         pass
 
@@ -487,7 +487,7 @@ def check_hydrogen_presence(crystal) -> CheckResult:
             if "H" in mol.get_chemical_symbols():
                 has_h = True
                 break
-    except Exception:
+    except (AttributeError, TypeError):
         atoms = mc.to_ase()
         has_h = "H" in atoms.get_chemical_symbols()
 
@@ -616,7 +616,7 @@ def check_formula_consistency(
         for mol in mc.molecules:
             mol_counts = Counter(mol.get_chemical_symbols())
             actual_multiset[_empirical_formula(mol_counts)] += 1
-    except Exception:
+    except (AttributeError, TypeError, IndexError):
         atoms = mc.to_ase()
         mol_counts = Counter(atoms.get_chemical_symbols())
         actual_multiset[_empirical_formula(mol_counts)] += 1

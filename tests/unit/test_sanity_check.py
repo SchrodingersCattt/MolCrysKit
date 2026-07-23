@@ -277,3 +277,92 @@ class TestSanityCheck:
         report = sanity_check(clashing_crystal)
         assert report.passed is False
         assert report["hard_clash"].passed is False
+
+
+# ─── Topology Change Detection (same mol count, different connectivity) ───────
+
+
+class TestTopologyConnectivityChange:
+    """Test that topology_preservation detects changed connectivity
+    (not just different molecule count)."""
+
+    def test_detects_broken_bond(self):
+        """Same 2 molecules before/after, but one H moved far away → bond breaks."""
+        cell = np.diag([15.0, 15.0, 15.0])
+        # Before: normal CH4 + CH4
+        pos_before = np.array([
+            [2.0, 2.0, 2.0],  # C
+            [3.09, 2.0, 2.0],  # H bonded
+            [1.64, 3.03, 2.0],  # H
+            [1.64, 1.33, 2.89],  # H
+            [1.64, 1.33, 1.11],  # H
+            [9.0, 9.0, 9.0],  # C
+            [10.09, 9.0, 9.0],  # H
+            [8.64, 10.03, 9.0],  # H
+            [8.64, 8.33, 9.89],  # H
+            [8.64, 8.33, 8.11],  # H
+        ])
+        symbols = ["C", "H", "H", "H", "H"] * 2
+
+        atoms_before = Atoms(symbols=symbols, positions=pos_before, cell=cell, pbc=True)
+        atoms_before.arrays["molecule_index"] = np.array([0] * 5 + [1] * 5)
+
+        # After: move one H far from its C → bond should break in topology
+        pos_after = pos_before.copy()
+        pos_after[1] = [6.0, 6.0, 6.0]  # H moved 5+ Å away from C — no longer bonded
+
+        atoms_after = Atoms(symbols=symbols, positions=pos_after, cell=cell, pbc=True)
+        atoms_after.arrays["molecule_index"] = np.array([0] * 5 + [1] * 5)
+
+        mc_before = MolecularCrystal.from_ase_atoms(atoms_before)
+        mc_after = MolecularCrystal.from_ase_atoms(atoms_after)
+
+        result = check_topology_preservation(mc_before, mc_after)
+        # Topology should detect the change (CH4 → CH3 + H or different graph)
+        assert result.passed is False
+        assert result.details["n_molecules_before"] != result.details["n_molecules_after"] or \
+               len(result.details["mismatched_invariants"]) > 0
+
+
+# ─── Integration Smoke Test with Real CIF ────────────────────────────────────
+
+
+class TestRealStructureSmoke:
+    """Smoke test on real CIF fixtures — sanity_check should not crash."""
+
+    _CIF_DIR = "tests/data/cif"
+
+    @pytest.fixture(params=["BRCRIM10.cif", "NOKGIH01.cif", "TILPEN.cif"])
+    def cif_crystal(self, request):
+        """Load a real CIF fixture."""
+        from pathlib import Path
+        from molcrys_kit.io.cif import read_mol_crystal
+
+        cif_path = Path(__file__).parents[1] / "data" / "cif" / request.param
+        if not cif_path.exists():
+            pytest.skip(f"{request.param} not found")
+        return read_mol_crystal(str(cif_path))
+
+    def test_sanity_check_runs(self, cif_crystal):
+        """sanity_check should complete without error on valid CIFs."""
+        report = sanity_check(cif_crystal)
+        # We don't assert pass/fail — just that it doesn't crash and returns valid report
+        assert isinstance(report, SanityReport)
+        assert len(report) == 6
+        for r in report:
+            assert isinstance(r, CheckResult)
+            assert isinstance(r.passed, bool)
+            assert isinstance(r.message, str)
+
+    def test_individual_checks_run(self, cif_crystal):
+        """Each individual check should run without error."""
+        result = check_hard_clash(cif_crystal)
+        assert isinstance(result, CheckResult)
+        result = check_intermolecular_clash(cif_crystal)
+        assert isinstance(result, CheckResult)
+        result = check_isolated_atoms(cif_crystal)
+        assert isinstance(result, CheckResult)
+        result = check_hydrogen_presence(cif_crystal)
+        assert isinstance(result, CheckResult)
+        result = check_bond_distances(cif_crystal)
+        assert isinstance(result, CheckResult)
