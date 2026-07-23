@@ -28,6 +28,8 @@ from .geometry import (
     unwrap_positions_along_bonds,
     volume_of_cell,
     orient_lattice,
+    lattice_deformation_logm,
+    lattice_at_lambda,
 )
 
 __all__ = [
@@ -54,4 +56,6 @@ __all__ = [
     "unwrap_positions_along_bonds",
     "volume_of_cell",
     "orient_lattice",
+    "lattice_deformation_logm",
+    "lattice_at_lambda",
 ]
