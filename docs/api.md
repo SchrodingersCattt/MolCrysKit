@@ -32,7 +32,7 @@
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
-| Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
+| Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose`, `smooth_interpolation_idpp` | two states | path/frames | source docstring |
 
 ## Module Index
 
@@ -62,7 +62,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
-- Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
+- Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`, `smooth_interpolation_idpp`
 
 ### `mck.analysis`
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.

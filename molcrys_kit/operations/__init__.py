@@ -59,6 +59,8 @@ from .interpolation import (
     match_molecules_vc,
 )
 
+from .path_smoothing import smooth_interpolation_idpp
+
 from .reorientation import reorient_crystal, ReorientationInfo
 
 __all__ = [
@@ -101,6 +103,7 @@ __all__ = [
     "match_molecules",
     "match_molecules_vc",
     "VCMoleculeMatch",
+    "smooth_interpolation_idpp",
     "get_surface_basis",
     "reorient_crystal",
     "ReorientationInfo",
