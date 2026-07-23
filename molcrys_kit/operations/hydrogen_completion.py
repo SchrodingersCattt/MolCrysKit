@@ -404,6 +404,10 @@ class HydrogenCompleter:
                         )
 
             # Place hydrogens from the final plan.
+            # Collect all H positions first, then batch-append with proper
+            # metadata arrays to avoid ASE zero-padding custom arrays (e.g.
+            # occupancy) when concatenating Atoms objects that lack them.
+            h_positions = []
             for atom_idx, h_strategy in enumerate(h_plan):
                 # Extract final values for vector calculation
                 num_h = h_strategy['num_h']
@@ -425,12 +429,31 @@ class HydrogenCompleter:
                     center_pos, neighbor_positions, geometry_type, bond_length=bond_len
                 )
 
-                # Add only as many hydrogens as needed
+                # Collect positions for batch append
                 for i in range(min(num_h, len(missing_vectors))):
                     h_pos = center_pos + missing_vectors[i]
+                    h_positions.append(h_pos)
 
-                    # Append the new hydrogen atom
-                    new_atoms = new_atoms + Atoms(symbols=["H"], positions=[h_pos])
+            # Batch-append all new hydrogens with proper custom arrays
+            if h_positions:
+                n_h = len(h_positions)
+                h_atoms = Atoms(symbols=["H"] * n_h, positions=h_positions)
+
+                # Propagate custom arrays with sane defaults for H atoms
+                base_keys = {"numbers", "positions"}
+                for key, arr in new_atoms.arrays.items():
+                    if key in base_keys:
+                        continue
+                    if key == "occupancy":
+                        h_atoms.set_array(key, np.full(n_h, 1.0))
+                    elif arr.dtype.kind == 'f':  # float arrays
+                        h_atoms.set_array(key, np.zeros(n_h, dtype=arr.dtype))
+                    elif arr.dtype.kind == 'i':  # int arrays
+                        h_atoms.set_array(key, np.zeros(n_h, dtype=arr.dtype))
+                    elif arr.dtype.kind in ('U', 'S', 'O'):  # string arrays
+                        h_atoms.set_array(key, np.array([''] * n_h, dtype=arr.dtype))
+
+                new_atoms = new_atoms + h_atoms
 
             # Add the modified molecule to the new molecules list
             new_molecules.append(new_atoms)
