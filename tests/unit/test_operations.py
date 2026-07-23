@@ -147,11 +147,19 @@ class TestHydrogenCompleter:
             symbols=["C", "H", "H", "H"],
             positions=[[0, 0, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0]],
         )
+        # Simulate CIF-loaded structure with occupancy metadata
+        ch3.set_array("occupancy", np.array([1.0, 1.0, 1.0, 1.0]))
         crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(ch3)])
         new_crystal = add_hydrogens(crystal)
-        symbols = new_crystal.molecules[0].get_chemical_symbols()
+        mol = new_crystal.molecules[0]
+        symbols = mol.get_chemical_symbols()
         assert symbols[0] == "C"
         assert len(symbols) >= 4
+        # Regression: added H atoms must have occupancy 1.0, not 0.0
+        if "occupancy" in mol.arrays:
+            assert np.all(mol.arrays["occupancy"] == 1.0), (
+                f"H atoms have occupancy != 1.0: {mol.arrays['occupancy']}"
+            )
 
     def test_custom_rules(self, cubic_lattice_10):
         nh2 = Atoms(
