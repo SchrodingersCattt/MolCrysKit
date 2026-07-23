@@ -35,7 +35,7 @@ mck operate cluster --help
 | Command | Description | Key Options |
 |---------|-------------|-------------|
 | `disorder INPUT` | Resolve CIF disorder into ordered replicas | `-o OUTPUT`, `--method {optimal,random,enumerate}`, `--count INT`, `--seed INT`, `--coupled` |
-| `add-h INPUT` | Add missing hydrogen atoms | `-o OUTPUT`, `--target-elements STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
+| `add-h INPUT` | Add missing hydrogen atoms | `-o OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
 | `slab INPUT` | Generate surface slab models | `-o OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all}` |
 | `cluster INPUT` | Carve molecular clusters | `-o OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable) |
 | `supercell INPUT` | Create supercells | `-o OUTPUT`, `--scale A B C` |

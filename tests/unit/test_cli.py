@@ -419,3 +419,99 @@ def test_reorient_rejects_zero_direction(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "cannot be (0, 0, 0)" in result.output
+
+
+# =====================================================================
+# operate add-h
+# =====================================================================
+
+
+def test_add_h_basic(tmp_path: Path) -> None:
+    """Smoke test: mck operate add-h produces output."""
+    out = tmp_path / "hydrogenated.cif"
+    result = CliRunner().invoke(
+        main,
+        ["operate", "add-h", str(PETN), "-o", str(out)],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    assert "Wrote" in result.output
+
+
+def test_add_h_bond_scale(tmp_path: Path) -> None:
+    """add-h with --bond-scale should succeed and produce output."""
+    out = tmp_path / "hydrogenated.cif"
+    result = CliRunner().invoke(
+        main,
+        ["operate", "add-h", str(PETN), "-o", str(out), "--bond-scale", "0.95"],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_add_h_rule(tmp_path: Path) -> None:
+    """add-h with --rule should pass the rule through to add_hydrogens."""
+    out = tmp_path / "hydrogenated.cif"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate", "add-h", str(PETN), "-o", str(out),
+            "--rule", "N:target_coordination=3,geometry=trigonal_planar",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_add_h_rule_multiple(tmp_path: Path) -> None:
+    """Multiple --rule options should all be parsed."""
+    out = tmp_path / "hydrogenated.cif"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate", "add-h", str(PETN), "-o", str(out),
+            "--rule", "N:target_coordination=3",
+            "--rule", "O:neighbors=C+S,target_coordination=1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_add_h_rule_parse_error() -> None:
+    """Malformed --rule should produce an error."""
+    from molcrys_kit.cli.operate_cmd import _parse_rule
+    import pytest
+
+    # Missing element symbol
+    with pytest.raises(Exception):
+        _parse_rule(":target_coordination=3")
+
+    # Invalid key
+    with pytest.raises(Exception):
+        _parse_rule("N:bogus_key=3")
+
+    # Non-integer target_coordination
+    with pytest.raises(Exception):
+        _parse_rule("N:target_coordination=abc")
+
+
+def test_parse_rule_valid() -> None:
+    """_parse_rule should correctly parse valid rule strings."""
+    from molcrys_kit.cli.operate_cmd import _parse_rule
+
+    # Simple case
+    r = _parse_rule("N:target_coordination=3")
+    assert r == {"symbol": "N", "target_coordination": 3}
+
+    # With geometry
+    r = _parse_rule("N:target_coordination=3,geometry=trigonal_planar")
+    assert r == {"symbol": "N", "target_coordination": 3, "geometry": "trigonal_planar"}
+
+    # With neighbors
+    r = _parse_rule("O:neighbors=C+Cl,target_coordination=1")
+    assert r == {"symbol": "O", "neighbors": ["C", "Cl"], "target_coordination": 1}
+
+    # Symbol only (no overrides)
+    r = _parse_rule("N")
+    assert r == {"symbol": "N"}

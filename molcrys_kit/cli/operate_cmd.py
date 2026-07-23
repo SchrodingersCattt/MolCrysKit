@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import click
 
@@ -87,20 +87,81 @@ def disorder(input: Path, output: Path, method: str, count: int, seed: int | Non
     echo_paths(write_crystal_sequence(crystals, output))
 
 
+def _parse_rule(rule_str: str) -> Dict:
+    """Parse a compact rule string into a dict for ``add_hydrogens``.
+
+    Format: ``SYMBOL[:key=value,...]``
+
+    Examples
+    --------
+    >>> _parse_rule("N:target_coordination=3,geometry=trigonal_planar")
+    {'symbol': 'N', 'target_coordination': 3, 'geometry': 'trigonal_planar'}
+    >>> _parse_rule("O:neighbors=C+S,target_coordination=1")
+    {'symbol': 'O', 'neighbors': ['C', 'S'], 'target_coordination': 1}
+    """
+    parts = rule_str.split(":", 1)
+    symbol = parts[0].strip()
+    if not symbol or not symbol[0].isupper():
+        raise click.BadParameter(
+            f"Invalid rule '{rule_str}': must start with an element symbol (e.g. 'N:target_coordination=3')."
+        )
+    rule: Dict = {"symbol": symbol}
+    if len(parts) == 2 and parts[1].strip():
+        for kv in parts[1].split(","):
+            kv = kv.strip()
+            if "=" not in kv:
+                raise click.BadParameter(
+                    f"Invalid key=value pair '{kv}' in rule '{rule_str}'."
+                )
+            key, value = kv.split("=", 1)
+            key, value = key.strip(), value.strip()
+            if key == "target_coordination":
+                try:
+                    rule[key] = int(value)
+                except ValueError:
+                    raise click.BadParameter(
+                        f"target_coordination must be an integer, got '{value}'."
+                    )
+            elif key == "neighbors":
+                rule[key] = [v.strip() for v in value.split("+")]
+            elif key == "geometry":
+                rule[key] = value
+            else:
+                raise click.BadParameter(
+                    f"Unknown rule key '{key}'. Valid keys: target_coordination, geometry, neighbors."
+                )
+    return rule
+
+
 @click.command(name="add-h")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--bond-scale", type=float, default=1.0, show_default=True,
+              help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
 @click.option("--target-elements", multiple=True, help="Element symbols to hydrogenate; repeatable.")
+@click.option("--rule", "rules_raw", multiple=True,
+              help="Hydrogen-placement rule as SYMBOL:key=value,... (repeatable). "
+                   "Keys: target_coordination (int), geometry (str), neighbors (elem+elem).")
 @click.option("--optimize-torsion", is_flag=True, help="Enable torsion optimization during placement.")
 @click.option("--no-formula-moiety", is_flag=True, help="Disable CIF formula-moiety H-count correction.")
-def add_h(input: Path, output: Path, target_elements: tuple[str, ...], optimize_torsion: bool, no_formula_moiety: bool) -> None:
+def add_h(
+    input: Path,
+    output: Path,
+    bond_scale: float,
+    target_elements: tuple[str, ...],
+    rules_raw: tuple[str, ...],
+    optimize_torsion: bool,
+    no_formula_moiety: bool,
+) -> None:
     """Add missing hydrogen atoms."""
-    crystal = load_crystal(input)
+    crystal = load_crystal(input, bond_scale=bond_scale)
+    rules: Optional[List[Dict]] = [_parse_rule(r) for r in rules_raw] or None
     result = add_hydrogens(
         crystal,
         target_elements=list(target_elements) or None,
         optimize_torsion=optimize_torsion,
         use_formula_moiety=not no_formula_moiety,
+        rules=rules,
     )
     write_structure(result, output)
     click.echo(f"Wrote {output}")
