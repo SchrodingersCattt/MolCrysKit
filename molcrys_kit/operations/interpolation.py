@@ -310,7 +310,14 @@ def interpolate_pose(
     lam: float,
     method: InterpolationMethod | str = InterpolationMethod.SE3_SCREW,
 ) -> np.ndarray:
-    """Interpolate a matched molecule pose at fractional coordinate ``lam``."""
+    """Interpolate a matched molecule pose at interpolation parameter ``lam``.
+
+    .. warning::
+
+       The ``COM_SO3`` method uses axis-angle scaling for rotation, which is
+       degenerate at exactly 180°.  For near-180° rotations, prefer
+       ``SE3_SCREW`` or ``SLERP``.
+    """
     lam = float(lam)
     method = _coerce_method(method)
     positions_a = np.asarray(mol_a.get_positions(), dtype=float)
