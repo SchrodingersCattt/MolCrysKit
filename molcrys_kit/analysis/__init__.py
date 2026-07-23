@@ -54,6 +54,18 @@ from .volume import (
     calculate_total_volume,
     min_distance_to_boundary,
 )
+from .sanity_check import (
+    CheckResult,
+    SanityReport,
+    check_bond_distances,
+    check_formula_consistency,
+    check_hard_clash,
+    check_hydrogen_presence,
+    check_intermolecular_clash,
+    check_isolated_atoms,
+    check_topology_preservation,
+    sanity_check,
+)
 
 
 __all__ = [
@@ -113,4 +125,14 @@ __all__ = [
     "min_distance_to_boundary",
     "planarity_analysis",
     "topology_signature",
+    "CheckResult",
+    "SanityReport",
+    "check_bond_distances",
+    "check_formula_consistency",
+    "check_hard_clash",
+    "check_hydrogen_presence",
+    "check_intermolecular_clash",
+    "check_isolated_atoms",
+    "check_topology_preservation",
+    "sanity_check",
 ]

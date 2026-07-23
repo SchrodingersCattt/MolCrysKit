@@ -158,6 +158,29 @@ BONDING_THRESHOLDS = {
     "METAL_NONMETAL_COVALENT_MAX": 2.05,  # Strict cutoff for Metal-Organic bonds
 }
 
+# Configuration for structure sanity checks.
+# These thresholds are for *post-cleaning* validation of physical reasonableness.
+# NOTE: distinct from DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"] (=0.85) which applies
+# during disorder resolution for compatible atoms.  The sanity-check scale factors
+# apply to final cleaned structures and are therefore stricter.
+SANITY_CHECK_CONFIG = {
+    # Any-pair hard clash: d < scale × (r_i + r_j).  Default 0.6 is the final
+    # acceptance bar used in the cleaning pipeline.
+    "hard_clash_scale": 0.6,
+    "hard_clash_tolerance": 0.0,
+    # Intermolecular clash: only inter-molecule or same-molecule cross-image pairs.
+    "intermolecular_clash_scale": 0.8,
+    "intermolecular_clash_tolerance": 0.0,
+    "ignore_hh_clashes": False,
+    "max_clashes": 0,
+    # Bond distance sanity: each bonded pair should satisfy
+    # min_factor × expected ≤ d ≤ max_factor × expected
+    "bond_distance_min_factor": 0.5,
+    "bond_distance_max_factor": 1.5,
+    # Elements whose single-atom molecules indicate unresolved solvent/missing H
+    "isolated_atom_elements": {"O", "N", "S", "P", "Se", "Te", "B", "Si"},
+}
+
 # Maximum coordination numbers for elements
 MAX_COORDINATION_NUMBERS = {
     "H": 1,
