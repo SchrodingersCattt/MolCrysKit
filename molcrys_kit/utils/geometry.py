@@ -1333,3 +1333,85 @@ def min_distance_between_atom_sets(
         dists_sq = np.sum(diff ** 2, axis=2).ravel()
 
     return float(np.sqrt(np.min(dists_sq)))
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Variable-cell lattice interpolation utilities
+# ─────────────────────────────────────────────────────────────────────
+
+
+def lattice_deformation_logm(
+    lattice_a: np.ndarray, lattice_b: np.ndarray
+) -> np.ndarray:
+    """Compute the matrix logarithm of the deformation gradient F = B @ inv(A).
+
+    The result ``L = logm(F)`` is a real 3×3 matrix such that
+    ``expm(λ * L) @ A`` smoothly deforms lattice A into lattice B as λ goes
+    from 0 to 1 along the GL⁺(3) geodesic.
+
+    Parameters
+    ----------
+    lattice_a, lattice_b : np.ndarray
+        3×3 arrays with lattice vectors as rows.
+
+    Returns
+    -------
+    np.ndarray
+        3×3 real matrix log of the deformation gradient.
+
+    Raises
+    ------
+    ValueError
+        If the deformation gradient has non-positive determinant.
+    """
+    from scipy.linalg import logm
+
+    A = np.asarray(lattice_a, dtype=float)
+    B = np.asarray(lattice_b, dtype=float)
+    F = B @ np.linalg.inv(A)
+    det_F = np.linalg.det(F)
+    if det_F <= 0:
+        raise ValueError(
+            f"Deformation gradient has non-positive determinant ({det_F:.6f}); "
+            "cannot compute matrix logarithm for lattice interpolation."
+        )
+    L = logm(F)
+    # logm may return complex with tiny imaginary part for real matrices
+    if np.isrealobj(L):
+        return L
+    if np.max(np.abs(L.imag)) < 1e-10:
+        return L.real
+    raise ValueError(
+        "Matrix logarithm of the deformation gradient has non-negligible "
+        f"imaginary part (max |imag| = {np.max(np.abs(L.imag)):.2e}). "
+        "The lattice transformation may not be continuously deformable."
+    )
+
+
+def lattice_at_lambda(
+    lattice_a: np.ndarray, log_F: np.ndarray, lam: float
+) -> np.ndarray:
+    """Evaluate the interpolated lattice at parameter λ ∈ [0, 1].
+
+    Uses the GL⁺(3) geodesic: ``lat(λ) = expm(λ * log_F) @ lattice_a``.
+
+    Parameters
+    ----------
+    lattice_a : np.ndarray
+        3×3 reference lattice (rows = vectors).
+    log_F : np.ndarray
+        3×3 matrix logarithm of the deformation gradient (from
+        :func:`lattice_deformation_logm`).
+    lam : float
+        Interpolation parameter in [0, 1].
+
+    Returns
+    -------
+    np.ndarray
+        3×3 interpolated lattice at the given λ.
+    """
+    from scipy.linalg import expm
+
+    return expm(float(lam) * np.asarray(log_F, dtype=float)) @ np.asarray(
+        lattice_a, dtype=float
+    )

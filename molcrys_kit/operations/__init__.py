@@ -48,12 +48,15 @@ from .interpolation import (
     InterpolationConfig,
     InterpolationMethod,
     MoleculeMatch,
+    VCMoleculeMatch,
     best_atom_mapping,
     find_flipping_molecules,
     interpolate_crystal,
+    interpolate_crystal_vc,
     interpolate_molecule,
     interpolate_pose,
     match_molecules,
+    match_molecules_vc,
 )
 
 from .reorientation import reorient_crystal, ReorientationInfo
@@ -92,9 +95,12 @@ __all__ = [
     "best_atom_mapping",
     "find_flipping_molecules",
     "interpolate_crystal",
+    "interpolate_crystal_vc",
     "interpolate_molecule",
     "interpolate_pose",
     "match_molecules",
+    "match_molecules_vc",
+    "VCMoleculeMatch",
     "get_surface_basis",
     "reorient_crystal",
     "ReorientationInfo",

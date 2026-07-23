@@ -22,6 +22,8 @@ from ..utils.geometry import (
     cart_to_frac,
     frac_to_cart,
     kabsch_align,
+    lattice_at_lambda,
+    lattice_deformation_logm,
     minimum_image_vector,
     quaternion_slerp,
     quaternion_to_rotation_matrix,
@@ -308,7 +310,14 @@ def interpolate_pose(
     lam: float,
     method: InterpolationMethod | str = InterpolationMethod.SE3_SCREW,
 ) -> np.ndarray:
-    """Interpolate a matched molecule pose at fractional coordinate ``lam``."""
+    """Interpolate a matched molecule pose at interpolation parameter ``lam``.
+
+    .. warning::
+
+       The ``COM_SO3`` method uses axis-angle scaling for rotation, which is
+       degenerate at exactly 180°.  For near-180° rotations, prefer
+       ``SE3_SCREW`` or ``SLERP``.
+    """
     lam = float(lam)
     method = _coerce_method(method)
     positions_a = np.asarray(mol_a.get_positions(), dtype=float)
@@ -441,3 +450,248 @@ def find_flipping_molecules(
         if rmsd_hit or angle_hit or com_hit:
             selected.append(match.idx_a)
     return selected
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Variable-cell interpolation
+# ─────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class VCMoleculeMatch:
+    """Molecule match for variable-cell interpolation.
+
+    Stores fractional-coordinate COM positions and the Kabsch rotation
+    computed on centered (internal) coordinates.
+    """
+
+    idx_a: int
+    idx_b: int
+    atom_mapping: np.ndarray
+    frac_com_a: np.ndarray
+    frac_com_b: np.ndarray
+    rotation_matrix: np.ndarray
+    axis: np.ndarray
+    angle_rad: float
+    fit_rmsd: float
+
+    @property
+    def angle_deg(self) -> float:
+        return float(np.degrees(self.angle_rad))
+
+
+def match_molecules_vc(
+    crystal_a: MolecularCrystal,
+    crystal_b: MolecularCrystal,
+    *,
+    max_isomorphisms: int = 256,
+) -> List[VCMoleculeMatch]:
+    """Match molecules between two replicas with *different* lattices.
+
+    Unlike :func:`match_molecules`, this function does not require identical
+    lattices. Molecule matching uses COM distance in Cartesian space (with
+    the mean lattice for minimum-image convention). Rotations are decomposed
+    from centered (internal) coordinates via Kabsch alignment.
+
+    Parameters
+    ----------
+    crystal_a, crystal_b : MolecularCrystal
+        Start and end crystal structures.  Must have the same number of
+        molecules and matching molecular compositions.
+    max_isomorphisms : int
+        Maximum graph isomorphisms to explore for atom mapping.
+
+    Returns
+    -------
+    list of VCMoleculeMatch
+    """
+    if len(crystal_a.molecules) != len(crystal_b.molecules):
+        raise ValueError(
+            "Variable-cell interpolation requires the same number of molecules; "
+            f"got {len(crystal_a.molecules)} and {len(crystal_b.molecules)}"
+        )
+
+    lattice_a = np.asarray(crystal_a.lattice, dtype=float)
+    lattice_b = np.asarray(crystal_b.lattice, dtype=float)
+    # Use mean lattice for COM distance comparison
+    lattice_mean = 0.5 * (lattice_a + lattice_b)
+
+    used_b: set[int] = set()
+    matches: List[VCMoleculeMatch] = []
+
+    for idx_a, mol_a in enumerate(crystal_a.molecules):
+        formula = mol_a.get_chemical_formula()
+        candidates = [
+            idx_b
+            for idx_b, mol_b in enumerate(crystal_b.molecules)
+            if idx_b not in used_b
+            and len(mol_b) == len(mol_a)
+            and mol_b.get_chemical_formula() == formula
+        ]
+        if not candidates:
+            raise ValueError(
+                f"No unmatched molecule in replica B matches molecule {idx_a} "
+                f"({formula}, {len(mol_a)} atoms)"
+            )
+
+        com_a_cart = np.asarray(mol_a.get_center_of_mass(), dtype=float)
+        frac_com_a = cart_to_frac(com_a_cart, lattice_a)
+
+        # Find closest match using mean-lattice Cartesian distance
+        def _distance(idx_b: int) -> float:
+            com_b_cart = np.asarray(
+                crystal_b.molecules[idx_b].get_center_of_mass(), dtype=float
+            )
+            frac_com_b = cart_to_frac(com_b_cart, lattice_b)
+            # MIC in mean lattice
+            frac_delta = frac_com_b - frac_com_a
+            cart_delta = minimum_image_vector(frac_delta, lattice_mean)
+            return float(np.linalg.norm(cart_delta))
+
+        best_idx_b = min(candidates, key=_distance)
+        used_b.add(best_idx_b)
+        mol_b = crystal_b.molecules[best_idx_b]
+
+        com_b_cart = np.asarray(mol_b.get_center_of_mass(), dtype=float)
+        frac_com_b = cart_to_frac(com_b_cart, lattice_b)
+
+        # Atom mapping and Kabsch on centered coords
+        order_b = best_atom_mapping(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
+        pos_a = np.asarray(mol_a.get_positions(), dtype=float)
+        pos_b = np.asarray(mol_b.get_positions(), dtype=float)[order_b]
+        centered_a = pos_a - com_a_cart
+        centered_b = pos_b - com_b_cart
+        rotation, fit_rmsd = kabsch_align(centered_a, centered_b)
+        axis, angle = rotation_to_axis_angle(rotation)
+
+        matches.append(
+            VCMoleculeMatch(
+                idx_a=idx_a,
+                idx_b=best_idx_b,
+                atom_mapping=order_b,
+                frac_com_a=frac_com_a,
+                frac_com_b=frac_com_b,
+                rotation_matrix=rotation,
+                axis=axis,
+                angle_rad=float(angle),
+                fit_rmsd=float(fit_rmsd),
+            )
+        )
+
+    return matches
+
+
+def interpolate_crystal_vc(
+    crystal_a: MolecularCrystal,
+    crystal_b: MolecularCrystal,
+    *,
+    n_images: int = 11,
+    include_endpoints: bool = True,
+    molecule_indices: Optional[Sequence[int]] = None,
+    matches: Optional[Sequence[VCMoleculeMatch]] = None,
+) -> List[MolecularCrystal]:
+    """Variable-cell interpolation between two crystal replicas.
+
+    Generates a path of crystal images where both the lattice and molecular
+    poses change smoothly from ``crystal_a`` to ``crystal_b``.
+
+    Lattice interpolation uses the GL⁺(3) geodesic (matrix log/exp of the
+    deformation gradient).  Molecular COMs are linearly interpolated in
+    fractional coordinates.  Molecular orientations are interpolated via
+    quaternion SLERP on the Kabsch-derived rotation.
+
+    The output images are suitable as initial guesses for variable-cell NEB
+    calculations.
+
+    Parameters
+    ----------
+    crystal_a, crystal_b : MolecularCrystal
+        Start and end crystal structures with matching molecular composition.
+    n_images : int
+        Number of frames returned (including endpoints by default).
+    include_endpoints : bool
+        If False, return only interior frames.
+    molecule_indices : sequence of int, optional
+        If provided, only these molecules are interpolated; others stay at
+        their ``crystal_a`` fractional positions (mapped to each image's
+        lattice).
+    matches : sequence of VCMoleculeMatch, optional
+        Precomputed matches from :func:`match_molecules_vc`.
+
+    Returns
+    -------
+    list of MolecularCrystal
+        Interpolated crystal images.
+    """
+    lattice_a = np.asarray(crystal_a.lattice, dtype=float)
+    lattice_b = np.asarray(crystal_b.lattice, dtype=float)
+    log_F = lattice_deformation_logm(lattice_a, lattice_b)
+
+    if matches is None:
+        matches = match_molecules_vc(crystal_a, crystal_b)
+    match_by_idx = {m.idx_a: m for m in matches}
+
+    if molecule_indices is None:
+        selected = set(match_by_idx)
+    else:
+        selected = {int(i) for i in molecule_indices}
+        missing = selected - set(match_by_idx)
+        if missing:
+            raise ValueError(f"Unknown molecule indices: {sorted(missing)}")
+
+    # Precompute fractional COMs for non-selected molecules (stay at A position)
+    static_frac_coms: dict[int, np.ndarray] = {}
+    static_centered: dict[int, np.ndarray] = {}
+    for idx, mol in enumerate(crystal_a.molecules):
+        if idx not in selected:
+            com_cart = np.asarray(mol.get_center_of_mass(), dtype=float)
+            static_frac_coms[idx] = cart_to_frac(com_cart, lattice_a)
+            static_centered[idx] = (
+                np.asarray(mol.get_positions(), dtype=float) - com_cart
+            )
+
+    frames: List[MolecularCrystal] = []
+    for lam in _lambda_values(n_images, include_endpoints):
+        lat_i = lattice_at_lambda(lattice_a, log_F, lam)
+
+        molecules = []
+        for idx, mol in enumerate(crystal_a.molecules):
+            copied = mol.copy()
+
+            if idx in selected:
+                match = match_by_idx[idx]
+                # Fractional COM interpolation with MIC unwrapping
+                frac_com_b_unwrapped = match.frac_com_b - np.round(
+                    match.frac_com_b - match.frac_com_a
+                )
+                frac_com_i = (1.0 - lam) * match.frac_com_a + lam * frac_com_b_unwrapped
+                cart_com_i = frac_to_cart(frac_com_i, lat_i)
+                # Orientation: quaternion SLERP
+                q0 = np.array([1.0, 0.0, 0.0, 0.0])
+                q1 = rotation_matrix_to_quaternion(match.rotation_matrix)
+                R_i = quaternion_to_rotation_matrix(quaternion_slerp(q0, q1, lam))
+                # Assemble positions
+                pos_a = np.asarray(mol.get_positions(), dtype=float)
+                com_a_cart = np.asarray(mol.get_center_of_mass(), dtype=float)
+                centered_a = pos_a - com_a_cart
+                new_pos = centered_a @ R_i.T + cart_com_i
+            else:
+                # Static molecule: keep fractional position, map to new lattice
+                frac_com = static_frac_coms[idx]
+                cart_com_i = frac_to_cart(frac_com, lat_i)
+                new_pos = static_centered[idx] + cart_com_i
+
+            copied.set_positions(new_pos)
+            molecules.append(copied)
+
+        frames.append(
+            MolecularCrystal(
+                lat_i.copy(),
+                molecules,
+                crystal_a.pbc,
+                formula_moiety=crystal_a.formula_moiety,
+                disorder_provenance=crystal_a.disorder_provenance,
+            )
+        )
+
+    return frames

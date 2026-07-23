@@ -62,7 +62,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
-- Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`
+- Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 
 ### `mck.analysis`
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
@@ -110,6 +110,7 @@ Geometry, rigid-body math helpers, and graph utilities.
 - Vector/angles: `normalize_vector`, `distance_between_points`, `angle_between_vectors`, `dihedral_angle`
 - Rotations/alignment: `skew_matrix`, `unskew_matrix`, `kabsch_align`, `rotation_to_axis_angle`, `rotation_log_vector`, `rotation_exp_vector`, `rotation_matrix_to_quaternion`, `quaternion_to_rotation_matrix`, `quaternion_slerp`
 - Lattice orientation: `orient_lattice`
+- Lattice interpolation: `lattice_deformation_logm`, `lattice_at_lambda`
 - SE(3): `se3_log`, `se3_exp`
 
 ## See Also
