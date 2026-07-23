@@ -12,9 +12,10 @@ from typing import Sequence
 import numpy as np
 
 from ..structures.crystal import MolecularCrystal
-from ..utils.geometry import cart_to_frac, frac_to_cart, minimum_image_vector
+from ..utils.geometry import minimum_image_vector
 
 
+# Guards against div-by-zero in distances and degenerate zero-distance targets.
 _IDPP_EPS = 1e-8
 
 
@@ -58,7 +59,11 @@ def _idpp_energy_and_gradient(
     residual = dist - target
     energy = float(np.sum(weights * residual * residual))
 
-    # dE/ds = 2*w*(d-target)/d * (vec @ lattice.T)
+    # Constant weights (1/target^4); this differs from canonical IDPP
+    # (1/d^4) but is equivalent near convergence and avoids an extra
+    # gradient term.
+    # grad_frac = 2*w*(d-target)/d * (vec_cart @ L^T)
+    # [chain rule: grad_s = grad_cart @ L^T]
     coeff = 2.0 * weights * residual / safe_dist
     grad_pair = coeff[:, None] * (vec @ lattice.T)
     grad = np.zeros_like(frac, dtype=float)
@@ -97,6 +102,11 @@ def smooth_interpolation_idpp(
     -------
     list of MolecularCrystal
         Smoothed path with unchanged endpoints and unchanged per-image lattices.
+
+    Notes
+    -----
+    This routine evaluates all atom pairs, so each intermediate-image smoothing
+    step scales as O(N²) in the number of atoms.
     """
     if len(images) < 3:
         return list(images)
@@ -126,7 +136,7 @@ def smooth_interpolation_idpp(
         frac = image.to_ase().get_scaled_positions()
         for _ in range(int(max_steps)):
             _, grad = _idpp_energy_and_gradient(frac, lattice, pairs, target, weights)
-            cart_grad = grad @ np.linalg.inv(lattice)
+            cart_grad = grad @ np.linalg.inv(lattice).T
             max_grad = float(np.max(np.linalg.norm(cart_grad, axis=1)))
             if max_grad < float(fmax):
                 break
