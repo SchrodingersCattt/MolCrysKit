@@ -199,6 +199,35 @@ class TestHydrogenCompleter:
         new_crystal = hc.add_hydrogens(bond_lengths={"O-H": 1.1})
         assert len(new_crystal.molecules) == 1
 
+    def test_formula_constraint_skips_unmatched_inorganic_fragment(self, cubic_lattice_10):
+        organic = Atoms(symbols=["C"], positions=[[0, 0, 0]])
+        inorganic = Atoms(symbols=["S"], positions=[[5, 0, 0]])
+        crystal = MolecularCrystal(
+            cubic_lattice_10,
+            [CrystalMolecule(organic), CrystalMolecule(inorganic)],
+            formula_moiety="C H4",
+        )
+
+        completed = add_hydrogens(crystal, use_formula_moiety=True)
+
+        assert completed.molecules[0].get_chemical_formula() == "CH4"
+        assert completed.molecules[1].get_chemical_formula() == "S"
+
+    def test_placement_vector_shortfall_raises(self, cubic_lattice_10, monkeypatch):
+        carbon = Atoms(symbols=["C"], positions=[[0, 0, 0]])
+        crystal = MolecularCrystal(
+            cubic_lattice_10,
+            [CrystalMolecule(carbon)],
+            formula_moiety="C H4",
+        )
+        monkeypatch.setattr(
+            "molcrys_kit.operations.hydrogen_completion.get_missing_vectors",
+            lambda *args, **kwargs: [np.array([1.0, 0.0, 0.0])],
+        )
+
+        with pytest.raises(ValueError, match="fewer vectors than requested"):
+            add_hydrogens(crystal, use_formula_moiety=True)
+
 
 # =====================================================================
 # Rotation
