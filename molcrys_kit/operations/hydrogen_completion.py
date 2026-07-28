@@ -281,7 +281,11 @@ class HydrogenCompleter:
             Use CIF _chemical_formula_moiety, when available, to correct
             per-fragment hydrogen counts before placing atoms. Missing,
             unknown, unparseable, or ambiguous moiety values fall back to the
-            heuristic-only result for the affected molecule.
+            heuristic-only result for the affected molecule. When a fragment
+            is matched and formula enforcement requests more H positions than
+            the placement geometry can provide, a ``ValueError`` is raised;
+            the unconstrained heuristic path instead warns and clips placement
+            to the available vectors for backward compatibility.
 
         Returns
         -------
@@ -335,6 +339,7 @@ class HydrogenCompleter:
             )
 
             h_plan = []
+            matched_fragment = None
 
             # For each atom in the molecule, compute the hydrogen plan first.
             for atom_idx in range(len(symbols)):
@@ -370,10 +375,10 @@ class HydrogenCompleter:
                 h_plan.append(h_strategy)
 
             if moiety_fragments is not None:
-                fragment = match_molecule_to_fragment(symbols, moiety_fragments)
-                if fragment is not None:
+                matched_fragment = match_molecule_to_fragment(symbols, moiety_fragments)
+                if matched_fragment is not None:
                     existing_h = symbols.count('H')
-                    expected_total_h = fragment.composition.get('H', 0)
+                    expected_total_h = matched_fragment.composition.get('H', 0)
                     expected_added_h = expected_total_h - existing_h
                     predicted_added_h = self._plan_h_count(h_plan)
 
@@ -381,7 +386,7 @@ class HydrogenCompleter:
                         warnings.warn(
                             "_chemical_formula_moiety expects fewer H atoms "
                             f"({expected_total_h}) than are already present "
-                            f"({existing_h}) in fragment {fragment.raw}; "
+                            f"({existing_h}) in fragment {matched_fragment.raw}; "
                             "leaving existing atoms unchanged.",
                             RuntimeWarning,
                             stacklevel=2,
@@ -392,13 +397,13 @@ class HydrogenCompleter:
                             chem_env,
                             h_plan,
                             expected_added_h,
-                            fragment,
+                            matched_fragment,
                         )
                         adjusted_added_h = self._plan_h_count(h_plan)
                         warnings.warn(
                             "_chemical_formula_moiety drove added-H count from "
                             f"{predicted_added_h} to {adjusted_added_h} "
-                            f"for fragment {fragment.raw}",
+                            f"for fragment {matched_fragment.raw}",
                             RuntimeWarning,
                             stacklevel=2,
                         )
@@ -408,6 +413,20 @@ class HydrogenCompleter:
             # metadata arrays to avoid ASE zero-padding custom arrays (e.g.
             # occupancy) when concatenating Atoms objects that lack them.
             h_positions = []
+            if moiety_fragments is not None and matched_fragment is None:
+                # A formula-constrained run must not fall back to heuristics
+                # for unrelated fragments (for example a Cd-thiocyanate
+                # framework next to a protonated organic cation).
+                suppressed_h = self._plan_h_count(h_plan)
+                if suppressed_h:
+                    warnings.warn(
+                        "Skipping H addition for a molecule that does not "
+                        "match any _chemical_formula_moiety fragment; "
+                        f"suppressed {suppressed_h} heuristic H atom(s).",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                h_plan = [{**item, 'num_h': 0} for item in h_plan]
             for atom_idx, h_strategy in enumerate(h_plan):
                 # Extract final values for vector calculation
                 num_h = h_strategy['num_h']
@@ -429,8 +448,29 @@ class HydrogenCompleter:
                     center_pos, neighbor_positions, geometry_type, bond_length=bond_len
                 )
 
+                if len(missing_vectors) < num_h and matched_fragment is not None:
+                    raise ValueError(
+                        "Hydrogen placement geometry produced fewer vectors "
+                        f"than requested for atom {atom_idx} ({symbols[atom_idx]}): "
+                        f"requested {num_h}, available {len(missing_vectors)}, "
+                        f"geometry={geometry_type}, neighbours={len(neighbors)}."
+                    )
+                if len(missing_vectors) < num_h:
+                    warnings.warn(
+                        "Hydrogen placement geometry produced fewer vectors "
+                        f"than requested for atom {atom_idx} ({symbols[atom_idx]}): "
+                        f"requested {num_h}, available {len(missing_vectors)}; "
+                        "placing only the available heuristic H positions.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+
                 # Collect positions for batch append
-                for i in range(min(num_h, len(missing_vectors))):
+                placement_count = (
+                    num_h if matched_fragment is not None
+                    else min(num_h, len(missing_vectors))
+                )
+                for i in range(placement_count):
                     h_pos = center_pos + missing_vectors[i]
                     h_positions.append(h_pos)
 

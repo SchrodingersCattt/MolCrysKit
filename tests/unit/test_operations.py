@@ -156,10 +156,10 @@ class TestHydrogenCompleter:
         assert symbols[0] == "C"
         assert len(symbols) >= 4
         # Regression: added H atoms must have occupancy 1.0, not 0.0
-        if "occupancy" in mol.arrays:
-            assert np.all(mol.arrays["occupancy"] == 1.0), (
-                f"H atoms have occupancy != 1.0: {mol.arrays['occupancy']}"
-            )
+        assert "occupancy" in mol.arrays
+        assert np.all(mol.arrays["occupancy"] == 1.0), (
+            f"H atoms have occupancy != 1.0: {mol.arrays['occupancy']}"
+        )
 
     def test_custom_rules(self, cubic_lattice_10):
         nh2 = Atoms(
@@ -198,6 +198,80 @@ class TestHydrogenCompleter:
         hc = HydrogenCompleter(crystal)
         new_crystal = hc.add_hydrogens(bond_lengths={"O-H": 1.1})
         assert len(new_crystal.molecules) == 1
+
+    def test_formula_constraint_skips_unmatched_inorganic_fragment(self, cubic_lattice_10):
+        organic = Atoms(symbols=["C"], positions=[[0, 0, 0]])
+        inorganic = Atoms(symbols=["S"], positions=[[5, 0, 0]])
+        crystal = MolecularCrystal(
+            cubic_lattice_10,
+            [CrystalMolecule(organic), CrystalMolecule(inorganic)],
+            formula_moiety="C H4",
+        )
+
+        with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
+            completed = add_hydrogens(crystal, use_formula_moiety=True)
+
+        assert completed.molecules[0].get_chemical_formula() == "CH4"
+        assert completed.molecules[1].get_chemical_formula() == "S"
+
+    def test_formula_constraint_completes_organic_fragment_without_hydrogenating_framework(
+        self, cubic_lattice_10
+    ):
+        """A sanitized organic/inorganic pair mirrors a split molecular salt.
+
+        The formula constraint must complete the organic CNO fragment to
+        C2H7NO while leaving the matched-external inorganic framework H-free.
+        No CSD identifiers, coordinates, or source chemistry are used.
+        """
+        organic = Atoms(
+            symbols=["C", "C", "N", "O"],
+            positions=[[0, 0, 0], [1.5, 0, 0], [3.0, 0, 0], [0, 1.4, 0]],
+        )
+        framework = Atoms(
+            symbols=["Cd", "S", "C", "N"],
+            positions=[[5, 0, 0], [6.5, 0, 0], [8.0, 0, 0], [9.2, 0, 0]],
+        )
+        crystal = MolecularCrystal(
+            cubic_lattice_10,
+            [CrystalMolecule(organic), CrystalMolecule(framework)],
+            formula_moiety="C2 H7 N1 O1",
+        )
+
+        with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
+            completed = add_hydrogens(crystal, use_formula_moiety=True)
+
+        formulas = sorted(molecule.get_chemical_formula() for molecule in completed.molecules)
+        assert formulas == ["C2H7NO", "CCdNS"]
+
+    def test_placement_vector_shortfall_raises(self, cubic_lattice_10, monkeypatch):
+        carbon = Atoms(symbols=["C"], positions=[[0, 0, 0]])
+        crystal = MolecularCrystal(
+            cubic_lattice_10,
+            [CrystalMolecule(carbon)],
+            formula_moiety="C H4",
+        )
+        monkeypatch.setattr(
+            "molcrys_kit.operations.hydrogen_completion.get_missing_vectors",
+            lambda *args, **kwargs: [np.array([1.0, 0.0, 0.0])],
+        )
+
+        with pytest.raises(ValueError, match="fewer vectors than requested"):
+            add_hydrogens(crystal, use_formula_moiety=True)
+
+    def test_unconstrained_vector_shortfall_warns_and_clips(
+        self, cubic_lattice_10, monkeypatch
+    ):
+        carbon = Atoms(symbols=["C"], positions=[[0, 0, 0]])
+        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(carbon)])
+        monkeypatch.setattr(
+            "molcrys_kit.operations.hydrogen_completion.get_missing_vectors",
+            lambda *args, **kwargs: [np.array([1.0, 0.0, 0.0])],
+        )
+
+        with pytest.warns(RuntimeWarning, match="placing only the available"):
+            completed = add_hydrogens(crystal, use_formula_moiety=False)
+
+        assert completed.molecules[0].get_chemical_formula() == "CH"
 
 
 # =====================================================================
