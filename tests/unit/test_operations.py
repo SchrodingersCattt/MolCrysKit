@@ -156,10 +156,10 @@ class TestHydrogenCompleter:
         assert symbols[0] == "C"
         assert len(symbols) >= 4
         # Regression: added H atoms must have occupancy 1.0, not 0.0
-        if "occupancy" in mol.arrays:
-            assert np.all(mol.arrays["occupancy"] == 1.0), (
-                f"H atoms have occupancy != 1.0: {mol.arrays['occupancy']}"
-            )
+        assert "occupancy" in mol.arrays
+        assert np.all(mol.arrays["occupancy"] == 1.0), (
+            f"H atoms have occupancy != 1.0: {mol.arrays['occupancy']}"
+        )
 
     def test_custom_rules(self, cubic_lattice_10):
         nh2 = Atoms(
@@ -208,7 +208,8 @@ class TestHydrogenCompleter:
             formula_moiety="C H4",
         )
 
-        completed = add_hydrogens(crystal, use_formula_moiety=True)
+        with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
+            completed = add_hydrogens(crystal, use_formula_moiety=True)
 
         assert completed.molecules[0].get_chemical_formula() == "CH4"
         assert completed.molecules[1].get_chemical_formula() == "S"
@@ -227,6 +228,21 @@ class TestHydrogenCompleter:
 
         with pytest.raises(ValueError, match="fewer vectors than requested"):
             add_hydrogens(crystal, use_formula_moiety=True)
+
+    def test_unconstrained_vector_shortfall_warns_and_clips(
+        self, cubic_lattice_10, monkeypatch
+    ):
+        carbon = Atoms(symbols=["C"], positions=[[0, 0, 0]])
+        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(carbon)])
+        monkeypatch.setattr(
+            "molcrys_kit.operations.hydrogen_completion.get_missing_vectors",
+            lambda *args, **kwargs: [np.array([1.0, 0.0, 0.0])],
+        )
+
+        with pytest.warns(RuntimeWarning, match="placing only the available"):
+            completed = add_hydrogens(crystal, use_formula_moiety=False)
+
+        assert completed.molecules[0].get_chemical_formula() == "CH"
 
 
 # =====================================================================
