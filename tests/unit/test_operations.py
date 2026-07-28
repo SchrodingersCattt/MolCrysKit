@@ -214,6 +214,35 @@ class TestHydrogenCompleter:
         assert completed.molecules[0].get_chemical_formula() == "CH4"
         assert completed.molecules[1].get_chemical_formula() == "S"
 
+    def test_formula_constraint_completes_organic_fragment_without_hydrogenating_framework(
+        self, cubic_lattice_10
+    ):
+        """A sanitized organic/inorganic pair mirrors a split molecular salt.
+
+        The formula constraint must complete the organic CNO fragment to
+        C2H7NO while leaving the matched-external inorganic framework H-free.
+        No CSD identifiers, coordinates, or source chemistry are used.
+        """
+        organic = Atoms(
+            symbols=["C", "C", "N", "O"],
+            positions=[[0, 0, 0], [1.5, 0, 0], [3.0, 0, 0], [0, 1.4, 0]],
+        )
+        framework = Atoms(
+            symbols=["Cd", "S", "C", "N"],
+            positions=[[6, 0, 0], [7.6, 0, 0], [9.1, 0, 0], [10.3, 0, 0]],
+        )
+        crystal = MolecularCrystal(
+            cubic_lattice_10,
+            [CrystalMolecule(organic), CrystalMolecule(framework)],
+            formula_moiety="C2 H7 N1 O1, C1 Cd1 N1 S1",
+        )
+
+        with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
+            completed = add_hydrogens(crystal, use_formula_moiety=True)
+
+        formulas = sorted(molecule.get_chemical_formula() for molecule in completed.molecules)
+        assert formulas == ["C2H7NO", "CCdNS"]
+
     def test_placement_vector_shortfall_raises(self, cubic_lattice_10, monkeypatch):
         carbon = Atoms(symbols=["C"], positions=[[0, 0, 0]])
         crystal = MolecularCrystal(
