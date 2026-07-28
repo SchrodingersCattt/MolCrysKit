@@ -229,12 +229,12 @@ class TestHydrogenCompleter:
         )
         framework = Atoms(
             symbols=["Cd", "S", "C", "N"],
-            positions=[[6, 0, 0], [7.6, 0, 0], [9.1, 0, 0], [10.3, 0, 0]],
+            positions=[[5, 0, 0], [6.5, 0, 0], [8.0, 0, 0], [9.2, 0, 0]],
         )
         crystal = MolecularCrystal(
             cubic_lattice_10,
             [CrystalMolecule(organic), CrystalMolecule(framework)],
-            formula_moiety="C2 H7 N1 O1, C1 Cd1 N1 S1",
+            formula_moiety="C2 H7 N1 O1",
         )
 
         with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
