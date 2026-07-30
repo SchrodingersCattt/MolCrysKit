@@ -166,3 +166,152 @@ def test_write_trajectory_xyz_creates_multiframe_file(tmp_path):
     assert written.endswith("path.xyz")
     assert path.exists()
     assert path.read_text().count("\n3\n") == 1 or path.read_text().startswith("3\n")
+
+
+# ---------------------------------------------------------------------------
+# Exact endpoint and NonRigidInterpolationWarning tests
+# ---------------------------------------------------------------------------
+
+import warnings
+from molcrys_kit.operations.interpolation import NonRigidInterpolationWarning
+
+
+def _non_rigid_water_crystals():
+    """Create two crystals where molecule B has distorted internal geometry.
+
+    The O-H bond lengths are changed, so Kabsch fit_rmsd > 0.
+    This means the rigid-body interpolation cannot exactly reach B
+    unless exact endpoint placement is used.
+    """
+    lattice = np.eye(3) * 10.0
+    # A: standard water
+    mol_a = _water_molecule()
+    crystal_a = MolecularCrystal(lattice, [mol_a], pbc=(True, True, True))
+
+    # B: distorted water (stretched bonds) with COM translation
+    positions_b = np.array([
+        [2.0, 1.0, 0.5],   # O
+        [3.2, 1.0, 0.5],   # H (stretched from 0.95 to 1.2)
+        [1.7, 2.1, 0.5],   # H (different angle and length)
+    ])
+    mol_b = _water_molecule(positions_b)
+    crystal_b = MolecularCrystal(lattice, [mol_b], pbc=(True, True, True))
+    return crystal_a, crystal_b
+
+
+def test_exact_endpoint_with_non_rigid_target():
+    """Lambda=1 frame must exactly match target B, even when fit_rmsd > 0."""
+    crystal_a, crystal_b = _non_rigid_water_crystals()
+
+    # Verify this is indeed a non-rigid case
+    from molcrys_kit.operations.interpolation import match_molecules
+    matches = match_molecules(crystal_a, crystal_b)
+    assert matches[0].fit_rmsd > 0.01, "Test setup: target must be non-rigid"
+
+    for method in InterpolationMethod:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", NonRigidInterpolationWarning)
+            frames = interpolate_crystal(
+                crystal_a, crystal_b, method=method, n_images=5
+            )
+        # First frame is exact A
+        np.testing.assert_allclose(
+            frames[0].molecules[0].get_positions(),
+            crystal_a.molecules[0].get_positions(),
+            atol=1e-12,
+        )
+        # Last frame is exact B (reordered by atom_mapping into A order)
+        match = matches[0]
+        target_positions = crystal_b.molecules[match.idx_b].get_positions()[match.atom_mapping]
+        np.testing.assert_allclose(
+            frames[-1].molecules[0].get_positions(),
+            target_positions,
+            atol=1e-12,
+            err_msg=f"method={method}: last frame != exact mapped target B",
+        )
+
+
+def test_exact_endpoint_with_permuted_atoms():
+    """Exact endpoint works when B has atoms in a different order."""
+    lattice = np.eye(3) * 10.0
+    mol_a = _water_molecule()
+    crystal_a = MolecularCrystal(lattice, [mol_a], pbc=(True, True, True))
+
+    # B: same geometry but atoms permuted (H, O, H) instead of (O, H, H)
+    pos_a = mol_a.get_positions()
+    positions_b = pos_a[[1, 0, 2]] + np.array([2.0, 0.0, 0.0])
+    mol_b = CrystalMolecule(
+        Atoms(["H", "O", "H"], positions=positions_b, pbc=False), check_pbc=False
+    )
+    crystal_b = MolecularCrystal(lattice, [mol_b], pbc=(True, True, True))
+
+    frames = interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=3)
+
+    # Last frame should have positions geometrically equal to B
+    # (reordered to A's atom order via atom_mapping)
+    last_pos = frames[-1].molecules[0].get_positions()
+    # The O atom in A is index 0; in B it's index 1. After mapping, frame[-1]
+    # should have O at B's position for index 1 (mapped back to slot 0).
+    b_o_pos = positions_b[1]  # O is at index 1 in B
+    np.testing.assert_allclose(last_pos[0], b_o_pos, atol=1e-10)
+
+
+def test_non_rigid_warning_emitted():
+    """NonRigidInterpolationWarning is raised for non-rigid targets."""
+    crystal_a, crystal_b = _non_rigid_water_crystals()
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=3)
+    non_rigid_warnings = [x for x in w if issubclass(x.category, NonRigidInterpolationWarning)]
+    assert len(non_rigid_warnings) == 1
+    assert "fit_rmsd" in str(non_rigid_warnings[0].message)
+
+
+def test_no_warning_for_rigid_target():
+    """No NonRigidInterpolationWarning for a purely rigid transformation."""
+    crystal_a, crystal_b, _ = _single_water_crystals()
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=3)
+    non_rigid_warnings = [x for x in w if issubclass(x.category, NonRigidInterpolationWarning)]
+    assert len(non_rigid_warnings) == 0
+
+
+def test_partial_interpolation_endpoint_semantics():
+    """With molecule_indices, selected molecules reach B; others stay at A."""
+    crystal_a, crystal_b = _two_water_crystals()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NonRigidInterpolationWarning)
+        frames = interpolate_crystal(
+            crystal_a, crystal_b, method="se3_screw", n_images=3,
+            molecule_indices=[0],
+        )
+
+    # Molecule 0 at last frame should match crystal_b molecule 0
+    target_0 = crystal_b.molecules[0].get_positions()
+    np.testing.assert_allclose(
+        frames[-1].molecules[0].get_positions(), target_0, atol=1e-8
+    )
+    # Molecule 1 (unselected) should remain at crystal_a positions
+    np.testing.assert_allclose(
+        frames[-1].molecules[1].get_positions(),
+        crystal_a.molecules[1].get_positions(),
+        atol=1e-12,
+    )
+
+
+def test_include_endpoints_false_unchanged():
+    """When include_endpoints=False, behavior is unchanged (no exact endpoints)."""
+    crystal_a, crystal_b, _ = _single_water_crystals()
+    frames = interpolate_crystal(
+        crystal_a, crystal_b, method="se3_screw", n_images=3,
+        include_endpoints=False,
+    )
+    assert len(frames) == 3
+    # No frame should exactly equal A or B
+    pos_a = crystal_a.molecules[0].get_positions()
+    pos_b = crystal_b.molecules[0].get_positions()
+    for frame in frames:
+        assert not np.allclose(frame.molecules[0].get_positions(), pos_a, atol=1e-8)
+        assert not np.allclose(frame.molecules[0].get_positions(), pos_b, atol=1e-8)

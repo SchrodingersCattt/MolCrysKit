@@ -1,14 +1,23 @@
-"""
-Interpolation paths between molecular crystal replicas.
+"""Interpolation paths between molecular crystal replicas.
 
-This module constructs rigid-body paths between two molecular crystal replicas,
-with molecule-wise correspondence.  The primary mode is an SE(3) geodesic / screw
-motion interpolation, with SO(3)+COM and quaternion SLERP baselines for workflow
-compatibility and comparison.
+This module constructs rigid-body initial-guess paths between two molecular
+crystal replicas, with molecule-wise correspondence.  The primary mode is an
+SE(3) geodesic / screw motion interpolation, with SO(3)+COM and quaternion
+SLERP baselines for workflow compatibility and comparison.
+
+.. note::
+
+   Interior frames are rigid-body approximations of the molecular poses.
+   When `include_endpoints=True`, the first and last frames are **exact**
+   copies of the input crystals (subject to atom reordering via the
+   molecule match).  A :class:`NonRigidInterpolationWarning` is emitted
+   when the Kabsch fit RMSD exceeds a threshold, indicating that the
+   source and target molecular geometries differ internally.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, List, Optional, Sequence
@@ -32,6 +41,19 @@ from ..utils.geometry import (
     se3_exp,
     se3_log,
 )
+
+
+class NonRigidInterpolationWarning(UserWarning):
+    """Emitted when endpoint molecules have non-zero internal-coordinate residual.
+
+    The Kabsch fit RMSD between the source and target molecule exceeds the
+    configured threshold, meaning that the rigid-body interpolation of
+    interior frames does not represent the full conformational change.
+    Endpoints are still placed exactly.
+    """
+
+
+_DEFAULT_FIT_RMSD_WARN_THRESHOLD = 0.01  # Angstrom
 
 
 class InterpolationMethod(str, Enum):
@@ -203,6 +225,55 @@ def _copy_crystal_with_positions(
         formula_moiety=crystal.formula_moiety,
         disorder_provenance=crystal.disorder_provenance,
     )
+
+
+def _mapped_target_positions(
+    crystal_b: MolecularCrystal,
+    match: MoleculeMatch,
+) -> np.ndarray:
+    """Return exact target-B positions reordered into A's atom order."""
+    pos_b = np.asarray(
+        crystal_b.molecules[match.idx_b].get_positions(), dtype=float
+    )
+    return pos_b[match.atom_mapping]
+
+
+def _mapped_target_positions_vc(
+    crystal_b: MolecularCrystal,
+    match: "VCMoleculeMatch",
+) -> np.ndarray:
+    """Return exact target-B positions reordered into A's atom order (VC)."""
+    pos_b = np.asarray(
+        crystal_b.molecules[match.idx_b].get_positions(), dtype=float
+    )
+    return pos_b[match.atom_mapping]
+
+
+def _emit_non_rigid_warning(
+    matches: Iterable,
+    crystal_a: MolecularCrystal,
+    selected: set[int],
+    threshold: float,
+) -> None:
+    """Emit a NonRigidInterpolationWarning if any selected molecule exceeds the threshold."""
+    affected = []
+    for match in matches:
+        if match.idx_a not in selected:
+            continue
+        if match.fit_rmsd > threshold:
+            formula = crystal_a.molecules[match.idx_a].get_chemical_formula()
+            affected.append(
+                f"  molecule {match.idx_a} ({formula}): fit_rmsd={match.fit_rmsd:.4f} Å"
+            )
+    if affected:
+        msg = (
+            f"{len(affected)} molecule(s) have non-rigid endpoint geometry "
+            f"(fit_rmsd > {threshold:.4f} Å).\n"
+            + "\n".join(affected)
+            + "\nInterior frames use rigid-body approximations; "
+            "only the endpoints are placed exactly."
+        )
+        warnings.warn(msg, NonRigidInterpolationWarning, stacklevel=3)
 
 
 def match_molecules(
@@ -393,18 +464,34 @@ def interpolate_crystal(
         if missing:
             raise ValueError(f"Unknown molecule indices requested: {sorted(missing)}")
 
+    # Emit warning for non-rigid endpoints
+    _emit_non_rigid_warning(
+        matches, crystal_a, selected, _DEFAULT_FIT_RMSD_WARN_THRESHOLD
+    )
+
     frames: List[MolecularCrystal] = []
     for lam in _lambda_values(n_images, include_endpoints):
-        positions = {}
-        for idx in selected:
-            match = match_by_idx[idx]
-            positions[idx] = interpolate_pose(
-                crystal_a.molecules[idx],
-                match,
-                float(lam),
-                method=method,
-            )
-        frames.append(_copy_crystal_with_positions(crystal_a, positions))
+        if lam == 0.0:
+            # Exact start endpoint
+            frames.append(_copy_crystal_with_positions(crystal_a, {}))
+        elif lam == 1.0:
+            # Exact end endpoint: use mapped B positions
+            positions = {}
+            for idx in selected:
+                match = match_by_idx[idx]
+                positions[idx] = _mapped_target_positions(crystal_b, match)
+            frames.append(_copy_crystal_with_positions(crystal_a, positions))
+        else:
+            positions = {}
+            for idx in selected:
+                match = match_by_idx[idx]
+                positions[idx] = interpolate_pose(
+                    crystal_a.molecules[idx],
+                    match,
+                    float(lam),
+                    method=method,
+                )
+            frames.append(_copy_crystal_with_positions(crystal_a, positions))
     return frames
 
 
@@ -639,6 +726,11 @@ def interpolate_crystal_vc(
         if missing:
             raise ValueError(f"Unknown molecule indices: {sorted(missing)}")
 
+    # Emit warning for non-rigid endpoints
+    _emit_non_rigid_warning(
+        matches, crystal_a, selected, _DEFAULT_FIT_RMSD_WARN_THRESHOLD
+    )
+
     # Precompute fractional COMs for non-selected molecules (stay at A position)
     static_frac_coms: dict[int, np.ndarray] = {}
     static_centered: dict[int, np.ndarray] = {}
@@ -652,6 +744,45 @@ def interpolate_crystal_vc(
 
     frames: List[MolecularCrystal] = []
     for lam in _lambda_values(n_images, include_endpoints):
+        if lam == 0.0:
+            # Exact start endpoint: crystal_a positions and lattice
+            frames.append(
+                MolecularCrystal(
+                    lattice_a.copy(),
+                    [mol.copy() for mol in crystal_a.molecules],
+                    crystal_a.pbc,
+                    formula_moiety=crystal_a.formula_moiety,
+                    disorder_provenance=crystal_a.disorder_provenance,
+                )
+            )
+            continue
+        if lam == 1.0:
+            # Exact end endpoint: crystal_b lattice, mapped B positions for
+            # selected molecules, A positions mapped to B lattice for others
+            molecules = []
+            for idx, mol in enumerate(crystal_a.molecules):
+                copied = mol.copy()
+                if idx in selected:
+                    match = match_by_idx[idx]
+                    copied.set_positions(
+                        _mapped_target_positions_vc(crystal_b, match)
+                    )
+                else:
+                    frac_com = static_frac_coms[idx]
+                    cart_com_b = frac_to_cart(frac_com, lattice_b)
+                    copied.set_positions(static_centered[idx] + cart_com_b)
+                molecules.append(copied)
+            frames.append(
+                MolecularCrystal(
+                    lattice_b.copy(),
+                    molecules,
+                    crystal_a.pbc,
+                    formula_moiety=crystal_a.formula_moiety,
+                    disorder_provenance=crystal_a.disorder_provenance,
+                )
+            )
+            continue
+
         lat_i = lattice_at_lambda(lattice_a, log_F, lam)
 
         molecules = []

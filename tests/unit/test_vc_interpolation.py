@@ -186,3 +186,71 @@ class TestInterpolateCrystalVC:
         pos_b_original = np.asarray(crystal_b.molecules[0].get_positions())
         pos_b_image = np.asarray(images[-1].molecules[0].get_positions())
         np.testing.assert_allclose(pos_b_image, pos_b_original, atol=1e-6)
+
+    def test_nonrigid_endpoint_exact_vc(self):
+        """VC interpolation reproduces exact non-rigid target at lambda=1."""
+        import warnings
+        from ase import Atoms as AseAtoms
+
+        from molcrys_kit.operations.interpolation import (
+            NonRigidInterpolationWarning,
+            interpolate_crystal_vc,
+        )
+        from molcrys_kit.structures.crystal import MolecularCrystal
+        from molcrys_kit.structures.molecule import CrystalMolecule
+
+        lat_a = np.array([[5.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 7.0]])
+        lat_b = np.array([[6.0, 0.0, 0.0], [0.0, 7.0, 0.0], [0.0, 0.0, 8.0]])
+
+        pos_a = np.array([[2.5, 3.0, 3.5], [2.5, 3.5, 3.5], [3.0, 3.0, 3.5]])
+        # Distorted target: different internal geometry
+        pos_b = np.array([[3.0, 3.5, 4.0], [3.0, 4.2, 4.0], [3.8, 3.5, 4.0]])
+
+        mol_a = CrystalMolecule(AseAtoms("OHH", positions=pos_a), check_pbc=False)
+        crystal_a = MolecularCrystal(lat_a, [mol_a], [True, True, True])
+        mol_b = CrystalMolecule(AseAtoms("OHH", positions=pos_b), check_pbc=False)
+        crystal_b = MolecularCrystal(lat_b, [mol_b], [True, True, True])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", NonRigidInterpolationWarning)
+            images = interpolate_crystal_vc(
+                crystal_a, crystal_b, n_images=5, include_endpoints=True
+            )
+
+        # Exact lattice B
+        np.testing.assert_allclose(images[-1].lattice, lat_b, atol=1e-10)
+        # Exact positions B
+        np.testing.assert_allclose(
+            images[-1].molecules[0].get_positions(), pos_b, atol=1e-10
+        )
+
+    def test_vc_nonrigid_warning(self):
+        """NonRigidInterpolationWarning emitted for VC with distorted target."""
+        import warnings
+        from ase import Atoms as AseAtoms
+
+        from molcrys_kit.operations.interpolation import (
+            NonRigidInterpolationWarning,
+            interpolate_crystal_vc,
+        )
+        from molcrys_kit.structures.crystal import MolecularCrystal
+        from molcrys_kit.structures.molecule import CrystalMolecule
+
+        lat_a = np.array([[5.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 7.0]])
+        lat_b = np.array([[6.0, 0.0, 0.0], [0.0, 7.0, 0.0], [0.0, 0.0, 8.0]])
+        pos_a = np.array([[2.5, 3.0, 3.5], [2.5, 3.5, 3.5], [3.0, 3.0, 3.5]])
+        pos_b = np.array([[3.0, 3.5, 4.0], [3.0, 4.2, 4.0], [3.8, 3.5, 4.0]])
+
+        mol_a = CrystalMolecule(AseAtoms("OHH", positions=pos_a), check_pbc=False)
+        crystal_a = MolecularCrystal(lat_a, [mol_a], [True, True, True])
+        mol_b = CrystalMolecule(AseAtoms("OHH", positions=pos_b), check_pbc=False)
+        crystal_b = MolecularCrystal(lat_b, [mol_b], [True, True, True])
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            interpolate_crystal_vc(
+                crystal_a, crystal_b, n_images=3, include_endpoints=True
+            )
+        non_rigid = [x for x in w if issubclass(x.category, NonRigidInterpolationWarning)]
+        assert len(non_rigid) == 1
+        assert "fit_rmsd" in str(non_rigid[0].message)
