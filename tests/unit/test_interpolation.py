@@ -1,11 +1,14 @@
 """Tests for molecular-crystal interpolation paths."""
 
+import warnings
+
 import numpy as np
 from ase import Atoms
 
 from molcrys_kit.io import read_extxyz, write_cif_sequence, write_poscar_sequence, write_trajectory
 from molcrys_kit.operations.interpolation import (
     InterpolationMethod,
+    NonRigidInterpolationWarning,
     best_atom_mapping,
     find_flipping_molecules,
     interpolate_crystal,
@@ -172,9 +175,6 @@ def test_write_trajectory_xyz_creates_multiframe_file(tmp_path):
 # Exact endpoint and NonRigidInterpolationWarning tests
 # ---------------------------------------------------------------------------
 
-import warnings
-from molcrys_kit.operations.interpolation import NonRigidInterpolationWarning
-
 
 def _non_rigid_water_crystals():
     """Create two crystals where molecule B has distorted internal geometry.
@@ -315,3 +315,51 @@ def test_include_endpoints_false_unchanged():
     for frame in frames:
         assert not np.allclose(frame.molecules[0].get_positions(), pos_a, atol=1e-8)
         assert not np.allclose(frame.molecules[0].get_positions(), pos_b, atol=1e-8)
+
+
+def test_pbc_crossing_endpoint_continuous():
+    """When B molecule crosses PBC, endpoint must be in the same image as interior frames."""
+    lattice = np.eye(3) * 10.0
+    # A: molecule near top of cell (COM x ~ 9.5)
+    pos_a = np.array([[9.5, 5.0, 5.0], [9.5, 5.5, 5.0], [10.0, 5.0, 5.0]])
+    mol_a = _water_molecule(pos_a)
+    crystal_a = MolecularCrystal(lattice, [mol_a], pbc=(True, True, True))
+
+    # B: molecule near bottom of cell (COM x ~ 0.5) — shortest path crosses PBC
+    pos_b = np.array([[0.5, 5.0, 5.0], [0.5, 5.5, 5.0], [1.0, 5.0, 5.0]])
+    mol_b = _water_molecule(pos_b)
+    crystal_b = MolecularCrystal(lattice, [mol_b], pbc=(True, True, True))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NonRigidInterpolationWarning)
+        frames = interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=5)
+
+    # Check consecutive COM displacements are bounded (no full-cell jump)
+    coms = [np.mean(f.molecules[0].get_positions(), axis=0) for f in frames]
+    for i in range(len(coms) - 1):
+        displacement = np.linalg.norm(coms[i + 1] - coms[i])
+        assert displacement < 2.0, (
+            f"Frame {i}->{i+1} COM displacement {displacement:.2f} Å exceeds 2 Å"
+        )
+
+
+def test_no_warning_for_endpoints_only():
+    """n_images=2 with include_endpoints=True has no interior frames; no warning."""
+    crystal_a, crystal_b = _non_rigid_water_crystals()
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        frames = interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=2)
+    non_rigid = [x for x in w if issubclass(x.category, NonRigidInterpolationWarning)]
+    assert len(non_rigid) == 0
+    assert len(frames) == 2
+
+
+def test_no_warning_for_single_image():
+    """n_images=1 with include_endpoints=True returns only start; no warning."""
+    crystal_a, crystal_b = _non_rigid_water_crystals()
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        frames = interpolate_crystal(crystal_a, crystal_b, method="se3_screw", n_images=1)
+    non_rigid = [x for x in w if issubclass(x.category, NonRigidInterpolationWarning)]
+    assert len(non_rigid) == 0
+    assert len(frames) == 1
