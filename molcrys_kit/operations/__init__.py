@@ -14,6 +14,16 @@ from .perturbation import (
 
 from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
 
+from .ring_conformation import (
+    DegenerateRingGeometryError,
+    InvalidRingOrderError,
+    PuckeringCoordinates,
+    RingConformationError,
+    RingSystem,
+    find_ring_systems,
+    puckering_coordinates,
+    reconstruct_z_from_modes,
+)
 from .builders import (
     create_supercell,
     create_defect_structure,
@@ -75,6 +85,14 @@ __all__ = [
     "apply_random_rotation",
     "rotate_molecule_at_center",
     "rotate_molecule_at_com",
+    "DegenerateRingGeometryError",
+    "InvalidRingOrderError",
+    "PuckeringCoordinates",
+    "RingConformationError",
+    "RingSystem",
+    "find_ring_systems",
+    "puckering_coordinates",
+    "reconstruct_z_from_modes",
     "create_supercell",
     "create_defect_structure",
     "generate_topological_slab",
