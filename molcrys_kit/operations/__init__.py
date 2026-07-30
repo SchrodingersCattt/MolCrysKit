@@ -25,6 +25,17 @@ from .bond_rotation import (
     rotate_fragment_in_crystal,
 )
 
+from .ring_conformation import (
+    DegenerateRingGeometryError,
+    InvalidRingOrderError,
+    PuckeringCoordinates,
+    RingConformationError,
+    RingSystem,
+    find_ring_systems,
+    puckering_coordinates,
+    reconstruct_z_from_modes,
+)
+
 from .builders import (
     create_supercell,
     create_defect_structure,
