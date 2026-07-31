@@ -292,3 +292,38 @@ class TestIdentifyMoleculesFromAtoms:
         assert len(molecules) == 1
         assert molecules[0].info["atom_indices"] == [0, 1]
         assert molecules[0].info["bond_pairs"] == [(0, 1)]
+
+    @pytest.mark.parametrize(
+        "cell, positions, expected_shift",
+        [
+            (
+                np.diag([10.0, 10.0, 10.0]),
+                [[9.8, 5.0, 5.0], [0.2, 5.0, 5.0]],
+                [1, 0, 0],
+            ),
+            (
+                np.array([[8.0, 0.0, 0.0], [2.0, 9.0, 0.0], [1.0, 1.0, 10.0]]),
+                None,
+                [1, 0, 0],
+            ),
+        ],
+    )
+    def test_periodic_bond_records_preserve_signed_image_shift(self, cell, positions, expected_shift):
+        if positions is None:
+            frac = np.array([[0.98, 0.5, 0.5], [0.02, 0.5, 0.5]])
+            positions = frac @ cell
+        atoms = Atoms(symbols=["C", "C"], positions=positions, cell=cell, pbc=True)
+
+        molecules = identify_molecules(atoms)
+
+        assert len(molecules) == 1
+        molecule = molecules[0]
+        assert molecule.info["bond_pairs"] == [(0, 1)]
+        record = molecule.info["bond_records"]
+        assert len(record) == 1
+        assert record[0]["left"] == 0
+        assert record[0]["right"] == 1
+        assert record[0]["right_image_shift"] == expected_shift
+        assert record[0]["vector"] == pytest.approx(
+            (np.asarray(positions[1]) + np.asarray(expected_shift) @ cell - np.asarray(positions[0])).tolist()
+        )
