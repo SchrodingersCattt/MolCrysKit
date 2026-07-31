@@ -70,6 +70,15 @@ def test_asu_first_preserves_custom_topology_and_edge_geometry():
             np.testing.assert_allclose(edge_data["vector"], vector, atol=1e-12)
             assert edge_data["distance"] == pytest.approx(np.linalg.norm(vector))
             assert edge_data["distance"] < 2.1
+            np.testing.assert_array_equal(edge_data["image_shift"], [0, 0, 0])
+
+        assert all(
+            record["right_image_shift"] == [0, 0, 0]
+            for record in molecule.info["bond_records"]
+        )
+        assert "atom_indices" not in molecule.info
+        assert "asym_id" in molecule.arrays
+        assert "sym_op_index" in molecule.info
 
         rotated = rotate_fragment_about_bond(molecule, 1, 2, 30.0)
         assert set(rotated.get_graph().edges()) == {(0, 1), (1, 2), (2, 3)}

@@ -44,6 +44,39 @@ def _strip_stale_frac_arrays(atoms_obj) -> None:
             del atoms_obj.arrays[key]
 
 
+def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
+    """Refresh canonical edge geometry for contiguous molecular coordinates.
+
+    A ``CrystalMolecule`` stores an unwrapped coordinate image, so every local
+    edge uses a zero lattice-image shift. This helper updates the graph and the
+    local ``bond_records`` view atomically after any geometry transformation.
+    """
+    if molecule._graph is None:
+        return
+
+    positions = np.asarray(molecule.get_positions(), dtype=float)
+    records = []
+    for atom_i, atom_j, edge_data in molecule._graph.edges(data=True):
+        left, right = sorted((int(atom_i), int(atom_j)))
+        vector = positions[right] - positions[left]
+        image_shift = np.zeros(3, dtype=int)
+        edge_data["vector"] = vector.copy()
+        edge_data["distance"] = float(np.linalg.norm(vector))
+        edge_data["image_shift"] = image_shift
+        records.append(
+            {
+                "left": left,
+                "right": right,
+                "right_image_shift": [0, 0, 0],
+                "vector": [float(value) for value in vector],
+            }
+        )
+    molecule.info["bond_records"] = sorted(
+        records,
+        key=lambda record: (record["left"], record["right"]),
+    )
+
+
 class CrystalMolecule(Atoms):
     """
     A molecule represented as an ASE Atoms object with additional functionality.
@@ -70,19 +103,19 @@ class CrystalMolecule(Atoms):
         """
         # Create a copy of the base Atoms object
         atoms_copy = super().copy()
-        
+
         # Create a new CrystalMolecule from the copied atoms
         new_mol = CrystalMolecule(atoms_copy, crystal=self.crystal, check_pbc=False)
-        
+
         # Copy over any additional attributes that might exist in the original
-        if hasattr(self, '_graph') and self._graph is not None:
+        if hasattr(self, "_graph") and self._graph is not None:
             # Copy the graph if it exists
             new_mol._graph = copy.deepcopy(self._graph)
-        
+
         # Propagate cached topo signature if available
-        if getattr(self, '_topo_signature', None) is not None:
+        if getattr(self, "_topo_signature", None) is not None:
             new_mol._topo_signature = self._topo_signature
-        
+
         return new_mol
 
     def to_ase(self) -> Atoms:
@@ -418,4 +451,3 @@ class CrystalMolecule(Atoms):
             axes[i] if np.linalg.norm(axes[i]) > 0 else np.array([1.0, 0.0, 0.0])
             for i in range(3)
         )
-

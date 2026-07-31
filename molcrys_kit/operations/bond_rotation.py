@@ -25,7 +25,11 @@ from ..constants.config import (
     KEY_FRAC_Z,
 )
 from ..structures.crystal import MolecularCrystal
-from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
+from ..structures.molecule import (
+    CrystalMolecule,
+    _refresh_contiguous_bond_geometry,
+    _strip_stale_frac_arrays,
+)
 from ..utils.geometry import get_rotation_matrix
 
 
@@ -193,13 +197,7 @@ def _resolved_moving_atoms(
 def _set_positions_clean(molecule: CrystalMolecule, positions: np.ndarray) -> None:
     molecule.set_positions(np.asarray(positions, dtype=float))
     _strip_stale_frac_arrays(molecule)
-    if molecule._graph is not None:
-        current_positions = molecule.get_positions()
-        for atom_i, atom_j, edge_data in molecule._graph.edges(data=True):
-            lower, upper = sorted((atom_i, atom_j))
-            vector = current_positions[upper] - current_positions[lower]
-            edge_data["vector"] = vector
-            edge_data["distance"] = float(np.linalg.norm(vector))
+    _refresh_contiguous_bond_geometry(molecule)
 
 
 def rotate_fragment_about_bond(

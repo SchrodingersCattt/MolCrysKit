@@ -270,6 +270,38 @@ def test_identified_molecule_keeps_authoritative_local_topology():
             edge_data["vector"],
             rotated.positions[atom_j] - rotated.positions[atom_i],
         )
+        np.testing.assert_array_equal(edge_data["image_shift"], [0, 0, 0])
+    assert all(
+        record["right_image_shift"] == [0, 0, 0]
+        for record in rotated.info["bond_records"]
+    )
+    for record in rotated.info["bond_records"]:
+        np.testing.assert_allclose(
+            record["vector"],
+            rotated.positions[record["right"]] - rotated.positions[record["left"]],
+        )
+
+
+def test_identification_maps_noncontiguous_global_indices_locally():
+    atoms = Atoms(
+        "CHeCCHeHeC",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [0.0, 10.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [4.0, 10.0, 0.0],
+            [6.0, 10.0, 0.0],
+            [6.0, 0.5, 0.0],
+        ],
+        pbc=False,
+    )
+    molecules = identify_molecules(atoms, bond_thresholds={("C", "C"): 2.1})
+    chain = next(molecule for molecule in molecules if len(molecule) == 4)
+
+    assert chain.info["atom_indices"] == [0, 2, 3, 6]
+    assert chain.info["bond_pairs"] == [(0, 2), (2, 3), (3, 6)]
+    assert set(chain.get_graph().edges()) == {(0, 1), (1, 2), (2, 3)}
 
 
 def test_crystal_wrapper_changes_only_selected_molecule():
