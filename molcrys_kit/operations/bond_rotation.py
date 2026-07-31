@@ -11,6 +11,7 @@ require a constrained ring solver rather than a bond-cut operation.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
@@ -310,8 +311,8 @@ def rotate_fragment_in_crystal(
         molecules=molecules,
         pbc=crystal.pbc,
         formula_moiety=crystal.formula_moiety,
-        disorder_provenance=crystal.disorder_provenance,
+        disorder_provenance=copy.deepcopy(crystal.disorder_provenance),
         calc_results=None,
-        metadata=crystal.metadata,
+        metadata=copy.deepcopy(crystal.metadata),
         extra_arrays=preserved_extra_arrays,
     )

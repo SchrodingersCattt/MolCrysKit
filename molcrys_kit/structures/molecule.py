@@ -4,6 +4,8 @@ Molecule representation for molecular crystals.
 This module defines the CrystalMolecule class which represents a rigid body of atoms.
 """
 
+import copy
+
 import numpy as np
 from typing import Tuple
 import networkx as nx
@@ -75,7 +77,7 @@ class CrystalMolecule(Atoms):
         # Copy over any additional attributes that might exist in the original
         if hasattr(self, '_graph') and self._graph is not None:
             # Copy the graph if it exists
-            new_mol._graph = self._graph.copy()
+            new_mol._graph = copy.deepcopy(self._graph)
         
         # Propagate cached topo signature if available
         if getattr(self, '_topo_signature', None) is not None:
