@@ -19,6 +19,8 @@ KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (
 KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
 KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
 
+RING_CONFORMATION_TOLERANCE_FACTOR = 64.0
+
 # Transition metals set
 TRANSITION_METALS = {
     "Sc",
