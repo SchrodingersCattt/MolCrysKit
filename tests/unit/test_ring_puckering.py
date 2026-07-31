@@ -61,6 +61,10 @@ def _molecule_with_graph(graph: nx.Graph) -> CrystalMolecule:
     return molecule
 
 
+def _phase_delta(actual: np.ndarray, expected: np.ndarray) -> np.ndarray:
+    return (actual - expected + np.pi) % (2.0 * np.pi) - np.pi
+
+
 @pytest.mark.parametrize("n", [3, 4, 5, 6, 7, 8, 9, 12])
 class TestPlanarRings:
     """Planar regular polygons should have zero puckering."""
@@ -86,7 +90,8 @@ class TestPlanarRings:
         pc = puckering_coordinates(mol, list(range(n)))
         np.testing.assert_allclose(pc.amplitudes, 0.0, atol=1e-10)
         paired_count = max(0, (n - 1) // 2 - 1)
-        np.testing.assert_array_equal(pc.phases[:paired_count], 0.0)
+        zero_modes = pc.amplitudes[:paired_count] == 0.0
+        np.testing.assert_array_equal(pc.phases[:paired_count][zero_modes], 0.0)
 
 
 @pytest.mark.parametrize("n", [5, 6, 7, 8, 9, 12])
@@ -112,6 +117,29 @@ class TestSingleModeRoundTrip:
         # Reconstruction
         z_recon = reconstruct_z_from_modes(n, pc.amplitudes, pc.phases)
         np.testing.assert_allclose(z_recon, pc.z_displacements, atol=1e-10)
+
+    def test_large_translation_preserves_nonzero_phase(self, n):
+        j_arr = np.arange(n)
+        q_target = 1.0e-3
+        phi_target = 1.1
+        z_input = (
+            q_target
+            * np.sqrt(2.0 / n)
+            * np.cos(2.0 * np.pi * 2 * j_arr / n + phi_target)
+        )
+        mol = _puckered_ring(n, z_input)
+        before = puckering_coordinates(mol, list(range(n)))
+        mol.set_positions(mol.get_positions() + 1.0e12)
+        after = puckering_coordinates(mol, list(range(n)))
+
+        assert after.amplitudes[0] > 0.0
+        np.testing.assert_allclose(after.amplitudes[0], before.amplitudes[0], rtol=0.15)
+        assert abs(_phase_delta(after.phases[:1], before.phases[:1])[0]) < 0.15
+        np.testing.assert_allclose(
+            reconstruct_z_from_modes(n, after.amplitudes, after.phases),
+            after.z_displacements,
+            atol=1e-12,
+        )
 
 
 @pytest.mark.parametrize("n", [5, 6, 7, 8, 9, 12])
@@ -219,6 +247,28 @@ class TestTranslationRotationInvariance:
         ) % (2 * np.pi) - np.pi
         np.testing.assert_allclose(phase_delta, 0.0, atol=1e-12)
 
+    @pytest.mark.parametrize("scale", [1.0e-7, 1.0e7])
+    def test_uniform_scaling(self, n, scale):
+        rng = np.random.default_rng(seed=280 + n)
+        z = rng.normal(0, 0.15, size=n)
+        z -= z.mean()
+        mol = _puckered_ring(n, z)
+        before = puckering_coordinates(mol, list(range(n)))
+        scaled = mol.copy()
+        scaled.set_positions(mol.get_positions() * scale)
+        after = puckering_coordinates(scaled, list(range(n)))
+
+        np.testing.assert_allclose(
+            after.z_displacements, before.z_displacements * scale
+        )
+        np.testing.assert_allclose(after.amplitudes, before.amplitudes * scale)
+        paired_count = max(0, (n - 1) // 2 - 1)
+        np.testing.assert_allclose(
+            _phase_delta(after.phases[:paired_count], before.phases[:paired_count]),
+            0.0,
+            atol=1e-10,
+        )
+
 
 class TestCyclicRelabeling:
     """Cyclic permutation of ring atoms transforms modes predictably."""
@@ -254,6 +304,35 @@ class TestCyclicRelabeling:
         # Total amplitude preserved
         assert abs(pc_shifted.total_amplitude - pc_original.total_amplitude) < 1e-10
 
+    @pytest.mark.parametrize("n", [7, 8])
+    @pytest.mark.parametrize("shift", [1, 3])
+    def test_exact_cyclic_shift_transform(self, n, shift):
+        rng = np.random.default_rng(seed=500 + n)
+        z = rng.normal(0, 0.2, size=n)
+        z -= z.mean()
+        mol = _puckered_ring(n, z)
+        original = puckering_coordinates(mol, list(range(n)))
+        shifted = puckering_coordinates(mol, [(j + shift) % n for j in range(n)])
+
+        np.testing.assert_allclose(
+            shifted.mean_plane_normal, original.mean_plane_normal
+        )
+        np.testing.assert_allclose(
+            shifted.z_displacements, np.roll(original.z_displacements, -shift)
+        )
+        paired_count = max(0, (n - 1) // 2 - 1)
+        modes = np.arange(2, 2 + paired_count)
+        expected_phases = original.phases[:paired_count] + 2 * np.pi * modes * shift / n
+        np.testing.assert_allclose(
+            _phase_delta(shifted.phases[:paired_count], expected_phases),
+            0.0,
+            atol=1e-10,
+        )
+        if n % 2 == 0:
+            assert shifted.amplitudes[-1] == pytest.approx(
+                (-1) ** shift * original.amplitudes[-1]
+            )
+
 
 class TestReversal:
     """Ring direction reversal preserves amplitudes."""
@@ -273,6 +352,39 @@ class TestReversal:
         np.testing.assert_allclose(
             pc_reversed.amplitudes, pc_forward.amplitudes, atol=1e-10
         )
+
+    @pytest.mark.parametrize("n", [7, 8])
+    @pytest.mark.parametrize("anchor", [0, 3])
+    def test_exact_reversal_transform(self, n, anchor):
+        rng = np.random.default_rng(seed=600 + n)
+        z = rng.normal(0, 0.2, size=n)
+        z -= z.mean()
+        mol = _puckered_ring(n, z)
+        original = puckering_coordinates(mol, list(range(n)))
+        order = [(anchor - j) % n for j in range(n)]
+        reversed_pc = puckering_coordinates(mol, order)
+
+        np.testing.assert_allclose(
+            reversed_pc.mean_plane_normal, -original.mean_plane_normal
+        )
+        np.testing.assert_allclose(
+            reversed_pc.z_displacements,
+            -original.z_displacements[order],
+        )
+        paired_count = max(0, (n - 1) // 2 - 1)
+        modes = np.arange(2, 2 + paired_count)
+        expected_phases = (
+            np.pi - original.phases[:paired_count] - 2 * np.pi * modes * anchor / n
+        )
+        np.testing.assert_allclose(
+            _phase_delta(reversed_pc.phases[:paired_count], expected_phases),
+            0.0,
+            atol=1e-10,
+        )
+        if n % 2 == 0:
+            assert reversed_pc.amplitudes[-1] == pytest.approx(
+                (-1) ** (anchor + 1) * original.amplitudes[-1]
+            )
 
 
 class TestErrorCases:
@@ -309,6 +421,11 @@ class TestErrorCases:
         mol = _molecule_with_graph(graph)
         with pytest.raises(DegenerateRingGeometryError):
             puckering_coordinates(mol, [0, 1, 2, 3])
+
+    def test_tiny_valid_ring_is_not_degenerate(self):
+        mol = _regular_polygon_molecule(5, radius=1.0e-7)
+        pc = puckering_coordinates(mol, list(range(5)))
+        assert pc.ring_size == 5
 
     @pytest.mark.parametrize("invalid_index", [True, 1.9, "1", None])
     def test_non_integer_atom_index(self, invalid_index):
@@ -351,6 +468,13 @@ class TestFindRingSystems:
         systems = find_ring_systems(_molecule_with_graph(graph))
         assert {system.classification for system in systems} == {"spiro"}
 
+    def test_linked_ring_is_not_spiro(self):
+        graph = nx.cycle_graph(4)
+        graph.add_edges_from([(0, 4), (4, 5), (5, 6), (6, 7), (7, 5)])
+        systems = find_ring_systems(_molecule_with_graph(graph))
+        four_ring = next(system for system in systems if system.ring_size == 4)
+        assert four_ring.classification == "simple"
+
     def test_nonadjacent_bridgeheads_are_bridged(self):
         graph = nx.cycle_graph(6)
         graph.add_edges_from([(0, 6), (6, 3)])
@@ -378,6 +502,35 @@ class TestFindRingSystems:
         systems = find_ring_systems(_molecule_with_graph(graph), max_ring_size=3)
         assert len(systems) == 1
         assert systems[0].classification == "spiro"
+
+    def test_chorded_square_returns_only_chordless_triangles(self):
+        graph = nx.Graph([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+        systems = find_ring_systems(_molecule_with_graph(graph))
+        assert [system.ring_atoms for system in systems] == [(0, 1, 2), (0, 2, 3)]
+
+    def test_max_ring_size_is_inclusive(self):
+        graph = nx.cycle_graph(4)
+        assert find_ring_systems(_molecule_with_graph(graph), max_ring_size=3) == []
+        assert len(find_ring_systems(_molecule_with_graph(graph), max_ring_size=4)) == 1
+
+    def test_cycle_results_ignore_edge_insertion_order(self):
+        edges = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (3, 4), (4, 5), (5, 0)]
+        records = []
+        for inserted in [edges, list(reversed(edges)), edges[3:] + edges[:3]]:
+            graph = nx.Graph()
+            graph.add_edges_from(inserted)
+            records.append(
+                [
+                    (system.ring_atoms, system.classification)
+                    for system in find_ring_systems(_molecule_with_graph(graph))
+                ]
+            )
+        assert records[1:] == records[:1] * 2
+
+    @pytest.mark.parametrize("invalid", [True, 3.5, 2])
+    def test_invalid_max_ring_size(self, invalid):
+        with pytest.raises(RingConformationError, match="max_ring_size"):
+            find_ring_systems(_regular_polygon_molecule(5), max_ring_size=invalid)
 
 
 class TestReconstructZInvalidInput:

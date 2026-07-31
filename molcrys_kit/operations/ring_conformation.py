@@ -25,6 +25,7 @@ from typing import Sequence
 import networkx as nx
 import numpy as np
 
+from ..constants.config import RING_CONFORMATION_TOLERANCE_FACTOR
 from ..structures.molecule import CrystalMolecule
 
 
@@ -63,6 +64,17 @@ class PuckeringCoordinates:
         change signed coordinates.
     mean_plane_center : np.ndarray
         Geometric center of the ring atoms in the input Cartesian length unit.
+
+    Notes
+    -----
+    For a cyclic shift ``r'_j = r_(j+k)``, ``z'_j = z_(j+k)``, paired-mode
+    phases transform as ``φ'_m = wrap(φ_m + 2πmk/N)``, and the even terminal
+    mode transforms as ``q'_(N/2) = (-1)^k q_(N/2)``. For a reversal
+    ``r'_j = r_(k-j)``, the normal changes sign, ``z'_j = -z_(k-j)``, paired
+    phases transform as ``φ'_m = wrap(π - φ_m - 2πmk/N)``, and the terminal
+    mode transforms as ``q'_(N/2) = (-1)^(k+1) q_(N/2)``. Here ``wrap`` maps
+    angles to ``[-π, π]``. A zero-amplitude paired mode has undefined phase;
+    this API canonicalizes it to zero.
     """
 
     ring_size: int
@@ -166,7 +178,7 @@ def _validate_ring_atoms(
 
 def _mean_ring_plane(
     positions: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute the Cremer–Pople reference plane for an N-membered ring.
 
     The CP reference plane is defined (Eq. 3–5 in [1]) by the two vectors:
@@ -179,36 +191,55 @@ def _mean_ring_plane(
     out-of-plane displacements z_j satisfy the three CP constraints:
         Σ z_j = 0,  Σ z_j cos(2πj/N) = 0,  Σ z_j sin(2πj/N) = 0.
 
-    Returns (normal, center) where normal is a unit vector and center is
-    the geometric centroid of the ring atoms.
+    Returns ``(normal, center, centered)`` where normal is a unit vector,
+    center is the geometric centroid, and centered contains translation-stable
+    coordinates relative to that centroid.
     """
     n = len(positions)
-    center = positions.mean(axis=0)
-    centered = positions - center
+    relative = positions - positions[0]
+    center_offset = relative.mean(axis=0)
+    center = positions[0] + center_offset
+    centered = relative - center_offset
+    scale = float(np.max(np.abs(centered)))
+    if scale == 0.0:
+        raise DegenerateRingGeometryError(
+            "All ring atoms are coincident; cannot define a ring plane."
+        )
+    normalized = centered / scale
+    tolerance = RING_CONFORMATION_TOLERANCE_FACTOR * np.finfo(float).eps * max(n, 3)
+
+    singular_values = np.linalg.svd(normalized, compute_uv=False)
+    if singular_values[0] == 0.0:
+        raise DegenerateRingGeometryError(
+            "All ring atoms are coincident; cannot define a ring plane."
+        )
+    if singular_values[1] <= tolerance * singular_values[0]:
+        raise DegenerateRingGeometryError(
+            "Ring atoms are collinear; cannot define a ring plane."
+        )
 
     # CP reference vectors (Eq. 4 in Cremer & Pople 1975)
     j_arr = np.arange(n)
     sin_coeffs = np.sin(2.0 * np.pi * j_arr / n)
     cos_coeffs = np.cos(2.0 * np.pi * j_arr / n)
 
-    r1 = sin_coeffs @ centered  # shape (3,)
-    r2 = cos_coeffs @ centered  # shape (3,)
+    r1 = sin_coeffs @ normalized  # shape (3,)
+    r2 = cos_coeffs @ normalized  # shape (3,)
 
     normal = np.cross(r1, r2)
     norm = np.linalg.norm(normal)
-
-    if norm < 1e-12:
-        # Fallback: check if atoms are collinear or coincident
-        _, s, _ = np.linalg.svd(centered, full_matrices=False)
-        if s[0] < 1e-12:
-            raise DegenerateRingGeometryError(
-                "All ring atoms are coincident; cannot define a ring plane."
-            )
+    r1_norm = np.linalg.norm(r1)
+    r2_norm = np.linalg.norm(r2)
+    if (
+        r1_norm <= tolerance
+        or r2_norm <= tolerance
+        or norm <= tolerance * r1_norm * r2_norm
+    ):
         raise DegenerateRingGeometryError(
-            "Ring atoms are collinear; cannot define a ring plane."
+            "Cremer-Pople reference plane is undefined for this ordered geometry."
         )
 
-    return normal / norm, center
+    return normal / norm, center, centered
 
 
 def puckering_coordinates(
@@ -244,10 +275,10 @@ def puckering_coordinates(
     n = len(ring)
     positions = molecule.get_positions()[list(ring)]
 
-    normal, center = _mean_ring_plane(positions)
+    normal, center, centered = _mean_ring_plane(positions)
 
     # Out-of-plane displacements
-    z = (positions - center) @ normal
+    z = centered @ normal
 
     # Total puckering amplitude
     total_q = float(np.sqrt(np.sum(z**2)))
@@ -257,14 +288,10 @@ def puckering_coordinates(
     amplitudes = []
     phases = []
     zero_mode_tolerance = (
-        np.finfo(float).eps
-        * max(
-            1.0,
-            float(np.linalg.norm(positions - center)),
-            float(np.max(np.abs(positions))),
-        )
-        * n
-        * 16.0
+        RING_CONFORMATION_TOLERANCE_FACTOR
+        * np.finfo(float).eps
+        * max(n, 3)
+        * float(np.max(np.abs(centered)))
     )
 
     # Paired modes: m = 2, ..., floor((N-1)/2)
@@ -277,11 +304,11 @@ def puckering_coordinates(
             z * np.sin(2.0 * np.pi * m * np.arange(n) / n)
         )
         q_m = np.sqrt(cos_sum**2 + sin_sum**2)
-        phi_m = (
-            0.0
-            if np.isclose(q_m, 0.0, atol=zero_mode_tolerance, rtol=0.0)
-            else np.arctan2(sin_sum, cos_sum)
-        )
+        if q_m <= zero_mode_tolerance:
+            q_m = 0.0
+            phi_m = 0.0
+        else:
+            phi_m = np.arctan2(sin_sum, cos_sum)
         amplitudes.append(float(q_m))
         phases.append(float(phi_m))
 
@@ -291,6 +318,8 @@ def puckering_coordinates(
         q_term = (1.0 / np.sqrt(n)) * np.sum(
             z * np.array([(-1) ** j for j in range(n)])
         )
+        if abs(q_term) <= zero_mode_tolerance:
+            q_term = 0.0
         amplitudes.append(float(q_term))
         phases.append(float(np.nan))  # No phase for this mode
 
@@ -400,42 +429,39 @@ def find_ring_systems(
 ) -> list[RingSystem]:
     """Detect and classify ring systems in a molecular graph.
 
-    Uses the NetworkX cycle basis to propose simple cycles, then classifies each
-    proposal from attachment paths in the full molecular graph. An alternative
+    Enumerates all chordless cycles up to ``max_ring_size``, then classifies each
+    cycle from attachment paths in the full molecular graph. An alternative
     path between adjacent ring atoms indicates fusion; a path between
     non-adjacent ring atoms indicates a bridged system; and a cyclic block
     attached at one ring atom indicates a spiro system. Classification therefore
     includes rings omitted by ``max_ring_size`` and does not depend on counting
-    overlaps in one particular cycle basis. Returned ring orderings remain
-    proposals rather than a chemically canonical smallest-ring set.
+    overlaps in an arbitrary cycle basis. Cycles are canonicalized by rotation
+    and reversal and returned deterministically. Highly polycyclic graphs can
+    have many chordless cycles; ``max_ring_size`` bounds their length.
 
     Parameters
     ----------
     molecule : CrystalMolecule
         Molecule to analyze.
     max_ring_size : int
-        Do not return basis cycles larger than this. Such cycles still
-        participate in the topological classification of returned rings.
+        Maximum chordless-cycle length to enumerate.
 
     Returns
     -------
     list of RingSystem
         Detected rings sorted by size then atom indices.
     """
-    graph = molecule.get_graph()
-    cycles = nx.cycle_basis(graph)
+    if isinstance(max_ring_size, (bool, np.bool_)) or not isinstance(
+        max_ring_size, Integral
+    ):
+        raise RingConformationError(
+            f"max_ring_size must be an integer >= 3, got {max_ring_size!r}"
+        )
+    if max_ring_size < 3:
+        raise RingConformationError(f"max_ring_size must be >= 3, got {max_ring_size}")
 
-    # Filter returned proposals by size and convert to ordered sequences.
-    # Classification below examines the full graph rather than this filtered
-    # list, so an omitted partner cannot make a retained ring appear isolated.
-    ordered_cycles: list[tuple[int, ...]] = []
-    for cycle in cycles:
-        if len(cycle) > max_ring_size:
-            continue
-        # Order: start from smallest index, direction chosen to make second
-        # element smaller than the last element
-        cycle_sorted = _canonicalize_cycle(cycle)
-        ordered_cycles.append(cycle_sorted)
+    graph = molecule.get_graph()
+    ordered_cycles = _chordless_cycles(graph, int(max_ring_size))
 
     results: list[RingSystem] = []
     for cycle in ordered_cycles:
@@ -450,6 +476,33 @@ def find_ring_systems(
         )
 
     return sorted(results, key=lambda r: (r.ring_size, r.ring_atoms))
+
+
+def _chordless_cycles(graph: nx.Graph, max_ring_size: int) -> list[tuple[int, ...]]:
+    """Enumerate bounded chordless cycles independently of insertion order."""
+    cycles: set[tuple[int, ...]] = set()
+
+    def visit(path: list[int]) -> None:
+        start = path[0]
+        current = path[-1]
+        for candidate in sorted(graph.neighbors(current)):
+            if candidate < start or candidate in path:
+                continue
+            earlier_neighbors = [
+                node for node in path[:-1] if graph.has_edge(candidate, node)
+            ]
+            if earlier_neighbors == [start]:
+                if 3 <= len(path) + 1 <= max_ring_size:
+                    cycles.add(_canonicalize_cycle([*path, candidate]))
+                continue
+            if earlier_neighbors:
+                continue
+            if len(path) < max_ring_size:
+                visit([*path, candidate])
+
+    for start in sorted(graph.nodes):
+        visit([int(start)])
+    return sorted(cycles, key=lambda cycle: (len(cycle), cycle))
 
 
 def _classify_cycle(graph: nx.Graph, cycle: tuple[int, ...]) -> str:
@@ -487,7 +540,8 @@ def _classify_cycle(graph: nx.Graph, cycle: tuple[int, ...]) -> str:
             has_fused_path = True
         elif len(attachments) == 1:
             attached_block = graph.subgraph(component_nodes | attachments)
-            if nx.cycle_basis(attached_block):
+            attachment = next(iter(attachments))
+            if any(attachment in cycle for cycle in nx.cycle_basis(attached_block)):
                 has_spiro_block = True
 
     if has_fused_path:

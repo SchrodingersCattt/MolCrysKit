@@ -29,7 +29,7 @@
 | Rank facets | `enumerate_bfdh_facets` | crystal/lattice | `list[BFDHFacetInfo]` | [Tutorials](tutorials.md) |
 | Carve QM clusters | `ClusterCarver`, `carve_cluster` | crystal + seeds | `CrystalCluster` | [Tutorials](tutorials.md) |
 | Edit molecules | `translate_molecule`, `rotate_molecule`, `rotate_fragment_about_bond`, `replace_molecule` | molecule/crystal + selection | new molecule/crystal | [Tutorials](tutorials.md) |
-| Analyze ring puckering | `puckering_coordinates`, `find_ring_systems` | molecule + ordered ring / molecule | `PuckeringCoordinates` / `list[RingSystem]` | source docstring |
+| Analyze ring puckering | `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems` | molecule + ordered ring / modes / molecule | coordinates / normal displacements / `list[RingSystem]` | source docstring |
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
