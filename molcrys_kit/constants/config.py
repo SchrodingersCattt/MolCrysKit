@@ -16,6 +16,8 @@ KEY_FRAC_X = "frac_x"                           # CIF fractional x-coordinate
 KEY_FRAC_Y = "frac_y"                           # CIF fractional y-coordinate
 KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
 
+BOND_ROTATION_AXIS_TOLERANCE = 1e-12
+
 # Transition metals set
 TRANSITION_METALS = {
     "Sc",

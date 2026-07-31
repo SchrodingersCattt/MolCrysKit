@@ -17,6 +17,12 @@ from typing import Literal, Sequence
 import networkx as nx
 import numpy as np
 
+from ..constants.config import (
+    BOND_ROTATION_AXIS_TOLERANCE,
+    KEY_FRAC_X,
+    KEY_FRAC_Y,
+    KEY_FRAC_Z,
+)
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
 from ..utils.geometry import get_rotation_matrix
@@ -99,7 +105,9 @@ def partition_at_bond(
 
     For a bridge, the default moving component contains ``atom_j``.  For a ring
     edge no valid rigid-fragment partition exists; the returned partition has
-    ``is_ring_bond=True`` and records one cycle containing the edge.
+    ``is_ring_bond=True`` and records one cycle containing the edge. Atom
+    indices are local to ``molecule``. A disconnected molecular graph is
+    rejected because unrelated components cannot be assigned to either side.
     """
     _validate_atom_index(molecule, atom_i)
     _validate_atom_index(molecule, atom_j)
@@ -107,6 +115,11 @@ def partition_at_bond(
         raise BondNotFoundError("A bond requires two different atom indices.")
 
     graph = molecule.get_graph()
+    if not nx.is_connected(graph):
+        raise BondRotationSelectionError(
+            "Bond rotation requires a connected molecular graph; found "
+            f"{nx.number_connected_components(graph)} components."
+        )
     if not graph.has_edge(atom_i, atom_j):
         raise BondNotFoundError(
             f"Atoms {atom_i} and {atom_j} are not bonded in the molecular graph."
@@ -179,7 +192,13 @@ def _resolved_moving_atoms(
 def _set_positions_clean(molecule: CrystalMolecule, positions: np.ndarray) -> None:
     molecule.set_positions(np.asarray(positions, dtype=float))
     _strip_stale_frac_arrays(molecule)
-    molecule._graph = None
+    if molecule._graph is not None:
+        current_positions = molecule.get_positions()
+        for atom_i, atom_j, edge_data in molecule._graph.edges(data=True):
+            lower, upper = sorted((atom_i, atom_j))
+            vector = current_positions[upper] - current_positions[lower]
+            edge_data["vector"] = vector
+            edge_data["distance"] = float(np.linalg.norm(vector))
 
 
 def rotate_fragment_about_bond(
@@ -198,21 +217,23 @@ def rotate_fragment_about_bond(
     molecule
         Contiguous (unwrapped) molecular coordinates.
     atom_i, atom_j
-        Directed bond axis. Positive angles use the right-hand rule around the
-        vector from ``atom_i`` to ``atom_j``.
+        Molecule-local indices defining the directed bond axis. Positive angles
+        use the right-hand rule around the vector from ``atom_i`` to ``atom_j``.
     angle
         Rotation angle in degrees.
     moving_side
         ``"j"`` (default) rotates the graph component containing ``atom_j``;
         ``"i"`` rotates the opposite component.
     moving_atoms
-        Optional explicit selection. It must equal exactly one complete graph
-        component produced by cutting the bond.
+        Optional molecule-local explicit selection. It must equal exactly one
+        complete graph component produced by cutting the bond.
 
     Notes
     -----
-    Ring bonds are rejected because independently rotating one side would break
-    ring closure. Use a constrained ring-conformation operation instead.
+    Ring bonds and disconnected molecular graphs are rejected. The input
+    chemical graph is copied unchanged; connectivity is not inferred again
+    from the rotated geometry. Use a constrained ring-conformation operation
+    for cyclic changes.
     """
     partition = partition_at_bond(molecule, atom_i, atom_j)
     if partition.is_ring_bond:
@@ -231,7 +252,7 @@ def rotate_fragment_about_bond(
     pivot = positions[atom_i]
     axis = positions[atom_j] - positions[atom_i]
     axis_norm = float(np.linalg.norm(axis))
-    if axis_norm < 1e-12:
+    if axis_norm < BOND_ROTATION_AXIS_TOLERANCE:
         raise BondRotationError(
             f"Bond axis {atom_i}-{atom_j} has zero length; cannot rotate."
         )
@@ -256,7 +277,14 @@ def rotate_fragment_in_crystal(
     moving_side: Literal["i", "j"] = "j",
     moving_atoms: Sequence[int] | None = None,
 ) -> MolecularCrystal:
-    """Return a crystal copy with one molecular fragment rotated about a bond."""
+    """Return a crystal copy with one molecular fragment rotated about a bond.
+
+    ``atom_i``, ``atom_j``, and ``moving_atoms`` are local indices in the
+    selected molecule. For molecules read from a crystal,
+    ``molecule.info["atom_indices"]`` maps local indices to original crystal
+    indices. Frame metadata and non-coordinate extra arrays are preserved;
+    stale fractional-coordinate arrays and calculator results are invalidated.
+    """
     if molecule_index < 0 or molecule_index >= len(crystal.molecules):
         raise IndexError(
             f"Molecule index {molecule_index} out of range for crystal with "
@@ -272,10 +300,18 @@ def rotate_fragment_in_crystal(
         moving_side=moving_side,
         moving_atoms=moving_atoms,
     )
+    preserved_extra_arrays = {
+        key: value
+        for key, value in crystal.extra_arrays.items()
+        if key not in {KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z}
+    }
     return MolecularCrystal(
         lattice=np.asarray(crystal.lattice, dtype=float).copy(),
         molecules=molecules,
         pbc=crystal.pbc,
         formula_moiety=crystal.formula_moiety,
         disorder_provenance=crystal.disorder_provenance,
+        calc_results=None,
+        metadata=crystal.metadata,
+        extra_arrays=preserved_extra_arrays,
     )
