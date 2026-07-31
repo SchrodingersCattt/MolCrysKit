@@ -425,6 +425,11 @@ does not wrap the rotated fragment back into the primary cell. `atom_i`,
 `atom_j`, and `moving_atoms` are local indices in the selected molecule. For a
 molecule extracted from a crystal, map them to original crystal/CIF indices via
 `molecule.info["atom_indices"]` (that list is indexed by the local index).
+ASU-first symmetry replicas instead expose source-site identity through the
+per-atom `asym_id` array and `sym_op_index` metadata. After rotation, graph
+`image_shift` values and `bond_records` are regenerated in the contiguous local
+coordinate frame, so every right-image shift is zero and each vector is the
+direct local coordinate difference.
 The operation preserves the molecule's existing chemical graph instead of
 re-inferring bonds from the rotated geometry. A disconnected graph raises
 `BondRotationSelectionError`. A bond belonging to a ring raises

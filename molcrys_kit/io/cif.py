@@ -23,7 +23,7 @@ from pymatgen.symmetry.groups import SpaceGroup
 from ase import Atoms
 from ase.neighborlist import neighbor_list
 
-from ..structures.molecule import CrystalMolecule
+from ..structures.molecule import CrystalMolecule, _refresh_contiguous_bond_geometry
 from ..structures.crystal import MolecularCrystal
 from ..constants import (
     get_atomic_radius,
@@ -548,6 +548,13 @@ def identify_molecules(
             global_to_local,
             copy=True,
         )
+        local_positions = molecule.get_positions()
+        for local_i, local_j, edge_data in molecule._graph.edges(data=True):
+            left, right = sorted((int(local_i), int(local_j)))
+            vector = local_positions[right] - local_positions[left]
+            edge_data["vector"] = np.asarray(vector, dtype=float).copy()
+            edge_data["distance"] = float(np.linalg.norm(vector))
+            edge_data["image_shift"] = np.zeros(3, dtype=int)
         molecules.append(molecule)
 
     return molecules
@@ -1940,11 +1947,11 @@ def _identify_molecules_asu_first(
             # Preserve the authoritative ASU topology. Recompute only the
             # geometry-dependent edge attributes after the symmetry transform.
             new_mol._graph = copy.deepcopy(asu_mol.get_graph())
-            for atom_i, atom_j, edge_data in new_mol._graph.edges(data=True):
-                lower, upper = sorted((int(atom_i), int(atom_j)))
-                vector = new_positions[upper] - new_positions[lower]
-                edge_data["vector"] = np.asarray(vector, dtype=float).copy()
-                edge_data["distance"] = float(np.linalg.norm(vector))
+            _refresh_contiguous_bond_geometry(new_mol)
+            new_mol.info["bond_pairs"] = [
+                (int(min(atom_i, atom_j)), int(max(atom_i, atom_j)))
+                for atom_i, atom_j in sorted(new_mol._graph.edges())
+            ]
 
             all_molecules.append(new_mol)
 
