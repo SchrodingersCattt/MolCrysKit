@@ -538,6 +538,15 @@ def identify_molecules(
         # Additive provenance: retain the legacy pair-only contract while
         # exposing the signed PBC relation that was already computed by ASE.
         molecule.info["bond_records"] = bond_records
+        global_to_local = {
+            global_index: local_index
+            for local_index, global_index in enumerate(atom_indices)
+        }
+        molecule._graph = nx.relabel_nodes(
+            crystal_graph.subgraph(atom_indices).copy(),
+            global_to_local,
+            copy=True,
+        )
         molecules.append(molecule)
 
     return molecules

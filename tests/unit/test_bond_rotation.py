@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import numpy as np
+import networkx as nx
 import pytest
 from ase import Atoms
 
 from molcrys_kit.constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z, KEY_LABEL
 from molcrys_kit.operations.bond_rotation import (
     BondNotFoundError,
+    BondRotationError,
     BondRotationSelectionError,
     RingBondRotationError,
     partition_at_bond,
@@ -17,6 +19,7 @@ from molcrys_kit.operations.bond_rotation import (
 )
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.io.cif import identify_molecules
 from molcrys_kit.utils.geometry import dihedral_angle
 
 
@@ -46,7 +49,9 @@ def _chain_molecule() -> CrystalMolecule:
 
 def _ring_molecule() -> CrystalMolecule:
     angles = np.linspace(0.0, 2.0 * np.pi, 6, endpoint=False)
-    positions = np.column_stack([1.4 * np.cos(angles), 1.4 * np.sin(angles), np.zeros(6)])
+    positions = np.column_stack(
+        [1.4 * np.cos(angles), 1.4 * np.sin(angles), np.zeros(6)]
+    )
     mol = CrystalMolecule(Atoms("C6", positions=positions, pbc=False), check_pbc=False)
     graph = mol.get_graph()
     assert graph.number_of_edges() == 6
@@ -97,7 +102,27 @@ def test_rotation_changes_dihedral_by_requested_angle():
     phi_after = np.degrees(dihedral_angle(after[0], after[1], after[2], after[3]))
 
     delta = (phi_after - phi_before + 180.0) % 360.0 - 180.0
-    assert abs(abs(delta) - 60.0) < 1e-8
+    assert delta == pytest.approx(60.0, abs=1e-8)
+
+
+def test_positive_rotation_follows_right_hand_rule():
+    mol = CrystalMolecule(
+        Atoms(
+            "CCC",
+            positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+            pbc=False,
+        ),
+        check_pbc=False,
+    )
+    mol._graph = nx.path_graph(3)
+
+    rotated = rotate_fragment_about_bond(mol, 0, 1, 90.0)
+
+    np.testing.assert_allclose(
+        rotated.get_positions()[2] - rotated.get_positions()[1],
+        [0.0, 0.0, 1.0],
+        atol=1e-12,
+    )
 
 
 def test_rotate_other_side():
@@ -134,9 +159,31 @@ def test_metadata_preserved_and_geometry_metadata_invalidated():
     for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z):
         assert key not in rotated.arrays
         assert key in mol.arrays
-    assert rotated._graph is None
-    rebuilt = rotated.get_graph()
-    assert set(rebuilt.edges()) == {(0, 1), (1, 2), (2, 3)}
+    assert rotated._graph is not None
+    assert rotated._graph is not mol._graph
+    assert set(rotated.get_graph().edges()) == {(0, 1), (1, 2), (2, 3)}
+
+
+def test_rotation_preserves_explicit_topology_despite_close_contact():
+    mol = CrystalMolecule(
+        Atoms(
+            "CCCC",
+            positions=[
+                [1.0, -1.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+            ],
+            pbc=False,
+        ),
+        check_pbc=False,
+    )
+    mol._graph = nx.path_graph(4)
+
+    rotated = rotate_fragment_about_bond(mol, 1, 2, 90.0)
+
+    assert np.linalg.norm(rotated.positions[0] - rotated.positions[3]) < 1e-12
+    assert set(rotated.get_graph().edges()) == {(0, 1), (1, 2), (2, 3)}
 
 
 def test_ring_bond_rejected_with_cycle_details():
@@ -165,6 +212,48 @@ def test_invalid_bond_and_selection():
         rotate_fragment_about_bond(mol, 1, 2, 30.0, moving_atoms=[0, 3])
 
 
+def test_disconnected_graph_is_rejected_before_ring_classification():
+    mol = CrystalMolecule(
+        Atoms("CCCC", positions=np.zeros((4, 3)), pbc=False), check_pbc=False
+    )
+    mol._graph = nx.Graph([(0, 1), (1, 2), (2, 0)])
+    mol._graph.add_node(3)
+
+    with pytest.raises(BondRotationSelectionError, match="connected"):
+        partition_at_bond(mol, 0, 1)
+
+
+def test_zero_length_axis_is_rejected():
+    mol = CrystalMolecule(
+        Atoms("CCC", positions=np.zeros((3, 3)), pbc=False), check_pbc=False
+    )
+    mol._graph = nx.path_graph(3)
+    with pytest.raises(BondRotationError, match="zero length"):
+        rotate_fragment_about_bond(mol, 0, 1, 30.0)
+
+
+def test_identified_molecule_keeps_authoritative_local_topology():
+    atoms = Atoms(
+        "HeCCCC",
+        positions=[
+            [0.0, 10.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [6.0, 0.5, 0.0],
+        ],
+        pbc=False,
+    )
+    molecules = identify_molecules(atoms, bond_thresholds={("C", "C"): 2.1})
+    chain = next(molecule for molecule in molecules if len(molecule) == 4)
+
+    assert chain.info["atom_indices"] == [1, 2, 3, 4]
+    assert chain.info["bond_pairs"] == [(1, 2), (2, 3), (3, 4)]
+    assert set(chain.get_graph().nodes()) == {0, 1, 2, 3}
+    assert set(chain.get_graph().edges()) == {(0, 1), (1, 2), (2, 3)}
+    rotate_fragment_about_bond(chain, 1, 2, 30.0)
+
+
 def test_crystal_wrapper_changes_only_selected_molecule():
     mol0 = _chain_molecule()
     mol1 = _chain_molecule()
@@ -176,8 +265,36 @@ def test_crystal_wrapper_changes_only_selected_molecule():
     rotated = rotate_fragment_in_crystal(crystal, 0, 1, 2, 50.0)
 
     assert not np.allclose(rotated.molecules[0].get_positions(), original0)
-    np.testing.assert_allclose(rotated.molecules[1].get_positions(), original1, atol=1e-12)
-    np.testing.assert_allclose(crystal.molecules[0].get_positions(), original0, atol=1e-12)
+    np.testing.assert_allclose(
+        rotated.molecules[1].get_positions(), original1, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        crystal.molecules[0].get_positions(), original0, atol=1e-12
+    )
+
+
+def test_crystal_wrapper_preserves_frame_payloads_and_invalidates_results():
+    mol0 = _chain_molecule()
+    mol1 = _chain_molecule()
+    crystal = MolecularCrystal(
+        np.eye(3) * 15.0,
+        [mol0, mol1],
+        metadata={"frame_id": 7},
+        extra_arrays={
+            "site_id": np.arange(8),
+            KEY_FRAC_X: np.linspace(0.0, 0.7, 8),
+        },
+        calc_results={"energy": -1.0},
+    )
+
+    rotated = rotate_fragment_in_crystal(crystal, 1, 1, 2, 50.0)
+
+    assert rotated.metadata == {"frame_id": 7}
+    assert rotated.metadata is not crystal.metadata
+    np.testing.assert_array_equal(rotated.extra_arrays["site_id"], np.arange(8))
+    assert rotated.extra_arrays["site_id"] is not crystal.extra_arrays["site_id"]
+    assert KEY_FRAC_X not in rotated.extra_arrays
+    assert rotated._calc_results is None
 
 
 def test_pbc_contiguous_coordinates_rotate_without_wrapping():
@@ -192,6 +309,8 @@ def test_pbc_contiguous_coordinates_rotate_without_wrapping():
 
     rotated = rotate_fragment_about_bond(mol, 1, 2, 35.0)
 
-    np.testing.assert_allclose(rotated.get_positions()[[0, 1]], before[[0, 1]], atol=1e-12)
+    np.testing.assert_allclose(
+        rotated.get_positions()[[0, 1]], before[[0, 1]], atol=1e-12
+    )
     # Operation must not wrap coordinates back into the cell.
     assert np.any(rotated.get_positions()[:, 0] > cell[0, 0])
