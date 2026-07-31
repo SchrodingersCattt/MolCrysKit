@@ -11,6 +11,7 @@ from molcrys_kit.operations.ring_conformation import (
     DegenerateRingGeometryError,
     InvalidRingOrderError,
     RingConformationError,
+    RingCycleLimitError,
     find_ring_systems,
     puckering_coordinates,
     reconstruct_z_from_modes,
@@ -63,6 +64,30 @@ def _molecule_with_graph(graph: nx.Graph) -> CrystalMolecule:
 
 def _phase_delta(actual: np.ndarray, expected: np.ndarray) -> np.ndarray:
     return (actual - expected + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def _oracle_chordless_cycles(graph: nx.Graph, max_size: int) -> set[tuple[int, ...]]:
+    """Brute-force independent oracle for small graph-atlas fixtures."""
+    nodes = sorted(graph.nodes)
+    cycles = set()
+    for size in range(3, min(max_size, len(nodes)) + 1):
+        from itertools import combinations, permutations
+
+        for subset in combinations(nodes, size):
+            start = min(subset)
+            for tail in permutations(node for node in subset if node != start):
+                cycle = (start, *tail)
+                if cycle[1] > cycle[-1]:
+                    continue
+                cycle_edges = {
+                    frozenset((cycle[i], cycle[(i + 1) % size])) for i in range(size)
+                }
+                induced_edges = {
+                    frozenset(edge) for edge in graph.subgraph(subset).edges
+                }
+                if induced_edges == cycle_edges:
+                    cycles.add(cycle)
+    return cycles
 
 
 @pytest.mark.parametrize("n", [3, 4, 5, 6, 7, 8, 9, 12])
@@ -157,6 +182,32 @@ class TestMultiModeRoundTrip:
         # (they differ slightly because the CP reference plane may not be z=0)
         z_recon = reconstruct_z_from_modes(n, pc.amplitudes, pc.phases)
         np.testing.assert_allclose(z_recon, pc.z_displacements, atol=1e-12)
+
+    def test_tiny_mode_at_large_scale_is_preserved(self, n):
+        scale = 1.0e7
+        j_arr = np.arange(n)
+        z = 5.0e-7 * np.sqrt(2.0 / n) * np.sin(4.0 * np.pi * j_arr / n)
+        mol = _puckered_ring(n, z, radius=scale)
+        mol._graph = nx.cycle_graph(n)
+        pc = puckering_coordinates(mol, list(range(n)))
+
+        reconstructed = reconstruct_z_from_modes(n, pc.amplitudes, pc.phases)
+        assert pc.amplitudes[0] > 0.0
+        np.testing.assert_allclose(reconstructed, pc.z_displacements, atol=1e-14)
+        assert pc.total_amplitude == pytest.approx(np.linalg.norm(reconstructed))
+        assert pc.total_amplitude**2 == pytest.approx(float(np.sum(pc.amplitudes**2)))
+
+
+def test_nonplanar_four_ring_terminal_mode_round_trip():
+    z = np.array([0.2, -0.2, 0.2, -0.2])
+    mol = _puckered_ring(4, z)
+    pc = puckering_coordinates(mol, [0, 1, 2, 3])
+    assert pc.amplitudes.shape == (1,)
+    assert np.isnan(pc.phases[0])
+    np.testing.assert_allclose(
+        reconstruct_z_from_modes(4, pc.amplitudes, pc.phases),
+        pc.z_displacements,
+    )
 
 
 @pytest.mark.parametrize("n", [5, 6, 7, 8])
@@ -321,6 +372,13 @@ class TestCyclicRelabeling:
             shifted.z_displacements, np.roll(original.z_displacements, -shift)
         )
         paired_count = max(0, (n - 1) // 2 - 1)
+        np.testing.assert_allclose(
+            shifted.amplitudes[:paired_count], original.amplitudes[:paired_count]
+        )
+        assert shifted.total_amplitude == pytest.approx(original.total_amplitude)
+        np.testing.assert_allclose(
+            shifted.mean_plane_center, original.mean_plane_center, atol=1e-14
+        )
         modes = np.arange(2, 2 + paired_count)
         expected_phases = original.phases[:paired_count] + 2 * np.pi * modes * shift / n
         np.testing.assert_allclose(
@@ -332,6 +390,10 @@ class TestCyclicRelabeling:
             assert shifted.amplitudes[-1] == pytest.approx(
                 (-1) ** shift * original.amplitudes[-1]
             )
+        np.testing.assert_allclose(
+            reconstruct_z_from_modes(n, shifted.amplitudes, shifted.phases),
+            shifted.z_displacements,
+        )
 
 
 class TestReversal:
@@ -385,6 +447,18 @@ class TestReversal:
             assert reversed_pc.amplitudes[-1] == pytest.approx(
                 (-1) ** (anchor + 1) * original.amplitudes[-1]
             )
+        np.testing.assert_allclose(
+            reversed_pc.amplitudes[:paired_count],
+            original.amplitudes[:paired_count],
+        )
+        assert reversed_pc.total_amplitude == pytest.approx(original.total_amplitude)
+        np.testing.assert_allclose(
+            reversed_pc.mean_plane_center, original.mean_plane_center, atol=1e-14
+        )
+        np.testing.assert_allclose(
+            reconstruct_z_from_modes(n, reversed_pc.amplitudes, reversed_pc.phases),
+            reversed_pc.z_displacements,
+        )
 
 
 class TestErrorCases:
@@ -526,6 +600,30 @@ class TestFindRingSystems:
                 ]
             )
         assert records[1:] == records[:1] * 2
+
+    @pytest.mark.parametrize("atlas_index", [7, 16, 38, 52, 125])
+    def test_graph_atlas_matches_independent_chordless_oracle(self, atlas_index):
+        graph = nx.graph_atlas_g()[atlas_index]
+        if not graph.nodes:
+            return
+        systems = find_ring_systems(_molecule_with_graph(graph), max_ring_size=6)
+        assert {system.ring_atoms for system in systems} == _oracle_chordless_cycles(
+            graph, 6
+        )
+
+    def test_cycle_budget_raises_typed_error(self):
+        graph = nx.complete_bipartite_graph(8, 8)
+        with pytest.raises(RingCycleLimitError, match="max_cycles"):
+            find_ring_systems(
+                _molecule_with_graph(graph), max_ring_size=4, max_cycles=10
+            )
+        with pytest.raises(RingCycleLimitError, match="max_search_states"):
+            find_ring_systems(
+                _molecule_with_graph(graph),
+                max_ring_size=4,
+                max_cycles=10_000,
+                max_search_states=5,
+            )
 
     @pytest.mark.parametrize("invalid", [True, 3.5, 2])
     def test_invalid_max_ring_size(self, invalid):
