@@ -29,6 +29,7 @@
 | Rank facets | `enumerate_bfdh_facets` | crystal/lattice | `list[BFDHFacetInfo]` | [Tutorials](tutorials.md) |
 | Carve QM clusters | `ClusterCarver`, `carve_cluster` | crystal + seeds | `CrystalCluster` | [Tutorials](tutorials.md) |
 | Edit molecules | `translate_molecule`, `rotate_molecule`, `rotate_fragment_about_bond`, `replace_molecule` | molecule/crystal + selection | new molecule/crystal | [Tutorials](tutorials.md) |
+| Analyze ring puckering | `puckering_coordinates`, `find_ring_systems` | molecule + ordered ring / molecule | `PuckeringCoordinates` / `list[RingSystem]` | source docstring |
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
@@ -57,6 +58,7 @@ Read/write interfaces.
 Structure-changing workflows. Prefer functional helpers for simple tasks and classes for repeated/custom workflows.
 
 - Perturb/rotate: `apply_gaussian_displacement_molecule`, `apply_gaussian_displacement_crystal`, `apply_directional_displacement`, `apply_random_rotation`, `rotate_molecule_at_center`, `rotate_molecule_at_com`, `BondPartition`, `BondRotationError`, `BondNotFoundError`, `BondRotationSelectionError`, `RingBondRotationError`, `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal`
+- Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`
 - Build/edit: `create_supercell`, `create_defect_structure`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
 - Surface: `generate_topological_slab`, `TopologicalSlabGenerator`, `TerminationInfo`, `enumerate_terminations`, `generate_slabs_with_terminations`, `get_surface_basis`
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
