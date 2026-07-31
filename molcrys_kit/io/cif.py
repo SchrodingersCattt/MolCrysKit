@@ -312,19 +312,19 @@ def _build_molecule_graph(
             )
 
         if distance < threshold * bond_scale:
-                left, right = int(i), int(j)
-                image_shift = np.asarray(shift, dtype=int)
-                vector = np.asarray(D_vec, dtype=float)
-                if left > right:
-                    left, right = right, left
-                    image_shift = -image_shift
-                    vector = -vector
-                crystal_graph.add_edge(
-                    left,
-                    right,
-                    vector=vector,
-                    image_shift=image_shift,
-                )
+            left, right = int(i), int(j)
+            image_shift = np.asarray(shift, dtype=int)
+            vector = np.asarray(D_vec, dtype=float)
+            if left > right:
+                left, right = right, left
+                image_shift = -image_shift
+                vector = -vector
+            crystal_graph.add_edge(
+                left,
+                right,
+                vector=vector,
+                image_shift=image_shift,
+            )
 
     return crystal_graph
 
@@ -482,8 +482,8 @@ def identify_molecules(
             )
         )
         molecule.info["bond_pairs"] = [
-            (record["left"], record["right"])
-            for record in bond_records
+            (int(min(u, v)), int(max(u, v)))
+            for u, v in sorted(crystal_graph.subgraph(atom_indices).edges())
         ]
         # Additive provenance: retain the legacy pair-only contract while
         # exposing the signed PBC relation that was already computed by ASE.
