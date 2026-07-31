@@ -257,18 +257,23 @@ def _build_molecule_graph(
         crystal_graph.add_node(i, symbol=symbols[i])
 
     # -------------------------------------------------------------------------
-    # KEY FIX: Request 'D' vector from neighbor_list
-    # 'D' is the vector pointing from i to j (taking into account PBC).
-    # D_ij = r_j - r_i + shift_vector
+    # Request both the exact PBC vector and its signed lattice-image shift.
+    # For an ASE row-vector cell ``M`` the returned values satisfy:
+    # ``D_ij = r_j + S_ij @ M - r_i``.  Keeping ``S_ij`` lets callers
+    # materialise an already perceived canonical edge on a particular
+    # display image without re-running bond perception.
     # -------------------------------------------------------------------------
-    i_list, j_list, d_list, D_vectors = neighbor_list(
-        "ijdD", atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF
+    i_list, j_list, d_list, D_vectors, shifts = neighbor_list(
+        "ijdDS", atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF
     )
 
     from ..analysis.interactions import get_bonding_threshold
 
-    for i, j, distance, D_vec in zip(i_list, j_list, d_list, D_vectors):
-        if i >= j:
+    for i, j, distance, D_vec, shift in zip(i_list, j_list, d_list, D_vectors, shifts):
+        # ``neighbor_list`` returns both directed orientations.  Keep one
+        # deterministic orientation only after normalising the associated
+        # signed image relation to ``left < right`` below.
+        if i == j:
             continue
         if int(i) in excluded or int(j) in excluded:
             continue
@@ -307,8 +312,19 @@ def _build_molecule_graph(
             )
 
         if distance < threshold * bond_scale:
-            # Store the EXACT vector that connects i to j
-            crystal_graph.add_edge(i, j, vector=D_vec)
+            left, right = int(i), int(j)
+            image_shift = np.asarray(shift, dtype=int)
+            vector = np.asarray(D_vec, dtype=float)
+            if left > right:
+                left, right = right, left
+                image_shift = -image_shift
+                vector = -vector
+            crystal_graph.add_edge(
+                left,
+                right,
+                vector=vector,
+                image_shift=image_shift,
+            )
 
     return crystal_graph
 
@@ -423,10 +439,55 @@ def identify_molecules(
         # because we have already unwrapped it perfectly.
         molecule = CrystalMolecule(mol_atoms, check_pbc=False)
         molecule.info["atom_indices"] = list(atom_indices)
+        bond_records = []
+        for u, v, edge in crystal_graph.subgraph(atom_indices).edges(data=True):
+            # NetworkX emits undirected edges in node-insertion order, which
+            # is not necessarily the directed ASE orientation captured in the
+            # graph record. Recover that orientation from the stored vector:
+            # ``r_right + shift @ M - r_left == vector``.
+            first, second = int(u), int(v)
+            shift = np.asarray(edge.get("image_shift", (0, 0, 0)), dtype=int)
+            vector = np.asarray(edge.get("vector", (0.0, 0.0, 0.0)), dtype=float)
+            first_to_second = (
+                np.asarray(atoms.positions[second], dtype=float)
+                + shift @ np.asarray(atoms.cell, dtype=float)
+                - np.asarray(atoms.positions[first], dtype=float)
+            )
+            second_to_first = (
+                np.asarray(atoms.positions[first], dtype=float)
+                + shift @ np.asarray(atoms.cell, dtype=float)
+                - np.asarray(atoms.positions[second], dtype=float)
+            )
+            if np.allclose(first_to_second, vector, rtol=0.0, atol=1e-8):
+                left, right = first, second
+            elif np.allclose(second_to_first, vector, rtol=0.0, atol=1e-8):
+                left, right = second, first
+            else:
+                raise ValueError(
+                    f"bond edge ({first}, {second}) has inconsistent PBC vector provenance"
+                )
+            bond_records.append(
+                {
+                    "left": left,
+                    "right": right,
+                    "right_image_shift": [int(value) for value in shift],
+                    "vector": [float(value) for value in vector],
+                }
+            )
+        bond_records.sort(
+            key=lambda record: (
+                record["left"],
+                record["right"],
+                tuple(record["right_image_shift"]),
+            )
+        )
         molecule.info["bond_pairs"] = [
-            (int(u), int(v))
+            (int(min(u, v)), int(max(u, v)))
             for u, v in sorted(crystal_graph.subgraph(atom_indices).edges())
         ]
+        # Additive provenance: retain the legacy pair-only contract while
+        # exposing the signed PBC relation that was already computed by ASE.
+        molecule.info["bond_records"] = bond_records
         molecules.append(molecule)
 
     return molecules
