@@ -6,6 +6,7 @@ It includes tools for handling disorder information and identifying molecular un
 """
 
 from typing import List, Tuple, Optional, Dict
+import copy
 import itertools
 import warnings
 import re
@@ -1608,8 +1609,9 @@ def _identify_molecules_asu_first(
             tau = op.translation_vector
             new_frac_coords = (rot @ asu_frac_coords.T).T + tau
 
-            # Wrap to unit cell [0, 1)
-            new_frac_coords = np.mod(new_frac_coords, 1.0)
+            # Place one anchor in the primary cell without independently
+            # wrapping atoms and breaking the molecule's contiguous geometry.
+            new_frac_coords -= np.floor(new_frac_coords[0])
 
             # Duplicate detection (special positions)
             if _is_duplicate(new_frac_coords, asu_mol_idx, all_molecules):
@@ -1643,6 +1645,15 @@ def _identify_molecules_asu_first(
                 new_mol.set_array(KEY_ASYM_ID, np.arange(len(asu_mol), dtype=int))
             new_mol.info["sym_op_index"] = op_idx
             new_mol.info["asu_molecule_index"] = asu_mol_idx
+
+            # Preserve the authoritative ASU topology. Recompute only the
+            # geometry-dependent edge attributes after the symmetry transform.
+            new_mol._graph = copy.deepcopy(asu_mol.get_graph())
+            for atom_i, atom_j, edge_data in new_mol._graph.edges(data=True):
+                lower, upper = sorted((int(atom_i), int(atom_j)))
+                vector = new_positions[upper] - new_positions[lower]
+                edge_data["vector"] = np.asarray(vector, dtype=float).copy()
+                edge_data["distance"] = float(np.linalg.norm(vector))
 
             all_molecules.append(new_mol)
 

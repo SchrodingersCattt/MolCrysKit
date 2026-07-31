@@ -7,6 +7,7 @@ import networkx as nx
 import pytest
 from ase import Atoms
 
+from molcrys_kit.analysis.disorder.provenance import DisorderProvenance
 from molcrys_kit.constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z, KEY_LABEL
 from molcrys_kit.operations.bond_rotation import (
     BondNotFoundError,
@@ -251,7 +252,24 @@ def test_identified_molecule_keeps_authoritative_local_topology():
     assert chain.info["bond_pairs"] == [(1, 2), (2, 3), (3, 4)]
     assert set(chain.get_graph().nodes()) == {0, 1, 2, 3}
     assert set(chain.get_graph().edges()) == {(0, 1), (1, 2), (2, 3)}
-    rotate_fragment_about_bond(chain, 1, 2, 30.0)
+    for atom_i, atom_j, edge_data in chain.get_graph().edges(data=True):
+        assert edge_data["distance"] == pytest.approx(
+            np.linalg.norm(edge_data["vector"])
+        )
+        np.testing.assert_allclose(
+            edge_data["vector"],
+            chain.positions[atom_j] - chain.positions[atom_i],
+        )
+
+    rotated = rotate_fragment_about_bond(chain, 1, 2, 30.0)
+    for atom_i, atom_j, edge_data in rotated.get_graph().edges(data=True):
+        assert edge_data["distance"] == pytest.approx(
+            np.linalg.norm(edge_data["vector"])
+        )
+        np.testing.assert_allclose(
+            edge_data["vector"],
+            rotated.positions[atom_j] - rotated.positions[atom_i],
+        )
 
 
 def test_crystal_wrapper_changes_only_selected_molecule():
@@ -279,22 +297,46 @@ def test_crystal_wrapper_preserves_frame_payloads_and_invalidates_results():
     crystal = MolecularCrystal(
         np.eye(3) * 15.0,
         [mol0, mol1],
-        metadata={"frame_id": 7},
+        metadata={"frame_id": 7, "nested": {"labels": ["source"]}},
         extra_arrays={
             "site_id": np.arange(8),
             KEY_FRAC_X: np.linspace(0.0, 0.7, 8),
         },
+        disorder_provenance=DisorderProvenance(
+            kept_indices=[0, 1],
+            dropped_indices=[2],
+            method="test",
+            coupled=False,
+        ),
         calc_results={"energy": -1.0},
     )
 
     rotated = rotate_fragment_in_crystal(crystal, 1, 1, 2, 50.0)
 
-    assert rotated.metadata == {"frame_id": 7}
+    assert rotated.metadata == {
+        "frame_id": 7,
+        "nested": {"labels": ["source"]},
+    }
     assert rotated.metadata is not crystal.metadata
     np.testing.assert_array_equal(rotated.extra_arrays["site_id"], np.arange(8))
     assert rotated.extra_arrays["site_id"] is not crystal.extra_arrays["site_id"]
     assert KEY_FRAC_X not in rotated.extra_arrays
     assert rotated._calc_results is None
+
+    rotated.metadata["nested"]["labels"].append("output")
+    rotated.disorder_provenance.kept_indices.append(3)
+    assert crystal.metadata["nested"]["labels"] == ["source"]
+    assert crystal.disorder_provenance.kept_indices == [0, 1]
+
+
+def test_molecule_copy_deep_copies_graph_payloads():
+    mol = _chain_molecule()
+    mol.get_graph()[0][1]["payload"] = {"values": [1]}
+
+    copied = mol.copy()
+    copied.get_graph()[0][1]["payload"]["values"].append(2)
+
+    assert mol.get_graph()[0][1]["payload"] == {"values": [1]}
 
 
 def test_pbc_contiguous_coordinates_rotate_without_wrapping():
