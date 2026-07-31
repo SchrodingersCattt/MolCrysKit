@@ -47,6 +47,7 @@ from ase.neighborlist import neighbor_list
 from molcrys_kit.analysis.disorder.process import (
     generate_ordered_replicas_from_disordered_sites,
 )
+from molcrys_kit.operations import find_ring_systems
 
 
 CIF_DATA_DIR = os.path.normpath(
@@ -150,6 +151,14 @@ CASES: list[CifCase] = [
     CifCase(
         "anhydrousCaffeine2", "anhydrousCaffeine2_CGD_2007_7_1406.cif", 144,
         expected_element_totals={"C": 48, "H": 60, "N": 24, "O": 12},
+    ),
+    CifCase(
+        "sanitized-aromatic-ring", "Acetaminophen_HXACAN.cif", 160,
+        expected_element_totals={"C": 64, "H": 72, "N": 8, "O": 16},
+    ),
+    CifCase(
+        "sanitized-fused-ring", "ISATIN.cif", 44,
+        expected_element_totals={"C": 32, "N": 4, "O": 8},
     ),
     CifCase(
         "ZIF-4", "ZIF-4.cif", 368,
@@ -642,6 +651,37 @@ def test_ammonium_sp_explicit_hm4_topology(cif_data_dir: str):
     assert formulas.get("Cl1O4", 0) == 12
     assert formulas.get("H4N1", 0) == 4
     assert formulas.get("C6H16N2", 0) == 4
+
+
+def test_sanitized_aromatic_ring_topology(cif_data_dir: str):
+    """Real molecular CIF retains eight monocyclic six-membered molecules."""
+    cif = os.path.join(cif_data_dir, "Acetaminophen_HXACAN.cif")
+    assert os.path.exists(cif), "sanitized aromatic-ring CIF fixture not found"
+
+    crystal, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 160
+    assert formulas.get("C8H9N1O2", 0) == 8
+    for molecule in crystal.molecules:
+        systems = find_ring_systems(molecule, max_ring_size=8)
+        assert [(system.ring_size, system.classification) for system in systems] == [
+            (6, "simple")
+        ]
+
+
+def test_sanitized_fused_ring_topology(cif_data_dir: str):
+    """Real fused bicyclic molecules retain their five- and six-membered rings."""
+    cif = os.path.join(cif_data_dir, "ISATIN.cif")
+    assert os.path.exists(cif), "sanitized fused-ring CIF fixture not found"
+
+    crystal, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 44
+    assert formulas.get("C8N1O2", 0) == 4
+    for molecule in crystal.molecules:
+        systems = find_ring_systems(molecule, max_ring_size=8)
+        assert [(system.ring_size, system.classification) for system in systems] == [
+            (5, "fused"),
+            (6, "fused"),
+        ]
 
 
 def test_dap4_topology(cif_data_dir: str):

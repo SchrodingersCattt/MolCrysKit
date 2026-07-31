@@ -53,8 +53,8 @@ class PuckeringCoordinates:
     phases : np.ndarray
         Puckering phases φ_m in radians and in the same mode order. Forward
         phases lie in ``[-pi, pi]``. The unpaired even-ring terminal mode has
-        a NaN phase. A numerically zero paired mode has phase zero by
-        convention.
+        a NaN phase. An exactly zero paired mode has phase zero by convention;
+        finite nonzero modes are never thresholded away.
     total_amplitude : float
         Total puckering amplitude Q = sqrt(sum(z_j^2)) in the input Cartesian
         length unit.
@@ -97,7 +97,8 @@ class RingSystem:
     ring_size : int
         Number of atoms.
     is_simple : bool
-        True if no atom appears in another detected ring (monocyclic).
+        True when the ring is classified as simple from the complete molecular
+        graph, including cyclic partners omitted by ``max_ring_size``.
     classification : str
         One of 'simple', 'fused', 'spiro', 'bridged'.
     """
@@ -123,6 +124,10 @@ class InvalidRingOrderError(RingConformationError):
 
 class DegenerateRingGeometryError(RingConformationError):
     """Raised when the ring geometry is too degenerate for plane fitting."""
+
+
+class RingCycleLimitError(RingConformationError):
+    """Raised when chordless-cycle enumeration exceeds a configured budget."""
 
 
 # ---------------------------------------------------------------------------
@@ -287,13 +292,6 @@ def puckering_coordinates(
     # plus the terminal alternating mode for even N (m = N/2)
     amplitudes = []
     phases = []
-    zero_mode_tolerance = (
-        RING_CONFORMATION_TOLERANCE_FACTOR
-        * np.finfo(float).eps
-        * max(n, 3)
-        * float(np.max(np.abs(centered)))
-    )
-
     # Paired modes: m = 2, ..., floor((N-1)/2)
     max_paired_m = (n - 1) // 2
     for m in range(2, max_paired_m + 1):
@@ -304,8 +302,7 @@ def puckering_coordinates(
             z * np.sin(2.0 * np.pi * m * np.arange(n) / n)
         )
         q_m = np.sqrt(cos_sum**2 + sin_sum**2)
-        if q_m <= zero_mode_tolerance:
-            q_m = 0.0
+        if q_m == 0.0:
             phi_m = 0.0
         else:
             phi_m = np.arctan2(sin_sum, cos_sum)
@@ -318,16 +315,16 @@ def puckering_coordinates(
         q_term = (1.0 / np.sqrt(n)) * np.sum(
             z * np.array([(-1) ** j for j in range(n)])
         )
-        if abs(q_term) <= zero_mode_tolerance:
-            q_term = 0.0
         amplitudes.append(float(q_term))
         phases.append(float(np.nan))  # No phase for this mode
 
+    amplitudes_array = np.array(amplitudes, dtype=float)
+    phases_array = np.array(phases, dtype=float)
     return PuckeringCoordinates(
         ring_size=n,
         z_displacements=z.copy(),
-        amplitudes=np.array(amplitudes, dtype=float),
-        phases=np.array(phases, dtype=float),
+        amplitudes=amplitudes_array,
+        phases=phases_array,
         total_amplitude=total_q,
         mean_plane_normal=normal.copy(),
         mean_plane_center=center.copy(),
@@ -426,6 +423,8 @@ def find_ring_systems(
     molecule: CrystalMolecule,
     *,
     max_ring_size: int = 20,
+    max_cycles: int = 10_000,
+    max_search_states: int = 1_000_000,
 ) -> list[RingSystem]:
     """Detect and classify ring systems in a molecular graph.
 
@@ -437,7 +436,9 @@ def find_ring_systems(
     includes rings omitted by ``max_ring_size`` and does not depend on counting
     overlaps in an arbitrary cycle basis. Cycles are canonicalized by rotation
     and reversal and returned deterministically. Highly polycyclic graphs can
-    have many chordless cycles; ``max_ring_size`` bounds their length.
+    have many chordless cycles; ``max_ring_size`` bounds their length,
+    ``max_cycles`` bounds materialized output, and ``max_search_states`` bounds
+    traversal work.
 
     Parameters
     ----------
@@ -445,23 +446,35 @@ def find_ring_systems(
         Molecule to analyze.
     max_ring_size : int
         Maximum chordless-cycle length to enumerate.
+    max_cycles : int
+        Maximum number of distinct chordless cycles to materialize.
+    max_search_states : int
+        Maximum number of induced path states to examine.
 
     Returns
     -------
     list of RingSystem
         Detected rings sorted by size then atom indices.
     """
-    if isinstance(max_ring_size, (bool, np.bool_)) or not isinstance(
-        max_ring_size, Integral
+    for name, value, minimum in (
+        ("max_ring_size", max_ring_size, 3),
+        ("max_cycles", max_cycles, 1),
+        ("max_search_states", max_search_states, 1),
     ):
-        raise RingConformationError(
-            f"max_ring_size must be an integer >= 3, got {max_ring_size!r}"
-        )
-    if max_ring_size < 3:
-        raise RingConformationError(f"max_ring_size must be >= 3, got {max_ring_size}")
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+            raise RingConformationError(
+                f"{name} must be an integer >= {minimum}, got {value!r}"
+            )
+        if value < minimum:
+            raise RingConformationError(f"{name} must be >= {minimum}, got {value}")
 
     graph = molecule.get_graph()
-    ordered_cycles = _chordless_cycles(graph, int(max_ring_size))
+    ordered_cycles = _chordless_cycles(
+        graph,
+        int(max_ring_size),
+        max_cycles=int(max_cycles),
+        max_search_states=int(max_search_states),
+    )
 
     results: list[RingSystem] = []
     for cycle in ordered_cycles:
@@ -478,30 +491,54 @@ def find_ring_systems(
     return sorted(results, key=lambda r: (r.ring_size, r.ring_atoms))
 
 
-def _chordless_cycles(graph: nx.Graph, max_ring_size: int) -> list[tuple[int, ...]]:
-    """Enumerate bounded chordless cycles independently of insertion order."""
+def _chordless_cycles(
+    graph: nx.Graph,
+    max_ring_size: int,
+    *,
+    max_cycles: int,
+    max_search_states: int,
+) -> list[tuple[int, ...]]:
+    """Enumerate bounded chordless cycles with explicit resource budgets."""
     cycles: set[tuple[int, ...]] = set()
+    search_states = 0
 
-    def visit(path: list[int]) -> None:
-        start = path[0]
-        current = path[-1]
-        for candidate in sorted(graph.neighbors(current)):
-            if candidate < start or candidate in path:
-                continue
-            earlier_neighbors = [
-                node for node in path[:-1] if graph.has_edge(candidate, node)
-            ]
-            if earlier_neighbors == [start]:
-                if 3 <= len(path) + 1 <= max_ring_size:
-                    cycles.add(_canonicalize_cycle([*path, candidate]))
-                continue
-            if earlier_neighbors:
-                continue
-            if len(path) < max_ring_size:
-                visit([*path, candidate])
-
-    for start in sorted(graph.nodes):
-        visit([int(start)])
+    for component_nodes in nx.biconnected_components(graph):
+        if len(component_nodes) < 3:
+            continue
+        component = graph.subgraph(component_nodes)
+        for start in sorted(component.nodes):
+            stack = [[int(start)]]
+            while stack:
+                path = stack.pop()
+                search_states += 1
+                if search_states > max_search_states:
+                    raise RingCycleLimitError(
+                        "Chordless-cycle search exceeded max_search_states="
+                        f"{max_search_states}."
+                    )
+                current = path[-1]
+                for candidate in reversed(sorted(component.neighbors(current))):
+                    if candidate < start or candidate in path:
+                        continue
+                    earlier_neighbors = [
+                        node
+                        for node in path[:-1]
+                        if component.has_edge(candidate, node)
+                    ]
+                    if earlier_neighbors == [start]:
+                        if 3 <= len(path) + 1 <= max_ring_size:
+                            cycle = _canonicalize_cycle([*path, candidate])
+                            if cycle not in cycles and len(cycles) >= max_cycles:
+                                raise RingCycleLimitError(
+                                    "Chordless-cycle output exceeded max_cycles="
+                                    f"{max_cycles}."
+                                )
+                            cycles.add(cycle)
+                        continue
+                    if earlier_neighbors:
+                        continue
+                    if len(path) < max_ring_size:
+                        stack.append([*path, int(candidate)])
     return sorted(cycles, key=lambda cycle: (len(cycle), cycle))
 
 
