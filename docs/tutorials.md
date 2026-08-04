@@ -1,5 +1,48 @@
 # MolCrysKit Tutorials
 
+## Crystallographic symmetry paths
+
+MolCrysKit represents a crystallographic operation in conventional fractional
+column form, but applies it to the package's row coordinates as
+`f_prime = f @ W.T + w`.  Operations are not restricted to a particular space
+group or axis.
+
+```python
+from molcrys_kit.io import read_cif_symmetry, read_mol_crystal
+from molcrys_kit.operations import (
+  SymmetryPathConfig,
+  build_symmetry_path_plan,
+  interpolate_symmetry_path,
+)
+
+crystal = read_mol_crystal("input.cif")
+symmetry = read_cif_symmetry("input.cif")
+operation = symmetry.operations[1]
+plan = build_symmetry_path_plan(
+  crystal,
+  operation,
+  config=SymmetryPathConfig(n_images=7),
+)
+frames = interpolate_symmetry_path(plan)
+```
+
+The operation defines the exact transformed endpoint.  Every accepted molecule
+must also be reachable by a proper rigid rotation and translation.  The default
+limits are a mass-weighted fit RMSD of 0.05 Å and a maximum covalent-bond length
+error of 2%; both are configurable through `RigidReachabilityTolerance`.  If an
+improper crystal operation or a relaxed target requires real intramolecular
+deformation, planning raises `RigidReachabilityError` rather than compressing
+bonds or adding a discontinuous final frame.
+
+Use `validate_subgroup`, `left_cosets`, and `domain_representatives` to enumerate
+domain states from arbitrary finite parent/subgroup operation sets.  These
+functions compare affine operations modulo integer lattice translations and do
+not rely on the order of operations in a CIF.
+
+Generated paths are geometric initial guesses, not kinetic barriers.  Validate
+contacts and electronic-structure convergence before using them to initialize a
+separate NEB or string calculation.
+
 ## Extended XYZ Dataset Bundles
 
 MolCrysKit can write molecular-crystal datasets as multi-frame ASE Extended XYZ

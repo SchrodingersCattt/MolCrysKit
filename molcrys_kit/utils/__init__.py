@@ -30,6 +30,8 @@ from .geometry import (
     orient_lattice,
     lattice_deformation_logm,
     lattice_at_lambda,
+    apply_fractional_affine,
+    fractional_linear_to_cartesian,
 )
 
 __all__ = [
@@ -58,4 +60,6 @@ __all__ = [
     "orient_lattice",
     "lattice_deformation_logm",
     "lattice_at_lambda",
+    "apply_fractional_affine",
+    "fractional_linear_to_cartesian",
 ]
