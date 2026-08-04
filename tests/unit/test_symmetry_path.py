@@ -124,7 +124,9 @@ def test_global_assignment_handles_reordered_identical_molecules():
         start,
         FractionalAffineOperation(np.eye(3), [0, 0, 0]),
         target=target,
-        config=SymmetryPathConfig(n_images=3),
+        config=SymmetryPathConfig(
+            n_images=3, minimum_nontrivial_displacement_angstrom=0.0
+        ),
     )
     mapping = {
         match.source_molecule_index: match.target_molecule_index
@@ -153,6 +155,7 @@ def test_deformed_endpoint_is_rejected_before_images_are_generated():
             start,
             FractionalAffineOperation(np.eye(3), [0, 0, 0]),
             target=target,
+            config=SymmetryPathConfig(minimum_nontrivial_displacement_angstrom=0.0),
         )
 
 
@@ -169,6 +172,18 @@ def test_unresolved_partial_occupancy_is_rejected_by_default():
     start = crystal([source_molecule])
     with pytest.raises(ValueError, match="resolve disorder"):
         build_symmetry_path_plan(start, FractionalAffineOperation(np.eye(3), [0, 0, 0]))
+
+
+def test_pure_relabeling_operation_is_rejected_as_trivial_path():
+    source_molecule = molecule()
+    shifted = molecule(
+        positions=np.asarray(source_molecule.get_positions()) + [5, 0, 0]
+    )
+    start = crystal([source_molecule, shifted])
+    with pytest.raises(ValueError, match="no nontrivial physical path"):
+        build_symmetry_path_plan(
+            start, FractionalAffineOperation(np.eye(3), [0.5, 0, 0])
+        )
 
 
 def test_improper_operation_allowed_when_atom_permutation_has_proper_realization():

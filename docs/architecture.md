@@ -23,6 +23,8 @@ planner fails and a separate internal-coordinate path model is required.
 All numerical defaults are centralized in
 `molcrys_kit.constants.symmetry_path`; no operation or structure module should
 embed path tolerances.
+The planner also applies a centralized minimum-displacement threshold and rejects
+operations that reduce to a pure permutation of the full-cell molecule list.
 
 ## Core Philosophy
 

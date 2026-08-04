@@ -21,6 +21,7 @@ from ..constants.symmetry_path import (
     ASSIGNMENT_COM_DISTANCE_WEIGHT,
     ASSIGNMENT_INFEASIBLE_COST,
     CORRESPONDENCE_DISTANCE_TOLERANCE_ANGSTROM,
+    MINIMUM_NONTRIVIAL_PATH_DISPLACEMENT_ANGSTROM,
     RIGID_MASS_WEIGHTED_RMSD_TOLERANCE_ANGSTROM,
     RIGID_MAX_BOND_RELATIVE_ERROR,
 )
@@ -74,6 +75,9 @@ class SymmetryPathConfig:
         CORRESPONDENCE_DISTANCE_TOLERANCE_ANGSTROM
     )
     allow_partial_occupancy: bool = False
+    minimum_nontrivial_displacement_angstrom: float = (
+        MINIMUM_NONTRIVIAL_PATH_DISPLACEMENT_ANGSTROM
+    )
 
     def __post_init__(self) -> None:
         if self.n_images < 1:
@@ -151,6 +155,9 @@ class SymmetryPathProvenance:
                     self.config.correspondence_tolerance_angstrom
                 ),
                 "allow_partial_occupancy": self.config.allow_partial_occupancy,
+                "minimum_nontrivial_displacement_angstrom": (
+                    self.config.minimum_nontrivial_displacement_angstrom
+                ),
             },
             "target_generated_from_operation": self.target_generated_from_operation,
             "molecule_matches": [
@@ -425,6 +432,31 @@ def build_symmetry_path_plan(
         transform_crystal_fractional(crystal, operation) if target is None else target
     )
     correspondence = _build_correspondence(crystal, resolved_target, config)
+    maximum_displacement = 0.0
+    lattice = np.asarray(resolved_target.lattice, dtype=float)
+    for match in correspondence.molecule_matches:
+        source_positions = np.asarray(
+            crystal.molecules[match.source_molecule_index].get_positions(),
+            dtype=float,
+        )
+        target_positions = np.asarray(
+            resolved_target.molecules[match.target_molecule_index].get_positions(),
+            dtype=float,
+        )[match.atom_correspondence.source_to_target]
+        target_positions += match.target_image_shift_fractional @ lattice
+        maximum_displacement = max(
+            maximum_displacement,
+            float(np.linalg.norm(target_positions - source_positions, axis=1).max()),
+        )
+    if (
+        config.minimum_nontrivial_displacement_angstrom > 0.0
+        and maximum_displacement
+        <= config.minimum_nontrivial_displacement_angstrom
+    ):
+        raise ValueError(
+            "symmetry operation produces only a permutation of already present "
+            "molecules and no nontrivial physical path"
+        )
     provenance = SymmetryPathProvenance(
         operation=operation,
         config=config,
