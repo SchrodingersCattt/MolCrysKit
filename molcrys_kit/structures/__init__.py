@@ -12,6 +12,15 @@ from .cluster import CrystalCluster, ClusterProvenance
 from .polyhedra import all_ideal_polyhedra, convex_hull_payload, ideal_polyhedra_for_cn
 from .trajectory import CrystalTrajectory
 from .records import BondRecord, SiteRecord
+from .symmetry import (
+    CrystalSymmetry,
+    FractionalAffineOperation,
+    LatticeBasisChange,
+    domain_representatives,
+    identity_operation,
+    left_cosets,
+    validate_subgroup,
+)
 
 # For backward compatibility
 Molecule = CrystalMolecule
@@ -29,4 +38,11 @@ __all__ = [
     "CrystalTrajectory",
     "BondRecord",
     "SiteRecord",
+    "CrystalSymmetry",
+    "FractionalAffineOperation",
+    "LatticeBasisChange",
+    "domain_representatives",
+    "identity_operation",
+    "left_cosets",
+    "validate_subgroup",
 ]

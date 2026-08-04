@@ -24,6 +24,7 @@ from ase.neighborlist import neighbor_list
 
 from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
+from ..structures.symmetry import CrystalSymmetry, FractionalAffineOperation
 from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
@@ -915,47 +916,158 @@ def _parse_symmetry_operations(
     When a CIF declares a non-P1 space group but only provides the identity
     operation, optionally derive the full operation set from the declaration.
     """
+    parsed = _crystal_symmetry_from_data_block(
+        data_block, expand_symmetry=expand_symmetry, strict=False
+    )
+    return [
+        SymmOp.from_rotation_and_translation(
+            operation.rotation, operation.translation
+        )
+        for operation in parsed.operations
+    ]
+
+
+def _crystal_symmetry_from_data_block(
+    data_block: dict,
+    *,
+    expand_symmetry: bool,
+    strict: bool,
+) -> CrystalSymmetry:
+    """Build :class:`CrystalSymmetry` from one pymatgen CIF data block."""
     equiv_pos_list = data_block.get("_symmetry_equiv_pos_as_xyz", [])
     symop_list = data_block.get("_space_group_symop_operation_xyz", [])
-
-    sym_ops_raw = []
     if equiv_pos_list:
-        sym_ops_raw.extend(equiv_pos_list)
+        raw_operations = list(equiv_pos_list)
+        source = "_symmetry_equiv_pos_as_xyz"
     elif symop_list:
-        sym_ops_raw.extend(symop_list)
+        raw_operations = list(symop_list)
+        source = "_space_group_symop_operation_xyz"
     else:
-        sym_ops_raw = ["x,y,z"]
+        raw_operations = ["x,y,z"]
+        source = "default_identity"
 
-    sym_ops = []
-    for op_str in sym_ops_raw:
+    parsed_pairs = []
+    errors = []
+    for index, raw in enumerate(raw_operations):
+        token = str(raw).strip().strip("'\"")
         try:
-            sym_ops.append(SymmOp.from_xyz_str(op_str))
-        except Exception:
-            continue
-
-    if not sym_ops:
-        sym_ops = [SymmOp.from_xyz_str("x,y,z")]
+            parsed = SymmOp.from_xyz_str(token)
+            validated = FractionalAffineOperation(
+                parsed.rotation_matrix,
+                parsed.translation_vector,
+                xyz=token,
+                index=index,
+                source=source,
+            )
+            parsed_pairs.append((token, parsed, validated))
+        except Exception as error:
+            errors.append((index, token, error))
+    if strict and errors:
+        index, token, error = errors[0]
+        raise ValueError(
+            f"invalid symmetry operation at index {index}: {token!r}"
+        ) from error
+    if not parsed_pairs:
+        identity = SymmOp.from_xyz_str("x,y,z")
+        parsed_pairs = [
+            (
+                "x,y,z",
+                identity,
+                FractionalAffineOperation(
+                    identity.rotation_matrix,
+                    identity.translation_vector,
+                    xyz="x,y,z",
+                    index=0,
+                    source="fallback_identity",
+                ),
+            )
+        ]
+        source = "fallback_identity"
 
     declared_sg = _declared_space_group(data_block)
+    expanded = False
     if (
         expand_symmetry
         and declared_sg is not None
         and declared_sg.int_number > 1
-        and len(sym_ops) <= 1
-        and len(declared_sg.symmetry_ops) > len(sym_ops)
+        and len(parsed_pairs) <= 1
+        and len(declared_sg.symmetry_ops) > len(parsed_pairs)
     ):
-        expanded = list(declared_sg.symmetry_ops)
         warnings.warn(
             "CIF declares space group "
             f"#{declared_sg.int_number} ({declared_sg.symbol}) but provides "
-            f"only {len(sym_ops)} symmetry operation(s); auto-expanded to "
-            f"{len(expanded)} operations.",
+            f"only {len(parsed_pairs)} symmetry operation(s); auto-expanded to "
+            f"{len(declared_sg.symmetry_ops)} operations.",
             SymmetryAutoExpandedWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
-        return expanded
+        parsed_pairs = [
+            (
+                operation.as_xyz_str(),
+                operation,
+                FractionalAffineOperation(
+                    operation.rotation_matrix,
+                    operation.translation_vector,
+                    xyz=operation.as_xyz_str(),
+                    index=index,
+                    source="space_group_declaration",
+                    space_group_number=int(declared_sg.int_number),
+                ),
+            )
+            for index, operation in enumerate(declared_sg.symmetry_ops)
+        ]
+        source = "space_group_declaration"
+        expanded = True
 
-    return sym_ops
+    space_group_number = (
+        int(declared_sg.int_number) if declared_sg is not None else None
+    )
+    space_group_symbol = (
+        str(declared_sg.symbol) if declared_sg is not None else None
+    )
+    hall_symbol = _clean_space_group_token(data_block.get("_space_group_name_Hall"))
+    operations = tuple(
+        FractionalAffineOperation(
+            validated.rotation,
+            validated.translation,
+            xyz=xyz,
+            index=index,
+            source=source,
+            space_group_number=space_group_number,
+        )
+        for index, (xyz, _operation, validated) in enumerate(parsed_pairs)
+    )
+    return CrystalSymmetry(
+        operations=operations,
+        space_group_number=space_group_number,
+        space_group_symbol=space_group_symbol,
+        hall_symbol=hall_symbol,
+        source=source,
+        expanded_from_declaration=expanded,
+    )
+
+
+def read_cif_symmetry(
+    filepath: Optional[str] = None,
+    *,
+    cif_text: Optional[str] = None,
+    expand_symmetry: bool = True,
+    strict: bool = False,
+) -> CrystalSymmetry:
+    """Read crystallographic affine operations without expanding atoms.
+
+    Parameters use the same mutually exclusive file/text convention as
+    :func:`scan_cif_disorder`.  With ``strict=True``, malformed explicit
+    operation strings raise instead of being skipped.
+    """
+    parser = _pymatgen_cif_parser(filepath, cif_text=cif_text)
+    data = parser.as_dict()
+    if not data:
+        raise ValueError("CIF contains no data blocks")
+    first_block = data[next(iter(data))]
+    return _crystal_symmetry_from_data_block(
+        first_block, expand_symmetry=expand_symmetry, strict=strict
+    )
 
 
 def _are_coords_close(

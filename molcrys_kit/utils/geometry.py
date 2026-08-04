@@ -51,6 +51,40 @@ def cart_to_frac(cart: np.ndarray, lattice: np.ndarray) -> np.ndarray:
     return np.dot(cart, np.linalg.inv(lattice))
 
 
+def apply_fractional_affine(
+    fractional: np.ndarray,
+    rotation: np.ndarray,
+    translation: np.ndarray,
+    *,
+    wrap: bool = False,
+) -> np.ndarray:
+    """Apply ``f' = f @ W.T + w`` using MolCrysKit row coordinates."""
+    coordinates = np.asarray(fractional, dtype=float)
+    linear = np.asarray(rotation, dtype=float)
+    offset = np.asarray(translation, dtype=float)
+    if coordinates.shape[-1:] != (3,):
+        raise ValueError("fractional coordinates must end with dimension 3")
+    if linear.shape != (3, 3) or offset.shape != (3,):
+        raise ValueError("rotation and translation must have shapes (3, 3) and (3,)")
+    transformed = coordinates @ linear.T + offset
+    return transformed % 1.0 if wrap else transformed
+
+
+def fractional_linear_to_cartesian(
+    rotation: np.ndarray, lattice: np.ndarray
+) -> np.ndarray:
+    """Convert a fractional column-form linear map to Cartesian form.
+
+    For row lattice ``L`` and column-form fractional operation ``W``, the
+    Cartesian column-form operation is ``Q = L.T @ W @ inv(L.T)``.
+    """
+    linear = np.asarray(rotation, dtype=float)
+    lattice_array = np.asarray(lattice, dtype=float)
+    if linear.shape != (3, 3) or lattice_array.shape != (3, 3):
+        raise ValueError("rotation and lattice must both have shape (3, 3)")
+    return lattice_array.T @ linear @ np.linalg.inv(lattice_array.T)
+
+
 def normalize_vector(vector: np.ndarray) -> np.ndarray:
     """
     Normalize a vector to unit length.
