@@ -33,6 +33,9 @@ error of 2%; both are configurable through `RigidReachabilityTolerance`.  If an
 improper crystal operation or a relaxed target requires real intramolecular
 deformation, planning raises `RigidReachabilityError` rather than compressing
 bonds or adding a discontinuous final frame.
+If an operation merely permutes symmetry-equivalent molecules already present
+in the full cell, the default planner rejects it as a zero-displacement relabeling
+rather than writing many identical trajectory frames.
 
 Use `validate_subgroup`, `left_cosets`, and `domain_representatives` to enumerate
 domain states from arbitrary finite parent/subgroup operation sets.  These
