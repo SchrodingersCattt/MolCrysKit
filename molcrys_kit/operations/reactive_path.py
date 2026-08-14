@@ -450,6 +450,9 @@ def interpolate_reactive_path(
         frame_atoms = atoms_a.copy()
         frame_atoms.calc = None
         frame_atoms.positions[:] = positions
+        for key in ("frac_x", "frac_y", "frac_z"):
+            if key in frame_atoms.arrays:
+                del frame_atoms.arrays[key]
         frame_atoms.info = dict(frame_atoms.info)
         frame_atoms.info.update(
             {

@@ -175,6 +175,17 @@ def test_invalid_rigid_groups_are_rejected(groups, message):
 
 def test_inputs_and_atom_partition_are_preserved():
     reactant, product = _endpoint_pair()
+    for crystal in (reactant, product):
+        atoms = crystal.to_ase()
+        scaled = atoms.get_scaled_positions(wrap=False)
+        atoms.set_array("frac_x", scaled[:, 0])
+        atoms.set_array("frac_y", scaled[:, 1])
+        atoms.set_array("frac_z", scaled[:, 2])
+        rebuilt = MolecularCrystal.from_ase_atoms(atoms)
+        if crystal is reactant:
+            reactant = rebuilt
+        else:
+            product = rebuilt
     positions_before = reactant.to_ase().positions.copy()
     result = interpolate_reactive_path(
         reactant,
@@ -189,6 +200,7 @@ def test_inputs_and_atom_partition_are_preserved():
         assert atoms.get_chemical_symbols() == SYMBOLS
         np.testing.assert_array_equal(atoms.arrays["molecule_index"], expected_partition)
         np.testing.assert_array_equal(atoms.arrays["atom_id"], np.arange(7))
+        assert not {"frac_x", "frac_y", "frac_z"}.intersection(atoms.arrays)
         assert frame.metadata["path_kind"] == "reactive"
 
 
