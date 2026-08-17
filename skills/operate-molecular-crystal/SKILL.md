@@ -9,14 +9,14 @@ Build computational models without losing track of molecular topology, chemical 
 
 ## Core workflow
 
-1. Read [installation and verification](../references/install.md) and probe the live `mck` command.
-2. Always read [CIF diagnosis](../references/cif-diagnosis.md). Diagnose the input with `mck io info`, molecule inventory, and a sanity check before changing it.
+1. Read [installation and verification](./references/install.md) and probe the live `mck` command.
+2. Always read [input diagnosis](./references/diagnose-input.md). Diagnose the input with `mck io info`, molecule inventory, and a sanity check before changing it.
 3. Resolve ambiguous disorder, protonation, components, and bond perception before selecting an operation.
 4. Select exactly one primary scenario below. Compose operations only when their order is chemically justified.
-5. Read [input and output](../references/input-output.md) before choosing a downstream format.
-6. Always read [verification](../references/verification.md), validate every output, and retain parameters and provenance.
+5. Read [formats and provenance](./references/formats-and-provenance.md) before choosing a downstream format.
+6. Always read [operation verification](./references/verify-operations.md), validate every output, and retain parameters and provenance.
 
-Use [the CLI reference](../references/cli-reference.md) for exact command shapes. Read [batch processing](../references/batch-processing.md) for datasets and [CSD integration](../references/csd-integration.md) when starting from a CSD refcode.
+Read [CSD input](./references/csd-input.md) when starting from a CSD refcode. Probe each live subcommand with `--help` before relying on its options.
 
 ## Choose the operation from the modeling question
 
@@ -53,7 +53,7 @@ mck operate add-h ordered.cif -o hydrogenated.cif \
 
 ### Generate a topology-preserving surface slab
 
-Use for periodic surface calculations. First rank candidate facets with the `analyze-molecular-crystal` skill:
+Use for periodic surface calculations. First rank candidate facets with BFDH:
 
 ```bash
 mck analyze bfdh bulk.cif --max-index 2 --top-n 10
