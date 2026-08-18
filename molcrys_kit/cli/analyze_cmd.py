@@ -112,23 +112,26 @@ def sanity_check_cmd(
     output: Path | None,
     as_json: bool,
 ) -> None:
-    """Run structural sanity checks on an ExtXYZ file.
+    """Run structural sanity checks on a supported structure file.
 
-    Supports multi-frame files: each frame is checked independently.
+    Multi-frame ExtXYZ files are checked frame by frame. CIF and POSCAR inputs
+    contain one structure.
     """
     import json as json_mod
 
     from molcrys_kit.analysis.sanity_check import sanity_check
-    from molcrys_kit.io.extxyz import read_extxyz
-
     # Parse options
     check_list = [c.strip() for c in checks.split(",")] if checks else None
-    iso_elems = set(e.strip() for e in isolated_elements.split(",")) if isolated_elements else None
+    iso_elems = {e.strip() for e in isolated_elements.split(",")} if isolated_elements else None
 
     # Load frames
-    frames = read_extxyz(str(input))
-    if not isinstance(frames, list):
-        frames = [frames]
+    if input.suffix.lower() == ".extxyz":
+        from molcrys_kit.io.extxyz import read_extxyz
+
+        loaded = read_extxyz(str(input), index=":")
+        frames = loaded if isinstance(loaded, list) else [loaded]
+    else:
+        frames = [load_crystal(input)]
     if not frames:
         raise click.ClickException(f"No frames found in {input}")
 

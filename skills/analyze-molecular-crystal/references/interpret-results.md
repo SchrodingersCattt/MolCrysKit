@@ -4,7 +4,7 @@ Read this before drawing conclusions or delivering reports.
 
 ## Structural sanity
 
-Run all seven checks first: hard clashes, intermolecular clashes, isolated atoms, hydrogen presence, topology preservation, formula consistency, and bond distances. Do not suppress a failure solely to obtain a pass.
+Run all six single-structure checks first: hard clashes, intermolecular clashes, isolated atoms, hydrogen presence, formula consistency, and bond distances. Topology preservation is a separate comparison requiring reference and generated structures. Do not suppress a failure solely to obtain a pass.
 
 ## Interpretation limits
 

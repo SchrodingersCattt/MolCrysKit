@@ -18,6 +18,8 @@ Use the same interpreter for installation and execution.
 
 ## Verify
 
+Read the repository `docs/cli.md` first, then verify that the active installation matches it:
+
 ```bash
 mck --version
 mck --help
@@ -43,4 +45,4 @@ mck analyze polyhedra --help
 mck analyze sanity-check --help
 ```
 
-The installed CLI is authoritative. Stoichiometry, volume, accessible-boundary, formal-charge, detailed CShM, and chemical-environment analyses require the Python API.
+The installed CLI is authoritative when it differs from repository documentation. Read `docs/api.md` and source docstrings before using API-only stoichiometry, volume, accessible-boundary, formal-charge, detailed CShM, or chemical-environment analysis.

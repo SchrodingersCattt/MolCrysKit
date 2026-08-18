@@ -126,6 +126,33 @@ def test_io_molecules_json() -> None:
     assert rows[0]["species_id"]
 
 
+def test_analyze_sanity_check_accepts_cif() -> None:
+    result = CliRunner().invoke(
+        main,
+        ["analyze", "sanity-check", str(PETN), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["n_frames"] == 1
+    assert len(report["frames"][0]["results"]) == 6
+
+
+def test_analyze_sanity_check_reads_all_extxyz_frames(tmp_path: Path) -> None:
+    from molcrys_kit.io import read_mol_crystal, write_extxyz
+
+    crystal = read_mol_crystal(str(PETN))
+    path = tmp_path / "frames.extxyz"
+    write_extxyz([crystal, crystal], str(path))
+
+    result = CliRunner().invoke(
+        main,
+        ["analyze", "sanity-check", str(path), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["n_frames"] == 2
+
+
 def test_io_extract_molecule_by_index(tmp_path: Path) -> None:
     output = tmp_path / "mol.xyz"
     result = CliRunner().invoke(

@@ -1,6 +1,6 @@
 ---
 name: analyze-molecular-crystal
-description: 'Analyze molecular crystals with MolCrysKit. Use when identifying molecules and topology-aware species, checking seven structural sanity criteria, finding hydrogen bonds, pi stacking, halogen bonds, CH-pi interactions or H-H contacts, ranking BFDH facets, enumerating coordination polyhedra and CShM shapes, characterizing coordination, rings, planarity or anion groups, calculating stoichiometry, van der Waals volume or solvent-accessible boundaries, or assigning formal charges. Covers organic crystals, multicomponent crystals, hybrids, MOF-like structures and polyatomic-ion salts.'
+description: 'Analyze molecular crystals with MolCrysKit. Use when identifying molecules and topology-aware species, running structural sanity checks, profiling hydrogen bonds, pi stacking and halogen bonds, detecting CH-pi or H-H contacts through the Python API, ranking BFDH facets, enumerating coordination polyhedra and CShM shapes, characterizing coordination, rings, planarity or anion groups, calculating stoichiometry, van der Waals volume or solvent-accessible boundaries, or assigning formal charges. Covers organic crystals, multicomponent crystals, hybrids, MOF-like structures and polyatomic-ion salts.'
 ---
 
 # Analyze Molecular Crystals
@@ -9,13 +9,14 @@ Use structural analysis to answer a stated chemical or modeling question. Report
 
 ## Core workflow
 
-1. Read [installation and verification](./references/install.md) and probe the live `mck` command.
-2. Always read [input diagnosis](./references/diagnose-input.md), then inventory the components and run the complete sanity suite.
-3. Decide whether the question concerns the observed disordered model, one ordered realization, or an ensemble. Do not switch between them silently.
-4. Select the relevant analysis below and record every threshold, cutoff, index range, radii set, and charge/protonation assumption.
-5. Read [interpretation and reporting](./references/interpret-results.md) before interpreting or delivering results.
+1. Read [installation and verification](./references/install.md).
+2. Always read [CLI and Python API](./references/cli-and-api.md). Read the repository `docs/cli.md`, probe the installed command, and prefer the CLI when it covers the requested analysis.
+3. Always read [input diagnosis](./references/diagnose-input.md), then inventory the components and run the complete single-structure sanity suite.
+4. Decide whether the question concerns the observed disordered model, one ordered realization, or an ensemble. Do not switch between them silently.
+5. Select the relevant analysis below and record every threshold, cutoff, index range, radii set, and charge/protonation assumption.
+6. Read [interpretation and reporting](./references/interpret-results.md) before interpreting or delivering results.
 
-Read [the Python analysis API](./references/analysis-api.md) only for API-only analyses or detailed result objects. Read [CSD input](./references/csd-input.md) for refcode-based work. Probe each live subcommand with `--help` before relying on its options.
+Read [the Python analysis API](./references/analysis-api.md) only for API-only analyses or detailed result objects. If the input is a CSD refcode, retrieve and export it first with the separately installable `query-csd-structures` skill. Probe each live subcommand with `--help` before relying on its options.
 
 ## Start with structure quality
 
@@ -23,7 +24,7 @@ Read [the Python analysis API](./references/analysis-api.md) only for API-only a
 mck analyze sanity-check input.cif --json -o input.sanity.json
 ```
 
-The complete suite checks hard clashes, intermolecular clashes, isolated atoms, hydrogen presence, topology preservation, formula consistency, and bond distances. Run all seven first. Use `--checks` or threshold overrides only for a documented domain reason, not to manufacture a pass.
+The default single-structure suite runs six checks: hard clashes, intermolecular clashes, isolated atoms, hydrogen presence, formula consistency, and bond distances. Topology preservation is a separate before/after comparison that requires two structures. Use `--checks` or threshold overrides only for a documented domain reason, not to manufacture a pass.
 
 A failed sanity check does not always make analysis impossible, but it changes what can be claimed. For example, interaction analysis is incomplete when H atoms are missing, and molecular inventory is unreliable when bond perception merges components.
 
@@ -44,7 +45,7 @@ If disorder is present, state whether the inventory describes unresolved sites o
 mck analyze interactions input.cif --json
 ```
 
-MolCrysKit profiles hydrogen bonds, pi stacking, halogen bonds, CH-pi interactions, and H-H contacts with continuous scores. Interpret these as geometry-based detections under the active criteria, not as interaction energies.
+The CLI profile aggregates hydrogen bonds, halogen bonds, and parallel/T-shaped pi stacking with continuous scores. CH-pi is subsumed by T-shaped pi stacking in the profile, while standalone CH-pi and H-H contact records require the public Python detectors shown in [CLI and Python API](./references/cli-and-api.md). Interpret all geometry-based detections under the active criteria, not as interaction energies.
 
 Before interpretation:
 
@@ -110,7 +111,7 @@ Use this for coordination counts, bond angles, ring membership/aromatic-ring heu
 
 ## Non-negotiable rules
 
-- Run all seven sanity checks before interpreting detailed analysis.
+- Run the six single-structure sanity checks before detailed analysis; compare topology separately when a reference and generated structure are available.
 - State whether analysis used unresolved disorder, one ordered replica, or an ensemble.
 - Do not interpret geometry-only interaction scores as energies.
 - Do not interpret BFDH ranking as surface thermodynamics.

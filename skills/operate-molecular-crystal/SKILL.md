@@ -9,14 +9,15 @@ Build computational models without losing track of molecular topology, chemical 
 
 ## Core workflow
 
-1. Read [installation and verification](./references/install.md) and probe the live `mck` command.
-2. Always read [input diagnosis](./references/diagnose-input.md). Diagnose the input with `mck io info`, molecule inventory, and a sanity check before changing it.
-3. Resolve ambiguous disorder, protonation, components, and bond perception before selecting an operation.
-4. Select exactly one primary scenario below. Compose operations only when their order is chemically justified.
-5. Read [formats and provenance](./references/formats-and-provenance.md) before choosing a downstream format.
-6. Always read [operation verification](./references/verify-operations.md), validate every output, and retain parameters and provenance.
+1. Read [installation and verification](./references/install.md).
+2. Always read [CLI and Python API](./references/cli-and-api.md). Read the repository `docs/cli.md`, probe the installed command, and prefer the CLI when it covers the requested operation.
+3. Always read [input diagnosis](./references/diagnose-input.md). Diagnose the input with `mck io info`, molecule inventory, and a sanity check before changing it.
+4. Resolve ambiguous disorder, protonation, components, and bond perception before selecting an operation.
+5. Select exactly one primary scenario below. Compose operations only when their order is chemically justified.
+6. Read [formats and provenance](./references/formats-and-provenance.md) before choosing a downstream format.
+7. Always read [operation verification](./references/verify-operations.md), validate every output, and retain parameters and provenance.
 
-Read [CSD input](./references/csd-input.md) when starting from a CSD refcode. Probe each live subcommand with `--help` before relying on its options.
+If the input is a CSD refcode rather than a local structure file, retrieve and export it first with the separately installable `query-csd-structures` skill. Probe each live subcommand with `--help` before relying on its options.
 
 ## Choose the operation from the modeling question
 
@@ -131,22 +132,7 @@ Require compatible chemistry, atom counts, molecule matching, and atom ordering.
 
 ### Translate, rotate, or replace one molecule
 
-This is Python-API-only:
-
-```python
-import numpy as np
-
-from molcrys_kit.io import read_mol_crystal, write_cif
-from molcrys_kit.operations import replace_molecule, rotate_molecule, translate_molecule
-
-crystal = read_mol_crystal("bulk.cif")
-crystal = translate_molecule(crystal, 0, np.array([0.2, 0.0, 0.0]))
-crystal = rotate_molecule(crystal, 0, np.array([0.0, 0.0, 1.0]), 15.0, center="com")
-crystal = replace_molecule(crystal, 1, "replacement.xyz", clash_threshold=1.2)
-write_cif(crystal, "edited.cif")
-```
-
-Indices are zero-based, translation defaults to Cartesian Å, and rotation angles are degrees. For fractional translation, pass `fractional=True`. Replacement aligns centers and attempts random rotations to resolve clashes; set and document any reproducibility control available in the active API.
+This is Python-API-only. Use the [molecule-editing example](./references/cli-and-api.md#api-only-molecule-editing). Indices are zero-based, translation defaults to Cartesian Å, and rotation angles are degrees. For fractional translation, pass `fractional=True`.
 
 ### Convert structure formats
 
@@ -165,4 +151,4 @@ Conversion is representation change, not chemical cleanup. Use ExtXYZ for MolCry
 - Do not add H without an explicit protonation assumption.
 - Use BFDH to shortlist slab orientations, not to claim surface stability.
 - Never discard cluster sidecars, random seeds, charge assumptions, or operation parameters.
-- Run all seven sanity checks after every structural operation and inspect geometry visually.
+- Run the six single-structure sanity checks after every structural operation, compare topology separately when a reference exists, and inspect geometry visually.

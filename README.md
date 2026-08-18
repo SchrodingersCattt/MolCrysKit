@@ -134,8 +134,8 @@ mck operate cluster --help
 The command groups roughly mirror the Python package layout:
 
 - `mck io ...` — summarize, inspect molecules, extract molecules, and convert structures (`info`, `molecules`, `extract-molecule`, `convert`).
-- `mck operate ...` — generate modified structures (`disorder`, `add-h`, `slab`, `cluster`, `supercell`, `vacancy`, `desolvate`, `interpolate`).
-- `mck analyze ...` — print analysis reports (`bfdh`, `interactions`, `polyhedra`).
+- `mck operate ...` — generate modified structures (`disorder`, `add-h`, `slab`, `cluster`, `supercell`, `vacancy`, `desolvate`, `interpolate`, `reorient`).
+- `mck analyze ...` — print analysis reports (`bfdh`, `interactions`, `polyhedra`, `sanity-check`).
 
 ## Documentation
 

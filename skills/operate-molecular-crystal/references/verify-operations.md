@@ -10,7 +10,7 @@ mck io info output.cif
 mck io molecules output.cif --json
 ```
 
-The complete suite checks hard clashes, intermolecular clashes, isolated atoms, hydrogen presence, topology preservation, formula consistency, and bond distances. Do not disable a failure merely to produce a passing report.
+The default single-structure suite checks hard clashes, intermolecular clashes, isolated atoms, hydrogen presence, formula consistency, and bond distances. Topology preservation requires a separate reference-versus-generated comparison. Do not disable a failure merely to produce a passing report.
 
 ## Operation-specific invariants
 

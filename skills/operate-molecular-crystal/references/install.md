@@ -18,6 +18,8 @@ Use the same interpreter for installation and execution.
 
 ## Verify
 
+Read the repository `docs/cli.md` first, then verify that the active installation matches it:
+
 ```bash
 mck --version
 mck --help
@@ -42,4 +44,4 @@ mck operate slab --help
 mck operate cluster --help
 ```
 
-The installed CLI is authoritative. Molecule translation, rotation, and replacement are Python-API-only.
+The installed CLI is authoritative when it differs from repository documentation. Molecule translation, rotation, and replacement are Python-API-only; read `docs/api.md` and the installed source docstrings for them.
