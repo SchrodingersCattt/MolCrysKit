@@ -62,7 +62,10 @@ from .sanity_check import (
     sanity_check,
 )
 from .shape import classify_shell, cshm, topology_signature
-from .species import *
+from .species import (
+    assign_atoms_to_molecules as assign_atoms_to_molecules,
+    identify_molecules as identify_molecules,
+)
 from .stoichiometry import (
     FormulaUnitMember,
     FormulaUnitSelection,
