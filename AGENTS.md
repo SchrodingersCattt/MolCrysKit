@@ -23,6 +23,17 @@ scripts/              Best practice; one-off diagnosis scripts
 tests/unit/           Pytest regression suite
 ```
 
+## Skills and Docs as Code
+
+- Each directory under `skills/` is independently installable. Keep its
+  Markdown links and bundled assets inside that skill directory.
+- `docs/cli.md` is the canonical repository CLI reference. Skill workflows
+  should prefer `mck` commands and probe the installed command with `--help`.
+- Python examples must import names exported through the target module's
+  `__all__`; update `docs/api.md` when changing public exports.
+- Run `pytest tests/unit/test_docs_api_sync.py tests/unit/test_skill_docs_sync.py`
+  after changing CLI commands, public APIs, skills, or bundled skill scripts.
+
 ---
 
 ## Testing Rules

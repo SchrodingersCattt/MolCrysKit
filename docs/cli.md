@@ -25,33 +25,33 @@ mck operate cluster --help
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `info INPUT` | Print molecular-crystal summary | `--resolve-disorder`, `--bond-scale FLOAT` |
-| `molecules INPUT` | List molecule inventory | `--json`, `--resolve-disorder`, `--bond-scale FLOAT` |
-| `extract-molecule INPUT` | Extract molecule(s) to separate file(s) | `-o OUTPUT` (required), `--index INT`, `--formula STR`, `--species-id STR`, `--largest`, `--all`, `--center-vacuum FLOAT`, `--pbc BOOL`, `--json-sidecar PATH` |
-| `convert INPUT` | Convert crystal structure format | `-o OUTPUT` (required), `--resolve-disorder`, `--bond-scale FLOAT` |
+| `mck io info INPUT` | Print molecular-crystal summary | `--resolve-disorder`, `--bond-scale FLOAT` |
+| `mck io molecules INPUT` | List molecule inventory | `--json`, `--resolve-disorder`, `--bond-scale FLOAT` |
+| `mck io extract-molecule INPUT` | Extract molecule(s) to separate file(s) | `-o/--output OUTPUT` (required), `--index INT`, `--formula STR`, `--species-id STR`, `--largest`, `--all`, `--center-vacuum FLOAT`, `--pbc BOOL`, `--json-sidecar PATH`, `--resolve-disorder`, `--bond-scale FLOAT` |
+| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--resolve-disorder`, `--bond-scale FLOAT` |
 
 ### `mck operate` — Generate modified structures
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `disorder INPUT` | Resolve CIF disorder into ordered replicas | `-o OUTPUT`, `--method {optimal,random,enumerate}`, `--count INT`, `--seed INT`, `--coupled` |
-| `add-h INPUT` | Add missing hydrogen atoms | `-o OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
-| `slab INPUT` | Generate surface slab models | `-o OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all}` |
-| `cluster INPUT` | Carve molecular clusters | `-o OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable) |
-| `supercell INPUT` | Create supercells | `-o OUTPUT`, `--scale A B C` |
-| `vacancy INPUT` | Generate vacancy defects | `-o OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
-| `desolvate INPUT` | Remove solvent molecules | `-o OUTPUT`, `--targets STR` (repeatable, required) |
-| `interpolate START END` | Interpolate between structures | `-o OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
-| `reorient INPUT` | Reorient crystal for axis-aligned simulations | `-o OUTPUT`, `--direction H K L`, `--target-axis {x,y,z}` (default: z), `--no-reduce` |
+| `mck operate disorder INPUT` | Resolve CIF disorder into ordered replicas | `-o/--output OUTPUT`, `--method {optimal,random,enumerate}`, `--count INT`, `--seed INT`, `--coupled` |
+| `mck operate add-h INPUT` | Add missing hydrogen atoms | `-o/--output OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
+| `mck operate slab INPUT` | Generate surface slab models | `-o/--output OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all,INDEX}` |
+| `mck operate cluster INPUT` | Carve molecular clusters | `-o/--output OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--cut-cc-bonds I,J;K,L`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable), `--seed-merge-radius FLOAT`, `--convention-reference STR`, `--no-stop-at-non-seed-metals` |
+| `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C` |
+| `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
+| `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
+| `mck operate interpolate START END` | Interpolate between structures | `-o/--output OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
+| `mck operate reorient INPUT` | Reorient crystal for axis-aligned simulations | `-o/--output OUTPUT`, `--direction H K L`, `--target-axis {x,y,z}` (default: z), `--no-reduce` |
 
 ### `mck analyze` — Analyze crystals and print reports
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `bfdh INPUT` | Rank low-index facets by BFDH morphology | `--max-index INT`, `--top-n INT`, `--json` |
-| `interactions INPUT` | Summarize weak interactions | `--json` |
-| `polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
-| `sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--hard-clash-scale FLOAT`, `--intermolecular-clash-scale FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o OUTPUT`, `--json` |
+| `mck analyze bfdh INPUT` | Rank low-index facets by BFDH morphology | `--max-index INT`, `--top-n INT`, `--json` |
+| `mck analyze interactions INPUT` | Summarize weak interactions | `--json` |
+| `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
+| `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |
 
 ## Common Patterns
 
