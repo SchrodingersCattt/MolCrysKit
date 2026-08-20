@@ -19,6 +19,8 @@
 | Parse CIF | `mck.read_mol_crystal` | CIF path | `MolecularCrystal` | source docstring |
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
+| Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
+| Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
@@ -40,6 +42,9 @@
 Core crystal data model.
 
 - Core: `MolAtom`, `CrystalMolecule`, `MolecularCrystal`, `CrystalTrajectory`, `Molecule`
+- Renderer contracts: `SiteRecord`, `BondRecord`; use `MolecularCrystal.get_site_records()` and `MolecularCrystal.get_bond_records()` instead of private ASE metadata.
+  - `SiteRecord` identifies one atom by global, molecule-local, and ASU-source indices and carries label/symmetry provenance, Cartesian and fractional coordinates, occupancy/disorder metadata, lattice image shift, uiso_A2, and Cartesian u_cart_A2.
+  - `BondRecord` carries molecule-local and global endpoints, ASU-source endpoints when known, the right-end lattice image shift, Cartesian bond vector, and distance.
 - Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
@@ -68,7 +73,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
 
 - Facets/shape: `BFDHFacetInfo`, `enumerate_bfdh_facets`, `enumerate_low_index_millers`, `classify_shell`, `cshm`, `topology_signature`
-- Chemistry/formula/charge: `ChemicalEnvironment`, `StoichiometryAnalyzer`, `Fragment`, `parse_moiety_string`, `match_molecule_to_fragment`, `heavy_signature`, `MolChargeResult`, `assign_mol_formal_charges`, `compute_topo_signature`
+- Chemistry/formula/charge: `ChemicalEnvironment`, `StoichiometryAnalyzer`, `FormulaUnitMember`, `FormulaUnitSelection`, `Fragment`, `parse_moiety_string`, `match_molecule_to_fragment`, `heavy_signature`, `MolChargeResult`, `assign_mol_formal_charges`, `compute_topo_signature`
 - Packing/polyhedra: `find_polyhedra`, `detect_coordination_number`, `detect_prism_vs_antiprism`, `angular_rmsd_vs_ideals`, `compute_angular_signature`, `hull_encloses_center`, `planarity_analysis`, `DEFAULT_POLYHEDRON_SEARCH_CUTOFF`, `DEFAULT_MOLECULAR_SEARCH_CUTOFF`, `DEFAULT_CENTROID_OFFSET_FRAC`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`
@@ -92,7 +97,7 @@ Weak-interaction detection plus continuous scoring. Raw detectors return records
 
 - `interaction_profile` aggregates three interaction families: hydrogen bonds, halogen bonds, and pi-stacking (parallel + T-shape). C-H···π is subsumed by T-shape pi-stacking; H···H close contacts are excluded as packing artifacts. The standalone detectors `find_ch_pi` and `find_h_h_contacts` remain importable.
 - Pi-stacking uses subtype-specific geometry: parallel stacking filters by interplane distance h; T-shape uses centroid distance d with a wider cutoff and scoring center.  T-shape records include an approach distance field — the minimum distance from either ring's edge to the other ring's plane (negative = stem penetration, absent for parallel subtypes).
-- Base/local identity: `AtomRef`, `RingRef`, `BaseInteraction`, `build_crystal_atom_offsets`, `AtomLocalGeometry`, `LocalGeometry`, `LocalGeometryCache`, `RingGeometry`, `ChemicalIdentity`, `ChemicalIdentityCache`
+- Base/local identity: `AtomRef`, `RingRef`, `BaseInteraction`, `build_crystal_atom_offsets`, `AtomLocalGeometry`, `LocalGeometry`, `LocalGeometryCache`, `RingGeometry`, `ChemicalIdentity`, `ChemicalIdentityCache`. `RingGeometry.cycle_atom_indices` preserves a deterministic edge-connected traversal for rendering.
 - Detectors: `HydrogenBond`, `HydrogenBondCriteria`, `find_hydrogen_bonds`, `HalogenBond`, `HalogenBondCriteria`, `find_halogen_bonds`, `PiStacking`, `PiStackingCriteria`, `PiStackingSubtype`, `find_pi_stacking`, `find_pi_stacks`, `CHPiInteraction`, `CHPiInteractionCriteria`, `find_ch_pi`, `find_ch_pi_interactions`, `HHContact`, `HHContactCriteria`, `find_h_h_contacts`, `get_bonding_threshold`
 - Scoring/profile: `InteractionProfile`, `InteractionScoreSummary`, `interaction_profile`, `ScoringParams`, `DEFAULT_SCORING_PARAMS`, `composite_score`, `gaussian_kernel`, `lorentzian_kernel`, `normalized_vdw_distance`, `scaled_cutoff`, `vdw_radius_sum`
 

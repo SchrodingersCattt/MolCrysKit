@@ -63,7 +63,11 @@ from .sanity_check import (
 )
 from .shape import classify_shell, cshm, topology_signature
 from .species import *
-from .stoichiometry import StoichiometryAnalyzer
+from .stoichiometry import (
+    FormulaUnitMember,
+    FormulaUnitSelection,
+    StoichiometryAnalyzer,
+)
 from .volume import (
     calculate_accessible_boundary,
     calculate_atomic_volumes,
@@ -95,6 +99,8 @@ __all__ = [
     "LocalGeometry",
     "LocalGeometryCache",
     "MolChargeResult",
+    "FormulaUnitMember",
+    "FormulaUnitSelection",
     "PiStacking",
     "PiStackingCriteria",
     "RingGeometry",

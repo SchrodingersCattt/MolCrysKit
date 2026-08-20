@@ -397,7 +397,13 @@ def identify_molecules(
     before they can bond. ``exclude_indices`` remains available for callers
     that need to remove atoms from bond perception entirely.
     """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX
+    from ..constants.config import (
+        KEY_ASSEMBLY,
+        KEY_DISORDER_GROUP,
+        KEY_LABEL,
+        KEY_OCCUPANCY,
+        KEY_SYM_OP_INDEX,
+    )
 
     crystal_graph = _build_molecule_graph(
         atoms,
@@ -426,7 +432,6 @@ def identify_molecules(
             )
             mol_atoms.set_positions(curr_positions)
             mol_atoms.info["unwrap_completed"] = completed
-
         # Preserve disorder-related arrays when creating molecules
         # Copy over disorder metadata for the sliced atoms
         for key in [KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX]:
@@ -510,6 +515,11 @@ class DisorderInfo:
       which expanded copies share the same crystallographic site)
     - site_symmetry_order: Site symmetry order for each atom (from CIF field
       _atom_site_site_symmetry_order). Values > 1 indicate special positions.
+    - uiso: Isotropic/equivalent displacement U in Angstrom squared; NaN when
+      absent.
+    - u_cart: Cartesian anisotropic displacement tensors, flattened to
+      shape ``(n, 9)`` for ASE/ExtXYZ compatibility; all-NaN rows denote
+      missing tensors.
     - pbc: Periodic boundary conditions as a 3-tuple of bools, e.g.
       ``(True, True, True)`` for fully periodic or ``(True, True, False)``
       for a slab.  Defaults to ``(True, True, True)``.
@@ -524,6 +534,8 @@ class DisorderInfo:
     sym_op_indices: List[int] = None  # New field for symmetry operation indices
     asym_id: List[int] = None  # Index of parent asymmetric-unit atom
     site_symmetry_order: List[int] = None  # Site symmetry order from CIF
+    uiso: List[float] = None  # Isotropic/equivalent U in Angstrom^2
+    u_cart: np.ndarray = None  # Cartesian U tensors, flattened shape (n, 9)
     lattice_matrix: np.ndarray = None  # 3x3 lattice matrix (Angstrom)
     formula_moiety: str = None  # _chemical_formula_moiety from CIF
     z_value: int = None  # _cell_formula_units_Z from CIF
@@ -538,6 +550,12 @@ class DisorderInfo:
             self.asym_id = []
         if self.site_symmetry_order is None:
             self.site_symmetry_order = []
+        if self.uiso is None:
+            self.uiso = [float("nan")] * len(self.labels)
+        if self.u_cart is None:
+            self.u_cart = np.full((len(self.labels), 9), np.nan, dtype=float)
+        else:
+            self.u_cart = np.asarray(self.u_cart, dtype=float).reshape(len(self.labels), 9)
         if self.pbc is None:
             self.pbc = (True, True, True)
         # lattice_matrix stays None when not available (e.g. legacy callers);
@@ -582,6 +600,7 @@ class DisorderInfo:
         from ..constants.config import (
             KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
             KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+            KEY_UISO, KEY_U_CART,
         )
 
         atoms = crystal.to_ase()
@@ -617,6 +636,16 @@ class DisorderInfo:
         sso_arr = atoms.arrays.get(KEY_SITE_SYMMETRY_ORDER)
         site_symmetry_order = list(int(x) for x in sso_arr) if sso_arr is not None else [1] * n
 
+        uiso_arr = atoms.arrays.get(KEY_UISO)
+        uiso = list(float(x) for x in uiso_arr) if uiso_arr is not None else [float("nan")] * n
+
+        u_cart_arr = atoms.arrays.get(KEY_U_CART)
+        u_cart = (
+            np.asarray(u_cart_arr, dtype=float).reshape(n, 9)
+            if u_cart_arr is not None
+            else np.full((n, 9), np.nan, dtype=float)
+        )
+
         lattice_matrix = np.array(crystal.lattice, dtype=float)
 
         pbc = tuple(crystal.pbc) if hasattr(crystal, 'pbc') else (True, True, True)
@@ -631,6 +660,8 @@ class DisorderInfo:
             sym_op_indices=sym_op_indices,
             asym_id=asym_id,
             site_symmetry_order=site_symmetry_order,
+            uiso=uiso,
+            u_cart=u_cart,
             lattice_matrix=lattice_matrix,
             pbc=pbc,
         )
@@ -720,6 +751,114 @@ def _extract_numeric_value(value_str: str) -> float:
         return float(cleaned)
     except ValueError:
         return 0.0
+
+
+def _as_cif_list(value) -> list:
+    """Normalise a scalar or loop column from pymatgen's CIF dictionary."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def _optional_cif_number(value) -> float:
+    """Parse one optional CIF number, returning NaN for missing values."""
+    if value is None or str(value).strip() in {"", ".", "?"}:
+        return float("nan")
+    cleaned = re.sub(r"\(.*?\)", "", str(value))
+    try:
+        return float(cleaned)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _adp_from_cif_block(
+    data_block: dict, labels: List[str], lattice: Lattice
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return ASU ``(Uiso, Ucart)`` arrays from CIF U or B fields.
+
+    ``Ucart`` is flattened to shape ``(n, 9)`` so ASE ExtXYZ can preserve it
+    as a regular multi-column property.  CIF anisotropic components are
+    expressed along the crystallographic axes; the returned tensors use an
+    orthonormal Cartesian frame.
+    """
+    n_atoms = len(labels)
+    uiso = np.full(n_atoms, np.nan, dtype=float)
+    u_cart = np.full((n_atoms, 9), np.nan, dtype=float)
+
+    raw_uiso = _as_cif_list(data_block.get("_atom_site_U_iso_or_equiv"))
+    raw_biso = _as_cif_list(data_block.get("_atom_site_B_iso_or_equiv"))
+    for index in range(n_atoms):
+        value = _optional_cif_number(raw_uiso[index]) if index < len(raw_uiso) else np.nan
+        if not np.isfinite(value) and index < len(raw_biso):
+            b_value = _optional_cif_number(raw_biso[index])
+            if np.isfinite(b_value):
+                value = b_value / (8.0 * np.pi**2)
+        uiso[index] = value
+
+    aniso_labels = _as_cif_list(data_block.get("_atom_site_aniso_label"))
+    if not aniso_labels:
+        return uiso, u_cart
+
+    suffixes = ("11", "22", "33", "12", "13", "23")
+    u_columns = [
+        _as_cif_list(data_block.get(f"_atom_site_aniso_U_{suffix}"))
+        for suffix in suffixes
+    ]
+    b_columns = [
+        _as_cif_list(data_block.get(f"_atom_site_aniso_B_{suffix}"))
+        for suffix in suffixes
+    ]
+    label_to_index = {str(label): index for index, label in enumerate(labels)}
+    cart_basis = np.asarray(lattice.matrix, dtype=float).T
+    reciprocal_lengths = np.linalg.norm(np.linalg.inv(cart_basis), axis=1)
+    cif_to_cart = cart_basis @ np.diag(reciprocal_lengths)
+
+    for row, raw_label in enumerate(aniso_labels):
+        atom_index = label_to_index.get(str(raw_label))
+        if atom_index is None:
+            continue
+        values = []
+        for u_column, b_column in zip(u_columns, b_columns):
+            value = _optional_cif_number(u_column[row]) if row < len(u_column) else np.nan
+            if not np.isfinite(value) and row < len(b_column):
+                b_value = _optional_cif_number(b_column[row])
+                if np.isfinite(b_value):
+                    value = b_value / (8.0 * np.pi**2)
+            values.append(value)
+        if not np.all(np.isfinite(values)):
+            continue
+        u_cif = np.array(
+            [
+                [values[0], values[3], values[4]],
+                [values[3], values[1], values[5]],
+                [values[4], values[5], values[2]],
+            ],
+            dtype=float,
+        )
+        matrix = cif_to_cart @ u_cif @ cif_to_cart.T
+        matrix = 0.5 * (matrix + matrix.T)
+        u_cart[atom_index] = matrix.reshape(9)
+        if not np.isfinite(uiso[atom_index]):
+            uiso[atom_index] = float(np.trace(matrix) / 3.0)
+
+    return uiso, u_cart
+
+
+def _transform_u_cart(u_cart_flat: np.ndarray, op: SymmOp, lattice: Lattice) -> np.ndarray:
+    """Apply a fractional symmetry rotation to one Cartesian ADP tensor."""
+    values = np.asarray(u_cart_flat, dtype=float)
+    if values.size != 9 or not np.all(np.isfinite(values)):
+        return np.full(9, np.nan, dtype=float)
+    cart_basis = np.asarray(lattice.matrix, dtype=float).T
+    rotation_cart = (
+        cart_basis
+        @ np.asarray(op.rotation_matrix, dtype=float)
+        @ np.linalg.inv(cart_basis)
+    )
+    transformed = rotation_cart @ values.reshape(3, 3) @ rotation_cart.T
+    return (0.5 * (transformed + transformed.T)).reshape(9)
 
 
 def _parse_symmetry_operations(
@@ -969,6 +1108,8 @@ def scan_cif_disorder(
         else:
             site_sym_orders.append(1)
 
+    asu_uiso, asu_u_cart = _adp_from_cif_block(data_block, list(labels), lattice)
+
     # --- Read MolCrysKit custom CIF fields (for round-trip fidelity) ---
     # When a slab/supercell is written to CIF and later re-read, standard
     # CIF fields can't carry sym_op_index or asym_id (P1 slabs have only
@@ -1051,16 +1192,26 @@ def scan_cif_disorder(
     all_sym_op_indices = []  # New list for symmetry operation indices
     all_asym_ids = []  # NEW: index of parent asymmetric-unit atom
     all_site_sym_orders = []  # NEW: site symmetry order for each expanded atom
+    all_uiso = []
+    all_u_cart = []
 
-    # Per-element bucket of fractional coordinates already accepted, used
-    # to deduplicate symmetry images.  Each bucket is grown as a Python
-    # list of (3,) arrays and converted to a numpy array on demand for
-    # vectorised minimum-image distance checks.  This replaces an
-    # O(N**2) python double loop that previously ran one PBC distance
-    # call per existing atom.
+    # Per-element buckets canonicalise symmetry-equivalent ASU rows (some CSD
+    # exports contain multiple labelled rows from the same orbit).  Distinct
+    # labelled sources that are already coincident in the ASU are the important
+    # exception: they represent separate provenance/disorder alternatives and
+    # must both survive, including in P1.
     coords_by_symbol: dict[str, list[np.ndarray]] = {}
+    sources_by_symbol: dict[str, list[int]] = {}
     lattice_matrix = lattice.matrix
     tol_sq = 0.01 * 0.01  # match _are_coords_close default (Å)
+
+    protected_source_pairs: set[tuple[int, int]] = set()
+    for left in range(len(labels)):
+        for right in range(left + 1, len(labels)):
+            if symbols[left] != symbols[right] or labels[left] == labels[right]:
+                continue
+            if _are_coords_close(frac_coords[left], frac_coords[right], lattice):
+                protected_source_pairs.add((left, right))
 
     # Pre-compute the 27 lattice-shift integer offsets used by the
     # minimum-image convention, plus their Cartesian counterparts.  We
@@ -1077,6 +1228,7 @@ def scan_cif_disorder(
         original_coord = frac_coords[i]
         sym_i = symbols[i]
         bucket = coords_by_symbol.setdefault(sym_i, [])
+        bucket_sources = sources_by_symbol.setdefault(sym_i, [])
 
         # Apply each symmetry operation with its index
         for op_idx, op in enumerate(sym_ops):
@@ -1089,8 +1241,13 @@ def scan_cif_disorder(
             # Vectorised dedup against every existing image of this
             # element.  Equivalent to running `_are_coords_close` against
             # each one but ~100x faster on large unit cells (e.g. PAP-4).
-            if bucket:
-                existing = np.asarray(bucket)  # shape (N, 3)
+            comparable = [
+                index
+                for index, source in enumerate(bucket_sources)
+                if (min(i, source), max(i, source)) not in protected_source_pairs
+            ]
+            if comparable:
+                existing = np.asarray([bucket[index] for index in comparable])
                 deltas = existing - new_coord  # (N, 3)
                 deltas -= np.round(deltas)  # bring into [-0.5, 0.5]
                 # 27 candidate vectors per existing atom: (N, 27, 3)
@@ -1109,6 +1266,8 @@ def scan_cif_disorder(
             all_assemblies.append(
                 assemblies[i]
             )  # Copy the assembly ID to the new atom
+            all_uiso.append(float(asu_uiso[i]))
+            all_u_cart.append(_transform_u_cart(asu_u_cart[i], op, lattice))
 
             # Use custom _molcrys_* provenance when available (CIF round-trip
             # for slabs/supercells where symmetry expansion is P1 identity).
@@ -1131,6 +1290,7 @@ def scan_cif_disorder(
                 all_site_sym_orders.append(site_sym_orders[i])
 
             bucket.append(new_coord)
+            bucket_sources.append(i)
 
     # Convert lists to appropriate formats
     all_frac_coords = np.array(all_frac_coords)
@@ -1145,6 +1305,8 @@ def scan_cif_disorder(
         sym_op_indices=all_sym_op_indices,
         asym_id=all_asym_ids,
         site_symmetry_order=all_site_sym_orders,
+        uiso=all_uiso,
+        u_cart=np.asarray(all_u_cart, dtype=float).reshape(-1, 9),
         lattice_matrix=lattice_matrix,
         formula_moiety=formula_moiety,
         z_value=z_value,
@@ -1190,6 +1352,7 @@ def read_mol_crystal(
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
         KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
+        KEY_UISO, KEY_U_CART,
     )
 
     # Extract disorder info — this is now the SOLE authority for atomic
@@ -1242,6 +1405,8 @@ def read_mol_crystal(
         atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id, dtype=int))
     if disorder_info.site_symmetry_order:
         atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order, dtype=int))
+    atoms.set_array(KEY_UISO, np.asarray(disorder_info.uiso, dtype=float))
+    atoms.set_array(KEY_U_CART, np.asarray(disorder_info.u_cart, dtype=float).reshape(n, 9))
     # Store CIF fractional coordinates for exact round-trip via from_crystal()
     atoms.set_array(KEY_FRAC_X, frac_coords[:, 0].copy())
     atoms.set_array(KEY_FRAC_Y, frac_coords[:, 1].copy())
@@ -1327,6 +1492,7 @@ def _parse_cif_asu(
     from ..constants.config import (
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
         KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+        KEY_UISO, KEY_U_CART,
     )
 
     # Parse the CIF using pymatgen to get the raw data dictionary
@@ -1448,6 +1614,8 @@ def _parse_cif_asu(
         else:
             site_sym_orders.append(1)
 
+    asu_uiso, asu_u_cart = _adp_from_cif_block(data_block, list(labels), lattice)
+
     # Build Cartesian coordinates from fractional coords
     positions = frac_coords @ lattice.matrix  # fractional → Cartesian
 
@@ -1462,6 +1630,8 @@ def _parse_cif_asu(
     atoms.set_array(KEY_LABEL, np.array(labels))
     atoms.set_array(KEY_ASYM_ID, np.arange(n, dtype=int))
     atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(site_sym_orders, dtype=int))
+    atoms.set_array(KEY_UISO, asu_uiso)
+    atoms.set_array(KEY_U_CART, asu_u_cart)
 
     return atoms, sym_ops, lattice
 
@@ -1504,8 +1674,8 @@ def _identify_molecules_asu_first(
         Parsed crystal structure with identified molecular units.
     """
     from ..constants.config import (
-        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+        KEY_U_CART,
     )
 
     # Parse CIF to get only the asymmetric unit atoms
@@ -1618,11 +1788,16 @@ def _identify_molecules_asu_first(
 
             # Preserve generic metadata arrays (skip symop/asym which we set below)
             for key in asu_mol.arrays.keys():
-                if key in (KEY_SYM_OP_INDEX, KEY_ASYM_ID):
+                if key in ("numbers", "positions", KEY_SYM_OP_INDEX, KEY_ASYM_ID):
                     continue
                 arr = asu_mol.arrays[key]
-                if arr is not None and arr.ndim == 1 and len(arr) == len(asu_mol):
-                    new_mol.set_array(key, arr.copy())
+                if arr is not None and len(arr) == len(asu_mol):
+                    values = arr.copy()
+                    if key == KEY_U_CART:
+                        values = np.vstack(
+                            [_transform_u_cart(value, op, lattice) for value in values]
+                        )
+                    new_mol.set_array(key, values)
 
             # Set symmetry operation index (same for all atoms in this replica)
             new_mol.set_array(KEY_SYM_OP_INDEX, np.full(len(asu_mol), op_idx, dtype=int))

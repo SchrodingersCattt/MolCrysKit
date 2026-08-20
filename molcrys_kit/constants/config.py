@@ -15,6 +15,9 @@ KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order" # Default: 1 as integer
 KEY_FRAC_X = "frac_x"                           # CIF fractional x-coordinate
 KEY_FRAC_Y = "frac_y"                           # CIF fractional y-coordinate
 KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
+KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (n, 3)
+KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
+KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
 
 # Transition metals set
 TRANSITION_METALS = {

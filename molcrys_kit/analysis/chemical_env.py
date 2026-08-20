@@ -8,11 +8,37 @@ bond angles, and ring detection.
 
 import warnings
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Set
+from typing import List, Dict, Optional, Set
 import networkx as nx
 from abc import ABC, abstractmethod
-from ..structures.crystal import MolecularCrystal
 from ..utils.geometry import angle_between_vectors
+
+
+def _ordered_cycle(graph: nx.Graph, cycle_nodes) -> List[int]:
+    """Return a deterministic edge-connected order for one cycle node set."""
+    nodes = {int(node) for node in cycle_nodes}
+    if len(nodes) < 3:
+        return sorted(nodes)
+    start = min(nodes)
+
+    def _search(path: List[int]) -> Optional[List[int]]:
+        if len(path) == len(nodes):
+            return path if graph.has_edge(path[-1], start) else None
+        current = path[-1]
+        for neighbor in sorted(int(node) for node in graph.neighbors(current)):
+            if neighbor not in nodes or neighbor in path:
+                continue
+            result = _search(path + [neighbor])
+            if result is not None:
+                return result
+        return None
+
+    result = _search([start])
+    if result is None:
+        raise ValueError(f"Cycle nodes are not edge-connected: {sorted(nodes)}")
+
+    reverse = [result[0], *reversed(result[1:])]
+    return min(result, reverse)
 
 
 class ChemicalEnvironment:
@@ -79,14 +105,20 @@ class ChemicalEnvironment:
             relabelled = nx.relabel_nodes(self.graph, orig_to_int)
 
             raw_cycles = nx.minimum_cycle_basis(relabelled, weight=None)
+            ordered_cycles = [
+                _ordered_cycle(
+                    self.graph,
+                    [int_to_orig[node] for node in cycle],
+                )
+                for cycle in raw_cycles
+            ]
 
             self._atom_rings = {}
             for idx in self.graph.nodes():
-                int_idx = orig_to_int[idx]
                 atom_cycles = [
-                    [int_to_orig[n] for n in cycle]
-                    for cycle in raw_cycles
-                    if int_idx in cycle
+                    list(cycle)
+                    for cycle in ordered_cycles
+                    if idx in cycle
                 ]
                 self._atom_rings[idx] = atom_cycles
         except (ValueError, TypeError, nx.NetworkXError) as e:
@@ -1009,7 +1041,6 @@ class NitrogenSite(HybridizedSite):
             # coord==1 or coord==4: unusual in aromatic context, fall through
 
         coord = self.geometry_stats['coordination_number']
-        avg_len = self.geometry_stats['average_bond_length']
 
         # Defaults
         num_h = 0

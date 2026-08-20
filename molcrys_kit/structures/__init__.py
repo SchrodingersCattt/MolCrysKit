@@ -11,6 +11,7 @@ from .crystal import MolecularCrystal
 from .cluster import CrystalCluster, ClusterProvenance
 from .polyhedra import all_ideal_polyhedra, convex_hull_payload, ideal_polyhedra_for_cn
 from .trajectory import CrystalTrajectory
+from .records import BondRecord, SiteRecord
 
 # For backward compatibility
 Molecule = CrystalMolecule
@@ -26,4 +27,6 @@ __all__ = [
     "convex_hull_payload",
     "ideal_polyhedra_for_cn",
     "CrystalTrajectory",
+    "BondRecord",
+    "SiteRecord",
 ]

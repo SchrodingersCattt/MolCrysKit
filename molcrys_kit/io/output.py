@@ -226,6 +226,7 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     from ..constants.config import (
         KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+        KEY_UISO, KEY_U_CART,
     )
 
     lines = []
@@ -291,6 +292,8 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
     all_sym_op_indices = []
     all_asym_ids = []
     all_site_sym_orders = []
+    all_uiso = []
+    all_u_cart = []
 
     for mol in crystal.molecules:
         # Get metadata arrays if they exist
@@ -329,6 +332,16 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
                 site_sym_orders = mol.arrays[KEY_SITE_SYMMETRY_ORDER]
             else:
                 site_sym_orders = np.full(len(mol), 1, dtype=int)
+
+            if KEY_UISO in mol.arrays:
+                uiso_values = np.asarray(mol.arrays[KEY_UISO], dtype=float)
+            else:
+                uiso_values = np.full(len(mol), np.nan, dtype=float)
+
+            if KEY_U_CART in mol.arrays:
+                u_cart_values = np.asarray(mol.arrays[KEY_U_CART], dtype=float).reshape(len(mol), 9)
+            else:
+                u_cart_values = np.full((len(mol), 9), np.nan, dtype=float)
         else:
             # If mol doesn't have arrays attribute, use defaults
             occupancies = np.full(len(mol), 1.0)
@@ -338,6 +351,8 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
             sym_op_indices = np.full(len(mol), 0, dtype=int)
             asym_ids = np.full(len(mol), -1, dtype=int)
             site_sym_orders = np.full(len(mol), 1, dtype=int)
+            uiso_values = np.full(len(mol), np.nan, dtype=float)
+            u_cart_values = np.full((len(mol), 9), np.nan, dtype=float)
 
         symbols = mol.get_chemical_symbols()
         positions = mol.get_positions()
@@ -356,6 +371,8 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
             all_sym_op_indices.append(int(sym_op_indices[i]))
             all_asym_ids.append(int(asym_ids[i]))
             all_site_sym_orders.append(int(site_sym_orders[i]))
+            all_uiso.append(float(uiso_values[i]))
+            all_u_cart.append(np.asarray(u_cart_values[i], dtype=float).reshape(9))
 
     def _sanitise_label(label, symbol: str, atom_index: int) -> str:
         text = str(label).strip() if label is not None else ""
@@ -366,15 +383,58 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
         return text
 
     # Write atom positions with standard atom-site metadata only.
-    for i, (symbol, frac_pos, occ, group, assembly, label, soi, aid, sso) in enumerate(
+    written_labels = []
+    used_labels = set()
+    for i, (symbol, frac_pos, occ, group, assembly, label, soi, aid, sso, uiso, u_cart) in enumerate(
         zip(all_symbols, all_frac_positions, all_occupancies, all_disorder_groups,
-            all_assemblies, all_labels, all_sym_op_indices, all_asym_ids, all_site_sym_orders)
+            all_assemblies, all_labels, all_sym_op_indices, all_asym_ids,
+            all_site_sym_orders, all_uiso, all_u_cart)
     ):
         safe_label = _sanitise_label(label, symbol, i)
+        if safe_label in used_labels:
+            safe_label = f"{symbol}{i + 1}"
+            suffix = 1
+            while safe_label in used_labels:
+                safe_label = f"{symbol}{i + 1}_{suffix}"
+                suffix += 1
+        used_labels.add(safe_label)
+        written_labels.append(safe_label)
+        has_u_cart = np.all(np.isfinite(u_cart))
+        uiso_token = f"{uiso:.8f}" if np.isfinite(uiso) else "."
+        adp_type = "Uani" if has_u_cart else ("Uiso" if np.isfinite(uiso) else ".")
         lines.append(
             f"  {safe_label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
-            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} .  Uiso"
+            f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} {uiso_token} {adp_type}"
         )
+
+    anisotropic_rows = []
+    cart_basis = np.asarray(crystal.lattice, dtype=float).T
+    reciprocal_lengths = np.linalg.norm(np.linalg.inv(cart_basis), axis=1)
+    cart_to_cif = np.linalg.inv(cart_basis @ np.diag(reciprocal_lengths))
+    for label, raw_u_cart in zip(written_labels, all_u_cart):
+        raw_u_cart = np.asarray(raw_u_cart, dtype=float)
+        if raw_u_cart.size != 9 or not np.all(np.isfinite(raw_u_cart)):
+            continue
+        matrix = raw_u_cart.reshape(3, 3)
+        u_cif = cart_to_cif @ matrix @ cart_to_cif.T
+        anisotropic_rows.append((label, u_cif))
+
+    if anisotropic_rows:
+        lines.append("")
+        lines.append("loop_")
+        lines.append("  _atom_site_aniso_label")
+        lines.append("  _atom_site_aniso_U_11")
+        lines.append("  _atom_site_aniso_U_22")
+        lines.append("  _atom_site_aniso_U_33")
+        lines.append("  _atom_site_aniso_U_12")
+        lines.append("  _atom_site_aniso_U_13")
+        lines.append("  _atom_site_aniso_U_23")
+        for label, matrix in anisotropic_rows:
+            lines.append(
+                f"  {label:8s} {matrix[0, 0]:.8f} {matrix[1, 1]:.8f} "
+                f"{matrix[2, 2]:.8f} {matrix[0, 1]:.8f} "
+                f"{matrix[0, 2]:.8f} {matrix[1, 2]:.8f}"
+            )
 
     lines.append("")
     lines.append("loop_")

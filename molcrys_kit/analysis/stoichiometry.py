@@ -6,11 +6,40 @@ and calculating stoichiometry based on molecular topology.
 """
 
 import networkx as nx
+import itertools
+import numpy as np
+from dataclasses import dataclass
 from typing import Dict, Optional
 from collections import defaultdict
 from ..structures.crystal import MolecularCrystal
 from ..constants.config import COMMON_SOLVENTS
 from ..utils.graph import graph_invariant
+
+
+@dataclass(frozen=True)
+class FormulaUnitMember:
+    """One molecule selected for a compact stoichiometric formula unit."""
+
+    species_id: str
+    molecule_index: int
+    image_shift: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class FormulaUnitSelection:
+    """Deterministic molecule/image selection for one formula unit."""
+
+    members: tuple[FormulaUnitMember, ...]
+    species_counts: tuple[tuple[str, int], ...]
+
+    @property
+    def molecule_indices(self) -> tuple[int, ...]:
+        """Selected molecule indices in deterministic assembly order."""
+        return tuple(member.molecule_index for member in self.members)
+
+    def counts(self) -> Dict[str, int]:
+        """Return the simplest-unit species counts as a new dictionary."""
+        return dict(self.species_counts)
 
 
 class StoichiometryAnalyzer:
@@ -143,6 +172,87 @@ class StoichiometryAnalyzer:
 
         return simplest_unit
 
+    def select_formula_unit(self) -> FormulaUnitSelection:
+        """Select a spatially compact realisation of the simplest unit.
+
+        The heaviest species anchors the selection.  Remaining molecules are
+        chosen greedily by nearest periodic centroid image, with molecule
+        index and lattice shift providing deterministic tie-breaks.  Returned
+        shifts are additional translations relative to the molecule positions
+        stored in ``crystal``.
+        """
+        simplest = self.get_simplest_unit()
+        if not simplest:
+            return FormulaUnitSelection((), ())
+
+        lattice = np.asarray(self.crystal.lattice, dtype=float)
+        inv_lattice = np.linalg.inv(lattice)
+
+        def _species_priority(species_id: str):
+            sample = self.crystal.molecules[self.species_map[species_id][0]]
+            heavy_atoms = sum(
+                symbol != "H" for symbol in sample.get_chemical_symbols()
+            )
+            return (-heavy_atoms, -len(sample), species_id)
+
+        species_order = sorted(simplest, key=_species_priority)
+        anchor_species = species_order[0]
+        anchor_index = min(self.species_map[anchor_species])
+        anchor = self.crystal.molecules[anchor_index]
+        running_centroid = np.asarray(anchor.get_centroid(), dtype=float)
+        running_weight = len(anchor)
+        selected = [FormulaUnitMember(anchor_species, anchor_index, (0, 0, 0))]
+        used = {anchor_index}
+
+        def _best_shift(molecule_index: int):
+            centroid = np.asarray(
+                self.crystal.molecules[molecule_index].get_centroid(), dtype=float
+            )
+            delta_frac = (centroid - running_centroid) @ inv_lattice
+            base = -np.rint(delta_frac).astype(int)
+            scored = []
+            for offset in itertools.product((-1, 0, 1), repeat=3):
+                shift = base + np.asarray(offset, dtype=int)
+                shifted = centroid + shift @ lattice
+                distance = float(np.linalg.norm(shifted - running_centroid))
+                scored.append((distance, tuple(int(v) for v in shift)))
+            return min(scored, key=lambda item: (round(item[0], 12), item[1]))
+
+        for species_id in species_order:
+            required = int(simplest[species_id])
+            if species_id == anchor_species:
+                required -= 1
+            for _ in range(required):
+                candidates = []
+                for molecule_index in sorted(self.species_map[species_id]):
+                    if molecule_index in used:
+                        continue
+                    distance, shift = _best_shift(molecule_index)
+                    candidates.append(
+                        (round(distance, 12), molecule_index, shift)
+                    )
+                if not candidates:
+                    raise RuntimeError(
+                        f"Not enough molecules to select {simplest[species_id]} "
+                        f"member(s) of species {species_id!r}"
+                    )
+                _, molecule_index, shift = min(candidates)
+                molecule = self.crystal.molecules[molecule_index]
+                shifted_centroid = np.asarray(molecule.get_centroid()) + np.asarray(shift) @ lattice
+                new_weight = running_weight + len(molecule)
+                running_centroid = (
+                    running_centroid * running_weight
+                    + shifted_centroid * len(molecule)
+                ) / new_weight
+                running_weight = new_weight
+                used.add(molecule_index)
+                selected.append(
+                    FormulaUnitMember(species_id, molecule_index, shift)
+                )
+
+        counts = tuple((species_id, int(simplest[species_id])) for species_id in sorted(simplest))
+        return FormulaUnitSelection(tuple(selected), counts)
+
     def print_species_summary(self):
         """
         Print a summary table of identified species with solvent identification.
@@ -166,3 +276,10 @@ class StoichiometryAnalyzer:
                 notes += f"[Possible Solvent: {possible_solvent}]"
             
             print(f"{species_id:<15} {count:<8} {formula:<15} {example_idx:<25} {notes:<20}")
+
+
+__all__ = [
+    "FormulaUnitMember",
+    "FormulaUnitSelection",
+    "StoichiometryAnalyzer",
+]

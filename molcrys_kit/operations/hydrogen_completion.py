@@ -478,20 +478,24 @@ class HydrogenCompleter:
             if h_positions:
                 n_h = len(h_positions)
                 h_atoms = Atoms(symbols=["H"] * n_h, positions=h_positions)
+                from ..constants.config import KEY_U_CART, KEY_UISO
 
                 # Propagate custom arrays with sane defaults for H atoms
                 base_keys = {"numbers", "positions"}
                 for key, arr in new_atoms.arrays.items():
                     if key in base_keys:
                         continue
+                    shape = (n_h, *arr.shape[1:])
                     if key == "occupancy":
-                        h_atoms.set_array(key, np.full(n_h, 1.0))
+                        h_atoms.set_array(key, np.full(shape, 1.0))
+                    elif key in (KEY_UISO, KEY_U_CART):
+                        h_atoms.set_array(key, np.full(shape, np.nan, dtype=float))
                     elif arr.dtype.kind == 'f':  # float arrays
-                        h_atoms.set_array(key, np.zeros(n_h, dtype=arr.dtype))
+                        h_atoms.set_array(key, np.zeros(shape, dtype=arr.dtype))
                     elif arr.dtype.kind == 'i':  # int arrays
-                        h_atoms.set_array(key, np.zeros(n_h, dtype=arr.dtype))
+                        h_atoms.set_array(key, np.zeros(shape, dtype=arr.dtype))
                     elif arr.dtype.kind in ('U', 'S', 'O'):  # string arrays
-                        h_atoms.set_array(key, np.array([''] * n_h, dtype=arr.dtype))
+                        h_atoms.set_array(key, np.full(shape, '', dtype=arr.dtype))
 
                 new_atoms = new_atoms + h_atoms
 
