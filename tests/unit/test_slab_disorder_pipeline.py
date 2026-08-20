@@ -8,7 +8,7 @@ Verifies that:
 3. DisorderInfo.from_crystal() recomputes correct frac coords for slabs
    (Phase B2).
 4. The disorder pipeline respects slab PBC (True, True, False) (Phase C).
-5. Unique sym_op_index/asym_id per slab layer (Phase D).
+5. CIF sym_op_index/asym_id provenance is preserved across slab layers (Phase D).
 6. End-to-end: disorder-first→slab pipeline produces correct results.
 """
 
@@ -21,10 +21,7 @@ import numpy as np
 import pytest
 
 from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder, DisorderInfo
-from molcrys_kit.operations.surface import (
-    TopologicalSlabGenerator,
-    generate_topological_slab,
-)
+from molcrys_kit.operations.surface import generate_topological_slab
 from molcrys_kit.analysis.disorder.process import (
     generate_ordered_replicas_from_disordered_sites,
 )
@@ -178,15 +175,15 @@ class TestPbcPropagation:
 
 
 # ---------------------------------------------------------------------------
-# Phase D: Unique sym_op_index / asym_id per slab layer
+# Phase D: Source sym_op_index / asym_id preserved per slab layer
 # ---------------------------------------------------------------------------
 
 
-class TestUniqueLayerMetadata:
-    """Multi-layer slabs must have unique sym_op_index/asym_id per layer."""
+class TestLayerSourceMetadata:
+    """Multi-layer slabs retain CIF sym_op_index/asym_id provenance."""
 
-    def test_sym_op_index_unique_across_layers(self):
-        """No two layers should share the same sym_op_index values."""
+    def test_source_indices_preserved_across_layers(self):
+        """Every copied layer keeps the same ASU and symmetry source indices."""
         crystal = read_mol_crystal(str(DAP4))
         slab = generate_topological_slab(crystal, (1, 0, 0), layers=3, vacuum=10.0)
 
@@ -194,24 +191,25 @@ class TestUniqueLayerMetadata:
         # With 3 layers, molecules 0..n-1 are layer 0, n..2n-1 are layer 1, etc.
         n_mols_per_layer = len(crystal.get_unwrapped_molecules())
 
-        layer_soi_sets = []
+        layer_sources = []
         for layer_idx in range(3):
-            layer_sois = set()
             start = layer_idx * n_mols_per_layer
             end = start + n_mols_per_layer
-            for mol in slab.molecules[start:end]:
-                if KEY_SYM_OP_INDEX in mol.arrays:
-                    layer_sois.update(mol.arrays[KEY_SYM_OP_INDEX].tolist())
-            layer_soi_sets.append(layer_sois)
+            layer_molecules = slab.molecules[start:end]
+            layer_sources.append(
+                (
+                    np.concatenate(
+                        [mol.arrays[KEY_ASYM_ID] for mol in layer_molecules]
+                    ),
+                    np.concatenate(
+                        [mol.arrays[KEY_SYM_OP_INDEX] for mol in layer_molecules]
+                    ),
+                )
+            )
 
-        # If sym_op_index arrays exist, verify cross-layer disjointness
-        if all(s for s in layer_soi_sets):
-            for i in range(len(layer_soi_sets)):
-                for j in range(i + 1, len(layer_soi_sets)):
-                    overlap = layer_soi_sets[i] & layer_soi_sets[j]
-                    assert not overlap, (
-                        f"Layer {i} and layer {j} share sym_op_index values: {overlap}"
-                    )
+        for asym_ids, sym_op_indices in layer_sources[1:]:
+            np.testing.assert_array_equal(asym_ids, layer_sources[0][0])
+            np.testing.assert_array_equal(sym_op_indices, layer_sources[0][1])
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +393,7 @@ class TestCifRoundTripDisorderProvenance:
 
 
 class TestSupercellDisorderMetadata:
-    """Supercell preserves disorder arrays and offsets sym_op_index/asym_id."""
+    """Supercell preserves disorder arrays and source provenance."""
 
     @pytest.fixture
     def dap4_crystal(self):
@@ -420,33 +418,33 @@ class TestSupercellDisorderMetadata:
             assert KEY_FRAC_Y not in mol.arrays, "frac_y survived supercell"
             assert KEY_FRAC_Z not in mol.arrays, "frac_z survived supercell"
 
-    def test_get_supercell_unique_sym_op_index(self, dap4_crystal):
-        """sym_op_index must be unique across repeated cells in supercell."""
+    def test_get_supercell_preserves_source_indices(self, dap4_crystal):
+        """Repeated cells retain their CIF ASU and symmetry-operation source."""
         sc = dap4_crystal.get_supercell(2, 2, 1)
 
         # Molecules 0..n-1 = cell (0,0), n..2n-1 = cell (0,1),
         # 2n..3n-1 = cell (1,0), 3n..4n-1 = cell (1,1)
         n_per_cell = len(dap4_crystal.molecules)
-        cell_soi_sets = []
+        expected_soi = np.concatenate(
+            [mol.arrays[KEY_SYM_OP_INDEX] for mol in dap4_crystal.molecules]
+        )
+        expected_aid = np.concatenate(
+            [mol.arrays[KEY_ASYM_ID] for mol in dap4_crystal.molecules]
+        )
         for cell_idx in range(4):
-            cell_sois = set()
             start = cell_idx * n_per_cell
             end = start + n_per_cell
-            for mol in sc.molecules[start:end]:
-                if KEY_SYM_OP_INDEX in mol.arrays:
-                    cell_sois.update(mol.arrays[KEY_SYM_OP_INDEX].tolist())
-            cell_soi_sets.append(cell_sois)
-
-        # All cells must have disjoint sym_op_index sets; fail-loud if
-        # any cell unexpectedly lacks the array.
-        for s in cell_soi_sets:
-            assert s, "Some cells have no sym_op_index array"
-        for i in range(len(cell_soi_sets)):
-                for j in range(i + 1, len(cell_soi_sets)):
-                    overlap = cell_soi_sets[i] & cell_soi_sets[j]
-                    assert not overlap, (
-                        f"Cell {i} and cell {j} share sym_op_index: {overlap}"
-                    )
+            cell_molecules = sc.molecules[start:end]
+            np.testing.assert_array_equal(
+                np.concatenate(
+                    [mol.arrays[KEY_SYM_OP_INDEX] for mol in cell_molecules]
+                ),
+                expected_soi,
+            )
+            np.testing.assert_array_equal(
+                np.concatenate([mol.arrays[KEY_ASYM_ID] for mol in cell_molecules]),
+                expected_aid,
+            )
 
     def test_create_supercell_equals_get_supercell(self, dap4_crystal):
         """create_supercell delegates to get_supercell — results identical."""

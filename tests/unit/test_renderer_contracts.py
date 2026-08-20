@@ -9,7 +9,13 @@ from ase import Atoms
 
 from molcrys_kit.analysis.interactions import LocalGeometry
 from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer
-from molcrys_kit.constants.config import KEY_ASYM_ID, KEY_LABEL, KEY_U_CART, KEY_UISO
+from molcrys_kit.constants.config import (
+    KEY_ASYM_ID,
+    KEY_LABEL,
+    KEY_SYM_OP_INDEX,
+    KEY_U_CART,
+    KEY_UISO,
+)
 from molcrys_kit.io import read_extxyz, read_mol_crystal, write_cif, write_extxyz
 from molcrys_kit.operations import add_hydrogens
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
@@ -150,6 +156,16 @@ C1 0.789568352 1.579136704 2.368705056 0 0 0
 """
 
 
+CASE_INSENSITIVE_U_ADP_CIF = TRICLINIC_ADP_CIF.replace(
+    "_atom_site_U_iso_or_equiv", "_atom_site_u_ISO_or_equiv"
+).replace("_atom_site_aniso_U_", "_atom_site_ANISO_u_")
+
+
+CASE_INSENSITIVE_B_ADP_CIF = B_ADP_CIF.replace(
+    "_atom_site_B_iso_or_equiv", "_atom_site_b_ISO_or_equiv"
+).replace("_atom_site_aniso_B_", "_atom_site_ANISO_b_")
+
+
 COINCIDENT_LABELS_CIF = """\
 data_coincident
 _symmetry_space_group_name_H-M 'P 1'
@@ -253,6 +269,44 @@ def test_site_and_bond_records_expose_indices_and_periodic_image():
     assert len(bonds) == 1
     assert bonds[0].right_image_shift == (1, 0, 0)
     assert bonds[0].vector_A == pytest.approx((0.4, 0.0, 0.0))
+
+
+def test_supercell_rebases_periodic_site_and_bond_images():
+    atoms = Atoms(
+        "CC",
+        positions=[[9.8, 5.0, 5.0], [0.2, 5.0, 5.0]],
+        cell=np.eye(3) * 10.0,
+        pbc=True,
+    )
+    atoms.set_array(KEY_ASYM_ID, np.array([7, 8]))
+    atoms.set_array(KEY_SYM_OP_INDEX, np.array([3, 4]))
+    supercell = MolecularCrystal.from_ase(atoms).get_supercell(2, 1, 1)
+
+    site_records = supercell.get_site_records()
+    sites_by_molecule = {
+        molecule_index: [
+            site.image_shift
+            for site in site_records
+            if site.molecule_index == molecule_index
+        ]
+        for molecule_index in range(2)
+    }
+    bonds = supercell.get_bond_records()
+
+    assert sites_by_molecule == {
+        0: [(0, 0, 0), (0, 0, 0)],
+        1: [(0, 0, 0), (1, 0, 0)],
+    }
+    assert [bond.right_image_shift for bond in bonds] == [
+        (0, 0, 0),
+        (1, 0, 0),
+    ]
+    assert all(bond.vector_A == pytest.approx((0.4, 0.0, 0.0)) for bond in bonds)
+    assert all("bond_records" not in molecule.info for molecule in supercell.molecules)
+    assert [
+        [(site.asym_index, site.sym_op_index) for site in site_records if site.molecule_index == i]
+        for i in range(2)
+    ] == [[(7, 3), (8, 4)], [(7, 3), (8, 4)]]
 
 
 def test_missing_adp_is_reported_as_none():
@@ -380,6 +434,22 @@ def test_cif_b_factors_are_converted_to_u():
     assert np.asarray(site.u_cart_A2) == pytest.approx(np.diag([0.01, 0.02, 0.03]))
 
 
+def test_cif_adp_tag_lookup_is_case_insensitive():
+    u_site = read_mol_crystal(
+        cif_text=CASE_INSENSITIVE_U_ADP_CIF
+    ).get_site_records()[0]
+    b_site = read_mol_crystal(
+        cif_text=CASE_INSENSITIVE_B_ADP_CIF
+    ).get_site_records()[0]
+
+    assert u_site.uiso_A2 == pytest.approx(0.025)
+    assert np.asarray(u_site.u_cart_A2) == pytest.approx(TRICLINIC_U_CART_REFERENCE)
+    assert b_site.uiso_A2 == pytest.approx(0.04)
+    assert np.asarray(b_site.u_cart_A2) == pytest.approx(
+        np.diag([0.01, 0.02, 0.03])
+    )
+
+
 def test_adp_survives_ase_extxyz_supercell_and_cif_round_trips(tmp_path):
     crystal = read_mol_crystal(cif_text=TRICLINIC_ADP_CIF)
     expected = np.asarray(crystal.get_site_records()[0].u_cart_A2)
@@ -412,6 +482,41 @@ def test_adp_survives_ase_extxyz_supercell_and_cif_round_trips(tmp_path):
     assert np.asarray(from_cif.get_site_records()[0].u_cart_A2) == pytest.approx(
         expected, abs=2e-8
     )
+
+
+def test_partial_molecule_adp_survives_ase_and_extxyz_round_trips(tmp_path):
+    with_adp = Atoms("C", positions=[[1.0, 1.0, 1.0]])
+    with_adp.set_array(KEY_UISO, np.array([0.02]))
+    with_adp.set_array(KEY_U_CART, np.diag([0.01, 0.02, 0.03]).reshape(1, 9))
+    without_adp = Atoms("N", positions=[[5.0, 5.0, 5.0]])
+    crystal = MolecularCrystal(np.eye(3) * 10.0, [with_adp, without_adp])
+
+    flat = crystal.to_ase()
+    assert flat.arrays[KEY_UISO][0] == pytest.approx(0.02)
+    assert np.isnan(flat.arrays[KEY_UISO][1])
+    assert flat.arrays[KEY_U_CART][0].reshape(3, 3) == pytest.approx(
+        np.diag([0.01, 0.02, 0.03])
+    )
+    assert np.all(np.isnan(flat.arrays[KEY_U_CART][1]))
+
+    from_ase = MolecularCrystal.from_ase_atoms(flat)
+    ase_records = {record.symbol: record for record in from_ase.get_site_records()}
+    assert ase_records["C"].uiso_A2 == pytest.approx(0.02)
+    assert ase_records["N"].uiso_A2 is None
+    assert ase_records["N"].u_cart_A2 is None
+
+    path = tmp_path / "partial_adp.extxyz"
+    write_extxyz(crystal, str(path))
+    from_extxyz = read_extxyz(str(path))
+    extxyz_records = {
+        record.symbol: record for record in from_extxyz.get_site_records()
+    }
+    assert extxyz_records["C"].uiso_A2 == pytest.approx(0.02)
+    assert np.asarray(extxyz_records["C"].u_cart_A2) == pytest.approx(
+        np.diag([0.01, 0.02, 0.03])
+    )
+    assert extxyz_records["N"].uiso_A2 is None
+    assert extxyz_records["N"].u_cart_A2 is None
 
 
 def _ring_molecule(graph: nx.Graph, positions=None) -> CrystalMolecule:
@@ -528,7 +633,7 @@ def test_formula_unit_selection_breaks_equidistant_ties_deterministically():
         lattice,
         [
             molecule("CC", (0.0, 0.0, 0.0)),
-            molecule("CC", (2.0, 2.0, 2.0)),
+            molecule("CC", (0.0, 0.0, 0.0)),
             molecule("N", (5.0, 0.0, 0.0)),
             molecule("N", (-5.0, 0.0, 0.0)),
         ],
@@ -541,3 +646,71 @@ def test_formula_unit_selection_breaks_equidistant_ties_deterministically():
 
     assert nitrogen.molecule_index == 2
     assert nitrogen.image_shift == (-1, 0, 0)
+
+
+def test_formula_unit_selection_scores_all_equivalent_anchors():
+    lattice = np.eye(3) * 100.0
+
+    def molecule(symbols: str, centroid_x: float) -> CrystalMolecule:
+        positions = np.zeros((len(symbols), 3), dtype=float)
+        positions[:, 0] = centroid_x
+        if len(symbols) == 2:
+            positions[:, 0] += np.array([-0.6, 0.6])
+        return CrystalMolecule(Atoms(symbols, positions=positions), check_pbc=False)
+
+    crystal = MolecularCrystal(
+        lattice,
+        [
+            molecule("CC", 0.0),
+            molecule("CC", 40.0),
+            molecule("N", 20.0),
+            molecule("N", 41.0),
+        ],
+    )
+
+    selection = StoichiometryAnalyzer(crystal).select_formula_unit()
+    shifted_centroids = [
+        crystal.molecules[member.molecule_index].get_centroid()
+        + np.asarray(member.image_shift) @ lattice
+        for member in selection.members
+    ]
+
+    assert selection.molecule_indices == (1, 3)
+    assert np.linalg.norm(shifted_centroids[0] - shifted_centroids[1]) == pytest.approx(
+        1.0
+    )
+
+
+def test_formula_unit_selection_uses_global_mic_in_highly_skew_cell():
+    lattice = np.array(
+        [[1.0, 0.0, 0.0], [10.1, 0.1, 0.0], [0.0, 0.0, 10.0]]
+    )
+
+    def molecule(symbols: str, centroid) -> CrystalMolecule:
+        positions = np.tile(np.asarray(centroid, dtype=float), (len(symbols), 1))
+        if len(symbols) == 2:
+            positions += np.array([[-0.6, 0.0, 0.0], [0.6, 0.0, 0.0]])
+        return CrystalMolecule(Atoms(symbols, positions=positions), check_pbc=False)
+
+    crystal = MolecularCrystal(
+        lattice,
+        [
+            molecule("CC", (0.0, 0.0, 0.0)),
+            molecule("CC", (0.0, 0.0, 0.0)),
+            molecule("N", (-0.06, -0.05, 0.0)),
+            molecule("N", (0.4, 0.0, 0.0)),
+        ],
+    )
+
+    selection = StoichiometryAnalyzer(crystal).select_formula_unit()
+    nitrogen = next(
+        member for member in selection.members if member.species_id.startswith("N_")
+    )
+    shifted = (
+        crystal.molecules[nitrogen.molecule_index].get_centroid()
+        + np.asarray(nitrogen.image_shift) @ lattice
+    )
+
+    assert nitrogen.molecule_index == 2
+    assert nitrogen.image_shift == (-10, 1, 0)
+    assert shifted == pytest.approx((0.04, 0.05, 0.0))

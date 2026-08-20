@@ -786,9 +786,10 @@ def _adp_from_cif_block(
     n_atoms = len(labels)
     uiso = np.full(n_atoms, np.nan, dtype=float)
     u_cart = np.full((n_atoms, 9), np.nan, dtype=float)
+    tags = {str(tag).casefold(): value for tag, value in data_block.items()}
 
-    raw_uiso = _as_cif_list(data_block.get("_atom_site_U_iso_or_equiv"))
-    raw_biso = _as_cif_list(data_block.get("_atom_site_B_iso_or_equiv"))
+    raw_uiso = _as_cif_list(tags.get("_atom_site_u_iso_or_equiv"))
+    raw_biso = _as_cif_list(tags.get("_atom_site_b_iso_or_equiv"))
     for index in range(n_atoms):
         value = _optional_cif_number(raw_uiso[index]) if index < len(raw_uiso) else np.nan
         if not np.isfinite(value) and index < len(raw_biso):
@@ -797,17 +798,17 @@ def _adp_from_cif_block(
                 value = b_value / (8.0 * np.pi**2)
         uiso[index] = value
 
-    aniso_labels = _as_cif_list(data_block.get("_atom_site_aniso_label"))
+    aniso_labels = _as_cif_list(tags.get("_atom_site_aniso_label"))
     if not aniso_labels:
         return uiso, u_cart
 
     suffixes = ("11", "22", "33", "12", "13", "23")
     u_columns = [
-        _as_cif_list(data_block.get(f"_atom_site_aniso_U_{suffix}"))
+        _as_cif_list(tags.get(f"_atom_site_aniso_u_{suffix}"))
         for suffix in suffixes
     ]
     b_columns = [
-        _as_cif_list(data_block.get(f"_atom_site_aniso_B_{suffix}"))
+        _as_cif_list(tags.get(f"_atom_site_aniso_b_{suffix}"))
         for suffix in suffixes
     ]
     label_to_index = {str(label): index for index, label in enumerate(labels)}

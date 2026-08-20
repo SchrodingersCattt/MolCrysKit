@@ -280,23 +280,11 @@ class MolecularCrystal:
 
         # Generate new molecules by replicating in all directions
         from .molecule import _strip_stale_frac_arrays
-        from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_IMAGE_SHIFT
+        from ..constants.config import KEY_IMAGE_SHIFT
 
-        # Determine max sym_op_index and asym_id across all original
-        # molecules so that each repeated cell gets unique values.
-        max_soi = 0
-        max_aid = 0
-        for mol in self.molecules:
-            if KEY_SYM_OP_INDEX in mol.arrays:
-                max_soi = max(max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
-            if KEY_ASYM_ID in mol.arrays:
-                max_aid = max(max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
-        # Floor to 1 so the offset is non-trivial even when the
-        # original molecules lack sym_op_index/asym_id arrays.
-        max_soi = max(max_soi, 1)
-        max_aid = max(max_aid, 1)
+        inverse_new_lattice = np.linalg.inv(new_lattice)
+        periodic = np.asarray(self.pbc, dtype=bool)
 
-        cell_index = 0
         new_molecules = []
         for i, j, k in itertools.product(range(n1), range(n2), range(n3)):
             # Translation vector for this cell
@@ -307,34 +295,19 @@ class MolecularCrystal:
                 # Create a copy of the ASE Atoms object
                 new_atoms = molecule.copy()
                 new_atoms.info.pop("atom_indices", None)
+                new_atoms.info.pop("bond_records", None)
+                new_atoms.info.pop("bond_pairs", None)
                 # Apply translation
                 new_atoms.positions += np.dot(translation, self.lattice)
-                if KEY_IMAGE_SHIFT in new_atoms.arrays:
-                    new_atoms.arrays[KEY_IMAGE_SHIFT] = (
-                        np.asarray(new_atoms.arrays[KEY_IMAGE_SHIFT], dtype=int)
-                        + translation.astype(int)
-                    )
-                else:
-                    new_atoms.set_array(
-                        KEY_IMAGE_SHIFT,
-                        np.tile(translation.astype(int), (len(new_atoms), 1)),
-                    )
+                supercell_fractional = new_atoms.positions @ inverse_new_lattice
+                image_shifts = np.zeros((len(new_atoms), 3), dtype=int)
+                image_shifts[:, periodic] = np.floor(
+                    supercell_fractional[:, periodic] + 1e-10
+                ).astype(int)
+                new_atoms.set_array(KEY_IMAGE_SHIFT, image_shifts)
                 # Supercell lattice differs from the original; frac coords are stale.
                 _strip_stale_frac_arrays(new_atoms)
-                # Offset sym_op_index and asym_id so that each repeated
-                # cell has unique provenance — prevents the disorder
-                # solver from merging atoms across repeated cells.
-                if cell_index > 0:
-                    if KEY_SYM_OP_INDEX in new_atoms.arrays:
-                        new_atoms.arrays[KEY_SYM_OP_INDEX] = (
-                            new_atoms.arrays[KEY_SYM_OP_INDEX] + cell_index * max_soi
-                        )
-                    if KEY_ASYM_ID in new_atoms.arrays:
-                        new_atoms.arrays[KEY_ASYM_ID] = (
-                            new_atoms.arrays[KEY_ASYM_ID] + cell_index * max_aid
-                        )
                 new_molecules.append(new_atoms)
-            cell_index += 1
 
         return MolecularCrystal(new_lattice, new_molecules, self.pbc)
 
@@ -819,7 +792,7 @@ class MolecularCrystal:
             An ASE Atoms object representing the entire crystal structure.
         """
         from ..constants.config import (
-            KEY_ASSEMBLY, KEY_LABEL,
+            KEY_ASSEMBLY, KEY_LABEL, KEY_U_CART, KEY_UISO,
         )
 
         n_total = sum(len(molecule) for molecule in self.molecules)
@@ -916,7 +889,14 @@ class MolecularCrystal:
         # --- propagate per-atom arrays ---
         for k in all_custom_keys:
             vals = all_arrays[k]
-            if not all(v is not None for v in vals):
+            if k in {KEY_UISO, KEY_U_CART}:
+                sample = next(value for value in vals if value is not None)
+                missing = np.full(np.asarray(sample).shape, np.nan, dtype=float)
+                vals = [
+                    missing.copy() if value is None else np.asarray(value, dtype=float)
+                    for value in vals
+                ]
+            elif not all(v is not None for v in vals):
                 continue
             if k in string_disorder_keys:
                 # Replace empty strings with "." to prevent ASE extxyz
