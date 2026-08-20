@@ -14,6 +14,17 @@ from .perturbation import (
 
 from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
 
+from .bond_rotation import (
+    BondNotFoundError,
+    BondPartition,
+    BondRotationError,
+    BondRotationSelectionError,
+    RingBondRotationError,
+    partition_at_bond,
+    rotate_fragment_about_bond,
+    rotate_fragment_in_crystal,
+)
+
 from .builders import (
     create_supercell,
     create_defect_structure,
@@ -68,6 +79,14 @@ __all__ = [
     "apply_random_rotation",
     "rotate_molecule_at_center",
     "rotate_molecule_at_com",
+    "BondNotFoundError",
+    "BondPartition",
+    "BondRotationError",
+    "BondRotationSelectionError",
+    "RingBondRotationError",
+    "partition_at_bond",
+    "rotate_fragment_about_bond",
+    "rotate_fragment_in_crystal",
     "create_supercell",
     "create_defect_structure",
     "generate_topological_slab",
