@@ -14,6 +14,7 @@ from ase import Atoms
 from ase.neighborlist import neighbor_list
 
 from .molecule import CrystalMolecule
+from .records import BondRecord, SiteRecord
 from ..constants import (
     ATOMIC_RADII,
     DEFAULT_NEIGHBOR_CUTOFF,
@@ -80,8 +81,6 @@ class MolecularCrystal:
             Extra per-atom arrays preserved through ExtXYZ ``Properties``
             columns on the flattened ASE Atoms representation.
         """
-        from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
-        
         self.lattice = np.array(lattice)
         self.pbc = pbc
         self.formula_moiety = formula_moiety
@@ -281,23 +280,11 @@ class MolecularCrystal:
 
         # Generate new molecules by replicating in all directions
         from .molecule import _strip_stale_frac_arrays
-        from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
+        from ..constants.config import KEY_IMAGE_SHIFT
 
-        # Determine max sym_op_index and asym_id across all original
-        # molecules so that each repeated cell gets unique values.
-        max_soi = 0
-        max_aid = 0
-        for mol in self.molecules:
-            if KEY_SYM_OP_INDEX in mol.arrays:
-                max_soi = max(max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
-            if KEY_ASYM_ID in mol.arrays:
-                max_aid = max(max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
-        # Floor to 1 so the offset is non-trivial even when the
-        # original molecules lack sym_op_index/asym_id arrays.
-        max_soi = max(max_soi, 1)
-        max_aid = max(max_aid, 1)
+        inverse_new_lattice = np.linalg.inv(new_lattice)
+        periodic = np.asarray(self.pbc, dtype=bool)
 
-        cell_index = 0
         new_molecules = []
         for i, j, k in itertools.product(range(n1), range(n2), range(n3)):
             # Translation vector for this cell
@@ -308,24 +295,19 @@ class MolecularCrystal:
                 # Create a copy of the ASE Atoms object
                 new_atoms = molecule.copy()
                 new_atoms.info.pop("atom_indices", None)
+                new_atoms.info.pop("bond_records", None)
+                new_atoms.info.pop("bond_pairs", None)
                 # Apply translation
                 new_atoms.positions += np.dot(translation, self.lattice)
+                supercell_fractional = new_atoms.positions @ inverse_new_lattice
+                image_shifts = np.zeros((len(new_atoms), 3), dtype=int)
+                image_shifts[:, periodic] = np.floor(
+                    supercell_fractional[:, periodic] + 1e-10
+                ).astype(int)
+                new_atoms.set_array(KEY_IMAGE_SHIFT, image_shifts)
                 # Supercell lattice differs from the original; frac coords are stale.
                 _strip_stale_frac_arrays(new_atoms)
-                # Offset sym_op_index and asym_id so that each repeated
-                # cell has unique provenance — prevents the disorder
-                # solver from merging atoms across repeated cells.
-                if cell_index > 0:
-                    if KEY_SYM_OP_INDEX in new_atoms.arrays:
-                        new_atoms.arrays[KEY_SYM_OP_INDEX] = (
-                            new_atoms.arrays[KEY_SYM_OP_INDEX] + cell_index * max_soi
-                        )
-                    if KEY_ASYM_ID in new_atoms.arrays:
-                        new_atoms.arrays[KEY_ASYM_ID] = (
-                            new_atoms.arrays[KEY_ASYM_ID] + cell_index * max_aid
-                        )
                 new_molecules.append(new_atoms)
-            cell_index += 1
 
         return MolecularCrystal(new_lattice, new_molecules, self.pbc)
 
@@ -427,6 +409,247 @@ class MolecularCrystal:
         # Accessing .graph triggers _build_graph() if self._graph is None
         return sum(mol.graph.number_of_edges() for mol in self.molecules)
 
+    def copy(self) -> "MolecularCrystal":
+        """Return an independent crystal copy with all public metadata.
+
+        Per-atom arrays (including crystallographic provenance and ADPs),
+        molecule graphs, lattice data, calculator results, frame metadata, and
+        extra ExtXYZ arrays are copied rather than shared.
+        """
+        import copy
+
+        return MolecularCrystal(
+            lattice=np.asarray(self.lattice, dtype=float).copy(),
+            molecules=[molecule.copy() for molecule in self.molecules],
+            pbc=tuple(bool(value) for value in self.pbc),
+            formula_moiety=self.formula_moiety,
+            disorder_provenance=copy.deepcopy(self.disorder_provenance),
+            calc_results=copy.deepcopy(self._calc_results),
+            metadata=copy.deepcopy(self.metadata),
+            extra_arrays={
+                key: np.asarray(value).copy()
+                for key, value in self.extra_arrays.items()
+            },
+        )
+
+    def _molecule_global_indices(self) -> List[List[int]]:
+        """Return each molecule's indices in :meth:`to_ase` ordering."""
+        n_total = self.get_total_nodes()
+        saved = [molecule.info.get("atom_indices") for molecule in self.molecules]
+        flat = [int(index) for indices in saved if indices is not None for index in indices]
+        if (
+            all(indices is not None for indices in saved)
+            and len(flat) == n_total
+            and set(flat) == set(range(n_total))
+        ):
+            return [[int(index) for index in indices] for indices in saved]
+
+        result = []
+        offset = 0
+        for molecule in self.molecules:
+            result.append(list(range(offset, offset + len(molecule))))
+            offset += len(molecule)
+        return result
+
+    def get_site_records(self) -> List[SiteRecord]:
+        """Return immutable, serialisable records for every crystal site.
+
+        The result is sorted by ``global_index`` and is the supported public
+        alternative to reading molecule ``arrays`` or ``info`` dictionaries.
+        Missing displacement parameters are represented by ``None``.
+        """
+        from ..constants.config import (
+            KEY_ASSEMBLY,
+            KEY_ASYM_ID,
+            KEY_DISORDER_GROUP,
+            KEY_FRAC_X,
+            KEY_FRAC_Y,
+            KEY_FRAC_Z,
+            KEY_IMAGE_SHIFT,
+            KEY_LABEL,
+            KEY_OCCUPANCY,
+            KEY_SITE_SYMMETRY_ORDER,
+            KEY_SYM_OP_INDEX,
+            KEY_U_CART,
+            KEY_UISO,
+        )
+
+        records = []
+        global_indices = self._molecule_global_indices()
+        inv_lattice = np.linalg.pinv(np.asarray(self.lattice, dtype=float))
+
+        for molecule_index, (molecule, molecule_globals) in enumerate(
+            zip(self.molecules, global_indices)
+        ):
+            symbols = molecule.get_chemical_symbols()
+            positions = np.asarray(molecule.get_positions(), dtype=float)
+            arrays = molecule.arrays
+            for local_index, global_index in enumerate(molecule_globals):
+                def _array_value(key, default):
+                    array = arrays.get(key)
+                    return default if array is None else array[local_index]
+
+                asym_value = int(_array_value(KEY_ASYM_ID, -1))
+                sym_op_value = int(_array_value(KEY_SYM_OP_INDEX, -1))
+                uiso_value = float(_array_value(KEY_UISO, np.nan))
+                uiso = uiso_value if np.isfinite(uiso_value) else None
+
+                raw_u_cart = np.asarray(
+                    _array_value(KEY_U_CART, np.full(9, np.nan)), dtype=float
+                )
+                if raw_u_cart.size == 9 and np.all(np.isfinite(raw_u_cart)):
+                    matrix = raw_u_cart.reshape(3, 3)
+                    u_cart = tuple(
+                        tuple(float(value) for value in row) for row in matrix
+                    )
+                else:
+                    u_cart = None
+
+                position = positions[local_index]
+                fractional = position @ inv_lattice
+                image_array = arrays.get(KEY_IMAGE_SHIFT)
+                if image_array is not None:
+                    raw_image = np.asarray(image_array[local_index], dtype=int).reshape(3)
+                elif all(key in arrays for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z)):
+                    source_fractional = np.array(
+                        [
+                            arrays[KEY_FRAC_X][local_index],
+                            arrays[KEY_FRAC_Y][local_index],
+                            arrays[KEY_FRAC_Z][local_index],
+                        ],
+                        dtype=float,
+                    )
+                    raw_image = np.rint(fractional - source_fractional).astype(int)
+                else:
+                    raw_image = np.array(
+                        [
+                            int(np.floor(value + 1e-10)) if periodic else 0
+                            for value, periodic in zip(fractional, self.pbc)
+                        ],
+                        dtype=int,
+                    )
+                label = str(_array_value(KEY_LABEL, symbols[local_index]))
+                assembly = str(_array_value(KEY_ASSEMBLY, "")).strip()
+                if assembly in {"", ".", "?"}:
+                    assembly = None
+
+                records.append(
+                    SiteRecord(
+                        global_index=int(global_index),
+                        molecule_index=molecule_index,
+                        local_index=local_index,
+                        symbol=str(symbols[local_index]),
+                        label=label,
+                        cartesian_position_A=tuple(float(v) for v in position),
+                        fractional_position=tuple(float(v) for v in fractional),
+                        occupancy=float(_array_value(KEY_OCCUPANCY, 1.0)),
+                        disorder_group=int(_array_value(KEY_DISORDER_GROUP, 0)),
+                        disorder_assembly=assembly,
+                        asym_index=None if asym_value < 0 else asym_value,
+                        sym_op_index=None if sym_op_value < 0 else sym_op_value,
+                        site_symmetry_order=int(
+                            _array_value(KEY_SITE_SYMMETRY_ORDER, 1)
+                        ),
+                        image_shift=tuple(int(v) for v in raw_image),
+                        uiso_A2=uiso,
+                        u_cart_A2=u_cart,
+                    )
+                )
+
+        return sorted(records, key=lambda record: record.global_index)
+
+    def get_bond_records(self) -> List[BondRecord]:
+        """Return canonical intramolecular bonds with PBC provenance.
+
+        This method is the supported public replacement for the historical
+        ``molecule.info['bond_records']`` payload.  It also reconstructs the
+        same contract after ASE/ExtXYZ round-trips where molecule ``info`` is
+        intentionally not serialised.
+        """
+        site_records = {
+            (record.molecule_index, record.local_index): record
+            for record in self.get_site_records()
+        }
+        global_indices = self._molecule_global_indices()
+        result = []
+
+        for molecule_index, (molecule, molecule_globals) in enumerate(
+            zip(self.molecules, global_indices)
+        ):
+            global_to_local = {
+                int(global_index): local_index
+                for local_index, global_index in enumerate(molecule_globals)
+            }
+            legacy_by_pair = {}
+            for raw in molecule.info.get("bond_records", ()):
+                try:
+                    pair = frozenset((int(raw["left"]), int(raw["right"])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if pair.issubset(global_to_local):
+                    legacy_by_pair[pair] = raw
+
+            for first_local, second_local in molecule.graph.edges():
+                first_local = int(first_local)
+                second_local = int(second_local)
+                first_global = int(molecule_globals[first_local])
+                second_global = int(molecule_globals[second_local])
+                if first_global <= second_global:
+                    left_local, right_local = first_local, second_local
+                    left_global, right_global = first_global, second_global
+                else:
+                    left_local, right_local = second_local, first_local
+                    left_global, right_global = second_global, first_global
+
+                raw = legacy_by_pair.get(frozenset((left_global, right_global)))
+                if raw is not None:
+                    raw_left = int(raw["left"])
+                    raw_shift = np.asarray(raw["right_image_shift"], dtype=int)
+                    raw_vector = np.asarray(raw["vector"], dtype=float)
+                    if raw_left == left_global:
+                        right_shift = raw_shift
+                        vector = raw_vector
+                    else:
+                        right_shift = -raw_shift
+                        vector = -raw_vector
+                else:
+                    left_site = site_records[(molecule_index, left_local)]
+                    right_site = site_records[(molecule_index, right_local)]
+                    right_shift = np.asarray(right_site.image_shift, dtype=int) - np.asarray(
+                        left_site.image_shift, dtype=int
+                    )
+                    vector = (
+                        np.asarray(molecule.positions[right_local], dtype=float)
+                        - np.asarray(molecule.positions[left_local], dtype=float)
+                    )
+
+                left_site = site_records[(molecule_index, left_local)]
+                right_site = site_records[(molecule_index, right_local)]
+                result.append(
+                    BondRecord(
+                        molecule_index=molecule_index,
+                        left_local_index=left_local,
+                        right_local_index=right_local,
+                        left_global_index=left_global,
+                        right_global_index=right_global,
+                        left_asym_index=left_site.asym_index,
+                        right_asym_index=right_site.asym_index,
+                        right_image_shift=tuple(int(v) for v in right_shift),
+                        vector_A=tuple(float(v) for v in vector),
+                        distance_A=float(np.linalg.norm(vector)),
+                    )
+                )
+
+        return sorted(
+            result,
+            key=lambda record: (
+                record.molecule_index,
+                record.left_global_index,
+                record.right_global_index,
+                record.right_image_shift,
+            ),
+        )
+
     def summary(self) -> str:
         """
         Generate a summary of the crystal.
@@ -463,6 +686,7 @@ class MolecularCrystal:
         """
         from ..analysis.interactions import get_bonding_threshold
         from .molecule import _strip_stale_frac_arrays
+        from ..constants.config import KEY_IMAGE_SHIFT
 
         unwrapped_molecules = []
 
@@ -528,6 +752,18 @@ class MolecularCrystal:
             new_mol = molecule.copy()
             new_mol.set_positions(positions)
             new_mol.info["unwrap_completed"] = completed
+            previous_positions = np.asarray(molecule.get_positions(), dtype=float)
+            added_shifts = np.rint(
+                (positions - previous_positions)
+                @ np.linalg.inv(np.asarray(self.lattice, dtype=float))
+            ).astype(int)
+            if KEY_IMAGE_SHIFT in new_mol.arrays:
+                new_mol.arrays[KEY_IMAGE_SHIFT] = (
+                    np.asarray(new_mol.arrays[KEY_IMAGE_SHIFT], dtype=int)
+                    + added_shifts
+                )
+            else:
+                new_mol.set_array(KEY_IMAGE_SHIFT, added_shifts)
 
             # Strip stale CIF fractional coordinates — the unwrapped
             # Cartesian positions are no longer consistent with them.
@@ -556,8 +792,7 @@ class MolecularCrystal:
             An ASE Atoms object representing the entire crystal structure.
         """
         from ..constants.config import (
-            KEY_OCCUPANCY, KEY_DISORDER_GROUP,
-            KEY_ASSEMBLY, KEY_LABEL,
+            KEY_ASSEMBLY, KEY_LABEL, KEY_U_CART, KEY_UISO,
         )
 
         n_total = sum(len(molecule) for molecule in self.molecules)
@@ -654,7 +889,14 @@ class MolecularCrystal:
         # --- propagate per-atom arrays ---
         for k in all_custom_keys:
             vals = all_arrays[k]
-            if not all(v is not None for v in vals):
+            if k in {KEY_UISO, KEY_U_CART}:
+                sample = next(value for value in vals if value is not None)
+                missing = np.full(np.asarray(sample).shape, np.nan, dtype=float)
+                vals = [
+                    missing.copy() if value is None else np.asarray(value, dtype=float)
+                    for value in vals
+                ]
+            elif not all(v is not None for v in vals):
                 continue
             if k in string_disorder_keys:
                 # Replace empty strings with "." to prevent ASE extxyz

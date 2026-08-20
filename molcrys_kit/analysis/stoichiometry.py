@@ -6,11 +6,41 @@ and calculating stoichiometry based on molecular topology.
 """
 
 import networkx as nx
+import itertools
+import numpy as np
+from dataclasses import dataclass
 from typing import Dict, Optional
 from collections import defaultdict
+from ase.geometry import minkowski_reduce
 from ..structures.crystal import MolecularCrystal
 from ..constants.config import COMMON_SOLVENTS
 from ..utils.graph import graph_invariant
+
+
+@dataclass(frozen=True)
+class FormulaUnitMember:
+    """One molecule selected for a compact stoichiometric formula unit."""
+
+    species_id: str
+    molecule_index: int
+    image_shift: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class FormulaUnitSelection:
+    """Deterministic molecule/image selection for one formula unit."""
+
+    members: tuple[FormulaUnitMember, ...]
+    species_counts: tuple[tuple[str, int], ...]
+
+    @property
+    def molecule_indices(self) -> tuple[int, ...]:
+        """Selected molecule indices in deterministic assembly order."""
+        return tuple(member.molecule_index for member in self.members)
+
+    def counts(self) -> Dict[str, int]:
+        """Return the simplest-unit species counts as a new dictionary."""
+        return dict(self.species_counts)
 
 
 class StoichiometryAnalyzer:
@@ -143,6 +173,138 @@ class StoichiometryAnalyzer:
 
         return simplest_unit
 
+    def select_formula_unit(self) -> FormulaUnitSelection:
+        """Select a spatially compact realisation of the simplest unit.
+
+        Each molecule of the heaviest species is evaluated as an anchor.
+        Remaining molecules are chosen greedily by nearest periodic centroid
+        image, then complete selections are ranked by maximum and total
+        pairwise centroid distance.  Molecule index and lattice shift provide
+        deterministic tie-breaks.  Returned shifts are additional translations
+        relative to the molecule positions stored in ``crystal``.
+        """
+        simplest = self.get_simplest_unit()
+        if not simplest:
+            return FormulaUnitSelection((), ())
+
+        lattice = np.asarray(self.crystal.lattice, dtype=float)
+        periodic = np.asarray(self.crystal.pbc, dtype=bool)
+        reduced_lattice, reduction = minkowski_reduce(lattice, pbc=periodic)
+        reduced_lattice = np.asarray(reduced_lattice, dtype=float)
+        reduction = np.asarray(reduction, dtype=int)
+        inv_reduced_lattice = np.linalg.inv(reduced_lattice)
+        # In a Minkowski-reduced basis, the nearest image is guaranteed to
+        # lie in this Voronoi-relevant {-1, 0, 1} neighbour set.
+        neighbor_ranges = [range(-int(pbc), int(pbc) + 1) for pbc in periodic]
+
+        def _species_priority(species_id: str):
+            sample = self.crystal.molecules[self.species_map[species_id][0]]
+            heavy_atoms = sum(
+                symbol != "H" for symbol in sample.get_chemical_symbols()
+            )
+            return (-heavy_atoms, -len(sample), species_id)
+
+        species_order = sorted(simplest, key=_species_priority)
+        anchor_species = species_order[0]
+        counts = tuple(
+            (species_id, int(simplest[species_id]))
+            for species_id in sorted(simplest)
+        )
+
+        def _selection_for_anchor(anchor_index: int) -> FormulaUnitSelection:
+            anchor = self.crystal.molecules[anchor_index]
+            running_centroid = np.asarray(anchor.get_centroid(), dtype=float)
+            running_weight = len(anchor)
+            selected = [
+                FormulaUnitMember(anchor_species, anchor_index, (0, 0, 0))
+            ]
+            used = {anchor_index}
+
+            def _best_shift(molecule_index: int):
+                centroid = np.asarray(
+                    self.crystal.molecules[molecule_index].get_centroid(), dtype=float
+                )
+                delta = centroid - running_centroid
+                delta_reduced_frac = delta @ inv_reduced_lattice
+                base_reduced_shift = np.zeros(3, dtype=int)
+                base_reduced_shift[periodic] = -np.floor(
+                    delta_reduced_frac[periodic]
+                ).astype(int)
+                scored = []
+                for offset in itertools.product(*neighbor_ranges):
+                    reduced_shift = base_reduced_shift + np.asarray(
+                        offset, dtype=int
+                    )
+                    shift = reduced_shift @ reduction
+                    shifted = centroid + shift @ lattice
+                    distance = float(np.linalg.norm(shifted - running_centroid))
+                    scored.append((distance, tuple(int(v) for v in shift)))
+                return min(scored, key=lambda item: (round(item[0], 12), item[1]))
+
+            for species_id in species_order:
+                required = int(simplest[species_id])
+                if species_id == anchor_species:
+                    required -= 1
+                for _ in range(required):
+                    candidates = []
+                    for molecule_index in sorted(self.species_map[species_id]):
+                        if molecule_index in used:
+                            continue
+                        distance, shift = _best_shift(molecule_index)
+                        candidates.append((round(distance, 12), molecule_index, shift))
+                    if not candidates:
+                        raise RuntimeError(
+                            f"Not enough molecules to select {simplest[species_id]} "
+                            f"member(s) of species {species_id!r}"
+                        )
+                    _, molecule_index, shift = min(candidates)
+                    molecule = self.crystal.molecules[molecule_index]
+                    shifted_centroid = (
+                        np.asarray(molecule.get_centroid())
+                        + np.asarray(shift) @ lattice
+                    )
+                    new_weight = running_weight + len(molecule)
+                    running_centroid = (
+                        running_centroid * running_weight
+                        + shifted_centroid * len(molecule)
+                    ) / new_weight
+                    running_weight = new_weight
+                    used.add(molecule_index)
+                    selected.append(
+                        FormulaUnitMember(species_id, molecule_index, shift)
+                    )
+
+            return FormulaUnitSelection(tuple(selected), counts)
+
+        def _compactness(selection: FormulaUnitSelection):
+            centroids = [
+                np.asarray(
+                    self.crystal.molecules[member.molecule_index].get_centroid(),
+                    dtype=float,
+                )
+                + np.asarray(member.image_shift) @ lattice
+                for member in selection.members
+            ]
+            distances = [
+                float(np.linalg.norm(left - right))
+                for left, right in itertools.combinations(centroids, 2)
+            ]
+            deterministic_key = tuple(
+                (member.molecule_index, member.image_shift)
+                for member in selection.members
+            )
+            return (
+                round(max(distances, default=0.0), 12),
+                round(sum(distances), 12),
+                deterministic_key,
+            )
+
+        selections = [
+            _selection_for_anchor(anchor_index)
+            for anchor_index in sorted(self.species_map[anchor_species])
+        ]
+        return min(selections, key=_compactness)
+
     def print_species_summary(self):
         """
         Print a summary table of identified species with solvent identification.
@@ -166,3 +328,10 @@ class StoichiometryAnalyzer:
                 notes += f"[Possible Solvent: {possible_solvent}]"
             
             print(f"{species_id:<15} {count:<8} {formula:<15} {example_idx:<25} {notes:<20}")
+
+
+__all__ = [
+    "FormulaUnitMember",
+    "FormulaUnitSelection",
+    "StoichiometryAnalyzer",
+]

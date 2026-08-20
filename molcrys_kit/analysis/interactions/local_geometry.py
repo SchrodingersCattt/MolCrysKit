@@ -46,9 +46,10 @@ class AtomLocalGeometry:
 class RingGeometry:
     """Molecule-local ring geometry derived from a topology cycle.
 
-    The record contains sorted ring atom indices, element symbols, centroid in
-    Å, fitted normal, plane RMSD in Å, planarity/aromaticity flags, ring size,
-    and an optional ``RingRef`` when the parent molecule index is known.
+    The record contains sorted ring atom indices, a deterministic
+    edge-connected ``cycle_atom_indices`` traversal, element symbols, centroid
+    in Å, fitted normal, plane RMSD in Å, planarity/aromaticity flags, ring
+    size, and an optional ``RingRef`` when the parent molecule index is known.
     """
 
     atom_indices: tuple[int, ...]
@@ -60,6 +61,7 @@ class RingGeometry:
     is_aromatic: bool = False
     size: int | None = None
     ring_ref: RingRef | None = None
+    cycle_atom_indices: tuple[int, ...] = ()
 
 
 class LocalGeometry:
@@ -150,8 +152,8 @@ class LocalGeometry:
     def _build_rings(self) -> list[RingGeometry]:
         """Construct ring geometry records from topology cycles.
 
-        Each cycle is converted to sorted atom indices, aromaticity is inferred
-        from per-atom aromatic ring sizes, and a best-fit plane supplies
+        Each cycle keeps an edge-connected traversal as well as sorted identity
+        indices, aromaticity is inferred from per-atom aromatic ring sizes, and a best-fit plane supplies
         centroid, normal, and planarity RMSD.  Plane-fitting failures produce a
         warning and a fallback centroid with a zero normal so ring detection can
         continue.
@@ -161,7 +163,8 @@ class LocalGeometry:
         symbols = self.molecule.get_chemical_symbols()
 
         for cycle in self.env.rings():
-            atom_indices = tuple(sorted(int(i) for i in cycle))
+            cycle_atom_indices = tuple(int(i) for i in cycle)
+            atom_indices = tuple(sorted(cycle_atom_indices))
             size = len(atom_indices)
             is_aromatic = all(
                 size in self.env.atom_aromatic_ring_sizes(i) for i in atom_indices
@@ -201,6 +204,7 @@ class LocalGeometry:
                     is_aromatic=is_aromatic,
                     size=size,
                     ring_ref=ring_ref,
+                    cycle_atom_indices=cycle_atom_indices,
                 )
             )
         return rings

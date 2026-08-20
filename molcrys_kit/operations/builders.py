@@ -29,9 +29,8 @@ def create_supercell(
     MolecularCrystal
         Supercell structure.  Delegates to
         :meth:`MolecularCrystal.get_supercell` which internally copies
-        molecules (preserving all per-atom disorder metadata arrays) and
-        offsets ``sym_op_index``/``asym_id`` across repeated cells to
-        prevent cross-copy merging in the disorder solver.
+        molecules while preserving per-atom disorder metadata and the
+        original ``sym_op_index``/``asym_id`` source provenance.
     """
     return crystal.get_supercell(*scaling_factors)
 

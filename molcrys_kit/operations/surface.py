@@ -15,7 +15,7 @@ from functools import reduce
 
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import _strip_stale_frac_arrays
-from ..constants.config import KEY_SYM_OP_INDEX, KEY_ASYM_ID
+from ..constants.config import KEY_IMAGE_SHIFT
 from ..utils.geometry import reduce_surface_lattice, orient_lattice
 
 
@@ -404,35 +404,13 @@ class TopologicalSlabGenerator:
             mol_copy.positions += -np.floor(z_frac) * stacking_vector
             applied_mols.append(mol_copy)
 
-        # Stack layers
-        # Determine max sym_op_index and asym_id across all base-layer
-        # molecules so that each stacked layer gets unique values.
-        max_soi = 0
-        max_aid = 0
-        for mol in applied_mols:
-            if KEY_SYM_OP_INDEX in mol.arrays:
-                max_soi = max(max_soi, int(mol.arrays[KEY_SYM_OP_INDEX].max()) + 1)
-            if KEY_ASYM_ID in mol.arrays:
-                max_aid = max(max_aid, int(mol.arrays[KEY_ASYM_ID].max()) + 1)
-
+        # Stack layers while preserving CIF ASU/symmetry source provenance.
         all_mols = []
         for i in range(layers):
             layer_shift = i * stacking_vector
             for mol in applied_mols:
                 mol_layer = mol.copy()
                 mol_layer.positions = mol_layer.get_positions() + layer_shift
-                # Offset sym_op_index and asym_id so that each layer
-                # has unique provenance — prevents the disorder solver
-                # from merging atoms across different slab layers.
-                if i > 0:
-                    if KEY_SYM_OP_INDEX in mol_layer.arrays:
-                        mol_layer.arrays[KEY_SYM_OP_INDEX] = (
-                            mol_layer.arrays[KEY_SYM_OP_INDEX] + i * max_soi
-                        )
-                    if KEY_ASYM_ID in mol_layer.arrays:
-                        mol_layer.arrays[KEY_ASYM_ID] = (
-                            mol_layer.arrays[KEY_ASYM_ID] + i * max_aid
-                        )
                 all_mols.append(mol_layer)
 
         # Compute slab thickness
@@ -483,6 +461,15 @@ class TopologicalSlabGenerator:
         # the slab lattice is completely different from the bulk CIF lattice.
         for mol in all_mols:
             _strip_stale_frac_arrays(mol)
+            fractional = mol.get_positions() @ inv_output_lattice
+            image_shifts = np.zeros((len(mol), 3), dtype=int)
+            image_shifts[:, :2] = np.floor(
+                fractional[:, :2] + 1e-10
+            ).astype(int)
+            mol.set_array(KEY_IMAGE_SHIFT, image_shifts)
+            mol.info.pop("atom_indices", None)
+            mol.info.pop("bond_records", None)
+            mol.info.pop("bond_pairs", None)
 
         # Assemble final MolecularCrystal
         slab = MolecularCrystal(
