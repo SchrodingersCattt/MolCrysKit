@@ -1206,13 +1206,14 @@ def scan_cif_disorder(
     lattice_matrix = lattice.matrix
     tol_sq = 0.01 * 0.01  # match _are_coords_close default (Å)
 
-    protected_source_pairs: set[tuple[int, int]] = set()
+    protected_source_mask = np.zeros((len(labels), len(labels)), dtype=bool)
     for left in range(len(labels)):
         for right in range(left + 1, len(labels)):
             if symbols[left] != symbols[right] or labels[left] == labels[right]:
                 continue
             if _are_coords_close(frac_coords[left], frac_coords[right], lattice):
-                protected_source_pairs.add((left, right))
+                protected_source_mask[left, right] = True
+                protected_source_mask[right, left] = True
 
     # Pre-compute the 27 lattice-shift integer offsets used by the
     # minimum-image convention, plus their Cartesian counterparts.  We
@@ -1242,20 +1243,18 @@ def scan_cif_disorder(
             # Vectorised dedup against every existing image of this
             # element.  Equivalent to running `_are_coords_close` against
             # each one but ~100x faster on large unit cells (e.g. PAP-4).
-            comparable = [
-                index
-                for index, source in enumerate(bucket_sources)
-                if (min(i, source), max(i, source)) not in protected_source_pairs
-            ]
-            if comparable:
-                existing = np.asarray([bucket[index] for index in comparable])
+            if bucket:
+                existing = np.asarray(bucket)
                 deltas = existing - new_coord  # (N, 3)
                 deltas -= np.round(deltas)  # bring into [-0.5, 0.5]
                 # 27 candidate vectors per existing atom: (N, 27, 3)
                 cand_frac = deltas[:, None, :] + _shifts_frac[None, :, :]
                 cand_cart = cand_frac @ lattice_matrix  # (N, 27, 3)
                 dists_sq = np.einsum("ijk,ijk->ij", cand_cart, cand_cart)
-                if np.min(dists_sq) < tol_sq:
+                coincident = np.min(dists_sq, axis=1) < tol_sq
+                existing_sources = np.asarray(bucket_sources, dtype=int)
+                protected = protected_source_mask[i, existing_sources]
+                if np.any(coincident & ~protected):
                     continue
 
             # Add the new atom with its expanded coordinates and metadata
