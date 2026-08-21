@@ -68,6 +68,14 @@ from .interpolation import (
 
 from .reorientation import reorient_crystal, ReorientationInfo
 
+from .reactive_path import (
+    BondChange,
+    ReactivePathConfig,
+    ReactivePathResult,
+    RigidGroup,
+    interpolate_reactive_path,
+)
+
 __all__ = [
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
@@ -115,4 +123,9 @@ __all__ = [
     "get_surface_basis",
     "reorient_crystal",
     "ReorientationInfo",
+    "BondChange",
+    "ReactivePathConfig",
+    "ReactivePathResult",
+    "RigidGroup",
+    "interpolate_reactive_path",
 ]
