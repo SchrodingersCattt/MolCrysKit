@@ -17,6 +17,7 @@ from molcrys_kit.constants.config import (
     KEY_UISO,
 )
 from molcrys_kit.io import read_extxyz, read_mol_crystal, write_cif, write_extxyz
+from molcrys_kit.io.cif import identify_molecules
 from molcrys_kit.operations import add_hydrogens
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
@@ -377,6 +378,41 @@ def test_public_bond_contract_reconstructs_without_private_info(tmp_path):
     write_extxyz(crystal, str(path))
     loaded = read_extxyz(str(path))
     assert loaded.get_bond_records()[0].right_image_shift == (1, 0, 0)
+
+
+def test_bond_records_preserve_periodic_framework_cycle_edges():
+    cell = np.array(
+        [
+            [10.0585, 0.0, 0.0],
+            [-5.02925, 8.71091652, 0.0],
+            [0.0, 0.0, 6.795],
+        ]
+    )
+    atoms = Atoms(
+        symbols=["Cd", "Cd", "Cl", "Cl", "Cl", "Cl", "Cl", "Cl"],
+        scaled_positions=[
+            [0.0, 0.0, 0.25182],
+            [0.0, 0.0, 0.75182],
+            [0.2332, 0.1166, 0.001141],
+            [0.1166, 0.2332, 0.501141],
+            [0.8834, 0.1166, 0.001141],
+            [0.7668, 0.8834, 0.501141],
+            [0.8834, 0.7668, 0.001141],
+            [0.1166, 0.8834, 0.501141],
+        ],
+        cell=cell,
+        pbc=True,
+    )
+    crystal = MolecularCrystal(cell, identify_molecules(atoms))
+
+    record = next(
+        record
+        for record in crystal.get_bond_records()
+        if (record.left_global_index, record.right_global_index) == (1, 2)
+    )
+
+    assert record.right_image_shift == (0, 0, 1)
+    assert record.distance_A == pytest.approx(2.6451135)
 
 
 def test_triclinic_cif_adp_is_converted_to_cartesian():
