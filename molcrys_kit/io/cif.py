@@ -34,6 +34,10 @@ from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bond
 
 logger = logging.getLogger(__name__)
 
+# A CIF occupancy written to three decimal places can differ from an exact
+# reciprocal site order by at most 0.0005 (for example, 1/24 written as 0.042).
+_ASU_SHARED_H_OCCUPANCY_TOL = 5e-4
+
 
 class SymmetryAutoExpandedWarning(UserWarning):
     """Warning emitted when CIF identity-only symops are expanded upstream."""
@@ -1715,7 +1719,8 @@ def _identify_molecules_asu_first(
         Parsed crystal structure with identified molecular units.
     """
     from ..constants.config import (
-        KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
+        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX, KEY_ASYM_ID,
+        KEY_SITE_SYMMETRY_ORDER,
         KEY_U_CART,
     )
 
@@ -1729,6 +1734,69 @@ def _identify_molecules_asu_first(
         max_atoms=max_atoms,
         bond_scale=bond_scale,
     )
+
+    def _complete_shared_h_center(mol: CrystalMolecule) -> Optional[int]:
+        """Return the centre of a complete special-position H orientation."""
+        symbols = mol.get_chemical_symbols()
+        occupancies = mol.arrays.get(KEY_OCCUPANCY)
+        disorder_groups = mol.arrays.get(KEY_DISORDER_GROUP)
+        asym_ids = mol.arrays.get(KEY_ASYM_ID)
+        site_orders = mol.arrays.get(KEY_SITE_SYMMETRY_ORDER)
+        if any(
+            values is None
+            for values in (occupancies, disorder_groups, asym_ids, site_orders)
+        ):
+            return None
+
+        centres = [
+            i
+            for i, symbol in enumerate(symbols)
+            if symbol != "H"
+            and int(disorder_groups[i]) == 0
+            and int(site_orders[i]) > 1
+        ]
+        if len(centres) != 1:
+            return None
+
+        centre = centres[0]
+        hydrogens = [i for i in range(len(mol)) if i != centre]
+        hydrogen_groups = {int(disorder_groups[i]) for i in hydrogens}
+        hydrogen_asym_ids = {int(asym_ids[i]) for i in hydrogens}
+        # A hydrogen with its own site stabilizer contributes
+        # occupancy * centre_order / hydrogen_order to each centre image.
+        expected_occupancies = (
+            site_orders[hydrogens].astype(float) / int(site_orders[centre])
+        )
+        if (
+            not hydrogens
+            or any(symbols[i] != "H" for i in hydrogens)
+            or not np.isclose(
+                occupancies[centre],
+                1.0,
+                rtol=0.0,
+                atol=_ASU_SHARED_H_OCCUPANCY_TOL,
+            )
+            or len(hydrogen_groups) != 1
+            or next(iter(hydrogen_groups)) == 0
+            or len(hydrogen_asym_ids) != len(hydrogens)
+            or not np.allclose(
+                occupancies[hydrogens],
+                expected_occupancies,
+                rtol=0.0,
+                atol=_ASU_SHARED_H_OCCUPANCY_TOL,
+            )
+        ):
+            return None
+        return centre
+
+    # These ASU components already contain one complete hydrogen orientation.
+    # Their symmetry images are alternatives around the same physical centre,
+    # unlike true fragments such as ClO that require post-expansion merging.
+    complete_h_centres = {
+        asu_idx: centre
+        for asu_idx, mol in enumerate(asu_molecules)
+        if (centre := _complete_shared_h_center(mol)) is not None
+    }
 
     # --- Giant-molecule fallback ---
     # Only fall back when the ASU is a *single connected component* AND the
@@ -1763,9 +1831,9 @@ def _identify_molecules_asu_first(
     # confirms duplicates so that hash collisions are harmless.
     _seen_keys: set = set()
 
-    def _frac_fingerprint(frac_coords: np.ndarray) -> tuple:
+    def _frac_fingerprint(frac_coords: np.ndarray, anchor_index: int) -> tuple:
         """Round the wrapped anchor atom to a grid for hashing."""
-        anchor = np.mod(frac_coords[0], 1.0)
+        anchor = np.mod(frac_coords[anchor_index], 1.0)
         return tuple(np.round(anchor, decimals=3))
 
     def _is_duplicate(
@@ -1777,7 +1845,8 @@ def _identify_molecules_asu_first(
         1. Hash on (asu_mol_idx, anchor grid) for O(1) reject.
         2. Atom-wise minimum-image comparison within the hash bucket.
         """
-        key = (asu_mol_idx, _frac_fingerprint(new_frac))
+        anchor_index = complete_h_centres.get(asu_mol_idx, 0)
+        key = (asu_mol_idx, _frac_fingerprint(new_frac, anchor_index))
         if key not in _seen_keys:
             _seen_keys.add(key)
             return False
@@ -1789,8 +1858,15 @@ def _identify_molecules_asu_first(
             ex_frac = existing_mol.positions @ inv_lattice
             if len(ex_frac) != len(new_frac):
                 continue
-            # Atom-wise minimum-image distance
-            deltas = ex_frac - new_frac
+            # Complete H shells are alternative orientations around the same
+            # special-position centre, so compare their centre only.  Other
+            # ASU molecules still require the original atom-wise comparison.
+            compare = (
+                [anchor_index]
+                if asu_mol_idx in complete_h_centres
+                else slice(None)
+            )
+            deltas = ex_frac[compare] - new_frac[compare]
             deltas -= np.round(deltas)
             cart_deltas = deltas @ lattice_matrix
             dists = np.linalg.norm(cart_deltas, axis=1)
@@ -1879,7 +1955,9 @@ def _identify_molecules_asu_first(
         for mol in all_molecules:
             sso = mol.arrays.get(KEY_SITE_SYMMETRY_ORDER)
             asu_idx = mol.info.get("asu_molecule_index", -1)
-            if sso is not None and np.any(sso > 1):
+            if asu_idx in complete_h_centres:
+                normal_mols.append(mol)
+            elif sso is not None and np.any(sso > 1):
                 special_asu_indices.add(asu_idx)
                 special_mols.append(mol)
             else:
