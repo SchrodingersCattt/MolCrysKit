@@ -44,6 +44,13 @@ from .molecule_manipulation import (
 
 from .cluster import ClusterCarver, LigandTopologyOverflowError, carve_cluster
 
+from .nanocluster import (
+    DEFAULT_NANOCLUSTER_BATCH_SIZE,
+    NanoClusterCarver,
+    NanoShape,
+    carve_nanocluster,
+)
+
 from .interpolation import (
     InterpolationConfig,
     InterpolationMethod,
@@ -89,6 +96,10 @@ __all__ = [
     "ClusterCarver",
     "LigandTopologyOverflowError",
     "carve_cluster",
+    "DEFAULT_NANOCLUSTER_BATCH_SIZE",
+    "NanoClusterCarver",
+    "NanoShape",
+    "carve_nanocluster",
     "InterpolationConfig",
     "InterpolationMethod",
     "MoleculeMatch",

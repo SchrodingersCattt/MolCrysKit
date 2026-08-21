@@ -424,6 +424,74 @@ When replacing a molecule, the system automatically checks whether the replaceme
 | | `max_rotation_attempts` | `100` | Max rotation tries for clash resolution |
 | | `align_method` | `"com"` | Alignment: `"com"` or `"centroid"` |
 
+## Topology-Preserving Nanocluster Carving
+
+`NanoClusterCarver` creates finite nanoparticle models without re-identifying
+molecules, cutting atoms, rebuilding bonds, or adding caps. The output is a
+non-periodic `MolecularCrystal` in a tight orthorhombic box. Molecular graphs,
+atom order, per-atom arrays, and molecule metadata are copied from the source.
+
+Shapes are vectorized implicit fields: `f(x, y, z) <= 0` is inside. Every shape
+also supplies a finite Cartesian search box relative to its center. Four common
+presets are included:
+
+```python
+from molcrys_kit.operations import NanoShape
+
+sphere = NanoShape.sphere(radius=30.0)
+box = NanoShape.box((20.0, 80.0, 120.0))       # full side lengths
+ellipsoid = NanoShape.ellipsoid((20.0, 35.0, 60.0))  # semi-axes
+cylinder = NanoShape.cylinder(radius=20.0, height=100.0, axis="z")
+```
+
+Arbitrary 3-D shapes use the same interface. The function must accept NumPy
+arrays and return one finite real value per point:
+
+```python
+import numpy as np
+
+from molcrys_kit.operations import NanoShape, carve_nanocluster
+
+
+def superellipsoid(x, y, z):
+    return (np.abs(x) / 40) ** 4 + (np.abs(y) / 25) ** 4 + (np.abs(z) / 15) ** 4 - 1
+
+
+shape = NanoShape(
+    superellipsoid,
+    bounds=((-40, 40), (-25, 25), (-15, 15)),
+    name="superellipsoid",
+)
+particle = carve_nanocluster(crystal, shape, vacuum=10.0)
+```
+
+The default topology unit is a complete molecule or ion, represented by its
+geometric centroid. Set `center_kind="com"` to use center of mass. For mixed
+salts, molecule mode preserves each component's graph but does not guarantee
+charge neutrality or the source stoichiometric ratio. Use complete source-cell
+packets when exact composition is required. The shape center defaults to the
+source cell center and can be overridden with `center=(x, y, z)`:
+
+```python
+needle = NanoShape.box((30.0, 30.0, 600.0))
+particle = carve_nanocluster(
+    crystal,
+    needle,
+    topology_unit="unit_cell",
+    target_units=537,
+    vacuum=8.0,
+    batch_size=100_000,
+)
+assert particle.metadata["nanocluster"]["selected_unit_count"] == 537
+```
+
+Without `target_units`, the carver strictly selects representatives satisfying
+the field inequality. With `target_units=N`, it selects the smallest stable
+`(field value, candidate id)` pairs inside the search bounds. Thus differently
+shaped models can contain exactly the same number of complete topology units.
+Candidates are evaluated in bounded vectorized batches and only selected units
+are copied, so large search regions do not instantiate a rejected supercell.
+
 ## Carving Finite Clusters for QM
 
 MolCrysKit can carve finite, hydrogen-capped cluster models out of any

@@ -12,7 +12,10 @@ from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disorde
 from molcrys_kit.io import write_xyz_with_freeze
 from molcrys_kit.operations import (
     ClusterCarver,
+    DEFAULT_NANOCLUSTER_BATCH_SIZE,
     LigandTopologyOverflowError,
+    NanoClusterCarver,
+    NanoShape,
     add_hydrogens,
     create_supercell,
     generate_slabs_with_terminations,
@@ -301,6 +304,117 @@ def cluster(
         )
 
 
+def _nanoshape_from_cli(
+    shape_name: str,
+    *,
+    size: tuple[float, float, float] | None,
+    radius: float | None,
+    semi_axes: tuple[float, float, float] | None,
+    height: float | None,
+    axis: str,
+) -> NanoShape:
+    if shape_name == "sphere":
+        if radius is None:
+            raise click.UsageError("--radius is required for --shape sphere.")
+        return NanoShape.sphere(radius)
+    if shape_name == "box":
+        if size is None:
+            raise click.UsageError("--size X Y Z is required for --shape box.")
+        return NanoShape.box(size)
+    if shape_name == "ellipsoid":
+        if semi_axes is None:
+            raise click.UsageError(
+                "--semi-axes A B C is required for --shape ellipsoid."
+            )
+        return NanoShape.ellipsoid(semi_axes)
+    if radius is None or height is None:
+        raise click.UsageError(
+            "--radius and --height are required for --shape cylinder."
+        )
+    return NanoShape.cylinder(radius, height, axis=axis)
+
+
+@click.command()
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option(
+    "--shape",
+    "shape_name",
+    type=click.Choice(["sphere", "box", "ellipsoid", "cylinder"]),
+    required=True,
+)
+@click.option("--size", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option("--radius", type=float, default=None, help="Sphere/cylinder radius in Angstrom.")
+@click.option("--semi-axes", nargs=3, type=float, default=None, metavar="A B C")
+@click.option("--height", type=float, default=None, help="Cylinder height in Angstrom.")
+@click.option("--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True)
+@click.option(
+    "--topology-unit",
+    type=click.Choice(["molecule", "unit_cell"]),
+    default="molecule",
+    show_default=True,
+)
+@click.option("--target-units", type=int, default=None, help="Select exactly this many units.")
+@click.option("--center", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option(
+    "--center-kind",
+    type=click.Choice(["centroid", "com"]),
+    default="centroid",
+    show_default=True,
+)
+@click.option("--vacuum", type=float, default=0.0, show_default=True)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=DEFAULT_NANOCLUSTER_BATCH_SIZE,
+    show_default=True,
+)
+def nanocluster(
+    input: Path,
+    output: Path,
+    shape_name: str,
+    size: tuple[float, float, float] | None,
+    radius: float | None,
+    semi_axes: tuple[float, float, float] | None,
+    height: float | None,
+    axis: str,
+    topology_unit: str,
+    target_units: int | None,
+    center: tuple[float, float, float] | None,
+    center_kind: str,
+    vacuum: float,
+    batch_size: int,
+) -> None:
+    """Carve a topology-preserving nanocluster without cutting molecules."""
+    try:
+        shape = _nanoshape_from_cli(
+            shape_name,
+            size=size,
+            radius=radius,
+            semi_axes=semi_axes,
+            height=height,
+            axis=axis,
+        )
+        result = NanoClusterCarver(load_crystal(input), batch_size=batch_size).carve(
+            shape,
+            topology_unit=topology_unit,
+            center=center,
+            center_kind=center_kind,
+            target_units=target_units,
+            vacuum=vacuum,
+        )
+    except (TypeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    write_structure(result, output)
+    info = result.metadata["nanocluster"]
+    click.echo(
+        f"Wrote {output}  |  units: {info['selected_unit_count']}  |  "
+        f"molecules: {info['selected_molecule_count']}  |  "
+        f"atoms: {info['selected_atom_count']}"
+    )
+
+
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
@@ -396,6 +510,7 @@ def register_operate_commands(group: click.Group) -> None:
     group.add_command(add_h)
     group.add_command(slab)
     group.add_command(cluster)
+    group.add_command(nanocluster)
     group.add_command(supercell)
     group.add_command(vacancy)
     group.add_command(desolvate)

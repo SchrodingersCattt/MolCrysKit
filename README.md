@@ -16,6 +16,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Topological Surface Generation: Create surface slabs while preserving molecular topology
 - Hydrogen Completion: Add hydrogen atoms with heuristic geometric placement rules
 - Cluster Carving: Disorder resolution → desolvation → coordination-shell cluster extraction
+- Nanocluster Carving: Build arbitrary finite shapes while preserving complete molecular or unit-cell topology
 - LLM-based AI agent Friendliness: Try on https://matmaster.bohrium.com/matmaster or build your own skill for your agent
 
 <p align="center">
@@ -129,12 +130,13 @@ mck io --help
 mck operate --help
 mck analyze --help
 mck operate cluster --help
+mck operate nanocluster --help
 ```
 
 The command groups roughly mirror the Python package layout:
 
 - `mck io ...` — summarize, inspect molecules, extract molecules, and convert structures (`info`, `molecules`, `extract-molecule`, `convert`).
-- `mck operate ...` — generate modified structures (`disorder`, `add-h`, `slab`, `cluster`, `supercell`, `vacancy`, `desolvate`, `interpolate`, `reorient`).
+- `mck operate ...` — generate modified structures (`disorder`, `add-h`, `slab`, `cluster`, `nanocluster`, `supercell`, `vacancy`, `desolvate`, `interpolate`, `reorient`).
 - `mck analyze ...` — print analysis reports (`bfdh`, `interactions`, `polyhedra`, `sanity-check`).
 
 ## Documentation
