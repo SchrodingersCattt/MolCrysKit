@@ -15,6 +15,7 @@ from pymatgen.symmetry.groups import SpaceGroup
 
 from molcrys_kit.structures import MolecularCrystal
 from molcrys_kit.analysis.stoichiometry import StoichiometryAnalyzer
+from molcrys_kit.constants.config import KEY_ASYM_ID, KEY_SYM_OP_INDEX
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -197,18 +198,25 @@ class TestHighSymmetry:
         )
         assert nh4_count == 8
 
-    @pytest.mark.xfail(reason="ASU bond perception merges H atoms at shared Wyckoff orbit")
     def test_dap2o4_nh4_size(self):
         """Each NH4+ should have exactly 5 atoms (1 N + 4 H)."""
         cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
-        
+
+        nh4_molecules = []
         for mol in mc.molecules:
             symbols = mol.get_chemical_symbols()
             counts = Counter(symbols)
             if "N" in counts and counts["N"] == 1 and "H" in counts:
                 assert len(mol) == 5, f"NH4 molecule has {len(mol)} atoms (expected 5)"
                 assert counts["H"] == 4
+                nh4_molecules.append(mol)
+
+                h_indices = [i for i, symbol in enumerate(symbols) if symbol == "H"]
+                assert len(set(mol.arrays[KEY_ASYM_ID][h_indices])) == 4
+                assert len(set(mol.arrays[KEY_SYM_OP_INDEX])) == 1
+
+        assert len(nh4_molecules) == 8
 
     def test_dap2o4_dap_count(self):
         """Should have molecules with formula C6H14N2O2."""
@@ -220,16 +228,11 @@ class TestHighSymmetry:
         assert dap_count == 192
 
     def test_dap2o4_total_atoms(self):
-        """Total atoms should be consistent (ASU-first deduplicates some
-        special-position H atoms, so count may be lower than standard path)."""
+        """ASU-first should keep one complete NH4 orientation per N site."""
         cif_path = EXAMPLES_DIR / "example_cubic_disorder.cif"
         mc = MolecularCrystal.from_cif(str(cif_path), use_asu_first=True)
-        # Standard path gives 5504; ASU-first with special-position dedup
-        # gives fewer due to H atom dedup at shared Wyckoff orbits.
-        # The DAP + ClO4 atoms must be exact: 192*24 + 24*5 = 4728
-        total = get_total_atom_count(mc)
-        assert total >= 4728, f"Too few atoms: {total}"
-        assert total <= 5504, f"Too many atoms: {total}"
+        # 192 DAP (24 atoms) + 24 ClO4 (5 atoms) + 8 NH4 (5 atoms).
+        assert get_total_atom_count(mc) == 4768
 
     def test_dap2o4_stoichiometry_no_hang(self):
         """StoichiometryAnalyzer should complete without hanging."""
