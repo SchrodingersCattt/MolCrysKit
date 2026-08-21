@@ -589,11 +589,26 @@ class MolecularCrystal:
                 if pair.issubset(global_to_local):
                     legacy_by_pair[pair] = raw
 
-            for first_local, second_local in molecule.graph.edges():
-                first_local = int(first_local)
-                second_local = int(second_local)
-                first_global = int(molecule_globals[first_local])
-                second_global = int(molecule_globals[second_local])
+            graph_pairs = {
+                frozenset(
+                    (
+                        int(molecule_globals[int(first_local)]),
+                        int(molecule_globals[int(second_local)]),
+                    )
+                )
+                for first_local, second_local in molecule.graph.edges()
+            }
+            # A finite unwrapped embedding cannot represent every edge in a
+            # periodic network cycle simultaneously.  Retain the exact
+            # neighbor-list edges stored by identify_molecules instead of
+            # silently dropping those absent from CrystalMolecule.graph.
+            for pair in sorted(
+                graph_pairs | set(legacy_by_pair),
+                key=lambda item: tuple(sorted(item)),
+            ):
+                first_global, second_global = sorted(pair)
+                first_local = global_to_local[first_global]
+                second_local = global_to_local[second_global]
                 if first_global <= second_global:
                     left_local, right_local = first_local, second_local
                     left_global, right_global = first_global, second_global
