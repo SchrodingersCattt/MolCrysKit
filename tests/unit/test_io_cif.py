@@ -3,14 +3,14 @@ Unit tests for molcrys_kit.io.cif (read_mol_crystal, parse_cif_advanced, identif
 """
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
 from ase import Atoms
 
-# Suppress pymatgen/CIF parsing warnings in tests (test data may have occupancy quirks)
-pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
-
+import molcrys_kit.io.cif as cif_module
+from molcrys_kit.constants import DEFAULT_NEIGHBOR_CUTOFF
 from molcrys_kit.constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 from molcrys_kit.io.cif import (
     SymmetryAutoExpandedWarning,
@@ -21,6 +21,9 @@ from molcrys_kit.io.cif import (
     scan_cif_disorder,
 )
 from molcrys_kit.structures.molecule import CrystalMolecule
+
+# Suppress pymatgen/CIF parsing warnings in tests (test data may have occupancy quirks)
+pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 
 class TestSymmetryExpansion:
@@ -168,6 +171,137 @@ class TestParseCifAdvancedDeprecated:
 
 class TestIdentifyMoleculesFromAtoms:
     """identify_molecules(Atoms) -> list of CrystalMolecule (bond-based)."""
+
+    @pytest.mark.parametrize(
+        "atoms, bond_scale",
+        [
+            pytest.param(Atoms(), 1.0, id="empty"),
+            pytest.param(
+                Atoms("CH", positions=[[0, 0, 0], [1, 0, 0]]),
+                0.0,
+                id="zero-scale",
+            ),
+            pytest.param(
+                Atoms("CH", positions=[[0, 0, 0], [1, 0, 0]]),
+                -1.0,
+                id="negative-scale",
+            ),
+        ],
+    )
+    def test_empty_or_nonpositive_scale_skips_candidate_generation(
+        self, atoms, bond_scale, monkeypatch
+    ):
+        def unexpected_neighbor_list(*args, **kwargs):
+            pytest.fail("neighbor_list should not run without a positive bond cutoff")
+
+        monkeypatch.setattr(cif_module, "neighbor_list", unexpected_neighbor_list)
+
+        graph = cif_module._build_molecule_graph(atoms, bond_scale=bond_scale)
+
+        assert graph.number_of_nodes() == len(atoms)
+        assert graph.number_of_edges() == 0
+
+    def test_pair_cutoffs_include_explicit_directed_thresholds_and_scale(
+        self, monkeypatch
+    ):
+        atoms = Atoms(
+            symbols=["C", "H"],
+            positions=[[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]],
+        )
+        observed = {"cutoffs": []}
+        real_neighbor_list = cif_module.neighbor_list
+
+        def recording_neighbor_list(quantities, candidate_atoms, cutoff):
+            observed["cutoffs"].append(cutoff)
+            return real_neighbor_list(quantities, candidate_atoms, cutoff)
+
+        monkeypatch.setattr(cif_module, "neighbor_list", recording_neighbor_list)
+
+        graph = cif_module._build_molecule_graph(
+            atoms,
+            bond_thresholds={("C", "H"): 1.0, ("H", "C"): 2.0},
+            bond_scale=0.8,
+        )
+
+        assert observed["cutoffs"][0][("C", "H")] == pytest.approx(1.6)
+        assert graph.has_edge(0, 1)
+
+        negative_graph = cif_module._build_molecule_graph(
+            atoms,
+            bond_thresholds={("C", "H"): -1.0},
+        )
+
+        assert observed["cutoffs"][1][("C", "H")] == pytest.approx(-1.0)
+        assert negative_graph.number_of_edges() == 0
+
+    def test_dense_caffeine_disorder_has_bounded_bond_candidates(self, monkeypatch):
+        cif_path = (
+            Path(__file__).parent.parent
+            / "data"
+            / "cif"
+            / "anhydrousCaffeine2_CGD_2007_7_1406.cif"
+        )
+        disorder_info = scan_cif_disorder(str(cif_path))
+        atoms = Atoms(
+            symbols=disorder_info.symbols,
+            positions=disorder_info.frac_coords @ disorder_info.lattice_matrix,
+            cell=disorder_info.lattice_matrix,
+            pbc=True,
+        )
+        atoms.set_array(
+            KEY_DISORDER_GROUP,
+            np.asarray(disorder_info.disorder_groups, dtype=int),
+        )
+        atoms.set_array(
+            KEY_SYM_OP_INDEX,
+            np.asarray(disorder_info.sym_op_indices, dtype=int),
+        )
+        observed = {"calls": []}
+        real_neighbor_list = cif_module.neighbor_list
+
+        def recording_neighbor_list(quantities, candidate_atoms, cutoff):
+            result = real_neighbor_list(quantities, candidate_atoms, cutoff)
+            observed["calls"].append((cutoff, len(result[0])))
+            return result
+
+        monkeypatch.setattr(cif_module, "neighbor_list", recording_neighbor_list)
+
+        graph = cif_module._build_molecule_graph(atoms)
+
+        assert len(atoms) == 936
+        cutoff, candidate_count = observed["calls"][0]
+        assert max(cutoff.values()) == pytest.approx(1.9)
+        # Current ASE yields 14,976 directed candidates. Keep version tolerance
+        # while tripping the old global 3.5 Å path (110,700 candidates).
+        assert candidate_count < 20_000
+        assert graph.number_of_edges() == 1_854
+
+        def global_cutoff_neighbor_list(quantities, candidate_atoms, cutoff):
+            return real_neighbor_list(
+                quantities,
+                candidate_atoms,
+                cutoff=DEFAULT_NEIGHBOR_CUTOFF,
+            )
+
+        monkeypatch.setattr(
+            cif_module,
+            "neighbor_list",
+            global_cutoff_neighbor_list,
+        )
+        reference_graph = cif_module._build_molecule_graph(atoms)
+
+        def edge_provenance(candidate_graph):
+            return sorted(
+                (
+                    left,
+                    right,
+                    tuple(data["vector"]),
+                    tuple(data["image_shift"]),
+                )
+                for left, right, data in candidate_graph.edges(data=True)
+            )
+
+        assert edge_provenance(graph) == edge_provenance(reference_graph)
 
     def test_simple_ho_and_isolated_cl(self):
         atoms = Atoms(

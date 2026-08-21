@@ -30,7 +30,6 @@ from ..constants import (
     is_metal_element,
 )
 from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bonds
-from ..constants import DEFAULT_NEIGHBOR_CUTOFF
 
 
 logger = logging.getLogger(__name__)
@@ -256,6 +255,51 @@ def _build_molecule_graph(
     for i in range(len(atoms)):
         crystal_graph.add_node(i, symbol=symbols[i])
 
+    if len(atoms) == 0 or bond_scale <= 0:
+        return crystal_graph
+
+    from ..analysis.interactions import get_bonding_threshold
+
+    unique_symbols = sorted(set(symbols))
+    radii = {
+        symbol: get_atomic_radius(symbol) if has_atomic_radius(symbol) else 0.5
+        for symbol in unique_symbols
+    }
+    metal_flags = {symbol: is_metal_element(symbol) for symbol in unique_symbols}
+    threshold_by_pair = {}
+    for symbol_i in unique_symbols:
+        for symbol_j in unique_symbols:
+            pair_key1 = (symbol_i, symbol_j)
+            pair_key2 = (symbol_j, symbol_i)
+            if bond_thresholds and (
+                pair_key1 in bond_thresholds or pair_key2 in bond_thresholds
+            ):
+                threshold = bond_thresholds.get(
+                    pair_key1, bond_thresholds.get(pair_key2)
+                )
+            else:
+                threshold = get_bonding_threshold(
+                    radii[symbol_i],
+                    radii[symbol_j],
+                    metal_flags[symbol_i],
+                    metal_flags[symbol_j],
+                )
+            threshold_by_pair[pair_key1] = threshold
+
+    # ASE accepts exact element-pair cutoffs. Use the larger directed value
+    # when callers supplied both pair orientations with different thresholds;
+    # the final directed acceptance mask below preserves that legacy behavior.
+    candidate_cutoffs = {}
+    for index, symbol_i in enumerate(unique_symbols):
+        for symbol_j in unique_symbols[index:]:
+            candidate_cutoffs[(symbol_i, symbol_j)] = (
+                max(
+                    threshold_by_pair[(symbol_i, symbol_j)],
+                    threshold_by_pair[(symbol_j, symbol_i)],
+                )
+                * bond_scale
+            )
+
     # -------------------------------------------------------------------------
     # Request both the exact PBC vector and its signed lattice-image shift.
     # For an ASE row-vector cell ``M`` the returned values satisfy:
@@ -264,67 +308,64 @@ def _build_molecule_graph(
     # display image without re-running bond perception.
     # -------------------------------------------------------------------------
     i_list, j_list, d_list, D_vectors, shifts = neighbor_list(
-        "ijdDS", atoms, cutoff=DEFAULT_NEIGHBOR_CUTOFF
+        "ijdDS", atoms, cutoff=candidate_cutoffs
     )
 
-    from ..analysis.interactions import get_bonding_threshold
+    compatible = i_list != j_list
+    if excluded:
+        excluded_indices = np.fromiter(excluded, dtype=int)
+        compatible &= ~np.isin(i_list, excluded_indices)
+        compatible &= ~np.isin(j_list, excluded_indices)
+    if disorder_groups is not None:
+        group_i = disorder_groups[i_list].astype(int, copy=False)
+        group_j = disorder_groups[j_list].astype(int, copy=False)
+        both_disordered = (group_i != 0) & (group_j != 0)
+        incompatible = both_disordered & (group_i != group_j)
+        if sym_op_indices is not None:
+            incompatible |= both_disordered & (
+                sym_op_indices[i_list].astype(int, copy=False)
+                != sym_op_indices[j_list].astype(int, copy=False)
+            )
+        compatible &= ~incompatible
 
-    for i, j, distance, D_vec, shift in zip(i_list, j_list, d_list, D_vectors, shifts):
+    i_list = i_list[compatible]
+    j_list = j_list[compatible]
+    d_list = d_list[compatible]
+    D_vectors = D_vectors[compatible]
+    shifts = shifts[compatible]
+
+    thresholds = np.fromiter(
+        (
+            threshold_by_pair[(symbols[int(i)], symbols[int(j)])]
+            for i, j in zip(i_list, j_list)
+        ),
+        dtype=float,
+        count=len(d_list),
+    )
+    accepted = d_list < thresholds * bond_scale
+
+    for i, j, D_vec, shift in zip(
+        i_list[accepted],
+        j_list[accepted],
+        D_vectors[accepted],
+        shifts[accepted],
+    ):
         # ``neighbor_list`` returns both directed orientations.  Keep one
         # deterministic orientation only after normalising the associated
         # signed image relation to ``left < right`` below.
-        if i == j:
-            continue
-        if int(i) in excluded or int(j) in excluded:
-            continue
-        if disorder_groups is not None:
-            group_i = int(disorder_groups[i])
-            group_j = int(disorder_groups[j])
-            if group_i != 0 and group_j != 0 and group_i != group_j:
-                continue
-            if (
-                group_i != 0
-                and group_j != 0
-                and sym_op_indices is not None
-                and int(sym_op_indices[i]) != int(sym_op_indices[j])
-            ):
-                continue
-
-        pair_key1, pair_key2 = (symbols[i], symbols[j]), (symbols[j], symbols[i])
-
-        if bond_thresholds and (
-            pair_key1 in bond_thresholds or pair_key2 in bond_thresholds
-        ):
-            threshold = bond_thresholds.get(pair_key1, bond_thresholds.get(pair_key2))
-        else:
-            radius_i = (
-                get_atomic_radius(symbols[i]) if has_atomic_radius(symbols[i]) else 0.5
-            )
-            radius_j = (
-                get_atomic_radius(symbols[j]) if has_atomic_radius(symbols[j]) else 0.5
-            )
-            is_metal_i, is_metal_j = (
-                is_metal_element(symbols[i]),
-                is_metal_element(symbols[j]),
-            )
-            threshold = get_bonding_threshold(
-                radius_i, radius_j, is_metal_i, is_metal_j
-            )
-
-        if distance < threshold * bond_scale:
-            left, right = int(i), int(j)
-            image_shift = np.asarray(shift, dtype=int)
-            vector = np.asarray(D_vec, dtype=float)
-            if left > right:
-                left, right = right, left
-                image_shift = -image_shift
-                vector = -vector
-            crystal_graph.add_edge(
-                left,
-                right,
-                vector=vector,
-                image_shift=image_shift,
-            )
+        left, right = int(i), int(j)
+        image_shift = np.asarray(shift, dtype=int)
+        vector = np.asarray(D_vec, dtype=float)
+        if left > right:
+            left, right = right, left
+            image_shift = -image_shift
+            vector = -vector
+        crystal_graph.add_edge(
+            left,
+            right,
+            vector=vector,
+            image_shift=image_shift,
+        )
 
     return crystal_graph
 
