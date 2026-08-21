@@ -274,6 +274,51 @@ def test_operate_supercell_rejects_zero_scale(tmp_path: Path) -> None:
     assert "--scale factors must each be >= 1." in result.output
 
 
+def test_operate_nanocluster_fixed_unit_cell_count(tmp_path: Path) -> None:
+    output = tmp_path / "nanocluster.extxyz"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "15",
+            "--topology-unit",
+            "unit_cell",
+            "--target-units",
+            "1",
+            "--vacuum",
+            "2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert output.exists()
+    assert "units: 1" in result.output
+    assert "atoms: 368" in result.output
+
+
+def test_operate_nanocluster_requires_shape_dimensions(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "nanocluster.extxyz"),
+            "--shape",
+            "sphere",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--radius is required for --shape sphere" in result.output
+
+
 def test_slab_requires_layers_or_thickness(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,

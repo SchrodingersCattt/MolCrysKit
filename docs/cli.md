@@ -38,6 +38,7 @@ mck operate cluster --help
 | `mck operate add-h INPUT` | Add missing hydrogen atoms | `-o/--output OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
 | `mck operate slab INPUT` | Generate surface slab models | `-o/--output OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all,INDEX}` |
 | `mck operate cluster INPUT` | Carve molecular clusters | `-o/--output OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--cut-cc-bonds I,J;K,L`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable), `--seed-merge-radius FLOAT`, `--convention-reference STR`, `--no-stop-at-non-seed-metals` |
+| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT` |
 | `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C` |
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
@@ -93,6 +94,32 @@ mck operate cluster structure.cif -o cluster.xyz --seed-element C --mode bond_sh
 # Radius cutoff with hydrogen caps
 mck operate cluster structure.cif -o cluster.xyz --seed-index 42 --mode rcut --rcut 12.0 --cap-distance 1.1
 ```
+
+### Topology-Preserving Nanoclusters
+
+`nanocluster` selects complete molecules or complete translated source-cell
+packets. It never cuts atoms or adds caps. With no `--target-units`, the preset
+shape is applied exactly. With `--target-units N`, the nearest `N` units by the
+shape field are selected from the preset's bounding box.
+
+```bash
+# Fixed 60 Å sphere, selecting complete molecules by geometric centroid
+mck operate nanocluster structure.cif -o sphere.extxyz \
+  --shape sphere --radius 30 --vacuum 10
+
+# Exactly 537 complete source-cell packets in a needle-shaped search box
+mck operate nanocluster adn.cif -o needle.extxyz \
+  --shape box --size 30 30 600 --topology-unit unit_cell --target-units 537
+
+# Finite cylinder along x, selecting molecules by center of mass
+mck operate nanocluster structure.cif -o cylinder.extxyz \
+  --shape cylinder --radius 25 --height 100 --axis x --center-kind com
+```
+
+For a 12-atom source cell, the fixed-count example always contains exactly
+`537 × 12 = 6444` atoms, independent of whether the search box is needle-like,
+plate-like, or nearly isotropic. Custom implicit functions are available through
+the Python API only.
 
 ### Surface Slabs
 
