@@ -4,11 +4,14 @@ Structure builders for molecular crystals.
 This module provides functionality to build complex structures from simpler units.
 """
 
+import copy
 from typing import Tuple
 
-import numpy as np
-
 from ..structures.crystal import MolecularCrystal
+from .modeling_readiness import (
+    require_complete_topology_units,
+    warn_if_unresolved_disorder,
+)
 
 
 def create_supercell(
@@ -32,35 +35,17 @@ def create_supercell(
         molecules while preserving per-atom disorder metadata and the
         original ``sym_op_index``/``asym_id`` source provenance.
     """
-    return crystal.get_supercell(*scaling_factors)
+    report = warn_if_unresolved_disorder(crystal, operation="create_supercell")
+    require_complete_topology_units(report, operation="create_supercell")
+    result = crystal.get_supercell(*scaling_factors)
+    result.metadata = copy.deepcopy(crystal.metadata)
+    result.metadata["modeling_readiness"] = report.to_dict()
+    result.metadata["supercell"] = {
+        "scaling_factors": [int(value) for value in scaling_factors],
+        "source_molecule_count": len(crystal.molecules),
+        "source_atom_count": sum(len(molecule) for molecule in crystal.molecules),
+    }
+    return result
 
 
-def create_defect_structure(
-    crystal: MolecularCrystal, defect_type: str, defect_position: np.ndarray
-) -> MolecularCrystal:
-    """
-    Create a crystal with a specific defect.
-
-    Parameters
-    ----------
-    crystal : MolecularCrystal
-        The perfect crystal.
-    defect_type : str
-        Type of defect ('vacancy', 'interstitial', etc.).
-    defect_position : np.ndarray
-        Position of the defect.
-
-    Returns
-    -------
-    MolecularCrystal
-        Crystal structure with the defect.
-    """
-
-    # This is a simplified placeholder implementation
-    # A real implementation would modify the crystal according to the defect type
-
-    # For demonstration, we'll just return the original crystal
-    return crystal
-
-
-__all__ = ["create_supercell", "create_defect_structure"]
+__all__ = ["create_supercell"]

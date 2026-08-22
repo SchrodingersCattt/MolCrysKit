@@ -1,4 +1,4 @@
-"""Benchmark bounded-memory nanocluster selection on a million-point grid."""
+"""Benchmark the shared implicit-shape selector on a million-point grid."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ import numpy as np  # noqa: E402
 from ase import Atoms  # noqa: E402
 
 from molcrys_kit.operations import (  # noqa: E402
-    DEFAULT_NANOCLUSTER_BATCH_SIZE,
+    DEFAULT_SHAPE_BATCH_SIZE,
+    ImplicitShape,
     NanoClusterCarver,
-    NanoShape,
 )
 from molcrys_kit.structures import MolecularCrystal  # noqa: E402
 
@@ -35,7 +35,8 @@ def _process_rss_bytes() -> int | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--half-width", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_NANOCLUSTER_BATCH_SIZE)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_SHAPE_BATCH_SIZE)
+    parser.add_argument("--json-output", type=Path, default=None)
     args = parser.parse_args()
     if args.half_width < 1:
         parser.error("--half-width must be positive")
@@ -63,7 +64,7 @@ def main() -> None:
             peak_rss = current_rss if peak_rss is None else max(peak_rss, current_rss)
         return x * x + y * y + z * z
 
-    shape = NanoShape(squared_radius, bounds, name="benchmark_cube")
+    shape = ImplicitShape(squared_radius, bounds, name="benchmark_cube")
     tracemalloc.start()
     start = time.perf_counter()
     result = NanoClusterCarver(source, batch_size=args.batch_size).carve(
@@ -77,6 +78,7 @@ def main() -> None:
     metadata = result.metadata["nanocluster"]
 
     report = {
+        "component": "shared_implicit_shape_selector",
         "grid_candidates": metadata["grid_candidate_count"],
         "bounded_candidates": metadata["candidate_count"],
         "field_calls": field_calls,
@@ -93,7 +95,11 @@ def main() -> None:
             else (peak_rss - baseline_rss) / (1024 * 1024)
         ),
     }
-    print(json.dumps(report, indent=2))
+    report_text = json.dumps(report, indent=2)
+    if args.json_output is not None:
+        args.json_output.parent.mkdir(parents=True, exist_ok=True)
+        args.json_output.write_text(report_text + "\n", encoding="utf-8")
+    print(report_text)
 
 
 if __name__ == "__main__":
