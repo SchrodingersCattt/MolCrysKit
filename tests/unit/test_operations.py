@@ -23,7 +23,7 @@ from molcrys_kit.operations.perturbation import (
     apply_random_rotation,
 )
 from molcrys_kit.operations.desolvation import Desolvator, remove_solvents
-from molcrys_kit.operations.builders import create_supercell, create_defect_structure
+from molcrys_kit.operations.builders import create_supercell
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.analysis.chemical_env import ChemicalEnvironment
@@ -392,7 +392,7 @@ class TestDesolvation:
 
 
 class TestBuilders:
-    """create_supercell and create_defect_structure."""
+    """create_supercell."""
 
     def test_create_supercell(self, cubic_lattice_10, co_molecule):
         crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
@@ -400,9 +400,3 @@ class TestBuilders:
         assert isinstance(supercell, MolecularCrystal)
         total_atoms = sum(len(m) for m in supercell.molecules)
         assert total_atoms == 4
-
-    def test_create_defect_structure_placeholder(self, crystal_single_water):
-        result = create_defect_structure(
-            crystal_single_water, "vacancy", np.array([0.5, 0.5, 0.5])
-        )
-        assert result is crystal_single_water

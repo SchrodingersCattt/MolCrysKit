@@ -319,6 +319,113 @@ def test_operate_nanocluster_requires_shape_dimensions(tmp_path: Path) -> None:
     assert "--radius is required for --shape sphere" in result.output
 
 
+def test_operate_nanocluster_resolves_disorder_and_writes_sidecar(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "ordered_nanocluster.extxyz"
+    sidecar = tmp_path / "ordered_nanocluster.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--shape",
+            "cylinder",
+            "--radius",
+            "12",
+            "--height",
+            "20",
+            "--axis-vector",
+            "1",
+            "1",
+            "0.5",
+            "--center-frac",
+            "0.5",
+            "0.5",
+            "0.5",
+            "--topology-unit",
+            "unit_cell",
+            "--target-units",
+            "1",
+            "--resolve-disorder",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["selected_atom_count"] == 336
+    assert stats["modeling_readiness"]["all_atom_ordered"] is True
+
+
+def test_operate_void_fixed_stoichiometry_charge_and_sidecar(tmp_path: Path) -> None:
+    output = tmp_path / "void.extxyz"
+    sidecar = tmp_path / "void.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "5",
+            "--target-units",
+            "1",
+            "--species-charge",
+            "C6H14N2_1",
+            "2",
+            "--species-charge",
+            "ClO4_1",
+            "-1",
+            "--species-charge",
+            "H4N_1",
+            "1",
+            "--resolve-disorder",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert output.exists()
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["removed_species_counts"] == {
+        "C6H14N2_1": 1,
+        "ClO4_1": 3,
+        "H4N_1": 1,
+    }
+    assert stats["removed_atom_count"] == 42
+    assert stats["remaining_atom_count"] == 294
+    assert stats["charge_verified"] is True
+    assert stats["removed_net_charge_e"] == 0.0
+    assert stats["modeling_readiness"]["all_atom_ordered"] is True
+
+
+def test_operate_void_through_cylinder_requires_hkl(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "void.extxyz"),
+            "--shape",
+            "through-cylinder",
+            "--radius",
+            "3",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--direction-hkl H K L" in result.output
+
+
 def test_slab_requires_layers_or_thickness(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
