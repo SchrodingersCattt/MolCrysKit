@@ -31,7 +31,10 @@ ImageShift = tuple[int, int, int]
 
 @dataclass(frozen=True)
 class RigidGroup:
-    """A set of reactant-global atom identities that moves as one rigid body."""
+    """A set of reactant-global atom identities that moves as one rigid body.
+
+    Rigid fits use equal-weight geometric centroids, not mass-weighted centers.
+    """
 
     atom_indices: tuple[int, ...]
     name: str | None = None
