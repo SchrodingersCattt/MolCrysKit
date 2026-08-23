@@ -376,6 +376,10 @@ def test_operate_void_fixed_stoichiometry_charge_and_sidecar(tmp_path: Path) -> 
             "sphere",
             "--radius",
             "5",
+            "--center-frac",
+            "0.5",
+            "0.5",
+            "0.5",
             "--target-units",
             "1",
             "--species-charge",
@@ -405,6 +409,103 @@ def test_operate_void_fixed_stoichiometry_charge_and_sidecar(tmp_path: Path) -> 
     assert stats["charge_verified"] is True
     assert stats["removed_net_charge_e"] == 0.0
     assert stats["modeling_readiness"]["all_atom_ordered"] is True
+
+
+def test_operate_void_cover_nonperiodic_and_species_validation(tmp_path: Path) -> None:
+    import numpy as np
+    from ase import Atoms
+
+    from molcrys_kit.io import write_extxyz
+    from molcrys_kit.structures import MolecularCrystal
+
+    cell = 10.0 * np.eye(3)
+    entries = [
+        ("H", (5.0, 5.0, 5.0)),
+        ("H", (5.9, 5.0, 5.0)),
+        ("H", (8.0, 5.0, 5.0)),
+        ("He", (5.2, 5.0, 5.0)),
+        ("He", (6.2, 5.0, 5.0)),
+        ("He", (8.5, 5.0, 5.0)),
+    ]
+    crystal = MolecularCrystal(
+        cell,
+        [
+            Atoms(symbol, positions=[position], cell=cell, pbc=False)
+            for symbol, position in entries
+        ],
+        pbc=(False, False, False),
+    )
+    input_path = tmp_path / "cover_input.extxyz"
+    output = tmp_path / "cover_void.extxyz"
+    sidecar = tmp_path / "cover_void.json"
+    write_extxyz(crystal, str(input_path))
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(input_path),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "1",
+            "--center",
+            "5",
+            "5",
+            "5",
+            "--boundary-policy",
+            "cover",
+            "--no-periodic-images",
+            "--species",
+            "H_1",
+            "1",
+            "--species",
+            "He_1",
+            "1",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["boundary_policy"] == "cover"
+    assert stats["periodic_images"] is False
+    assert stats["removed_species_counts"] == {"H_1": 2, "He_1": 2}
+
+    invalid = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(input_path),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "1",
+            "--species",
+            "H_1",
+            "not-an-integer",
+        ],
+    )
+    assert invalid.exit_code != 0
+    assert "--species COUNT must be an integer" in invalid.output
+
+
+def test_stats_sidecar_reports_filesystem_errors(tmp_path: Path) -> None:
+    import click
+    import pytest
+
+    from molcrys_kit.cli.operate_cmd import _write_stats_sidecar
+
+    blocking_file = tmp_path / "not-a-directory"
+    blocking_file.write_text("occupied", encoding="utf-8")
+    with pytest.raises(click.ClickException, match="Could not write JSON sidecar"):
+        _write_stats_sidecar(blocking_file / "stats.json", {"count": 1})
 
 
 def test_operate_void_through_cylinder_requires_hkl(tmp_path: Path) -> None:

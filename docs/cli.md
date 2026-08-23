@@ -149,7 +149,8 @@ mck operate void ordered.extxyz -o through_void.extxyz \
 every selected object is still removed whole. With no fixed count,
 `--boundary-policy inside` removes the largest complete stoichiometric packet
 contained by the raw hits, while `cover` supplements each deficient species
-with its nearest outside candidates. If charge validation is requested, the
+with outside candidates having the smallest positive implicit-field values.
+If charge validation is requested, the
 charge map must cover every target species and both the formula unit and final
 removed cluster must be neutral.
 

@@ -401,8 +401,11 @@ def _parse_species_charges(
 def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
     if path is None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rows_to_json(dict(info)) + "\n", encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rows_to_json(dict(info)) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise click.ClickException(f"Could not write JSON sidecar {path}: {exc}") from exc
     click.echo(f"Wrote {path}")
 
 

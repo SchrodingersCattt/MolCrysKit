@@ -49,9 +49,15 @@ def _partition_extra_arrays(
     molecule_indices: Sequence[int],
 ) -> dict[str, np.ndarray]:
     source_indices = crystal._molecule_global_indices()
+    expected_length = sum(len(molecule) for molecule in crystal.molecules)
     result: dict[str, np.ndarray] = {}
     for key, values in crystal.extra_arrays.items():
         array = np.asarray(values)
+        if len(array) != expected_length:
+            raise ValueError(
+                f"Extra array {key!r} has length {len(array)}; "
+                f"expected {expected_length} per-atom values."
+            )
         blocks = [array[source_indices[index]] for index in molecule_indices]
         result[key] = np.concatenate(blocks, axis=0) if blocks else array[:0].copy()
     return result
@@ -579,7 +585,9 @@ class VoidCarver:
                 or not isinstance(count, (int, np.integer))
                 or count <= 0
             ):
-                raise ValueError(f"target_spec count for {species_id!r} must be positive.")
+                raise ValueError(
+                    f"target_spec count for {species_id!r} must be a positive integer."
+                )
             clean[str(species_id)] = int(count)
         return dict(sorted(clean.items()))
 

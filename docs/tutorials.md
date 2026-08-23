@@ -520,9 +520,9 @@ assert remaining.metadata["void"]["removed_net_charge_e"] == 0.0
 
 For fixed geometry, `boundary_policy="inside"` rounds every raw species count
 down to the largest common stoichiometric-unit count. `"cover"` rounds up and
-supplements deficient species from the closest candidates outside the
-boundary. For a periodically continuous pore, define one primitive lattice
-period and let periodic shape images connect it:
+supplements deficient species with outside candidates having the smallest
+positive implicit-field values. For a periodically continuous pore, define one
+primitive lattice period and let periodic shape images connect it:
 
 ```python
 channel = ImplicitShape.through_cylinder(

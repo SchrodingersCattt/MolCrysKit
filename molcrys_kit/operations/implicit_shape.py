@@ -191,6 +191,9 @@ class ImplicitShape:
             raise ValueError("direction_hkl must be non-zero.")
         divisor = math.gcd(*(abs(int(value)) for value in direction))
         direction //= divisor
+        first_nonzero = int(direction[np.flatnonzero(direction)[0]])
+        if first_nonzero < 0:
+            direction *= -1
         axis = direction @ lattice_array
         height = float(np.linalg.norm(axis))
         shape = cls.cylinder(radius, height, axis=axis)

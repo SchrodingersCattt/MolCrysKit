@@ -10,18 +10,25 @@ import numpy as np
 import pytest
 from ase import Atoms
 
-from molcrys_kit.io import read_mol_crystal
+from molcrys_kit.io import read_extxyz, read_mol_crystal, write_extxyz
 from molcrys_kit.operations import (
     ImplicitShape,
     NanoShape,
     UnresolvedDisorderWarning,
+    VacancyGenerator,
     VoidCarver,
     carve_void,
 )
-from molcrys_kit.structures import MolecularCrystal
+from molcrys_kit.operations.implicit_shape import evaluate_shape_field
+from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
 
 DAP4 = Path(__file__).parents[1] / "data" / "cif" / "DAP-4.cif"
+
+
+@pytest.fixture(scope="module")
+def ordered_dap4() -> MolecularCrystal:
+    return read_mol_crystal(DAP4, resolve_disorder=True)
 
 
 def _one_atom_crystal(
@@ -91,6 +98,20 @@ def test_through_cylinder_uses_primitive_lattice_direction() -> None:
     expected_height = float(np.linalg.norm(np.asarray([10.0, 12.0, 0.0])))
     assert shape.parameters["height_A"] == pytest.approx(expected_height)
 
+    opposite = ImplicitShape.through_cylinder(2.0, lattice, (-2, -2, 0))
+    diagonal = ImplicitShape.through_cylinder(2.0, lattice, (-2, 2, 0))
+    assert opposite.parameters["direction_hkl"] == [1, 1, 0]
+    assert diagonal.parameters["direction_hkl"] == [1, -1, 0]
+
+
+def test_shape_field_rejects_complex_values() -> None:
+    shape = ImplicitShape(
+        lambda x, y, z: x.astype(complex) + 1j,
+        ((-1, 1), (-1, 1), (-1, 1)),
+    )
+    with pytest.raises(TypeError, match="real numeric"):
+        evaluate_shape_field(shape, np.zeros((2, 3)))
+
 
 def evaluate(shape: ImplicitShape, x: float, y: float, z: float) -> float:
     return float(shape.field(np.asarray([x]), np.asarray([y]), np.asarray([z]))[0])
@@ -99,6 +120,9 @@ def evaluate(shape: ImplicitShape, x: float, y: float, z: float) -> float:
 def test_fixed_count_preserves_ionic_stoichiometry_topology_and_arrays() -> None:
     source = _adn_like_supercell()
     source_positions = [molecule.get_positions().copy() for molecule in source.molecules]
+    source_graphs = {}
+    for molecule in source.molecules:
+        source_graphs.setdefault(molecule.get_chemical_formula(), molecule.graph.copy())
     result, removed = carve_void(
         source,
         ImplicitShape.sphere(11.0),
@@ -118,7 +142,10 @@ def test_fixed_count_preserves_ionic_stoichiometry_topology_and_arrays() -> None
     for molecule in result.molecules + removed.molecules:
         assert "site_tag" in molecule.arrays
         assert molecule.info.get("atom_indices") is None
-        assert nx.is_isomorphic(molecule.graph, molecule.graph)
+        assert nx.is_isomorphic(
+            molecule.graph,
+            source_graphs[molecule.get_chemical_formula()],
+        )
     for molecule, positions in zip(source.molecules, source_positions):
         np.testing.assert_array_equal(molecule.get_positions(), positions)
 
@@ -136,9 +163,17 @@ def test_inside_and_cover_round_stoichiometry_on_opposite_sides() -> None:
     )
     shape = ImplicitShape.sphere(1.0)
     inside = carve_void(crystal, shape, center=(5, 5, 5), boundary_policy="inside")
-    cover = carve_void(crystal, shape, center=(5, 5, 5), boundary_policy="cover")
+    cover, removed = carve_void(
+        crystal,
+        shape,
+        center=(5, 5, 5),
+        boundary_policy="cover",
+        return_removed_cluster=True,
+    )
     assert inside.metadata["void"]["removed_species_counts"] == {"H_1": 1, "He_1": 1}
     assert cover.metadata["void"]["removed_species_counts"] == {"H_1": 2, "He_1": 2}
+    np.testing.assert_array_equal(cover.extra_arrays["source_rank"], [2, 5])
+    np.testing.assert_array_equal(removed.extra_arrays["source_rank"], [0, 1, 3, 4])
 
 
 def test_any_atom_and_all_atoms_use_complete_molecule_envelopes() -> None:
@@ -177,6 +212,38 @@ def test_periodic_shape_image_wraps_across_boundary() -> None:
         )
 
 
+def test_all_atoms_uses_one_periodic_shape_image_per_molecule() -> None:
+    cell = 10.0 * np.eye(3)
+    split = Atoms("H2", positions=[[0.2, 5, 5], [9.8, 5, 5]], cell=cell, pbc=True)
+    compact = Atoms("H2", positions=[[0.1, 5, 5], [0.2, 5, 5]], cell=cell, pbc=True)
+    outside = Atoms("H2", positions=[[5.0, 5, 5], [5.1, 5, 5]], cell=cell, pbc=True)
+    split_molecule = CrystalMolecule(split, check_pbc=False)
+    # Preserve a known H-H topology while retaining deliberately wrapped coordinates.
+    split_molecule._graph = nx.Graph()
+    split_molecule._graph.add_nodes_from([(0, {"symbol": "H"}), (1, {"symbol": "H"})])
+    split_molecule._graph.add_edge(0, 1)
+    crystal = MolecularCrystal(
+        cell,
+        [split_molecule, compact, outside],
+    )
+    shape = ImplicitShape.sphere(0.3)
+
+    any_result = carve_void(
+        crystal,
+        shape,
+        center=(0, 5, 5),
+        hit_mode="any_atom",
+    )
+    all_result = carve_void(
+        crystal,
+        shape,
+        center=(0, 5, 5),
+        hit_mode="all_atoms",
+    )
+    assert any_result.metadata["void"]["raw_inside_species_counts"] == {"H2_1": 2}
+    assert all_result.metadata["void"]["raw_inside_species_counts"] == {"H2_1": 1}
+
+
 def test_cartesian_and_fractional_centers_are_equivalent() -> None:
     crystal = _one_atom_crystal(
         [("He", (5.0, 5, 5)), ("He", (8.0, 5, 5))]
@@ -210,6 +277,8 @@ def test_charge_map_is_complete_and_neutral() -> None:
         carve_void(crystal, shape, species_charge_map={"H_1": 1})
     with pytest.raises(ValueError, match="non-zero net charge"):
         carve_void(crystal, shape, species_charge_map={"H_1": 1, "He_1": 1})
+    with pytest.raises(ValueError, match="positive integer"):
+        carve_void(crystal, shape, target_spec={"H_1": 1.0}, target_units=1)
 
 
 def test_through_cylinder_rejects_nonperiodic_hkl_component() -> None:
@@ -229,19 +298,68 @@ def test_incomplete_topology_unit_is_rejected() -> None:
         VoidCarver(crystal)
 
 
-def test_dap4_unresolved_warns_and_resolved_replica_is_ordered() -> None:
+def test_dap4_unresolved_warns_and_resolved_replica_is_ordered(
+    ordered_dap4: MolecularCrystal,
+) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         unresolved = read_mol_crystal(DAP4)
     with pytest.warns(UnresolvedDisorderWarning, match="unresolved disorder"):
         VoidCarver(unresolved)
 
-    resolved = read_mol_crystal(DAP4, resolve_disorder=True)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        carver = VoidCarver(resolved)
+        carver = VoidCarver(ordered_dap4)
     assert carver._readiness.all_atom_ordered
     assert not [item for item in caught if item.category is UnresolvedDisorderWarning]
+
+
+def test_dap4_void_extxyz_roundtrip_preserves_valid_arrays(
+    ordered_dap4: MolecularCrystal,
+    tmp_path: Path,
+) -> None:
+    source = ordered_dap4.get_supercell(2, 1, 1)
+    source_atom_count = sum(len(molecule) for molecule in source.molecules)
+    source.extra_arrays["source_rank"] = np.arange(source_atom_count)
+    remaining, removed = carve_void(
+        source,
+        ImplicitShape.sphere(5.0),
+        center_frac=(0.5, 0.5, 0.5),
+        target_units=1,
+        return_removed_cluster=True,
+    )
+    output = tmp_path / "dap4_void.extxyz"
+    write_extxyz(remaining, str(output))
+    reread = read_extxyz(str(output))
+
+    assert sum(map(len, removed.molecules)) == 42
+    assert sum(map(len, reread.molecules)) == source_atom_count - 42
+    np.testing.assert_array_equal(
+        reread.extra_arrays["source_rank"],
+        remaining.extra_arrays["source_rank"],
+    )
+    flat = reread.to_ase()
+    assert np.allclose(flat.arrays["occupancy"], 1.0)
+    for key in ("disorder_group", "assembly", "label", "image_shift"):
+        assert key in flat.arrays
+    for stale_key in ("frac_x", "frac_y", "frac_z"):
+        assert stale_key not in flat.arrays
+
+
+def test_dap4_vacancy_regression_preserves_formula_packet(
+    ordered_dap4: MolecularCrystal,
+) -> None:
+    remaining, removed = VacancyGenerator(ordered_dap4).generate_vacancy(
+        target_spec={"C6H14N2_1": 1, "ClO4_1": 3, "H4N_1": 1},
+        random_seed=0,
+        return_removed_cluster=True,
+    )
+    formulas = [molecule.get_chemical_formula() for molecule in removed.molecules]
+    assert formulas.count("C6H14N2") == 1
+    assert formulas.count("ClO4") == 3
+    assert formulas.count("H4N") == 1
+    assert sum(map(len, remaining.molecules)) == 294
+    assert sum(map(len, removed.molecules)) == 42
 
 
 def test_field_calls_respect_batch_size_for_atom_hit_modes() -> None:
@@ -267,3 +385,50 @@ def test_field_calls_respect_batch_size_for_atom_hit_modes() -> None:
         )
     assert batch_lengths
     assert max(batch_lengths) <= 10
+
+
+def test_single_molecule_larger_than_batch_size_is_chunked() -> None:
+    cell = 100.0 * np.eye(3)
+    near = Atoms(
+        "H25",
+        positions=np.column_stack((np.arange(25), np.zeros(25), np.zeros(25))),
+        cell=cell,
+        pbc=False,
+    )
+    far = Atoms(
+        "H25",
+        positions=np.column_stack((50 + np.arange(25), np.zeros(25), np.zeros(25))),
+        cell=cell,
+        pbc=False,
+    )
+    crystal = MolecularCrystal(cell, [near, far], pbc=(False, False, False))
+    batch_lengths: list[int] = []
+
+    def field(x, y, z):
+        batch_lengths.append(len(x))
+        return x * x + y * y + z * z - 0.25
+
+    result = carve_void(
+        crystal,
+        ImplicitShape(field, ((-1, 1), (-1, 1), (-1, 1))),
+        center=(0, 0, 0),
+        hit_mode="any_atom",
+        batch_size=10,
+    )
+    assert len(result.molecules) == 1
+    assert batch_lengths
+    assert max(batch_lengths) <= 10
+
+
+def test_partition_rejects_non_per_atom_extra_array() -> None:
+    crystal = _one_atom_crystal(
+        [("He", (5, 5, 5)), ("He", (8, 8, 8))]
+    )
+    crystal.extra_arrays["invalid"] = np.asarray([1])
+    with pytest.raises(ValueError, match="expected 2 per-atom values"):
+        carve_void(
+            crystal,
+            ImplicitShape.sphere(1.0),
+            center=(5, 5, 5),
+            target_units=1,
+        )

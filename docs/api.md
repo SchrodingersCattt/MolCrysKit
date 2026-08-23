@@ -73,6 +73,10 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Modeling readiness: `ModelingReadinessReport`, `UnresolvedDisorderWarning`, `inspect_modeling_readiness`
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 
+Compatibility note: the former **create_defect_structure()** placeholder has been
+removed because it returned its input unchanged. Use `generate_vacancy` for a
+spatial molecular vacancy or `carve_void` for a shaped, stoichiometric void.
+
 ### `mck.analysis`
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
 
