@@ -23,7 +23,7 @@ from molcrys_kit.operations.perturbation import (
     apply_random_rotation,
 )
 from molcrys_kit.operations.desolvation import Desolvator, remove_solvents
-from molcrys_kit.operations.builders import create_supercell, create_defect_structure
+from molcrys_kit.operations.builders import create_supercell
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.analysis.chemical_env import ChemicalEnvironment
@@ -392,7 +392,7 @@ class TestDesolvation:
 
 
 class TestBuilders:
-    """create_supercell and create_defect_structure."""
+    """create_supercell."""
 
     def test_create_supercell(self, cubic_lattice_10, co_molecule):
         crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
@@ -401,8 +401,25 @@ class TestBuilders:
         total_atoms = sum(len(m) for m in supercell.molecules)
         assert total_atoms == 4
 
-    def test_create_defect_structure_placeholder(self, crystal_single_water):
-        result = create_defect_structure(
-            crystal_single_water, "vacancy", np.array([0.5, 0.5, 0.5])
-        )
-        assert result is crystal_single_water
+    def test_create_supercell_allows_incomplete_periodic_topology(
+        self, cubic_lattice_10, co_molecule
+    ):
+        molecule = CrystalMolecule(co_molecule)
+        molecule.info["unwrap_completed"] = False
+        crystal = MolecularCrystal(cubic_lattice_10, [molecule])
+        supercell = create_supercell(crystal, (2, 1, 1))
+        assert len(supercell.molecules) == 2
+
+    def test_repeated_supercell_preserves_build_history(
+        self, cubic_lattice_10, co_molecule
+    ):
+        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
+        first = create_supercell(crystal, (2, 1, 1))
+        second = create_supercell(first, (1, 3, 1))
+
+        assert first.metadata["supercell_history"] == [first.metadata["supercell"]]
+        assert [
+            item["scaling_factors"] for item in second.metadata["supercell_history"]
+        ] == [[2, 1, 1], [1, 3, 1]]
+        assert second.metadata["supercell_history"][0]["source_atom_count"] == 2
+        assert second.metadata["supercell_history"][1]["source_atom_count"] == 4

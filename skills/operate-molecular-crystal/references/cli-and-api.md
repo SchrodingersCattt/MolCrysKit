@@ -32,6 +32,36 @@ CLI equivalent:
 mck operate supercell bulk.cif -o bulk_2x2x2.cif --scale 2 2 2
 ```
 
+## Implicit shapes, nanoclusters, and voids
+
+```python
+from molcrys_kit.operations import ImplicitShape, carve_nanocluster, carve_void
+
+sphere = ImplicitShape.sphere(20.0)
+particle = carve_nanocluster(crystal, sphere, center_frac=(0.5, 0.5, 0.5))
+host, removed = carve_void(
+    crystal,
+    sphere,
+    target_units=4,
+    return_removed_cluster=True,
+)
+```
+
+`ImplicitShape` also provides `box`, `ellipsoid`, arbitrary-axis `cylinder`,
+and lattice-direction `through_cylinder`. A custom NumPy-vectorized Python
+field uses `f(x, y, z) <= 0` as its interior. The CLI exposes presets; custom
+functions remain API-only.
+
+```bash
+mck operate nanocluster bulk.cif -o particle.extxyz \
+  --shape sphere --radius 20 --center-frac 0.5 0.5 0.5
+mck operate void bulk.cif -o pore.extxyz \
+  --shape through-cylinder --radius 8 --direction-hkl 1 1 0
+```
+
+Both commands preserve whole finite topology units and do not cut or cap 3-D
+periodic framework bonds.
+
 ## API-only molecule editing
 
 ```python

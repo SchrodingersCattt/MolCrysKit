@@ -27,7 +27,6 @@ from .ring_conformation import (
 )
 from .builders import (
     create_supercell,
-    create_defect_structure,
 )
 
 from .surface import (
@@ -43,7 +42,7 @@ from .hydrogen_completion import HydrogenCompleter, add_hydrogens
 
 from .desolvation import Desolvator, remove_solvents
 
-from .defects import VacancyGenerator, generate_vacancy
+from .defects import VoidCarver, VacancyGenerator, carve_void, generate_vacancy
 
 from .molecule_manipulation import (
     MoleculeManipulator,
@@ -61,6 +60,7 @@ from .nanocluster import (
     NanoShape,
     carve_nanocluster,
 )
+from .implicit_shape import DEFAULT_SHAPE_BATCH_SIZE, ImplicitShape
 
 from .interpolation import (
     InterpolationConfig,
@@ -96,7 +96,6 @@ __all__ = [
     "puckering_coordinates",
     "reconstruct_z_from_modes",
     "create_supercell",
-    "create_defect_structure",
     "generate_topological_slab",
     "TopologicalSlabGenerator",
     "TerminationInfo",
@@ -107,6 +106,8 @@ __all__ = [
     "Desolvator",
     "remove_solvents",
     "VacancyGenerator",
+    "VoidCarver",
+    "carve_void",
     "generate_vacancy",
     "MoleculeManipulator",
     "MoleculeClashError",
@@ -117,6 +118,8 @@ __all__ = [
     "LigandTopologyOverflowError",
     "carve_cluster",
     "DEFAULT_NANOCLUSTER_BATCH_SIZE",
+    "DEFAULT_SHAPE_BATCH_SIZE",
+    "ImplicitShape",
     "NanoClusterCarver",
     "NanoShape",
     "carve_nanocluster",

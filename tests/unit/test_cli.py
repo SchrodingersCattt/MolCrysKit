@@ -319,6 +319,214 @@ def test_operate_nanocluster_requires_shape_dimensions(tmp_path: Path) -> None:
     assert "--radius is required for --shape sphere" in result.output
 
 
+def test_operate_nanocluster_resolves_disorder_and_writes_sidecar(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "ordered_nanocluster.extxyz"
+    sidecar = tmp_path / "ordered_nanocluster.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--shape",
+            "cylinder",
+            "--radius",
+            "12",
+            "--height",
+            "20",
+            "--axis-vector",
+            "1",
+            "1",
+            "0.5",
+            "--center-frac",
+            "0.5",
+            "0.5",
+            "0.5",
+            "--topology-unit",
+            "unit_cell",
+            "--target-units",
+            "1",
+            "--resolve-disorder",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["selected_atom_count"] == 336
+    assert stats["input_disorder"]["all_atom_ordered"] is True
+
+
+def test_operate_void_fixed_stoichiometry_charge_and_sidecar(tmp_path: Path) -> None:
+    output = tmp_path / "void.extxyz"
+    sidecar = tmp_path / "void.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "5",
+            "--center-frac",
+            "0.5",
+            "0.5",
+            "0.5",
+            "--target-units",
+            "1",
+            "--species-charge",
+            "C6H14N2_1",
+            "2",
+            "--species-charge",
+            "ClO4_1",
+            "-1",
+            "--species-charge",
+            "H4N_1",
+            "1",
+            "--resolve-disorder",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert output.exists()
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["removed_species_counts"] == {
+        "C6H14N2_1": 1,
+        "ClO4_1": 3,
+        "H4N_1": 1,
+    }
+    assert stats["removed_atom_count"] == 42
+    assert stats["remaining_atom_count"] == 294
+    assert stats["charge_verified"] is True
+    assert stats["removed_net_charge_e"] == 0.0
+    assert stats["input_disorder"]["all_atom_ordered"] is True
+
+
+def test_operate_void_cover_nonperiodic_and_species_validation(tmp_path: Path) -> None:
+    import numpy as np
+    from ase import Atoms
+
+    from molcrys_kit.io import write_extxyz
+    from molcrys_kit.structures import MolecularCrystal
+
+    cell = 10.0 * np.eye(3)
+    entries = [
+        ("H", (5.0, 5.0, 5.0)),
+        ("H", (5.9, 5.0, 5.0)),
+        ("H", (8.0, 5.0, 5.0)),
+        ("He", (5.2, 5.0, 5.0)),
+        ("He", (6.2, 5.0, 5.0)),
+        ("He", (8.5, 5.0, 5.0)),
+    ]
+    crystal = MolecularCrystal(
+        cell,
+        [
+            Atoms(symbol, positions=[position], cell=cell, pbc=False)
+            for symbol, position in entries
+        ],
+        pbc=(False, False, False),
+    )
+    input_path = tmp_path / "cover_input.extxyz"
+    output = tmp_path / "cover_void.extxyz"
+    sidecar = tmp_path / "cover_void.json"
+    write_extxyz(crystal, str(input_path))
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(input_path),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "1",
+            "--center",
+            "5",
+            "5",
+            "5",
+            "--boundary-policy",
+            "cover",
+            "--no-periodic-images",
+            "--species",
+            "H_1",
+            "1",
+            "--species",
+            "He_1",
+            "1",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["boundary_policy"] == "cover"
+    assert stats["periodic_images"] is False
+    assert stats["removed_species_counts"] == {"H_1": 2, "He_1": 2}
+
+    invalid = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(input_path),
+            "-o",
+            str(output),
+            "--shape",
+            "sphere",
+            "--radius",
+            "1",
+            "--species",
+            "H_1",
+            "not-an-integer",
+        ],
+    )
+    assert invalid.exit_code != 0
+    assert "--species COUNT must be an integer" in invalid.output
+
+
+def test_stats_sidecar_reports_filesystem_errors(tmp_path: Path) -> None:
+    import click
+    import pytest
+
+    from molcrys_kit.cli.operate_cmd import _write_stats_sidecar
+
+    blocking_file = tmp_path / "not-a-directory"
+    blocking_file.write_text("occupied", encoding="utf-8")
+    with pytest.raises(click.ClickException, match="Could not write JSON sidecar"):
+        _write_stats_sidecar(blocking_file / "stats.json", {"count": 1})
+
+
+def test_operate_void_through_cylinder_requires_hkl(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "void",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "void.extxyz"),
+            "--shape",
+            "through-cylinder",
+            "--radius",
+            "3",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--direction-hkl H K L" in result.output
+
+
 def test_slab_requires_layers_or_thickness(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,

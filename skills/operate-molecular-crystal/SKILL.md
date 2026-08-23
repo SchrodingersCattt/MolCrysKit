@@ -1,6 +1,6 @@
 ---
 name: operate-molecular-crystal
-description: 'Generate or modify molecular crystal models with MolCrysKit. Use when resolving CIF disorder into ordered replicas, completing hydrogen atoms, generating topology-preserving surface slabs, carving H-capped QM clusters, creating supercells, vacancies or desolvated structures, reorienting crystals, interpolating structures, translating, rotating or replacing molecules, or converting CIF, POSCAR, XYZ and ExtXYZ files. Covers organic crystals, multicomponent crystals, hybrids, MOF-like structures and polyatomic-ion salts.'
+description: 'Generate or modify molecular crystal models with MolCrysKit. Use when resolving CIF disorder into ordered replicas, completing hydrogen atoms, generating topology-preserving surface slabs, carving finite nanoparticles or shaped voids, carving H-capped QM clusters, creating supercells, vacancies or desolvated structures, reorienting crystals, interpolating structures, translating, rotating or replacing molecules, or converting CIF, POSCAR, XYZ and ExtXYZ files. Covers organic crystals, multicomponent crystals, hybrids, MOF-like structures and polyatomic-ion salts, with operation-specific network limitations.'
 ---
 
 # Operate on Molecular Crystals
@@ -90,6 +90,32 @@ mck operate supercell bulk.cif -o bulk_2x2x2.cif --scale 2 2 2
 ```
 
 Choose replication factors from the physical question: interaction cutoff, defect separation, phonon wavelength, or finite-size convergence. Verify cell vectors and that atom and molecule counts increase by the scale product.
+
+Use `--resolve-disorder` for a CIF that must become one full-occupancy model.
+Without it, large-model builders warn and preserve the unresolved input state in
+metadata rather than silently choosing a disorder alternative.
+
+### Carve a finite nanocluster or a shaped void
+
+```bash
+mck operate nanocluster ordered.cif -o particle.extxyz \
+  --shape ellipsoid --semi-axes 20 35 60 --vacuum 10 \
+  --json-sidecar particle.json
+mck operate void ordered_supercell.extxyz -o void.extxyz \
+  --shape cylinder --radius 10 --height 40 --axis-vector 1 1 0.5 \
+  --target-units 48 --json-sidecar void.json
+```
+
+Use `nanocluster` when the selected complete molecules/ions become a finite,
+non-periodic particle. Use `void` when the selected complete units are removed
+and the periodic host remains. For comparable defect morphologies, provide one
+`--species` ratio and the same `--target-units`; provide a complete
+`--species-charge` map when neutrality must be verified. `centroid`,
+`any_atom`, and `all_atoms` affect geometric hits but never permit partial
+molecule deletion.
+
+These operations do not cut or cap 3-D MOF/framework bonds. Reject or manually
+review any input whose finite molecule/ion partition cannot be established.
 
 ### Create a vacancy or remove solvent
 
