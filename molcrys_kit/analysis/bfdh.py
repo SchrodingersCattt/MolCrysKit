@@ -3,8 +3,8 @@
 This module implements a lightweight, model-agnostic facet ranking based on
 interplanar spacing.  In the pure BFDH approximation, planes with larger
 ``d_hkl`` grow more slowly and therefore are expected to be morphologically
-more important.  The ranking is intended to propose Miller-index candidates for
-downstream slab generation; it is not a replacement for surface-energy
+more important.  The ranking supports downstream slab generation and bounded
+implicit BFDH morphologies; it is not a replacement for surface-energy
 calculations.
 """
 
@@ -21,6 +21,7 @@ from pymatgen.core.surface import get_symmetrically_distinct_miller_indices
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from ..structures.crystal import MolecularCrystal
+from ..structures.symmetry import CrystalSymmetry, FractionalAffineOperation
 
 
 MillerIndex = Tuple[int, int, int]
@@ -184,9 +185,18 @@ def _generate_candidates(
     miller_indices: Optional[Iterable[Sequence[int]]],
     use_pymatgen_symmetry: bool,
     include_negative: bool,
+    symmetry: Optional[CrystalSymmetry],
 ) -> tuple[list[MillerIndex], str]:
     if miller_indices is not None:
         return _deduplicate_millers(miller_indices, include_negative=include_negative), "explicit"
+
+    if symmetry is not None:
+        # Explicit parent symmetry must control family reduction.  Start from
+        # the complete deterministic candidate set instead of allowing the
+        # lattice metric (or an ordered coordinate model) to pre-combine it.
+        return enumerate_low_index_millers(
+            max_index, include_negative=include_negative
+        ), "internal"
 
     if use_pymatgen_symmetry:
         try:
@@ -203,8 +213,19 @@ def _generate_candidates(
     return enumerate_low_index_millers(max_index, include_negative=include_negative), "internal"
 
 
+def _operation_arrays(operation: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Return fractional rotation and translation arrays for one symmetry op."""
+
+    if isinstance(operation, FractionalAffineOperation):
+        return operation.rotation, operation.translation
+    return (
+        np.asarray(operation.rotation_matrix, dtype=float),
+        np.asarray(operation.translation_vector, dtype=float),
+    )
+
+
 def _reciprocal_symmetry_millers(
-    structure: Structure,
+    structure: Optional[Structure],
     hkl: MillerIndex,
     *,
     symprec: float,
@@ -219,16 +240,19 @@ def _reciprocal_symmetry_millers(
     """
 
     if operations is None:
+        if structure is None:
+            return (_canonical_sign(hkl, include_negative=include_negative),)
         try:
             operations = SpacegroupAnalyzer(structure, symprec=symprec).get_symmetry_operations(cartesian=False)
         except Exception:
-            return (_canonical_hkl(hkl, include_negative=include_negative),)
+            return (_canonical_sign(hkl, include_negative=include_negative),)
 
     equivalents: set[MillerIndex] = set()
     hkl_arr = np.asarray(hkl, dtype=int)
     target_order = _gcd3(hkl)
     for op in operations:
-        rotation = np.rint(op.rotation_matrix).astype(int)
+        rotation, _ = _operation_arrays(op)
+        rotation = np.rint(rotation).astype(int)
         transformed = tuple(int(x) for x in rotation.T @ hkl_arr)
         if transformed == (0, 0, 0):
             continue
@@ -241,7 +265,7 @@ def _reciprocal_symmetry_millers(
 
 
 def _is_systematically_allowed(
-    structure: Structure,
+    structure: Optional[Structure],
     hkl: MillerIndex,
     *,
     symprec: float,
@@ -258,6 +282,8 @@ def _is_systematically_allowed(
     """
 
     if operations is None:
+        if structure is None:
+            return True
         try:
             operations = SpacegroupAnalyzer(structure, symprec=symprec).get_symmetry_operations(cartesian=False)
         except Exception:
@@ -267,10 +293,11 @@ def _is_systematically_allowed(
     canonical = _canonical_sign(hkl)
     phases: list[complex] = []
     for op in operations:
-        rotation = np.rint(op.rotation_matrix).astype(int)
+        rotation, translation = _operation_arrays(op)
+        rotation = np.rint(rotation).astype(int)
         transformed = tuple(int(x) for x in rotation.T @ hkl_arr)
         if _canonical_sign(transformed) == canonical:
-            phase = np.exp(2j * np.pi * float(np.dot(hkl_arr, op.translation_vector)))
+            phase = np.exp(2j * np.pi * float(np.dot(hkl_arr, translation)))
             phases.append(complex(phase))
 
     if not phases:
@@ -279,18 +306,26 @@ def _is_systematically_allowed(
 
 
 def _filter_extinctions(
+    lattice: Lattice,
     structure: Optional[Structure],
     candidates: Iterable[MillerIndex],
     *,
     symprec: float,
     include_negative: bool,
+    symmetry: Optional[CrystalSymmetry] = None,
+    apply_extinction_filter: bool = True,
 ) -> dict[MillerIndex, tuple[MillerIndex, ...]]:
-    if structure is None:
-        return {hkl: tuple() for hkl in candidates}
+    if symmetry is not None:
+        operations: Optional[Sequence[Any]] = symmetry.operations
+    elif structure is not None:
+        try:
+            operations = SpacegroupAnalyzer(structure, symprec=symprec).get_symmetry_operations(cartesian=False)
+        except Exception:
+            operations = None
+    else:
+        operations = None
 
-    try:
-        operations = SpacegroupAnalyzer(structure, symprec=symprec).get_symmetry_operations(cartesian=False)
-    except Exception:
+    if operations is None:
         return {hkl: tuple() for hkl in candidates}
 
     representative_map: dict[MillerIndex, tuple[MillerIndex, ...]] = {}
@@ -305,14 +340,17 @@ def _filter_extinctions(
         allowed_equivalents = [
             eq
             for eq in equivalents
-            if _is_systematically_allowed(structure, eq, symprec=symprec, operations=operations)
+            if not apply_extinction_filter
+            or _is_systematically_allowed(
+                structure, eq, symprec=symprec, operations=operations
+            )
         ]
         if not allowed_equivalents:
             continue
         representative = max(
             allowed_equivalents,
             key=lambda eq: (
-                _d_hkl(structure.lattice, eq),
+                _d_hkl(lattice, eq),
                 -sum(abs(v) for v in eq),
                 -max(abs(v) for v in eq),
                 tuple(-v for v in eq),
@@ -397,6 +435,7 @@ def enumerate_bfdh_facets(
     include_equivalents: bool = False,
     include_negative: bool = False,
     extinction_filter: bool = True,
+    symmetry: Optional[CrystalSymmetry] = None,
 ) -> list[BFDHFacetInfo]:
     """Enumerate BFDH-ranked facet candidates.
 
@@ -409,8 +448,10 @@ def enumerate_bfdh_facets(
         Maximum absolute Miller index for generated candidates when
         ``miller_indices`` is not supplied.  Defaults to 2.
     miller_indices
-        Optional explicit Miller indices.  When supplied, these are ranked
-        directly and ``max_index`` is ignored.
+        Optional explicit Miller indices.  When supplied, these replace the
+        automatically generated candidates and ``max_index`` is ignored.
+        They remain subject to ``extinction_filter`` when symmetry operations
+        are available.
     top_n
         Optional number of top-ranked facets to return.
     symprec
@@ -428,6 +469,12 @@ def enumerate_bfdh_facets(
         space-group operations when structure information is available. Enabled
         by default.  Lattice-only inputs do not have space-group translations,
         so no extinction filtering is applied for those inputs.
+    symmetry
+        Optional explicit parent-crystal symmetry.  When supplied, its
+        fractional operations take precedence over symmetry inferred from a
+        pymatgen ``Structure`` and over lattice-metric family reduction.  This
+        is the appropriate input when coordinates have been disorder-resolved
+        but the BFDH morphology should retain the source CIF space group.
 
     Returns
     -------
@@ -435,10 +482,12 @@ def enumerate_bfdh_facets(
         Facets sorted by decreasing BFDH morphological importance.
     """
 
-    if max_index < 1:
+    if miller_indices is None and max_index < 1:
         raise ValueError("max_index must be >= 1")
     if top_n is not None and top_n < 1:
         raise ValueError("top_n must be >= 1 when provided")
+    if symmetry is not None and not isinstance(symmetry, CrystalSymmetry):
+        raise TypeError("symmetry must be a CrystalSymmetry")
 
     lattice, structure = _as_lattice_and_structure(crystal_or_lattice_or_structure)
     candidates, source = _generate_candidates(
@@ -448,8 +497,14 @@ def enumerate_bfdh_facets(
         miller_indices,
         use_pymatgen_symmetry,
         include_negative,
+        symmetry,
     )
-    if extinction_filter and structure is not None and miller_indices is None:
+    if (
+        extinction_filter
+        and structure is not None
+        and symmetry is None
+        and miller_indices is None
+    ):
         # Donnay-Harker filtering needs signed low-index candidates before
         # space-group extinctions are applied.  Pymatgen's symmetry-distinct
         # surface helper can omit sign variants such as monoclinic (1 0 -1)
@@ -460,12 +515,15 @@ def enumerate_bfdh_facets(
         return []
     allowed_map = (
         _filter_extinctions(
+            lattice,
             structure,
             candidates,
             symprec=symprec,
             include_negative=include_negative,
+            symmetry=symmetry,
+            apply_extinction_filter=extinction_filter,
         )
-        if extinction_filter
+        if extinction_filter or symmetry is not None
         else {hkl: tuple() for hkl in candidates}
     )
 
@@ -505,6 +563,14 @@ def enumerate_bfdh_facets(
         equivalents = (
             allowed_equivalents
             if allowed_equivalents
+            else _reciprocal_symmetry_millers(
+                structure,
+                hkl,
+                symprec=symprec,
+                include_negative=include_negative,
+                operations=symmetry.operations,
+            )
+            if include_equivalents and symmetry is not None
             else _equivalent_millers(lattice, hkl, symprec=symprec, include_negative=include_negative)
             if include_equivalents
             else tuple()

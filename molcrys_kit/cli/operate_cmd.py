@@ -9,7 +9,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 import click
 
 from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
-from molcrys_kit.io import write_xyz_with_freeze
+from molcrys_kit.io import read_cif_symmetry, write_xyz_with_freeze
 from molcrys_kit.operations import (
     ClusterCarver,
     DEFAULT_NANOCLUSTER_BATCH_SIZE,
@@ -415,7 +415,7 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
 @click.option(
     "--shape",
     "shape_name",
-    type=click.Choice(["sphere", "box", "ellipsoid", "cylinder"]),
+    type=click.Choice(["sphere", "box", "ellipsoid", "cylinder", "bfdh"]),
     required=True,
 )
 @click.option("--size", nargs=3, type=float, default=None, metavar="X Y Z")
@@ -424,6 +424,34 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
 @click.option("--height", type=float, default=None, help="Cylinder height in Angstrom.")
 @click.option("--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True)
 @click.option("--axis-vector", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option(
+    "--max-dimension",
+    type=float,
+    default=None,
+    help="Largest Cartesian span in Angstrom for --shape bfdh.",
+)
+@click.option(
+    "--max-index",
+    type=int,
+    default=2,
+    show_default=True,
+    help="Maximum absolute Miller index for automatic BFDH facets.",
+)
+@click.option(
+    "--miller",
+    "miller_indices",
+    nargs=3,
+    type=int,
+    multiple=True,
+    metavar="H K L",
+    help="Explicit BFDH facet family; repeatable and overrides --max-index.",
+)
+@click.option(
+    "--extinction-filter/--no-extinction-filter",
+    default=True,
+    show_default=True,
+    help="Apply parent-space-group systematic-absence filtering to BFDH facets.",
+)
 @click.option(
     "--topology-unit",
     type=click.Choice(["molecule", "unit_cell"]),
@@ -463,6 +491,10 @@ def nanocluster(
     height: float | None,
     axis: str,
     axis_vector: tuple[float, float, float] | None,
+    max_dimension: float | None,
+    max_index: int,
+    miller_indices: tuple[tuple[int, int, int], ...],
+    extinction_filter: bool,
     topology_unit: str,
     target_units: int | None,
     center: tuple[float, float, float] | None,
@@ -475,16 +507,35 @@ def nanocluster(
 ) -> None:
     """Carve a topology-preserving nanocluster without cutting molecules."""
     try:
-        shape = _implicit_shape_from_cli(
-            shape_name,
-            size=size,
-            radius=radius,
-            semi_axes=semi_axes,
-            height=height,
-            axis=axis,
-            axis_vector=axis_vector,
+        if shape_name == "bfdh" and max_dimension is None:
+            raise click.UsageError(
+                "--max-dimension is required for --shape bfdh."
+            )
+        parent_symmetry = (
+            read_cif_symmetry(str(input))
+            if shape_name == "bfdh" and input.suffix.lower() == ".cif"
+            else None
         )
         crystal = load_crystal(input, resolve_disorder=resolve_disorder)
+        if shape_name == "bfdh":
+            shape = ImplicitShape.bfdh(
+                crystal,
+                max_dimension,
+                max_index=max_index,
+                miller_indices=miller_indices or None,
+                symmetry=parent_symmetry,
+                extinction_filter=extinction_filter,
+            )
+        else:
+            shape = _implicit_shape_from_cli(
+                shape_name,
+                size=size,
+                radius=radius,
+                semi_axes=semi_axes,
+                height=height,
+                axis=axis,
+                axis_vector=axis_vector,
+            )
         result = NanoClusterCarver(crystal, batch_size=batch_size).carve(
             shape,
             topology_unit=topology_unit,

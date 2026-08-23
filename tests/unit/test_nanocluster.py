@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import math
 
 import networkx as nx
 import numpy as np
 import pytest
 from ase import Atoms
+from pymatgen.core import Lattice, Structure
 
-from molcrys_kit.operations import NanoClusterCarver, NanoShape, carve_nanocluster
+from molcrys_kit.operations import (
+    ImplicitShape,
+    NanoClusterCarver,
+    NanoShape,
+    carve_nanocluster,
+)
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
 
@@ -92,6 +99,113 @@ def test_shape_presets_define_expected_fields() -> None:
     assert np.allclose(box.bounds, [[-1, 1], [-2, 2], [-3, 3]])
     assert ellipsoid.field(np.array([1.0]), np.array([0.0]), np.array([0.0]))[0] == 0
     assert np.allclose(cylinder.bounds, [[-3, 3], [-2, 2], [-2, 2]])
+
+
+def test_bfdh_shape_cubic_100_is_scaled_cube() -> None:
+    shape = ImplicitShape.bfdh(
+        Lattice.cubic(4.0),
+        60.0,
+        miller_indices=[(1, 0, 0)],
+        extinction_filter=False,
+    )
+
+    assert shape.name == "bfdh"
+    assert np.max(np.ptp(shape.bounds, axis=1)) == 60.0
+    assert shape.field(np.array([0.0]), np.array([0.0]), np.array([0.0]))[0] == -1.0
+    assert np.isclose(
+        shape.field(np.array([30.0]), np.array([0.0]), np.array([0.0]))[0],
+        0.0,
+    )
+    assert len(shape.parameters["planes"]) == 6
+    assert len(shape.parameters["vertices_A"]) == 8
+    json.dumps(shape.parameters)
+
+
+def test_bfdh_shape_without_explicit_symmetry_uses_lattice_metric() -> None:
+    structure = Structure.from_spacegroup(
+        "Pnma",
+        Lattice.orthorhombic(8.0, 9.0, 10.0),
+        ["C"],
+        [[0.11, 0.25, 0.33]],
+    )
+    shape = ImplicitShape.bfdh(structure, 24.0, max_index=1)
+
+    assert shape.parameters["symmetry"] == {"kind": "lattice_metric"}
+
+
+def test_bfdh_shape_rejects_unbounded_or_zero_millers() -> None:
+    lattice = Lattice.from_parameters(4.0, 5.0, 6.0, 70.0, 80.0, 75.0)
+    with pytest.raises(ValueError, match="do not enclose"):
+        ImplicitShape.bfdh(
+            lattice,
+            20.0,
+            miller_indices=[(1, 0, 0)],
+            extinction_filter=False,
+        )
+    with pytest.raises(ValueError, match="cannot all be zero"):
+        ImplicitShape.bfdh(lattice, 20.0, miller_indices=[(0, 0, 0)])
+
+
+def test_bfdh_shape_plane_distances_follow_inverse_d_hkl() -> None:
+    shape = ImplicitShape.bfdh(
+        Lattice.orthorhombic(4.0, 5.0, 6.0),
+        30.0,
+        miller_indices=[(1, 0, 0), (0, 1, 0), (0, 0, 1)],
+        extinction_filter=False,
+    )
+    distances = {
+        tuple(plane["miller_index"]): plane["distance_A"]
+        for plane in shape.parameters["planes"]
+    }
+
+    assert np.isclose(distances[(1, 0, 0)] / distances[(0, 1, 0)], 5.0 / 4.0)
+    assert np.isclose(distances[(0, 1, 0)] / distances[(0, 0, 1)], 6.0 / 5.0)
+
+
+def test_bfdh_shape_normals_follow_sheared_reciprocal_lattice() -> None:
+    lattice = Lattice.from_parameters(4.0, 5.0, 6.0, 72.0, 81.0, 76.0)
+    millers = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
+    shape = ImplicitShape.bfdh(
+        lattice,
+        30.0,
+        miller_indices=millers,
+        extinction_filter=False,
+    )
+    normals = {
+        tuple(plane["miller_index"]): np.asarray(plane["normal_cartesian"])
+        for plane in shape.parameters["planes"]
+    }
+
+    reciprocal = lattice.reciprocal_lattice_crystallographic
+    for hkl in millers:
+        reciprocal_vector = np.asarray(reciprocal.get_cartesian_coords(hkl))
+        assert np.allclose(normals[hkl], reciprocal_vector / np.linalg.norm(reciprocal_vector))
+
+
+def test_bfdh_nanocluster_selects_representatives_inside_shape() -> None:
+    crystal = _single_atom_crystal(5.0 * np.eye(3))
+    shape = ImplicitShape.bfdh(
+        crystal,
+        20.0,
+        miller_indices=[(1, 0, 0)],
+        extinction_filter=False,
+    )
+    result = carve_nanocluster(crystal, shape, topology_unit="molecule")
+    info = result.metadata["nanocluster"]
+    source_positions = (
+        result.to_ase().get_positions() - np.asarray(info["output_shift_A"])
+    )
+    local_positions = source_positions - np.asarray(info["source_center_A"])
+
+    assert not any(result.pbc)
+    assert np.all(
+        shape.field(
+            local_positions[:, 0], local_positions[:, 1], local_positions[:, 2]
+        )
+        <= 1e-12
+    )
+    assert info["shape"] == "bfdh"
+    assert info["shape_parameters"]["symmetry"]["kind"] == "lattice_metric"
 
 
 def test_custom_superellipsoid_fixed_geometry() -> None:

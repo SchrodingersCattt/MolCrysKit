@@ -7,6 +7,9 @@ This module provides access to configuration parameters and constants used throu
 # Cartesian distance in Å below which a bond-rotation axis is degenerate.
 BOND_ROTATION_AXIS_TOLERANCE = 1e-12
 
+# Cartesian/half-space tolerance for BFDH plane and vertex deduplication.
+BFDH_GEOMETRY_TOLERANCE = 1e-10
+
 # Standard keys for disorder metadata
 KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer

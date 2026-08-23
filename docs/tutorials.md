@@ -276,14 +276,21 @@ empirical candidate generator, not a surface-energy calculation.
 ```python
 import molcrys_kit as mck
 from molcrys_kit.analysis import enumerate_bfdh_facets
+from molcrys_kit.io import read_cif_symmetry
 from molcrys_kit.operations import generate_slabs_with_terminations
 
 crystal = mck.read_mol_crystal("bulk.cif")
+parent_symmetry = read_cif_symmetry("bulk.cif")
 
 # Default: low-index Miller indices up to max_index=2, with
 # Donnay-Harker-style systematic-absence filtering when structure symmetry is
 # available.
-facets = enumerate_bfdh_facets(crystal, top_n=5, include_equivalents=True)
+facets = enumerate_bfdh_facets(
+  crystal,
+  top_n=5,
+  include_equivalents=True,
+  symmetry=parent_symmetry,
+)
 for facet in facets:
   print(
     facet.rank,
@@ -306,6 +313,12 @@ default low-index search.  Pass `extinction_filter=False` for pure Friedel
 `d_hkl` ranking without systematic-absence filtering.  If desired, pass the
 returned candidates to external surface-energy or adsorption workflows for post
 hoc re-ranking.
+
+Passing the source `CrystalSymmetry` explicitly is important after disorder
+resolution: the selected ordered replica may have lower symmetry than the
+experimental average structure. The coordinates then define the nanocluster
+contents while the source CIF operations define BFDH facet equivalence and
+systematic absences.
 
 ## Defect Engineering
 
@@ -587,8 +600,8 @@ non-periodic `MolecularCrystal` in a tight orthorhombic box. Molecular graphs,
 atom order, per-atom arrays, and molecule metadata are copied from the source.
 
 Shapes are vectorized implicit fields: `f(x, y, z) <= 0` is inside. Every shape
-also supplies a finite Cartesian search box relative to its center. Four common
-presets are included:
+also supplies a finite Cartesian search box relative to its center. Geometric
+and crystallographic presets are included:
 
 ```python
 from molcrys_kit.operations import ImplicitShape
@@ -598,6 +611,36 @@ box = ImplicitShape.box((20.0, 80.0, 120.0))       # full side lengths
 ellipsoid = ImplicitShape.ellipsoid((20.0, 35.0, 60.0))  # semi-axes
 cylinder = ImplicitShape.cylinder(radius=20.0, height=100.0, axis=(1, 1, 0.5))
 ```
+
+A pure-BFDH morphology is the intersection of planes whose center distances
+are proportional to `1 / d_hkl`. `max_dimension` scales the largest Cartesian
+span of the resulting polyhedron. For a disordered CIF, read the parent
+symmetry before generating the ordered coordinates:
+
+```python
+from molcrys_kit.io import read_cif_symmetry, read_mol_crystal
+from molcrys_kit.operations import ImplicitShape, carve_nanocluster
+
+parent_symmetry = read_cif_symmetry("disordered.cif")
+ordered = read_mol_crystal("disordered.cif", resolve_disorder=True)
+shape = ImplicitShape.bfdh(
+    ordered,
+    max_dimension=60.0,
+    max_index=2,
+    symmetry=parent_symmetry,
+)
+particle = carve_nanocluster(ordered, shape, vacuum=10.0)
+```
+
+Without explicit symmetry, `MolecularCrystal` and lattice inputs use
+lattice-metric facet families and cannot apply space-group translational
+absences. Use `miller_indices=[...]` to replace automatic facet enumeration.
+Explicit families remain subject to systematic-absence filtering when parent
+symmetry is supplied. Set `extinction_filter=False` only when intentionally
+retaining an extinct family.
+The factory rejects facet sets that do not enclose a finite three-dimensional
+shape. This construction is the kinetic BFDH approximation, not a Wulff shape
+from surface energies.
 
 Arbitrary 3-D shapes use the same interface. The function must accept NumPy
 arrays and return one finite real value per point:
