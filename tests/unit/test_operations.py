@@ -409,3 +409,17 @@ class TestBuilders:
         crystal = MolecularCrystal(cubic_lattice_10, [molecule])
         supercell = create_supercell(crystal, (2, 1, 1))
         assert len(supercell.molecules) == 2
+
+    def test_repeated_supercell_preserves_build_history(
+        self, cubic_lattice_10, co_molecule
+    ):
+        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
+        first = create_supercell(crystal, (2, 1, 1))
+        second = create_supercell(first, (1, 3, 1))
+
+        assert first.metadata["supercell_history"] == [first.metadata["supercell"]]
+        assert [
+            item["scaling_factors"] for item in second.metadata["supercell_history"]
+        ] == [[2, 1, 1], [1, 3, 1]]
+        assert second.metadata["supercell_history"][0]["source_atom_count"] == 2
+        assert second.metadata["supercell_history"][1]["source_atom_count"] == 4

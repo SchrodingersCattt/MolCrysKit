@@ -71,17 +71,24 @@ def create_supercell(
         Supercell structure.  Delegates to
         :meth:`MolecularCrystal.get_supercell` which internally copies
         molecules while preserving per-atom disorder metadata and the
-        original ``sym_op_index``/``asym_id`` source provenance.
+        original ``sym_op_index``/``asym_id`` source provenance. Repeated
+        calls append their build records to ``metadata["supercell_history"]``.
     """
     input_disorder = _warn_if_unresolved_disorder(crystal)
     result = crystal.get_supercell(*scaling_factors)
     result.metadata = copy.deepcopy(crystal.metadata)
     result.metadata["input_disorder"] = input_disorder
-    result.metadata["supercell"] = {
+    supercell_info = {
         "scaling_factors": [int(value) for value in scaling_factors],
         "source_molecule_count": len(crystal.molecules),
         "source_atom_count": sum(len(molecule) for molecule in crystal.molecules),
     }
+    history = copy.deepcopy(result.metadata.get("supercell_history", []))
+    if not history and "supercell" in result.metadata:
+        history.append(copy.deepcopy(result.metadata["supercell"]))
+    history.append(copy.deepcopy(supercell_info))
+    result.metadata["supercell_history"] = history
+    result.metadata["supercell"] = supercell_info
     return result
 
 
