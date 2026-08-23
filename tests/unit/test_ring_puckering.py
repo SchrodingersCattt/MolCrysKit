@@ -10,7 +10,7 @@ import pytest
 from ase import Atoms
 
 from molcrys_kit.io import read_mol_crystal
-from molcrys_kit.operations.ring_conformation import (
+from molcrys_kit.analysis.ring_conformation import (
     DegenerateRingGeometryError,
     InvalidRingOrderError,
     RingConformationError,

@@ -1,4 +1,4 @@
-"""General N-membered ring puckering coordinates and cycle analysis.
+"""General N-membered ring puckering descriptors and cycle analysis.
 
 This module implements the Cremer–Pople (CP) ring-puckering coordinate system
 for arbitrary N-membered rings (N >= 3).  The CP formalism decomposes out-of-
