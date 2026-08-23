@@ -31,7 +31,8 @@
 | Reorient crystal | `reorient_crystal`, `get_surface_basis` | crystal + Miller direction | reoriented crystal + info | source docstring |
 | Rank facets | `enumerate_bfdh_facets` | crystal/lattice | `list[BFDHFacetInfo]` | [Tutorials](tutorials.md) |
 | Carve QM clusters | `ClusterCarver`, `carve_cluster` | crystal + seeds | `CrystalCluster` | [Tutorials](tutorials.md) |
-| Carve topology-preserving nanoclusters | `NanoShape`, `NanoClusterCarver`, `carve_nanocluster` | crystal + implicit shape | non-periodic `MolecularCrystal` | [Tutorials](tutorials.md) |
+| Carve topology-preserving nanoclusters | `ImplicitShape`/`NanoShape`, `NanoClusterCarver`, `carve_nanocluster` | crystal + implicit shape | non-periodic `MolecularCrystal` | [Tutorials](tutorials.md) |
+| Carve topology-preserving voids | `ImplicitShape`, `VoidCarver`, `carve_void` | crystal + implicit shape | periodic remainder, optionally removed cluster | [Tutorials](tutorials.md) |
 | Edit molecules | `translate_molecule`, `rotate_molecule`, `replace_molecule` | crystal + molecule index | `MolecularCrystal` | [Tutorials](tutorials.md) |
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
@@ -66,14 +67,18 @@ Read/write interfaces.
 Structure-changing workflows. Prefer functional helpers for simple tasks and classes for repeated/custom workflows.
 
 - Perturb/rotate: `apply_gaussian_displacement_molecule`, `apply_gaussian_displacement_crystal`, `apply_directional_displacement`, `apply_random_rotation`, `rotate_molecule_at_center`, `rotate_molecule_at_com`
-- Build/edit: `create_supercell`, `create_defect_structure`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
+- Build/edit: `create_supercell`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
 - Surface: `generate_topological_slab`, `TopologicalSlabGenerator`, `TerminationInfo`, `enumerate_terminations`, `generate_slabs_with_terminations`, `get_surface_basis`
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
-- H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`
+- H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
-- Nanoclusters: `NanoShape`, `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
+- Implicit shapes/nanoclusters: `ImplicitShape`, `NanoShape` (compatibility alias), `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_SHAPE_BATCH_SIZE`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
 - Symmetry paths: `RigidReachabilityTolerance`, `SymmetryPathConfig`, `AtomCorrespondence`, `SymmetryMoleculeMatch`, `CrystalCorrespondence`, `SymmetryPathProvenance`, `SymmetryPathPlan`, `RigidReachabilityError`, `transform_crystal_fractional`, `build_symmetry_path_plan`, `interpolate_symmetry_path`, `generate_collective_symmetry_path`
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
+
+Compatibility note: the former **create_defect_structure()** placeholder has been
+removed because it returned its input unchanged. Use `generate_vacancy` for a
+spatial molecular vacancy or `carve_void` for a shaped, stoichiometric void.
 
 ### `mck.analysis`
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
@@ -96,6 +101,7 @@ Van der Waals volume estimation and solvent-accessible boundary computation.
 Disorder metadata, solving, and ordered-replica generation.
 
 - `DisorderInfo`, `DisorderSolver`, `generate_ordered_replicas_from_disordered_sites`, `is_minor_site`, `DisorderProvenance`
+- Warning category: `UnresolvedDisorderWarning`
 - `DisorderInfo` carries CIF-derived metadata including the chemical formula moiety and Z value for stoichiometry validation during disorder resolution.
 
 ### `mck.analysis.interactions`

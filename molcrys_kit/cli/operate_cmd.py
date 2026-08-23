@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import click
 
@@ -13,9 +13,11 @@ from molcrys_kit.io import write_xyz_with_freeze
 from molcrys_kit.operations import (
     ClusterCarver,
     DEFAULT_NANOCLUSTER_BATCH_SIZE,
+    DEFAULT_SHAPE_BATCH_SIZE,
+    ImplicitShape,
     LigandTopologyOverflowError,
     NanoClusterCarver,
-    NanoShape,
+    VoidCarver,
     add_hydrogens,
     create_supercell,
     generate_slabs_with_terminations,
@@ -26,7 +28,13 @@ from molcrys_kit.operations import (
     remove_solvents,
 )
 
-from ._common import echo_paths, load_crystal, write_crystal_sequence, write_structure
+from ._common import (
+    echo_paths,
+    load_crystal,
+    rows_to_json,
+    write_crystal_sequence,
+    write_structure,
+)
 
 
 _VALID_SLAB_TERMINATIONS = {"single", "tasker_preferred", "all"}
@@ -304,7 +312,7 @@ def cluster(
         )
 
 
-def _nanoshape_from_cli(
+def _implicit_shape_from_cli(
     shape_name: str,
     *,
     size: tuple[float, float, float] | None,
@@ -312,26 +320,93 @@ def _nanoshape_from_cli(
     semi_axes: tuple[float, float, float] | None,
     height: float | None,
     axis: str,
-) -> NanoShape:
+    axis_vector: tuple[float, float, float] | None = None,
+    lattice: Sequence[Sequence[float]] | None = None,
+    direction_hkl: tuple[int, int, int] | None = None,
+) -> ImplicitShape:
     if shape_name == "sphere":
         if radius is None:
             raise click.UsageError("--radius is required for --shape sphere.")
-        return NanoShape.sphere(radius)
+        return ImplicitShape.sphere(radius)
     if shape_name == "box":
         if size is None:
             raise click.UsageError("--size X Y Z is required for --shape box.")
-        return NanoShape.box(size)
+        return ImplicitShape.box(size)
     if shape_name == "ellipsoid":
         if semi_axes is None:
             raise click.UsageError(
                 "--semi-axes A B C is required for --shape ellipsoid."
             )
-        return NanoShape.ellipsoid(semi_axes)
+        return ImplicitShape.ellipsoid(semi_axes)
+    if shape_name == "through-cylinder":
+        if radius is None or direction_hkl is None or lattice is None:
+            raise click.UsageError(
+                "--radius and --direction-hkl H K L are required for "
+                "--shape through-cylinder."
+            )
+        return ImplicitShape.through_cylinder(radius, lattice, direction_hkl)
     if radius is None or height is None:
         raise click.UsageError(
             "--radius and --height are required for --shape cylinder."
         )
-    return NanoShape.cylinder(radius, height, axis=axis)
+    return ImplicitShape.cylinder(
+        radius,
+        height,
+        axis=axis_vector if axis_vector is not None else axis,
+    )
+
+
+def _parse_species_counts(
+    entries: tuple[tuple[str, str], ...],
+) -> dict[str, int] | None:
+    if not entries:
+        return None
+    parsed: dict[str, int] = {}
+    for species_id, count_text in entries:
+        try:
+            count = int(count_text)
+        except ValueError as exc:
+            raise click.UsageError(
+                f"--species COUNT must be an integer, got {count_text!r}."
+            ) from exc
+        if count <= 0:
+            raise click.UsageError("--species COUNT must be a positive integer.")
+        if species_id in parsed:
+            raise click.UsageError(f"Duplicate --species entry for {species_id!r}.")
+        parsed[species_id] = count
+    return parsed
+
+
+def _parse_species_charges(
+    entries: tuple[tuple[str, str], ...],
+) -> dict[str, float] | None:
+    if not entries:
+        return None
+    parsed: dict[str, float] = {}
+    for species_id, charge_text in entries:
+        try:
+            charge = float(charge_text)
+        except ValueError as exc:
+            raise click.UsageError(
+                f"--species-charge CHARGE must be numeric, got {charge_text!r}."
+            ) from exc
+        if species_id in parsed:
+            raise click.UsageError(
+                f"Duplicate --species-charge entry for {species_id!r}."
+            )
+        parsed[species_id] = charge
+    return parsed
+
+
+def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rows_to_json(dict(info)) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise click.ClickException(f"Could not write JSON sidecar {path}: {exc}") from exc
+    click.echo(f"Wrote {path}")
 
 
 @click.command()
@@ -348,6 +423,7 @@ def _nanoshape_from_cli(
 @click.option("--semi-axes", nargs=3, type=float, default=None, metavar="A B C")
 @click.option("--height", type=float, default=None, help="Cylinder height in Angstrom.")
 @click.option("--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True)
+@click.option("--axis-vector", nargs=3, type=float, default=None, metavar="X Y Z")
 @click.option(
     "--topology-unit",
     type=click.Choice(["molecule", "unit_cell"]),
@@ -356,6 +432,7 @@ def _nanoshape_from_cli(
 )
 @click.option("--target-units", type=int, default=None, help="Select exactly this many units.")
 @click.option("--center", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option("--center-frac", nargs=3, type=float, default=None, metavar="U V W")
 @click.option(
     "--center-kind",
     type=click.Choice(["centroid", "com"]),
@@ -369,6 +446,13 @@ def _nanoshape_from_cli(
     default=DEFAULT_NANOCLUSTER_BATCH_SIZE,
     show_default=True,
 )
+@click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
+@click.option(
+    "--json-sidecar",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write nanocluster statistics as JSON.",
+)
 def nanocluster(
     input: Path,
     output: Path,
@@ -378,27 +462,34 @@ def nanocluster(
     semi_axes: tuple[float, float, float] | None,
     height: float | None,
     axis: str,
+    axis_vector: tuple[float, float, float] | None,
     topology_unit: str,
     target_units: int | None,
     center: tuple[float, float, float] | None,
+    center_frac: tuple[float, float, float] | None,
     center_kind: str,
     vacuum: float,
     batch_size: int,
+    resolve_disorder: bool,
+    json_sidecar: Path | None,
 ) -> None:
     """Carve a topology-preserving nanocluster without cutting molecules."""
     try:
-        shape = _nanoshape_from_cli(
+        shape = _implicit_shape_from_cli(
             shape_name,
             size=size,
             radius=radius,
             semi_axes=semi_axes,
             height=height,
             axis=axis,
+            axis_vector=axis_vector,
         )
-        result = NanoClusterCarver(load_crystal(input), batch_size=batch_size).carve(
+        crystal = load_crystal(input, resolve_disorder=resolve_disorder)
+        result = NanoClusterCarver(crystal, batch_size=batch_size).carve(
             shape,
             topology_unit=topology_unit,
             center=center,
+            center_frac=center_frac,
             center_kind=center_kind,
             target_units=target_units,
             vacuum=vacuum,
@@ -408,6 +499,7 @@ def nanocluster(
 
     write_structure(result, output)
     info = result.metadata["nanocluster"]
+    _write_stats_sidecar(json_sidecar, info)
     click.echo(
         f"Wrote {output}  |  units: {info['selected_unit_count']}  |  "
         f"molecules: {info['selected_molecule_count']}  |  "
@@ -418,12 +510,127 @@ def nanocluster(
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option(
+    "--shape",
+    "shape_name",
+    type=click.Choice(["sphere", "box", "ellipsoid", "cylinder", "through-cylinder"]),
+    required=True,
+)
+@click.option("--size", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option("--radius", type=float, default=None, help="Sphere/cylinder radius in Angstrom.")
+@click.option("--semi-axes", nargs=3, type=float, default=None, metavar="A B C")
+@click.option("--height", type=float, default=None, help="Finite cylinder height in Angstrom.")
+@click.option("--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True)
+@click.option("--axis-vector", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option("--direction-hkl", nargs=3, type=int, default=None, metavar="H K L")
+@click.option("--center", nargs=3, type=float, default=None, metavar="X Y Z")
+@click.option("--center-frac", nargs=3, type=float, default=None, metavar="U V W")
+@click.option(
+    "--hit-mode",
+    type=click.Choice(["centroid", "any_atom", "all_atoms"]),
+    default="centroid",
+    show_default=True,
+)
+@click.option(
+    "--boundary-policy",
+    type=click.Choice(["inside", "cover"]),
+    default="inside",
+    show_default=True,
+)
+@click.option("--target-units", type=int, default=None, help="Remove exactly this many formula units.")
+@click.option("--species", nargs=2, multiple=True, metavar="SPECIES_ID COUNT")
+@click.option("--species-charge", nargs=2, multiple=True, metavar="SPECIES_ID CHARGE")
+@click.option(
+    "--periodic-images/--no-periodic-images",
+    default=True,
+    show_default=True,
+)
+@click.option("--batch-size", type=int, default=DEFAULT_SHAPE_BATCH_SIZE, show_default=True)
+@click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
+@click.option(
+    "--json-sidecar",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write void statistics as JSON.",
+)
+def void(
+    input: Path,
+    output: Path,
+    shape_name: str,
+    size: tuple[float, float, float] | None,
+    radius: float | None,
+    semi_axes: tuple[float, float, float] | None,
+    height: float | None,
+    axis: str,
+    axis_vector: tuple[float, float, float] | None,
+    direction_hkl: tuple[int, int, int] | None,
+    center: tuple[float, float, float] | None,
+    center_frac: tuple[float, float, float] | None,
+    hit_mode: str,
+    boundary_policy: str,
+    target_units: int | None,
+    species: tuple[tuple[str, str], ...],
+    species_charge: tuple[tuple[str, str], ...],
+    periodic_images: bool,
+    batch_size: int,
+    resolve_disorder: bool,
+    json_sidecar: Path | None,
+) -> None:
+    """Remove complete molecular/ionic units to form an implicit-shape void."""
+    try:
+        crystal = load_crystal(input, resolve_disorder=resolve_disorder)
+        shape = _implicit_shape_from_cli(
+            shape_name,
+            size=size,
+            radius=radius,
+            semi_axes=semi_axes,
+            height=height,
+            axis=axis,
+            axis_vector=axis_vector,
+            lattice=crystal.lattice,
+            direction_hkl=direction_hkl,
+        )
+        target_spec = _parse_species_counts(species)
+        charge_map = _parse_species_charges(species_charge)
+        result = VoidCarver(crystal, batch_size=batch_size).carve(
+            shape,
+            center=center,
+            center_frac=center_frac,
+            hit_mode=hit_mode,
+            target_spec=target_spec,
+            target_units=target_units,
+            boundary_policy=boundary_policy,
+            periodic_images=periodic_images,
+            species_charge_map=charge_map,
+        )
+    except (TypeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    write_structure(result, output)
+    info = result.metadata["void"]
+    _write_stats_sidecar(json_sidecar, info)
+    click.echo(
+        f"Wrote {output}  |  removed units: {info['selected_unit_count']}  |  "
+        f"removed molecules: {info['removed_molecule_count']}  |  "
+        f"remaining atoms: {info['remaining_atom_count']}"
+    )
+
+
+@click.command()
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
 @click.option("--scale", nargs=3, type=int, required=True, metavar="A B C", help="Supercell replication factors.")
-def supercell(input: Path, output: Path, scale: tuple[int, int, int]) -> None:
+@click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before replication.")
+def supercell(
+    input: Path,
+    output: Path,
+    scale: tuple[int, int, int],
+    resolve_disorder: bool,
+) -> None:
     """Create a supercell."""
     if any(s < 1 for s in scale):
         raise click.UsageError("--scale factors must each be >= 1.")
-    result = create_supercell(load_crystal(input), scale)
+    result = create_supercell(load_crystal(input, resolve_disorder=resolve_disorder), scale)
     write_structure(result, output)
     click.echo(f"Wrote {output}")
 
@@ -511,6 +718,7 @@ def register_operate_commands(group: click.Group) -> None:
     group.add_command(slab)
     group.add_command(cluster)
     group.add_command(nanocluster)
+    group.add_command(void)
     group.add_command(supercell)
     group.add_command(vacancy)
     group.add_command(desolvate)
