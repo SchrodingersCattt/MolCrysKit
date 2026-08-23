@@ -358,7 +358,7 @@ def test_operate_nanocluster_resolves_disorder_and_writes_sidecar(
     assert result.exit_code == 0, result.output
     stats = json.loads(sidecar.read_text(encoding="utf-8"))
     assert stats["selected_atom_count"] == 336
-    assert stats["modeling_readiness"]["all_atom_ordered"] is True
+    assert stats["input_disorder"]["all_atom_ordered"] is True
 
 
 def test_operate_void_fixed_stoichiometry_charge_and_sidecar(tmp_path: Path) -> None:
@@ -408,7 +408,7 @@ def test_operate_void_fixed_stoichiometry_charge_and_sidecar(tmp_path: Path) -> 
     assert stats["remaining_atom_count"] == 294
     assert stats["charge_verified"] is True
     assert stats["removed_net_charge_e"] == 0.0
-    assert stats["modeling_readiness"]["all_atom_ordered"] is True
+    assert stats["input_disorder"]["all_atom_ordered"] is True
 
 
 def test_operate_void_cover_nonperiodic_and_species_validation(tmp_path: Path) -> None:

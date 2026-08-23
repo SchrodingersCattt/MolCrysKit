@@ -84,7 +84,6 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Packing/polyhedra: `find_polyhedra`, `detect_coordination_number`, `detect_prism_vs_antiprism`, `angular_rmsd_vs_ideals`, `compute_angular_signature`, `hull_encloses_center`, `planarity_analysis`, `DEFAULT_POLYHEDRON_SEARCH_CUTOFF`, `DEFAULT_MOLECULAR_SEARCH_CUTOFF`, `DEFAULT_CENTROID_OFFSET_FRAC`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`
-- Modeling readiness: `ModelingReadinessReport`, `UnresolvedDisorderWarning`, `inspect_modeling_readiness`
 
 ### `mck.analysis.volume`
 Van der Waals volume estimation and solvent-accessible boundary computation.
@@ -98,6 +97,7 @@ Van der Waals volume estimation and solvent-accessible boundary computation.
 Disorder metadata, solving, and ordered-replica generation.
 
 - `DisorderInfo`, `DisorderSolver`, `generate_ordered_replicas_from_disordered_sites`, `is_minor_site`, `DisorderProvenance`
+- Warning category: `UnresolvedDisorderWarning`
 - `DisorderInfo` carries CIF-derived metadata including the chemical formula moiety and Z value for stoichiometry validation during disorder resolution.
 
 ### `mck.analysis.interactions`

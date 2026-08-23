@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 
-from molcrys_kit.analysis import UnresolvedDisorderWarning
+from molcrys_kit.analysis.disorder import UnresolvedDisorderWarning
 from molcrys_kit.io import read_extxyz, read_mol_crystal, write_extxyz
 from molcrys_kit.operations import (
     ImplicitShape,
@@ -310,7 +310,7 @@ def test_dap4_unresolved_warns_and_resolved_replica_is_ordered(
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         carver = VoidCarver(ordered_dap4)
-    assert carver._readiness.all_atom_ordered
+    assert carver._input_disorder["all_atom_ordered"]
     assert not [item for item in caught if item.category is UnresolvedDisorderWarning]
 
 

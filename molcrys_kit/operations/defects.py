@@ -11,14 +11,17 @@ import copy
 import itertools
 import math
 import random as _random
+import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from ..analysis.disorder import UnresolvedDisorderWarning
+from ..analysis.stoichiometry import StoichiometryAnalyzer
+from ..constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
-from ..analysis.stoichiometry import StoichiometryAnalyzer
 from ..utils.geometry import minimum_image_distance
 from .implicit_shape import (
     DEFAULT_SHAPE_BATCH_SIZE,
@@ -27,13 +30,65 @@ from .implicit_shape import (
     merge_stable_topk,
     resolve_shape_center,
 )
-from ..analysis.modeling_readiness import (
-    require_complete_topology_units,
-    warn_if_unresolved_disorder,
-)
 
 
 _CHARGE_TOLERANCE = 1e-8
+
+
+def _warn_if_unresolved_disorder(
+    crystal: MolecularCrystal,
+    *,
+    operation: str,
+) -> dict[str, bool | int]:
+    nonunit_occupancies = 0
+    active_groups = 0
+    active_assemblies = 0
+    for molecule in crystal.molecules:
+        occupancies = np.asarray(molecule.arrays.get(KEY_OCCUPANCY, []), dtype=float)
+        nonunit_occupancies += int(
+            np.count_nonzero(~np.isclose(occupancies, 1.0, rtol=0.0, atol=1e-8))
+        )
+        active_groups += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_DISORDER_GROUP, [])
+        )
+        active_assemblies += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_ASSEMBLY, [])
+        )
+    stats = {
+        "all_atom_ordered": not bool(
+            nonunit_occupancies or active_groups or active_assemblies
+        ),
+        "nonunit_occupancy_count": nonunit_occupancies,
+        "active_disorder_group_count": active_groups,
+        "active_disorder_assembly_count": active_assemblies,
+    }
+    if not stats["all_atom_ordered"]:
+        warnings.warn(
+            f"{operation} is continuing with unresolved disorder; resolve an ordered "
+            "replica before production MD.",
+            UnresolvedDisorderWarning,
+            stacklevel=2,
+        )
+    return stats
+
+
+def _require_complete_topology_units(
+    crystal: MolecularCrystal,
+    *,
+    operation: str,
+) -> None:
+    incomplete_count = sum(
+        molecule.info.get("unwrap_completed") is False
+        for molecule in crystal.molecules
+    )
+    if incomplete_count:
+        raise ValueError(
+            f"{operation} requires finite, completely unwrapped molecules or ions; "
+            f"{incomplete_count} topology unit(s) are incomplete. Periodic 3-D "
+            "frameworks/MOFs are not supported and are not automatically cut or capped."
+        )
 
 
 def _copy_partition_molecule(molecule: CrystalMolecule) -> CrystalMolecule:
@@ -130,12 +185,10 @@ class VacancyGenerator:
         """
         self.crystal = crystal
         self.analyzer = StoichiometryAnalyzer(crystal)
-        self._readiness = warn_if_unresolved_disorder(
+        self._input_disorder = _warn_if_unresolved_disorder(
             crystal, operation="VacancyGenerator"
         )
-        require_complete_topology_units(
-            self._readiness, operation="VacancyGenerator"
-        )
+        _require_complete_topology_units(crystal, operation="VacancyGenerator")
 
     def find_removable_cluster_indices(
         self,
@@ -352,7 +405,7 @@ class VacancyGenerator:
             "removed_atom_count": sum(
                 len(self.crystal.molecules[index]) for index in removal_indices
             ),
-            "modeling_readiness": self._readiness.to_dict(),
+            "input_disorder": dict(self._input_disorder),
         }
         return _partition_by_molecule_indices(
             self.crystal,
@@ -401,8 +454,10 @@ class VoidCarver:
         self._species_by_index = np.empty(len(crystal.molecules), dtype=object)
         for species_id, indices in self.analyzer.species_map.items():
             self._species_by_index[np.asarray(indices, dtype=int)] = species_id
-        self._readiness = warn_if_unresolved_disorder(crystal, operation="VoidCarver")
-        require_complete_topology_units(self._readiness, operation="VoidCarver")
+        self._input_disorder = _warn_if_unresolved_disorder(
+            crystal, operation="VoidCarver"
+        )
+        _require_complete_topology_units(crystal, operation="VoidCarver")
 
     def carve(
         self,
@@ -554,7 +609,7 @@ class VoidCarver:
             "charge_verified": species_charge_map is not None,
             "removed_net_charge_e": removed_charge,
             "batch_size": int(self.batch_size),
-            "modeling_readiness": self._readiness.to_dict(),
+            "input_disorder": dict(self._input_disorder),
             "source_formula_moiety": self.crystal.formula_moiety,
         }
         return _partition_by_molecule_indices(

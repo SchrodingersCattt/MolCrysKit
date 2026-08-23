@@ -533,11 +533,11 @@ channel = ImplicitShape.through_cylinder(
 porous = carve_void(ordered_supercell, channel, periodic_images=True)
 ```
 
-Import `inspect_modeling_readiness` from `molcrys_kit.analysis` and run it
-before a large build. Non-unit
-occupancies and active disorder metadata produce `UnresolvedDisorderWarning`
-but do not silently resolve the structure. A molecule with
-`unwrap_completed=False` is rejected because its topology unit is incomplete.
+Large-model operations warn when non-unit occupancies or active disorder
+metadata remain, but do not silently resolve the structure. Their output
+statistics record the input counts under `input_disorder`. Nanocluster, void,
+and vacancy operations reject a molecule with `unwrap_completed=False` because
+its topology unit is incomplete; ordinary supercell replication remains valid.
 Neither nanocluster nor void carving is a 3-D framework/MOF cutting tool, and
 neither automatically caps severed network bonds.
 

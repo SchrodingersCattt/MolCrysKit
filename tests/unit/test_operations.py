@@ -400,3 +400,12 @@ class TestBuilders:
         assert isinstance(supercell, MolecularCrystal)
         total_atoms = sum(len(m) for m in supercell.molecules)
         assert total_atoms == 4
+
+    def test_create_supercell_allows_incomplete_periodic_topology(
+        self, cubic_lattice_10, co_molecule
+    ):
+        molecule = CrystalMolecule(co_molecule)
+        molecule.info["unwrap_completed"] = False
+        crystal = MolecularCrystal(cubic_lattice_10, [molecule])
+        supercell = create_supercell(crystal, (2, 1, 1))
+        assert len(supercell.molecules) == 2

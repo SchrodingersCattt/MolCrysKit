@@ -24,7 +24,13 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from ..constants.config import KEY_IMAGE_SHIFT
+from ..analysis.disorder import UnresolvedDisorderWarning
+from ..constants.config import (
+    KEY_ASSEMBLY,
+    KEY_DISORDER_GROUP,
+    KEY_IMAGE_SHIFT,
+    KEY_OCCUPANCY,
+)
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
 from .implicit_shape import (
@@ -35,13 +41,59 @@ from .implicit_shape import (
     merge_stable_topk,
     resolve_shape_center,
 )
-from ..analysis.modeling_readiness import (
-    require_complete_topology_units,
-    warn_if_unresolved_disorder,
-)
 
 
 DEFAULT_NANOCLUSTER_BATCH_SIZE = DEFAULT_SHAPE_BATCH_SIZE
+
+
+def _warn_if_unresolved_disorder(
+    crystal: MolecularCrystal,
+) -> dict[str, bool | int]:
+    nonunit_occupancies = 0
+    active_groups = 0
+    active_assemblies = 0
+    for molecule in crystal.molecules:
+        occupancies = np.asarray(molecule.arrays.get(KEY_OCCUPANCY, []), dtype=float)
+        nonunit_occupancies += int(
+            np.count_nonzero(~np.isclose(occupancies, 1.0, rtol=0.0, atol=1e-8))
+        )
+        active_groups += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_DISORDER_GROUP, [])
+        )
+        active_assemblies += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_ASSEMBLY, [])
+        )
+    stats = {
+        "all_atom_ordered": not bool(
+            nonunit_occupancies or active_groups or active_assemblies
+        ),
+        "nonunit_occupancy_count": nonunit_occupancies,
+        "active_disorder_group_count": active_groups,
+        "active_disorder_assembly_count": active_assemblies,
+    }
+    if not stats["all_atom_ordered"]:
+        warnings.warn(
+            "NanoClusterCarver is continuing with unresolved disorder; resolve an "
+            "ordered replica before production MD.",
+            UnresolvedDisorderWarning,
+            stacklevel=2,
+        )
+    return stats
+
+
+def _require_complete_topology_units(crystal: MolecularCrystal) -> None:
+    incomplete_count = sum(
+        molecule.info.get("unwrap_completed") is False
+        for molecule in crystal.molecules
+    )
+    if incomplete_count:
+        raise ValueError(
+            "NanoClusterCarver requires finite, completely unwrapped molecules or "
+            f"ions; {incomplete_count} topology unit(s) are incomplete. Periodic 3-D "
+            "frameworks/MOFs are not supported and are not automatically cut or capped."
+        )
 
 
 class NanoClusterCarver:
@@ -78,12 +130,8 @@ class NanoClusterCarver:
         self._lattice = lattice.copy()
         self._inverse_lattice = np.linalg.inv(lattice)
         self._source_molecule_indices = crystal._molecule_global_indices()
-        self._readiness = warn_if_unresolved_disorder(
-            crystal, operation="NanoClusterCarver"
-        )
-        require_complete_topology_units(
-            self._readiness, operation="NanoClusterCarver"
-        )
+        self._input_disorder = _warn_if_unresolved_disorder(crystal)
+        _require_complete_topology_units(crystal)
 
     def carve(
         self,
@@ -381,7 +429,7 @@ class NanoClusterCarver:
             "grid_candidate_count": int(grid_candidate_count),
             "batch_size": int(self.batch_size),
             "vacuum_A": float(vacuum),
-            "modeling_readiness": self._readiness.to_dict(),
+            "input_disorder": dict(self._input_disorder),
         }
 
         return MolecularCrystal(
