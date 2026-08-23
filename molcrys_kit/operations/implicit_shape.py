@@ -10,9 +10,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import numpy as np
+from pymatgen.core import Lattice, Structure
+from scipy.spatial import HalfspaceIntersection, QhullError
+
+from ..constants.config import BFDH_GEOMETRY_TOLERANCE
+from ..structures.crystal import MolecularCrystal
+from ..structures.symmetry import CrystalSymmetry
 
 
 ShapeField = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
@@ -44,6 +50,53 @@ def _axis_vector(axis: str | Sequence[float]) -> tuple[np.ndarray, str]:
     unit = vector / norm
     label = "_".join(f"{value:.6g}" for value in unit)
     return unit, label
+
+
+def _bfdh_lattice(
+    crystal_or_lattice_or_structure: MolecularCrystal
+    | Lattice
+    | Structure
+    | np.ndarray
+    | Sequence[Sequence[float]],
+) -> Lattice:
+    """Return the pymatgen lattice used to orient BFDH plane normals."""
+
+    obj = crystal_or_lattice_or_structure
+    if isinstance(obj, Structure):
+        return obj.lattice
+    if isinstance(obj, Lattice):
+        return obj
+    if isinstance(obj, MolecularCrystal):
+        return Lattice(obj.lattice)
+    array = np.asarray(obj, dtype=float)
+    if array.shape != (3, 3):
+        raise TypeError(
+            "Expected a MolecularCrystal, pymatgen Lattice/Structure, or a "
+            "3x3 lattice matrix."
+        )
+    return Lattice(array)
+
+
+def _validated_millers(
+    miller_indices: Iterable[Sequence[int]] | None,
+) -> tuple[tuple[int, int, int], ...] | None:
+    """Materialize and validate optional explicit Miller indices."""
+
+    if miller_indices is None:
+        return None
+    validated: list[tuple[int, int, int]] = []
+    for raw in miller_indices:
+        array = np.asarray(raw)
+        if array.shape != (3,) or not np.issubdtype(array.dtype, np.number):
+            raise ValueError("Each Miller index must contain three integers.")
+        values = array.astype(float)
+        if not np.isfinite(values).all() or not np.allclose(values, np.rint(values)):
+            raise ValueError("Each Miller index must contain three integers.")
+        hkl = tuple(int(value) for value in np.rint(values))
+        if hkl == (0, 0, 0):
+            raise ValueError("Miller indices cannot all be zero.")
+        validated.append(hkl)
+    return tuple(validated)
 
 
 @dataclass(frozen=True)
@@ -122,6 +175,181 @@ class ImplicitShape:
             return (x / axes[0]) ** 2 + (y / axes[1]) ** 2 + (z / axes[2]) ** 2 - 1.0
 
         return cls(field, bounds, "ellipsoid", {"semi_axes_A": axes.tolist()})
+
+    @classmethod
+    def bfdh(
+        cls,
+        crystal_or_lattice_or_structure: MolecularCrystal
+        | Lattice
+        | Structure
+        | np.ndarray
+        | Sequence[Sequence[float]],
+        max_dimension: float,
+        *,
+        max_index: int = 2,
+        miller_indices: Iterable[Sequence[int]] | None = None,
+        symmetry: CrystalSymmetry | None = None,
+        extinction_filter: bool = True,
+        symprec: float = 1e-5,
+    ) -> "ImplicitShape":
+        """Return a bounded pure-BFDH growth morphology.
+
+        Plane-center distances are proportional to the BFDH growth-rate
+        proxy ``1 / d_hkl``.  The resulting half-space intersection is scaled
+        so its largest Cartesian bounding-box span equals ``max_dimension``.
+        Explicit ``symmetry`` should describe the parent crystal when the
+        coordinates have been disorder-resolved into a lower-symmetry model.
+        """
+
+        from ..analysis.bfdh import enumerate_bfdh_facets
+
+        max_dimension_value = float(
+            _positive_values([max_dimension], "max_dimension", 1)[0]
+        )
+        explicit_millers = _validated_millers(miller_indices)
+        if symmetry is not None and not isinstance(symmetry, CrystalSymmetry):
+            raise TypeError("symmetry must be a CrystalSymmetry.")
+
+        lattice = _bfdh_lattice(crystal_or_lattice_or_structure)
+        facets = enumerate_bfdh_facets(
+            lattice,
+            max_index=max_index,
+            miller_indices=explicit_millers,
+            symprec=symprec,
+            include_equivalents=True,
+            include_negative=False,
+            extinction_filter=extinction_filter,
+            symmetry=symmetry,
+        )
+        if not facets:
+            raise ValueError("BFDH enumeration produced no allowed facets.")
+
+        reciprocal = lattice.reciprocal_lattice_crystallographic
+        plane_map: dict[
+            tuple[int, int, int],
+            tuple[float, tuple[int, int, int], np.ndarray],
+        ] = {}
+        tolerance = BFDH_GEOMETRY_TOLERANCE
+        for facet in facets:
+            family = facet.equivalent_millers or (facet.miller_index,)
+            for hkl in family:
+                reciprocal_vector = np.asarray(
+                    reciprocal.get_cartesian_coords(hkl), dtype=float
+                )
+                unit_normal = reciprocal_vector / np.linalg.norm(reciprocal_vector)
+                for sign in (1, -1):
+                    normal = sign * unit_normal
+                    signed_hkl = tuple(sign * int(value) for value in hkl)
+                    key = tuple(np.rint(normal / tolerance).astype(int))
+                    candidate = (
+                        float(facet.relative_growth_rate),
+                        signed_hkl,
+                        normal,
+                    )
+                    current = plane_map.get(key)
+                    if current is None or (
+                        candidate[0],
+                        sum(abs(value) for value in candidate[1]),
+                        candidate[1],
+                    ) < (
+                        current[0],
+                        sum(abs(value) for value in current[1]),
+                        current[1],
+                    ):
+                        plane_map[key] = candidate
+
+        plane_entries = sorted(
+            plane_map.values(),
+            key=lambda item: (item[1], item[0]),
+        )
+        unit_distances = np.asarray([item[0] for item in plane_entries], dtype=float)
+        normals = np.asarray([item[2] for item in plane_entries], dtype=float)
+        if np.linalg.matrix_rank(normals, tol=tolerance) < 3:
+            raise ValueError(
+                "BFDH facets do not enclose a finite 3-D shape; provide at "
+                "least three independent facet families."
+            )
+
+        halfspaces = np.column_stack((normals, -unit_distances))
+        try:
+            raw_vertices = HalfspaceIntersection(
+                halfspaces, np.zeros(3, dtype=float)
+            ).intersections
+        except QhullError as exc:
+            raise ValueError(
+                "BFDH facets do not enclose a finite 3-D shape."
+            ) from exc
+        if len(raw_vertices) == 0:  # pragma: no cover - guarded by Qhull
+            raise ValueError("BFDH half-space intersection has no vertices.")
+
+        ordered_vertices = raw_vertices[
+            np.lexsort((raw_vertices[:, 2], raw_vertices[:, 1], raw_vertices[:, 0]))
+        ]
+        unique_vertices: list[np.ndarray] = []
+        for vertex in ordered_vertices:
+            if not unique_vertices or not np.allclose(
+                vertex, unique_vertices[-1], atol=tolerance, rtol=0.0
+            ):
+                unique_vertices.append(vertex)
+        unit_vertices = np.asarray(unique_vertices, dtype=float)
+        spans = np.ptp(unit_vertices, axis=0)
+        largest_span = float(np.max(spans))
+        if largest_span <= tolerance:  # pragma: no cover - rank check guards this
+            raise ValueError("BFDH half-space intersection is degenerate.")
+
+        scale = max_dimension_value / largest_span
+        distances = unit_distances * scale
+        vertices = unit_vertices * scale
+        bounds = np.column_stack((vertices.min(axis=0), vertices.max(axis=0)))
+
+        def field(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+            values = np.full(np.asarray(x).shape, -np.inf, dtype=float)
+            for normal, distance in zip(normals, distances):
+                plane_value = (
+                    normal[0] * x + normal[1] * y + normal[2] * z
+                ) / distance
+                np.maximum(values, plane_value, out=values)
+            return values - 1.0
+
+        plane_records = [
+            {
+                "miller_index": list(entry[1]),
+                "normal_cartesian": entry[2].tolist(),
+                "distance_A": float(distance),
+            }
+            for entry, distance in zip(plane_entries, distances)
+        ]
+        if symmetry is not None:
+            symmetry_record: dict[str, Any] = {
+                "kind": "explicit_parent",
+                "source": symmetry.source,
+                "space_group_number": symmetry.space_group_number,
+                "space_group_symbol": symmetry.space_group_symbol,
+                "hall_symbol": symmetry.hall_symbol,
+            }
+        else:
+            symmetry_record = {"kind": "lattice_metric"}
+
+        return cls(
+            field,
+            bounds,
+            "bfdh",
+            {
+                "max_dimension_A": max_dimension_value,
+                "max_index": int(max_index),
+                "miller_indices": (
+                    [list(hkl) for hkl in explicit_millers]
+                    if explicit_millers is not None
+                    else None
+                ),
+                "extinction_filter": bool(extinction_filter),
+                "symprec": float(symprec),
+                "symmetry": symmetry_record,
+                "facet_families": [facet.as_dict() for facet in facets],
+                "planes": plane_records,
+                "vertices_A": vertices.tolist(),
+            },
+        )
 
     @classmethod
     def cylinder(

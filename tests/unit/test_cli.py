@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from molcrys_kit.cli import main
@@ -317,6 +318,159 @@ def test_operate_nanocluster_requires_shape_dimensions(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "--radius is required for --shape sphere" in result.output
+
+
+def test_operate_nanocluster_bfdh_requires_max_dimension(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "bfdh.extxyz"),
+            "--shape",
+            "bfdh",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--max-dimension is required for --shape bfdh" in result.output
+
+
+def test_operate_nanocluster_bfdh_explicit_millers(tmp_path: Path) -> None:
+    input_path = tmp_path / "p1.cif"
+    input_path.write_text(
+        """data_p1
+_cell_length_a 5
+_cell_length_b 5
+_cell_length_c 5
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_space_group_IT_number 1
+_space_group_name_H-M_alt 'P 1'
+loop_
+_space_group_symop_operation_xyz
+'x,y,z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+He1 He 0.5 0.5 0.5
+""",
+        encoding="utf-8",
+    )
+    output = tmp_path / "bfdh.extxyz"
+    sidecar = tmp_path / "bfdh.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(input_path),
+            "-o",
+            str(output),
+            "--shape",
+            "bfdh",
+            "--max-dimension",
+            "10",
+            "--max-index",
+            "0",
+            "--miller",
+            "1",
+            "0",
+            "0",
+            "--miller",
+            "0",
+            "1",
+            "0",
+            "--miller",
+            "0",
+            "0",
+            "1",
+            "--topology-unit",
+            "unit_cell",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    parameters = stats["shape_parameters"]
+    assert parameters["max_dimension_A"] == 10.0
+    assert parameters["miller_indices"] == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    assert parameters["symmetry"]["kind"] == "explicit_parent"
+    assert parameters["symmetry"]["space_group_number"] == 1
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "message"),
+    [
+        (["--max-index", "0"], "max_index must be >= 1"),
+        (["--miller", "0", "0", "0"], "cannot all be zero"),
+    ],
+)
+def test_operate_nanocluster_bfdh_rejects_invalid_facet_options(
+    tmp_path: Path,
+    extra_args: list[str],
+    message: str,
+) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "invalid_bfdh.extxyz"),
+            "--shape",
+            "bfdh",
+            "--max-dimension",
+            "20",
+            *extra_args,
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert message in result.output
+
+
+def test_operate_nanocluster_bfdh_uses_disordered_cif_parent_symmetry(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "ordered_bfdh.extxyz"
+    sidecar = tmp_path / "ordered_bfdh.json"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "nanocluster",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--shape",
+            "bfdh",
+            "--max-dimension",
+            "80",
+            "--topology-unit",
+            "unit_cell",
+            "--target-units",
+            "1",
+            "--resolve-disorder",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    stats = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert stats["input_disorder"]["all_atom_ordered"] is True
+    assert stats["shape_parameters"]["symmetry"]["kind"] == "explicit_parent"
+    assert stats["shape_parameters"]["symmetry"]["space_group_number"] is not None
 
 
 def test_operate_nanocluster_resolves_disorder_and_writes_sidecar(

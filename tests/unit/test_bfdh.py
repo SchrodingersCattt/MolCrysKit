@@ -3,6 +3,7 @@ import math
 import pytest
 from ase import Atoms
 from pymatgen.core import Lattice, Structure
+from pymatgen.symmetry.groups import SpaceGroup
 
 from molcrys_kit.analysis.bfdh import (
     BFDHFacetInfo,
@@ -11,6 +12,26 @@ from molcrys_kit.analysis.bfdh import (
     enumerate_low_index_millers,
 )
 from molcrys_kit.structures.crystal import MolecularCrystal
+from molcrys_kit.structures.symmetry import (
+    CrystalSymmetry,
+    FractionalAffineOperation,
+)
+
+
+def _explicit_symmetry(symbol: str) -> CrystalSymmetry:
+    group = SpaceGroup(symbol)
+    return CrystalSymmetry(
+        operations=tuple(
+            FractionalAffineOperation(
+                operation.rotation_matrix,
+                operation.translation_vector,
+            )
+            for operation in group.symmetry_ops
+        ),
+        space_group_number=int(group.int_number),
+        space_group_symbol=str(group.symbol),
+        source="test_parent",
+    )
 
 
 def test_low_index_enumerator_deterministic_and_sign_canonical():
@@ -65,6 +86,17 @@ def test_bfdh_rejects_invalid_arguments():
         enumerate_bfdh_facets(lattice, max_index=0)
     with pytest.raises(ValueError):
         enumerate_bfdh_facets(lattice, top_n=0)
+
+
+def test_bfdh_explicit_millers_ignore_max_index():
+    facets = enumerate_bfdh_facets(
+        Lattice.cubic(5.0),
+        max_index=0,
+        miller_indices=[(1, 0, 0)],
+        extinction_filter=False,
+    )
+
+    assert [facet.miller_index for facet in facets] == [(1, 0, 0)]
 
 
 def test_d_hkl_rejects_zero_miller_index():
@@ -155,3 +187,54 @@ def test_bfdh_default_extinction_filter_for_pnma():
         (1, 0, -2),
     ]
     assert math.isclose(facets[0].d_hkl, 12.04130654, rel_tol=1e-6)
+
+
+def test_bfdh_explicit_parent_symmetry_matches_structure_extinctions():
+    lattice = Lattice.orthorhombic(10.26733, 14.7004, 20.9914)
+    symmetry = _explicit_symmetry("Pnma")
+    facets = enumerate_bfdh_facets(
+        lattice,
+        max_index=2,
+        top_n=6,
+        symmetry=symmetry,
+    )
+
+    assert [facet.miller_index for facet in facets] == [
+        (0, 1, -1),
+        (0, 0, 2),
+        (1, 0, -1),
+        (1, -1, -1),
+        (0, 2, 0),
+        (1, 0, -2),
+    ]
+    assert facets[0].equivalent_millers == ((0, 1, -1), (0, 1, 1))
+
+
+def test_bfdh_explicit_p21c_symmetry_expands_and_filters_facets():
+    facets = enumerate_bfdh_facets(
+        Lattice.monoclinic(19.7404, 14.3294, 21.2948, 90.075),
+        miller_indices=[(1, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1)],
+        symmetry=_explicit_symmetry("P2_1/c"),
+    )
+
+    assert [facet.miller_index for facet in facets] == [(1, 0, 0), (0, 1, -1)]
+    assert facets[1].equivalent_millers == ((0, 1, -1), (0, 1, 1))
+
+
+def test_bfdh_explicit_symmetry_can_skip_extinction_filter():
+    lattice = Lattice.orthorhombic(10.26733, 14.7004, 20.9914)
+    symmetry = _explicit_symmetry("Pnma")
+    filtered = enumerate_bfdh_facets(
+        lattice,
+        miller_indices=[(1, 0, 0)],
+        symmetry=symmetry,
+    )
+    unfiltered = enumerate_bfdh_facets(
+        lattice,
+        miller_indices=[(1, 0, 0)],
+        symmetry=symmetry,
+        extinction_filter=False,
+    )
+
+    assert filtered == []
+    assert [facet.miller_index for facet in unfiltered] == [(1, 0, 0)]

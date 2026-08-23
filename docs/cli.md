@@ -38,7 +38,7 @@ mck operate cluster --help
 | `mck operate add-h INPUT` | Add missing hydrogen atoms | `-o/--output OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
 | `mck operate slab INPUT` | Generate surface slab models | `-o/--output OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all,INDEX}` |
 | `mck operate cluster INPUT` | Carve molecular clusters | `-o/--output OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--cut-cc-bonds I,J;K,L`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable), `--seed-merge-radius FLOAT`, `--convention-reference STR`, `--no-stop-at-non-seed-metals` |
-| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
+| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,bfdh}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--max-dimension FLOAT`, `--max-index INT`, `--miller H K L` (repeatable), `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
 | `mck operate void INPUT` | Remove complete molecular/ionic units to form a shaped void | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,through-cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--direction-hkl H K L`, `--center X Y Z`, `--center-frac U V W`, `--hit-mode {centroid,any_atom,all_atoms}`, `--boundary-policy {inside,cover}`, `--target-units INT`, `--species SPECIES_ID COUNT`, `--species-charge SPECIES_ID CHARGE`, `--periodic-images/--no-periodic-images`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
 | `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C`, `--resolve-disorder` |
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
@@ -115,12 +115,23 @@ mck operate nanocluster adn.cif -o needle.extxyz \
 # Finite cylinder along x, selecting molecules by center of mass
 mck operate nanocluster structure.cif -o cylinder.extxyz \
   --shape cylinder --radius 25 --height 100 --axis x --center-kind com
+
+# Pure-BFDH morphology with a largest Cartesian span of 60 Å. For CIF input,
+# facet equivalence and systematic absences use the source CIF space group.
+mck operate nanocluster disordered.cif -o bfdh.extxyz \
+  --shape bfdh --max-dimension 60 --max-index 2 --resolve-disorder
+
+# Restrict BFDH construction to explicit facet families.
+mck operate nanocluster structure.cif -o bfdh_100.extxyz \
+  --shape bfdh --max-dimension 60 \
+  --miller 1 0 0 --miller 0 1 0 --miller 0 0 1
 ```
 
 For a 12-atom source cell, the fixed-count example always contains exactly
 `537 × 12 = 6444` atoms, independent of whether the search box is needle-like,
 plate-like, or nearly isotropic. Custom implicit functions are available through
-the Python API only.
+the Python API only. BFDH uses all allowed families through `--max-index 2` by
+default; repeated `--miller` options replace that automatic candidate set.
 
 ### Topology-Preserving Voids
 
