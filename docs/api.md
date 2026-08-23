@@ -17,6 +17,7 @@
 | Task | Entry point | Input | Output | More detail |
 |---|---|---|---|---|
 | Parse CIF | `mck.read_mol_crystal` | CIF path | `MolecularCrystal` | source docstring |
+| Read CIF symmetry | `read_cif_symmetry` | CIF path/text | `CrystalSymmetry` | source docstring |
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
@@ -38,6 +39,7 @@
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
+| Collective symmetry path | `build_symmetry_path_plan`, `generate_collective_symmetry_path` | crystal + affine operation | validated rigid path | [Tutorials](tutorials.md) |
 | Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
 
 ## Module Index
@@ -49,6 +51,7 @@ Core crystal data model.
 - Renderer contracts: `SiteRecord`, `BondRecord`; use `MolecularCrystal.get_site_records()` and `MolecularCrystal.get_bond_records()` instead of private ASE metadata.
   - `SiteRecord` identifies one atom by global, molecule-local, and ASU-source indices and carries label/symmetry provenance, Cartesian and fractional coordinates, occupancy/disorder metadata, lattice image shift, uiso_A2, and Cartesian u_cart_A2.
   - `BondRecord` carries molecule-local and global endpoints, ASU-source endpoints when known, the right-end lattice image shift, Cartesian bond vector, and distance.
+- Symmetry: `FractionalAffineOperation`, `LatticeBasisChange`, `CrystalSymmetry`, `identity_operation`, `validate_subgroup`, `left_cosets`, `domain_representatives`
 - Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
@@ -57,7 +60,7 @@ Core crystal data model.
 ### `mck.io`
 Read/write interfaces.
 
-- Read: `read_mol_crystal`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
+- Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
 - Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
@@ -73,6 +76,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
 - Implicit shapes/nanoclusters: `ImplicitShape`, `NanoShape` (compatibility alias), `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_SHAPE_BATCH_SIZE`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
+- Symmetry paths: `RigidReachabilityTolerance`, `SymmetryPathConfig`, `AtomCorrespondence`, `SymmetryMoleculeMatch`, `CrystalCorrespondence`, `SymmetryPathProvenance`, `SymmetryPathPlan`, `RigidReachabilityError`, `transform_crystal_fractional`, `build_symmetry_path_plan`, `interpolate_symmetry_path`, `generate_collective_symmetry_path`
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 
 Compatibility note: the former **create_defect_structure()** placeholder has been
@@ -124,6 +128,7 @@ Geometry, rigid-body math helpers, and graph utilities.
 
 - Graph: `graph_invariant`
 - Coordinates/PBC: `frac_to_cart`, `cart_to_frac`, `minimum_image_distance`, `minimum_image_vector`, `unwrap_positions_along_bonds`, `volume_of_cell`
+- Fractional affine: `apply_fractional_affine`, `fractional_linear_to_cartesian`
 - Vector/angles: `normalize_vector`, `distance_between_points`, `angle_between_vectors`, `dihedral_angle`
 - Rotations/alignment: `skew_matrix`, `unskew_matrix`, `kabsch_align`, `rotation_to_axis_angle`, `rotation_log_vector`, `rotation_exp_vector`, `rotation_matrix_to_quaternion`, `quaternion_to_rotation_matrix`, `quaternion_slerp`
 - Lattice orientation: `orient_lattice`

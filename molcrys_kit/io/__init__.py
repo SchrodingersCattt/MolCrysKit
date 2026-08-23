@@ -9,6 +9,7 @@ from .cif import (
     identify_molecule_indices,
     parse_cif_advanced,
     read_mol_crystal,
+    read_cif_symmetry,
     scan_cif_disorder,
 )
 from .extxyz import read_extxyz, write_extxyz
@@ -27,6 +28,7 @@ from .xyz import read_xyz
 __all__ = [
     "DisorderInfo",
     "read_mol_crystal",
+    "read_cif_symmetry",
     "parse_cif_advanced",
     "identify_molecule_indices",
     "scan_cif_disorder",

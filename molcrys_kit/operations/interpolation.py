@@ -10,7 +10,6 @@ compatibility and comparison.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Iterable, List, Optional, Sequence
 
 import networkx as nx
@@ -29,17 +28,15 @@ from ..utils.geometry import (
     quaternion_to_rotation_matrix,
     rotation_matrix_to_quaternion,
     rotation_to_axis_angle,
-    se3_exp,
-    se3_log,
 )
-
-
-class InterpolationMethod(str, Enum):
-    """Supported rigid-body interpolation metrics."""
-
-    SE3_SCREW = "se3_screw"
-    COM_SO3 = "com_so3"
-    SLERP = "slerp"
+from ._path_core import (
+    InterpolationMethod,
+    coerce_interpolation_method,
+    copy_crystal_with_molecule_positions,
+    interpolate_rigid_positions,
+    minimum_image_displacement,
+    path_lambda_values,
+)
 
 
 @dataclass(frozen=True)
@@ -77,28 +74,6 @@ class MoleculeMatch:
     def com_dist(self) -> float:
         """Minimum-image COM displacement length in Angstrom."""
         return float(np.linalg.norm(self.com_translation))
-
-
-def _coerce_method(method: InterpolationMethod | str) -> InterpolationMethod:
-    if isinstance(method, InterpolationMethod):
-        return method
-    try:
-        return InterpolationMethod(str(method))
-    except ValueError:
-        normalized = str(method).lower().replace("-", "_")
-        aliases = {
-            "screw_rotation": InterpolationMethod.SE3_SCREW,
-            "screw": InterpolationMethod.SE3_SCREW,
-            "se3": InterpolationMethod.SE3_SCREW,
-            "se3_geodesic": InterpolationMethod.SE3_SCREW,
-            "com_alignment": InterpolationMethod.COM_SO3,
-            "com": InterpolationMethod.COM_SO3,
-            "so3_com": InterpolationMethod.COM_SO3,
-            "quaternion_slerp": InterpolationMethod.SLERP,
-        }
-        if normalized in aliases:
-            return aliases[normalized]
-        raise ValueError(f"Unknown interpolation method: {method!r}") from None
 
 
 def _molecule_node_match(attrs_a: dict, attrs_b: dict) -> bool:
@@ -177,32 +152,9 @@ def _minimum_image_translation(
     point_a: np.ndarray,
     point_b: np.ndarray,
     lattice: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    frac_a = cart_to_frac(point_a, lattice)
-    frac_b = cart_to_frac(point_b, lattice)
-    frac_delta = frac_b - frac_a
-    delta_cart = minimum_image_vector(frac_delta, lattice)
-    image_shift_frac = cart_to_frac(delta_cart, lattice) - frac_delta
-    return delta_cart, image_shift_frac
-
-
-def _copy_crystal_with_positions(
-    crystal: MolecularCrystal,
-    positions_by_index: dict[int, np.ndarray],
-) -> MolecularCrystal:
-    molecules = []
-    for index, molecule in enumerate(crystal.molecules):
-        copied = molecule.copy()
-        if index in positions_by_index:
-            copied.set_positions(np.asarray(positions_by_index[index], dtype=float))
-        molecules.append(copied)
-    return MolecularCrystal(
-        np.array(crystal.lattice, dtype=float).copy(),
-        molecules,
-        crystal.pbc,
-        formula_moiety=crystal.formula_moiety,
-        disorder_provenance=crystal.disorder_provenance,
-    )
+    pbc: Sequence[bool],
+) -> tuple[np.ndarray, tuple[int, int, int]]:
+    return minimum_image_displacement(point_b - point_a, lattice, pbc)
 
 
 def match_molecules(
@@ -255,6 +207,7 @@ def match_molecules(
                     com_a,
                     np.asarray(crystal_b.molecules[idx_b].get_center_of_mass(), dtype=float),
                     lattice_a,
+                    crystal_a.pbc,
                 )[0]
             ),
         )
@@ -262,8 +215,10 @@ def match_molecules(
         mol_b = crystal_b.molecules[best_idx_b]
 
         com_b = np.asarray(mol_b.get_center_of_mass(), dtype=float)
-        com_translation, image_shift_frac = _minimum_image_translation(com_a, com_b, lattice_a)
-        image_shift_cart = frac_to_cart(image_shift_frac, lattice_a)
+        com_translation, image_shift = _minimum_image_translation(
+            com_a, com_b, lattice_a, crystal_a.pbc
+        )
+        image_shift_cart = frac_to_cart(np.asarray(image_shift), lattice_a)
         com_b_unwrapped = com_b + image_shift_cart
 
         order_b = best_atom_mapping(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
@@ -319,36 +274,14 @@ def interpolate_pose(
        ``SE3_SCREW`` or ``SLERP``.
     """
     lam = float(lam)
-    method = _coerce_method(method)
-    positions_a = np.asarray(mol_a.get_positions(), dtype=float)
-    centered = positions_a - match.com_a
-
-    if method == InterpolationMethod.SE3_SCREW:
-        relative_xi = se3_log(match.rotation_matrix, match.com_translation)
-        rotation, translation = se3_exp(lam * relative_xi)
-        return centered @ rotation.T + match.com_a + translation
-
-    if method == InterpolationMethod.COM_SO3:
-        rotation = se3_exp(np.concatenate([match.axis * match.angle_rad * lam, np.zeros(3)]))[0]
-        return centered @ rotation.T + match.com_a + lam * match.com_translation
-
-    if method == InterpolationMethod.SLERP:
-        q0 = np.array([1.0, 0.0, 0.0, 0.0])
-        q1 = rotation_matrix_to_quaternion(match.rotation_matrix)
-        rotation = quaternion_to_rotation_matrix(quaternion_slerp(q0, q1, lam))
-        return centered @ rotation.T + match.com_a + lam * match.com_translation
-
-    raise ValueError(f"Unhandled interpolation method: {method}")
-
-
-def _lambda_values(n_images: int, include_endpoints: bool) -> np.ndarray:
-    if n_images < 1:
-        raise ValueError("n_images must be >= 1")
-    if include_endpoints:
-        if n_images == 1:
-            return np.array([0.0])
-        return np.linspace(0.0, 1.0, int(n_images))
-    return np.linspace(0.0, 1.0, int(n_images) + 2)[1:-1]
+    return interpolate_rigid_positions(
+        np.asarray(mol_a.get_positions(), dtype=float),
+        center=match.com_a,
+        rotation=match.rotation_matrix,
+        translation=match.com_translation,
+        lam=lam,
+        method=method,
+    )
 
 
 def interpolate_crystal(
@@ -381,7 +314,7 @@ def interpolate_crystal(
     matches : sequence of MoleculeMatch, optional
         Precomputed molecule matches from :func:`match_molecules`.
     """
-    method = _coerce_method(method)
+    method = coerce_interpolation_method(method)
     if matches is None:
         matches = match_molecules(crystal_a, crystal_b)
     match_by_idx = {match.idx_a: match for match in matches}
@@ -394,7 +327,7 @@ def interpolate_crystal(
             raise ValueError(f"Unknown molecule indices requested: {sorted(missing)}")
 
     frames: List[MolecularCrystal] = []
-    for lam in _lambda_values(n_images, include_endpoints):
+    for lam in path_lambda_values(n_images, include_endpoints):
         positions = {}
         for idx in selected:
             match = match_by_idx[idx]
@@ -404,7 +337,7 @@ def interpolate_crystal(
                 float(lam),
                 method=method,
             )
-        frames.append(_copy_crystal_with_positions(crystal_a, positions))
+        frames.append(copy_crystal_with_molecule_positions(crystal_a, positions))
     return frames
 
 
@@ -651,7 +584,7 @@ def interpolate_crystal_vc(
             )
 
     frames: List[MolecularCrystal] = []
-    for lam in _lambda_values(n_images, include_endpoints):
+    for lam in path_lambda_values(n_images, include_endpoints):
         lat_i = lattice_at_lambda(lattice_a, log_F, lam)
 
         molecules = []

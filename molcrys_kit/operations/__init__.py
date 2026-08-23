@@ -62,6 +62,21 @@ from .nanocluster import (
 )
 from .implicit_shape import DEFAULT_SHAPE_BATCH_SIZE, ImplicitShape
 
+from .symmetry_path import (
+    AtomCorrespondence,
+    CrystalCorrespondence,
+    RigidReachabilityError,
+    RigidReachabilityTolerance,
+    SymmetryMoleculeMatch,
+    SymmetryPathConfig,
+    SymmetryPathPlan,
+    SymmetryPathProvenance,
+    build_symmetry_path_plan,
+    generate_collective_symmetry_path,
+    interpolate_symmetry_path,
+    transform_crystal_fractional,
+)
+
 from .interpolation import (
     InterpolationConfig,
     InterpolationMethod,
@@ -122,6 +137,18 @@ __all__ = [
     "NanoClusterCarver",
     "NanoShape",
     "carve_nanocluster",
+    "AtomCorrespondence",
+    "CrystalCorrespondence",
+    "RigidReachabilityError",
+    "RigidReachabilityTolerance",
+    "SymmetryMoleculeMatch",
+    "SymmetryPathConfig",
+    "SymmetryPathPlan",
+    "SymmetryPathProvenance",
+    "build_symmetry_path_plan",
+    "generate_collective_symmetry_path",
+    "interpolate_symmetry_path",
+    "transform_crystal_fractional",
     "InterpolationConfig",
     "InterpolationMethod",
     "MoleculeMatch",

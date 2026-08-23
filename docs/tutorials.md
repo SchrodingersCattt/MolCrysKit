@@ -47,6 +47,55 @@ frames = ase.io.read("hydrogen_bond.extxyz", index=":", format="extxyz")
 print(frames[0].info["refcode"])
 ```
 
+## Crystallographic symmetry paths
+
+MolCrysKit represents a crystallographic operation in conventional fractional
+column form, but applies it to the package's row coordinates as
+`f_prime = f @ W.T + w`.  Operations are not restricted to a particular space
+group or axis.
+
+```python
+from molcrys_kit.io import read_cif_symmetry, read_mol_crystal
+from molcrys_kit.operations import (
+  SymmetryPathConfig,
+  build_symmetry_path_plan,
+  interpolate_symmetry_path,
+)
+
+crystal = read_mol_crystal("input.cif")
+symmetry = read_cif_symmetry("input.cif")
+operation = symmetry.operations[1]
+plan = build_symmetry_path_plan(
+  crystal,
+  operation,
+  config=SymmetryPathConfig(n_images=7, method="slerp"),
+)
+frames = interpolate_symmetry_path(plan)
+```
+
+The operation defines the exact transformed endpoint.  Every accepted molecule
+must also be reachable by a proper rigid rotation and translation.  The default
+limits are a mass-weighted fit RMSD of 0.05 Å and a maximum covalent-bond length
+error of 2%; both are configurable through `RigidReachabilityTolerance`.  If an
+improper crystal operation or a relaxed target requires real intramolecular
+deformation, planning raises `RigidReachabilityError` rather than compressing
+bonds or adding a discontinuous final frame.
+If an operation merely permutes symmetry-equivalent molecules already present
+in the full cell, the default planner rejects it as a zero-displacement relabeling
+rather than writing many identical trajectory frames.
+An explicitly supplied target must represent the same operation-generated
+endpoint within `correspondence_tolerance_angstrom`; an unrelated rigid target
+is rejected before any frames are created.
+
+Use `validate_subgroup`, `left_cosets`, and `domain_representatives` to enumerate
+domain states from arbitrary finite parent/subgroup operation sets.  These
+functions compare affine operations modulo integer lattice translations and do
+not rely on the order of operations in a CIF.
+
+Generated paths are geometric initial guesses, not kinetic barriers.  Validate
+contacts and electronic-structure convergence before using them to initialize a
+separate NEB or string calculation.
+
 ## Hydrogen Completion
 
 MolCrysKit provides functionality to add hydrogen atoms to molecular crystals based on geometric rules, chemical constraints, and CIF formula metadata when available. This is particularly useful for generating complete structures from X-ray diffraction data, which often does not resolve hydrogen positions.

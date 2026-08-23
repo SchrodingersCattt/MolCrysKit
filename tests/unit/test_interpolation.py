@@ -112,6 +112,25 @@ def test_interpolate_molecule_keeps_unselected_molecules_fixed():
     )
 
 
+def test_interpolation_preserves_frame_payloads_and_invalidates_results():
+    crystal_a, crystal_b, _ = _single_water_crystals()
+    crystal_a.metadata = {"nested": {"labels": ["source"]}}
+    crystal_a.extra_arrays = {
+        "site_id": np.arange(3),
+        "frac_x": np.zeros(3),
+    }
+    crystal_a._calc_results = {"energy": -1.0}
+
+    frame = interpolate_crystal(crystal_a, crystal_b, n_images=2)[1]
+
+    assert frame.metadata == {"nested": {"labels": ["source"]}}
+    np.testing.assert_array_equal(frame.extra_arrays["site_id"], np.arange(3))
+    assert "frac_x" not in frame.extra_arrays
+    assert frame._calc_results is None
+    frame.metadata["nested"]["labels"].append("frame")
+    assert crystal_a.metadata["nested"]["labels"] == ["source"]
+
+
 def test_find_flipping_molecules_reports_changed_pose_only():
     crystal_a, crystal_b = _two_water_crystals()
     selected = find_flipping_molecules(
