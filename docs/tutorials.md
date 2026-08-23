@@ -1,5 +1,52 @@
 # MolCrysKit Tutorials
 
+## Extended XYZ Dataset Bundles
+
+MolCrysKit can write molecular-crystal datasets as multi-frame ASE Extended XYZ
+files.  Each frame is flattened from a `MolecularCrystal` while preserving the
+unit cell, PBC flags, and molecule membership through the `molecule_index`
+array.  Use per-frame `info` for provenance such as refcodes or motif labels.
+
+```python
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.io.extxyz import read_extxyz, write_extxyz
+
+refcodes = ["ABAZIN", "ABAZOT"]
+crystals = [read_mol_crystal(f"cache/{refcode}.cif") for refcode in refcodes]
+
+frame_info = [
+  {
+    "dataset_id": "DeepMolCryst-26",
+    "refcode": refcode,
+    "source_family": "weak_interactions",
+    "motif": "hydrogen_bond",
+    "query_id": "Q26-WI-HYDROGEN-BOND-001",
+    "frame_index": i,
+  }
+  for i, refcode in enumerate(refcodes)
+]
+
+write_extxyz(
+  crystals,
+  "hydrogen_bond.extxyz",
+  info=frame_info,
+)
+
+# Use index=":" for dataset bundles; the default index=None returns only the
+# last frame, following ASE convention.
+bundle = read_extxyz("hydrogen_bond.extxyz", index=":")
+print(len(bundle), bundle[0].metadata["refcode"])
+```
+
+The same file can be consumed directly by ASE-based MLIP tooling:
+
+```python
+import ase.io
+
+frames = ase.io.read("hydrogen_bond.extxyz", index=":", format="extxyz")
+print(frames[0].info["refcode"])
+```
+
 ## Crystallographic symmetry paths
 
 MolCrysKit represents a crystallographic operation in conventional fractional
@@ -48,53 +95,6 @@ not rely on the order of operations in a CIF.
 Generated paths are geometric initial guesses, not kinetic barriers.  Validate
 contacts and electronic-structure convergence before using them to initialize a
 separate NEB or string calculation.
-
-## Extended XYZ Dataset Bundles
-
-MolCrysKit can write molecular-crystal datasets as multi-frame ASE Extended XYZ
-files.  Each frame is flattened from a `MolecularCrystal` while preserving the
-unit cell, PBC flags, and molecule membership through the `molecule_index`
-array.  Use per-frame `info` for provenance such as refcodes or motif labels.
-
-```python
-from molcrys_kit.io.cif import read_mol_crystal
-from molcrys_kit.io.extxyz import read_extxyz, write_extxyz
-
-refcodes = ["ABAZIN", "ABAZOT"]
-crystals = [read_mol_crystal(f"cache/{refcode}.cif") for refcode in refcodes]
-
-frame_info = [
-  {
-    "dataset_id": "DeepMolCryst-26",
-    "refcode": refcode,
-    "source_family": "weak_interactions",
-    "motif": "hydrogen_bond",
-    "query_id": "Q26-WI-HYDROGEN-BOND-001",
-    "frame_index": i,
-  }
-  for i, refcode in enumerate(refcodes)
-]
-
-write_extxyz(
-  crystals,
-  "hydrogen_bond.extxyz",
-  info=frame_info,
-)
-
-# Use index=":" for dataset bundles; the default index=None returns only the
-# last frame, following ASE convention.
-bundle = read_extxyz("hydrogen_bond.extxyz", index=":")
-print(len(bundle), bundle[0].metadata["refcode"])
-```
-
-The same file can be consumed directly by ASE-based MLIP tooling:
-
-```python
-import ase.io
-
-frames = ase.io.read("hydrogen_bond.extxyz", index=":", format="extxyz")
-print(frames[0].info["refcode"])
-```
 
 ## Hydrogen Completion
 

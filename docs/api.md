@@ -36,8 +36,8 @@
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
-| Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
 | Collective symmetry path | `build_symmetry_path_plan`, `generate_collective_symmetry_path` | crystal + affine operation | validated rigid path | [Tutorials](tutorials.md) |
+| Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
 
 ## Module Index
 
@@ -72,8 +72,8 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
 - Nanoclusters: `NanoShape`, `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
-- Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 - Symmetry paths: `RigidReachabilityTolerance`, `SymmetryPathConfig`, `AtomCorrespondence`, `SymmetryMoleculeMatch`, `CrystalCorrespondence`, `SymmetryPathProvenance`, `SymmetryPathPlan`, `RigidReachabilityError`, `transform_crystal_fractional`, `build_symmetry_path_plan`, `interpolate_symmetry_path`, `generate_collective_symmetry_path`
+- Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 
 ### `mck.analysis`
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
