@@ -67,6 +67,9 @@ class PuckeringCoordinates:
 
     Notes
     -----
+    Paired phases use ``z_j = q_m sqrt(2/N) cos(2πmj/N + φ_m)``, equivalently
+    ``φ_m = atan2(-Σ_j z_j sin(2πmj/N), Σ_j z_j cos(2πmj/N))``. This explicit
+    sign convention fixes comparisons with other Cremer–Pople implementations.
     For a cyclic shift ``r'_j = r_(j+k)``, ``z'_j = z_(j+k)``, paired-mode
     phases transform as ``φ'_m = wrap(φ_m + 2πmk/N)``, and the even terminal
     mode transforms as ``q'_(N/2) = (-1)^k q_(N/2)``. For a reversal
