@@ -6,6 +6,7 @@ It includes tools for handling disorder information and identifying molecular un
 """
 
 from typing import List, Tuple, Optional, Dict
+import copy
 import itertools
 import warnings
 import re
@@ -22,7 +23,7 @@ from pymatgen.symmetry.groups import SpaceGroup
 from ase import Atoms
 from ase.neighborlist import neighbor_list
 
-from ..structures.molecule import CrystalMolecule
+from ..structures.molecule import CrystalMolecule, _refresh_contiguous_bond_geometry
 from ..structures.crystal import MolecularCrystal
 from ..constants import (
     get_atomic_radius,
@@ -538,6 +539,22 @@ def identify_molecules(
         # Additive provenance: retain the legacy pair-only contract while
         # exposing the signed PBC relation that was already computed by ASE.
         molecule.info["bond_records"] = bond_records
+        global_to_local = {
+            global_index: local_index
+            for local_index, global_index in enumerate(atom_indices)
+        }
+        molecule._graph = nx.relabel_nodes(
+            crystal_graph.subgraph(atom_indices).copy(),
+            global_to_local,
+            copy=True,
+        )
+        local_positions = molecule.get_positions()
+        for local_i, local_j, edge_data in molecule._graph.edges(data=True):
+            left, right = sorted((int(local_i), int(local_j)))
+            vector = local_positions[right] - local_positions[left]
+            edge_data["vector"] = np.asarray(vector, dtype=float).copy()
+            edge_data["distance"] = float(np.linalg.norm(vector))
+            edge_data["image_shift"] = np.zeros(3, dtype=int)
         molecules.append(molecule)
 
     return molecules
@@ -1885,8 +1902,9 @@ def _identify_molecules_asu_first(
             tau = op.translation_vector
             new_frac_coords = (rot @ asu_frac_coords.T).T + tau
 
-            # Wrap to unit cell [0, 1)
-            new_frac_coords = np.mod(new_frac_coords, 1.0)
+            # Place one anchor in the primary cell without independently
+            # wrapping atoms and breaking the molecule's contiguous geometry.
+            new_frac_coords -= np.floor(new_frac_coords[0])
 
             # Duplicate detection (special positions)
             if _is_duplicate(new_frac_coords, asu_mol_idx, all_molecules):
@@ -1925,6 +1943,15 @@ def _identify_molecules_asu_first(
                 new_mol.set_array(KEY_ASYM_ID, np.arange(len(asu_mol), dtype=int))
             new_mol.info["sym_op_index"] = op_idx
             new_mol.info["asu_molecule_index"] = asu_mol_idx
+
+            # Preserve the authoritative ASU topology. Recompute only the
+            # geometry-dependent edge attributes after the symmetry transform.
+            new_mol._graph = copy.deepcopy(asu_mol.get_graph())
+            _refresh_contiguous_bond_geometry(new_mol)
+            new_mol.info["bond_pairs"] = [
+                (int(min(atom_i, atom_j)), int(max(atom_i, atom_j)))
+                for atom_i, atom_j in sorted(new_mol._graph.edges())
+            ]
 
             all_molecules.append(new_mol)
 

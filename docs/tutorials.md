@@ -385,6 +385,58 @@ manip2 = MoleculeManipulator(new_crystal)
 final_crystal = manip2.rotate_molecule(water_indices[0], axis=[0, 0, 1], angle=30.0)
 ```
 
+### Rotate a Fragment About a Bond
+
+For an acyclic bond, MolCrysKit can cut the molecular graph at that bond and
+rotate either connected component as a rigid fragment. The operation returns a
+new object and does not mutate its input:
+
+```python
+from molcrys_kit.operations import (
+  partition_at_bond,
+  rotate_fragment_about_bond,
+  rotate_fragment_in_crystal,
+)
+
+# Inspect the graph partition first. By default, the side containing atom_j
+# is the moving fragment.
+partition = partition_at_bond(molecule, atom_i=3, atom_j=4)
+print(partition.moving_atoms)
+
+rotated_molecule = rotate_fragment_about_bond(
+  molecule,
+  atom_i=3,
+  atom_j=4,
+  angle=60.0,       # degrees; right-hand rule from atom_i to atom_j
+  moving_side="j",
+)
+
+rotated_crystal = rotate_fragment_in_crystal(
+  crystal,
+  molecule_index=0,
+  atom_i=3,
+  atom_j=4,
+  angle=60.0,
+)
+```
+
+The input molecule must have contiguous (unwrapped) coordinates. The operation
+does not wrap the rotated fragment back into the primary cell. `atom_i`,
+`atom_j`, and `moving_atoms` are local indices in the selected molecule. For a
+molecule extracted from a crystal, map them to original crystal/CIF indices via
+`molecule.info["atom_indices"]` (that list is indexed by the local index).
+ASU-first symmetry replicas instead expose source-site identity through the
+per-atom `asym_id` array and `sym_op_index` metadata. After rotation, graph
+`image_shift` values and `bond_records` are regenerated in the contiguous local
+coordinate frame, so every right-image shift is zero and each vector is the
+direct local coordinate difference.
+The operation preserves the molecule's existing chemical graph instead of
+re-inferring bonds from the rotated geometry. A disconnected graph raises
+`BondRotationSelectionError`. A bond belonging to a ring raises
+`RingBondRotationError`: rotating one side independently would break ring
+closure, so cyclic puckering requires a constrained ring-conformation operation
+rather than a bond cut.
+
 ### Reading XYZ Files:
 
 ```python
