@@ -34,6 +34,7 @@
 | Carve topology-preserving voids | `ImplicitShape`, `VoidCarver`, `carve_void` | crystal + implicit shape | periodic remainder, optionally removed cluster | [Tutorials](tutorials.md) |
 | Rotate bond fragments | `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal` | molecule/crystal + bond selection | new molecule/crystal | [Tutorials](tutorials.md) |
 | Edit molecules | `translate_molecule`, `rotate_molecule`, `replace_molecule` | crystal + molecule index | `MolecularCrystal` | [Tutorials](tutorials.md) |
+| Analyze ring puckering | `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems` | molecule + ordered ring / modes / molecule | coordinates / normal displacements / `list[RingSystem]` | source docstring |
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
@@ -84,6 +85,7 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Facets/shape: `BFDHFacetInfo`, `enumerate_bfdh_facets`, `enumerate_low_index_millers`, `classify_shell`, `cshm`, `topology_signature`
 - Chemistry/formula/charge: `ChemicalEnvironment`, `StoichiometryAnalyzer`, `FormulaUnitMember`, `FormulaUnitSelection`, `Fragment`, `parse_moiety_string`, `match_molecule_to_fragment`, `heavy_signature`, `MolChargeResult`, `assign_mol_formal_charges`, `compute_topo_signature`
 - Packing/polyhedra: `find_polyhedra`, `detect_coordination_number`, `detect_prism_vs_antiprism`, `angular_rmsd_vs_ideals`, `compute_angular_signature`, `hull_encloses_center`, `planarity_analysis`, `DEFAULT_POLYHEDRON_SEARCH_CUTOFF`, `DEFAULT_MOLECULAR_SEARCH_CUTOFF`, `DEFAULT_CENTROID_OFFSET_FRAC`
+- Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `RingCycleLimitError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`
 
