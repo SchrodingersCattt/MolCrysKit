@@ -1,5 +1,59 @@
 # MolCrysKit Tutorials
 
+## Atom-Mapped Reactive Initial Paths
+
+`interpolate_reactive_path` moves two or more independently rigid atom groups
+with a shared path parameter. Atoms outside the groups interpolate between
+explicit endpoint coordinates. The result is an initial guess for an external
+NEB calculation, not a minimum-energy path.
+
+```python
+from pathlib import Path
+
+import molcrys_kit as mck
+from ase.io import write
+from molcrys_kit.operations import (
+  BondChange,
+  ReactivePathConfig,
+  RigidGroup,
+  interpolate_reactive_path,
+)
+
+reactant = mck.read_mol_crystal("reactant.cif")
+product = mck.read_mol_crystal("product.cif")
+
+result = interpolate_reactive_path(
+  reactant,
+  product,
+  rigid_groups=[
+    RigidGroup((0, 1, 2, 3), name="donor framework"),
+    RigidGroup((5, 6, 7, 8, 9), name="acceptor"),
+  ],
+  # Atom 4 is outside both groups and follows its endpoint-defined path.
+  bond_changes=[
+    BondChange(0, 4, reactant_bonded=True, product_bonded=False),
+    BondChange(4, 5, reactant_bonded=False, product_bonded=True),
+  ],
+  config=ReactivePathConfig(n_images=11),
+)
+
+for image_index, atoms in enumerate(result.images):
+  image_dir = Path("neb") / f"{image_index:02d}"
+  image_dir.mkdir(parents=True, exist_ok=True)
+  write(image_dir / "POSCAR", atoms, format="vasp", direct=True, sort=False)
+```
+
+Indices refer to the global atom order returned by `reactant.to_ase()`. If the
+product atom order differs, pass `product_index_by_reactant` explicitly. Under
+periodic boundary conditions the final coordinates may differ from the input
+product by recorded integer lattice translations so that the path remains
+continuous.
+
+The returned images are flat ASE `Atoms` frames. A reactive path can merge or
+split molecular components, so it does not claim that the reactant's
+`molecule_index` partition remains chemically valid. That input partition is
+retained only as the `reactant_molecule_index` provenance array.
+
 ## Extended XYZ Dataset Bundles
 
 MolCrysKit can write molecular-crystal datasets as multi-frame ASE Extended XYZ
