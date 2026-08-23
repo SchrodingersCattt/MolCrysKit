@@ -4,9 +4,10 @@ Configuration module for MolCrysKit.
 This module provides access to configuration parameters and constants used throughout the package.
 """
 
-# Standard keys for disorder metadata
+# Cartesian distance in Å below which a bond-rotation axis is degenerate.
 BOND_ROTATION_AXIS_TOLERANCE = 1e-12
 
+# Standard keys for disorder metadata
 KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer
 KEY_ASSEMBLY = "assembly"                       # Default: "" empty string
