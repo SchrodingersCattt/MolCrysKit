@@ -37,6 +37,11 @@ from .interactions import (
     find_pi_stacks,
     get_bonding_threshold,
 )
+from .modeling_readiness import (
+    ModelingReadinessReport,
+    UnresolvedDisorderWarning,
+    inspect_modeling_readiness,
+)
 from .packing_shell import (
     DEFAULT_CENTROID_OFFSET_FRAC,
     DEFAULT_MOLECULAR_SEARCH_CUTOFF,
@@ -102,6 +107,7 @@ __all__ = [
     "LocalGeometry",
     "LocalGeometryCache",
     "MolChargeResult",
+    "ModelingReadinessReport",
     "FormulaUnitMember",
     "FormulaUnitSelection",
     "PiStacking",
@@ -110,6 +116,7 @@ __all__ = [
     "RingRef",
     "SanityReport",
     "StoichiometryAnalyzer",
+    "UnresolvedDisorderWarning",
     "angular_rmsd_vs_ideals",
     "assign_mol_formal_charges",
     "build_crystal_atom_offsets",
@@ -142,6 +149,7 @@ __all__ = [
     "get_bonding_threshold",
     "heavy_signature",
     "hull_encloses_center",
+    "inspect_modeling_readiness",
     "match_molecule_to_fragment",
     "min_distance_to_boundary",
     "parse_moiety_string",

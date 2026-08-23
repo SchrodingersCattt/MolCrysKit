@@ -27,7 +27,7 @@ from .implicit_shape import (
     merge_stable_topk,
     resolve_shape_center,
 )
-from .modeling_readiness import (
+from ..analysis.modeling_readiness import (
     require_complete_topology_units,
     warn_if_unresolved_disorder,
 )

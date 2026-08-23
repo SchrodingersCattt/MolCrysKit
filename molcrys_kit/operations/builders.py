@@ -8,7 +8,7 @@ import copy
 from typing import Tuple
 
 from ..structures.crystal import MolecularCrystal
-from .modeling_readiness import (
+from ..analysis.modeling_readiness import (
     require_complete_topology_units,
     warn_if_unresolved_disorder,
 )

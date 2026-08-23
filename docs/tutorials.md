@@ -533,7 +533,8 @@ channel = ImplicitShape.through_cylinder(
 porous = carve_void(ordered_supercell, channel, periodic_images=True)
 ```
 
-Run `inspect_modeling_readiness(crystal)` before a large build. Non-unit
+Import `inspect_modeling_readiness` from `molcrys_kit.analysis` and run it
+before a large build. Non-unit
 occupancies and active disorder metadata produce `UnresolvedDisorderWarning`
 but do not silently resolve the structure. A molecule with
 `unwrap_completed=False` is rejected because its topology unit is incomplete.

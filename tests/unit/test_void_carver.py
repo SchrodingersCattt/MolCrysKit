@@ -10,11 +10,11 @@ import numpy as np
 import pytest
 from ase import Atoms
 
+from molcrys_kit.analysis import UnresolvedDisorderWarning
 from molcrys_kit.io import read_extxyz, read_mol_crystal, write_extxyz
 from molcrys_kit.operations import (
     ImplicitShape,
     NanoShape,
-    UnresolvedDisorderWarning,
     VacancyGenerator,
     VoidCarver,
     carve_void,
