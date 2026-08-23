@@ -162,6 +162,26 @@ def test_bfdh_shape_plane_distances_follow_inverse_d_hkl() -> None:
     assert np.isclose(distances[(0, 1, 0)] / distances[(0, 0, 1)], 6.0 / 5.0)
 
 
+def test_bfdh_shape_normals_follow_sheared_reciprocal_lattice() -> None:
+    lattice = Lattice.from_parameters(4.0, 5.0, 6.0, 72.0, 81.0, 76.0)
+    millers = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
+    shape = ImplicitShape.bfdh(
+        lattice,
+        30.0,
+        miller_indices=millers,
+        extinction_filter=False,
+    )
+    normals = {
+        tuple(plane["miller_index"]): np.asarray(plane["normal_cartesian"])
+        for plane in shape.parameters["planes"]
+    }
+
+    reciprocal = lattice.reciprocal_lattice_crystallographic
+    for hkl in millers:
+        reciprocal_vector = np.asarray(reciprocal.get_cartesian_coords(hkl))
+        assert np.allclose(normals[hkl], reciprocal_vector / np.linalg.norm(reciprocal_vector))
+
+
 def test_bfdh_nanocluster_selects_representatives_inside_shape() -> None:
     crystal = _single_atom_crystal(5.0 * np.eye(3))
     shape = ImplicitShape.bfdh(

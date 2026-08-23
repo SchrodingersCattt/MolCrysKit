@@ -635,6 +635,9 @@ particle = carve_nanocluster(ordered, shape, vacuum=10.0)
 Without explicit symmetry, `MolecularCrystal` and lattice inputs use
 lattice-metric facet families and cannot apply space-group translational
 absences. Use `miller_indices=[...]` to replace automatic facet enumeration.
+Explicit families remain subject to systematic-absence filtering when parent
+symmetry is supplied. Set `extinction_filter=False` only when intentionally
+retaining an extinct family.
 The factory rejects facet sets that do not enclose a finite three-dimensional
 shape. This construction is the kinetic BFDH approximation, not a Wulff shape
 from surface energies.

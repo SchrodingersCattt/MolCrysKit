@@ -201,6 +201,8 @@ class ImplicitShape:
         coordinates have been disorder-resolved into a lower-symmetry model.
         """
 
+        # Reuse the canonical facet ranking; this factory only converts the
+        # ranked crystallographic planes into bounded implicit geometry.
         from ..analysis.bfdh import enumerate_bfdh_facets
 
         max_dimension_value = float(

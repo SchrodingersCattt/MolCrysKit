@@ -447,6 +447,12 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
     help="Explicit BFDH facet family; repeatable and overrides --max-index.",
 )
 @click.option(
+    "--extinction-filter/--no-extinction-filter",
+    default=True,
+    show_default=True,
+    help="Apply parent-space-group systematic-absence filtering to BFDH facets.",
+)
+@click.option(
     "--topology-unit",
     type=click.Choice(["molecule", "unit_cell"]),
     default="molecule",
@@ -488,6 +494,7 @@ def nanocluster(
     max_dimension: float | None,
     max_index: int,
     miller_indices: tuple[tuple[int, int, int], ...],
+    extinction_filter: bool,
     topology_unit: str,
     target_units: int | None,
     center: tuple[float, float, float] | None,
@@ -517,6 +524,7 @@ def nanocluster(
                 max_index=max_index,
                 miller_indices=miller_indices or None,
                 symmetry=parent_symmetry,
+                extinction_filter=extinction_filter,
             )
         else:
             shape = _implicit_shape_from_cli(

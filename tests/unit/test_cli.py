@@ -343,8 +343,8 @@ def test_operate_nanocluster_bfdh_explicit_millers(tmp_path: Path) -> None:
     input_path.write_text(
         """data_p1
 _cell_length_a 5
-_cell_length_b 5
-_cell_length_c 5
+_cell_length_b 6
+_cell_length_c 7
 _cell_angle_alpha 90
 _cell_angle_beta 90
 _cell_angle_gamma 90
@@ -405,6 +405,61 @@ He1 He 0.5 0.5 0.5
     assert parameters["miller_indices"] == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     assert parameters["symmetry"]["kind"] == "explicit_parent"
     assert parameters["symmetry"]["space_group_number"] == 1
+    distances = {
+        tuple(plane["miller_index"]): plane["distance_A"]
+        for plane in parameters["planes"]
+    }
+    assert distances[(1, 0, 0)] / distances[(0, 1, 0)] == pytest.approx(6.0 / 5.0)
+
+
+def test_operate_nanocluster_bfdh_can_disable_parent_extinctions(
+    tmp_path: Path,
+) -> None:
+    common_args = [
+        "operate",
+        "nanocluster",
+        str(DAP4),
+        "--shape",
+        "bfdh",
+        "--max-dimension",
+        "60",
+        "--max-index",
+        "0",
+        "--miller",
+        "1",
+        "0",
+        "0",
+        "--topology-unit",
+        "unit_cell",
+        "--target-units",
+        "1",
+    ]
+    filtered = CliRunner().invoke(
+        main,
+        [*common_args, "-o", str(tmp_path / "filtered.extxyz")],
+    )
+
+    assert filtered.exit_code != 0
+    assert "BFDH enumeration produced no allowed facets" in filtered.output
+
+    sidecar = tmp_path / "unfiltered.json"
+    unfiltered = CliRunner().invoke(
+        main,
+        [
+            *common_args,
+            "-o",
+            str(tmp_path / "unfiltered.extxyz"),
+            "--no-extinction-filter",
+            "--json-sidecar",
+            str(sidecar),
+        ],
+    )
+
+    assert unfiltered.exit_code == 0, unfiltered.output
+    parameters = json.loads(sidecar.read_text(encoding="utf-8"))["shape_parameters"]
+    assert parameters["extinction_filter"] is False
+    assert parameters["miller_indices"] == [[1, 0, 0]]
+    assert len(parameters["planes"]) == 6
 
 
 @pytest.mark.parametrize(

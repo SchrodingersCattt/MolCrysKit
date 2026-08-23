@@ -448,8 +448,10 @@ def enumerate_bfdh_facets(
         Maximum absolute Miller index for generated candidates when
         ``miller_indices`` is not supplied.  Defaults to 2.
     miller_indices
-        Optional explicit Miller indices.  When supplied, these are ranked
-        directly and ``max_index`` is ignored.
+        Optional explicit Miller indices.  When supplied, these replace the
+        automatically generated candidates and ``max_index`` is ignored.
+        They remain subject to ``extinction_filter`` when symmetry operations
+        are available.
     top_n
         Optional number of top-ranked facets to return.
     symprec
@@ -499,7 +501,8 @@ def enumerate_bfdh_facets(
     )
     if (
         extinction_filter
-        and (structure is not None or symmetry is not None)
+        and structure is not None
+        and symmetry is None
         and miller_indices is None
     ):
         # Donnay-Harker filtering needs signed low-index candidates before
