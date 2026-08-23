@@ -85,7 +85,11 @@ class FractionalAffineOperation:
     def compose(
         self, other: "FractionalAffineOperation"
     ) -> "FractionalAffineOperation":
-        """Return ``self ∘ other`` (apply ``other``, then ``self``)."""
+        """Return ``self ∘ other`` (apply ``other``, then ``self``).
+
+        ``rotation`` and ``translation`` store the column-affine map
+        ``f' = W f + w``; :meth:`apply` accepts row arrays via ``W.T``.
+        """
         rotation = self.rotation @ other.rotation
         translation = self.rotation @ other.translation + self.translation
         return FractionalAffineOperation(

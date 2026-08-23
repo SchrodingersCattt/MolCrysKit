@@ -22,6 +22,8 @@ RIGID_MAX_BOND_RELATIVE_ERROR = 2.0e-2
 MINIMUM_NONTRIVIAL_PATH_DISPLACEMENT_ANGSTROM = 1.0e-4
 
 # Global assignment.  The sentinel must dominate every finite physical cost.
+# Shape agreement leads the assignment: 1e-3 Å RMSD costs as much as 1 Å COM
+# displacement, so COM distance primarily resolves near-equal rigid fits.
 ASSIGNMENT_INFEASIBLE_COST = 1.0e12
 ASSIGNMENT_ATOM_RMSD_WEIGHT = 1.0e3
 ASSIGNMENT_COM_DISTANCE_WEIGHT = 1.0
