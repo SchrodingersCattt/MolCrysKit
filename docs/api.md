@@ -75,7 +75,6 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 Compatibility note: the former **create_defect_structure()** placeholder has been
 removed because it returned its input unchanged. Use `generate_vacancy` for a
 spatial molecular vacancy or `carve_void` for a shaped, stoichiometric void.
-See the [changelog](../CHANGELOG.md) for the upgrade note.
 
 ### `mck.analysis`
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
