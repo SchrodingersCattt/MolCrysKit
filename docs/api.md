@@ -36,7 +36,7 @@
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
 | Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
-| Reactive initial path | `interpolate_reactive_path` | atom-mapped endpoints + rigid groups | path/result metadata | [Tutorials](tutorials.md) |
+| Reactive initial path | `interpolate_reactive_path` | atom-mapped endpoints + rigid groups | flat ASE frames + result metadata | [Tutorials](tutorials.md) |
 
 ## Module Index
 

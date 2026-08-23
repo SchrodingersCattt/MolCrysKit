@@ -38,7 +38,11 @@ def _crystal(positions, symbols=SYMBOLS, pbc=(True, True, True)):
 def _rotate(points, angle_deg, translation):
     angle = np.deg2rad(angle_deg)
     rotation = np.array(
-        [[np.cos(angle), -np.sin(angle), 0.0], [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]]
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
     )
     center = np.mean(points, axis=0)
     return (points - center) @ rotation.T + center + np.asarray(translation)
@@ -66,18 +70,18 @@ def test_two_rigid_groups_and_free_atom_reach_exact_endpoints():
     )
 
     assert len(result.images) == 5
-    np.testing.assert_allclose(result.images[0].to_ase().positions, reactant.to_ase().positions)
+    np.testing.assert_allclose(result.images[0].positions, reactant.to_ase().positions)
     shifts = np.asarray(result.product_image_shifts) @ CELL
     expected_end = product.to_ase().positions + shifts
-    np.testing.assert_allclose(result.images[-1].to_ase().positions, expected_end, atol=1e-12)
+    np.testing.assert_allclose(result.images[-1].positions, expected_end, atol=1e-12)
 
     for group in ((0, 1, 2), (4, 5, 6)):
         reference = reactant.to_ase().get_all_distances(mic=False)[np.ix_(group, group)]
         for frame in result.images:
-            current = frame.to_ase().get_all_distances(mic=False)[np.ix_(group, group)]
+            current = frame.get_all_distances(mic=False)[np.ix_(group, group)]
             np.testing.assert_allclose(current, reference, atol=1e-10)
 
-    midpoint = result.images[2].to_ase().positions[3]
+    midpoint = result.images[2].positions[3]
     np.testing.assert_allclose(
         midpoint,
         0.5 * (reactant.to_ase().positions[3] + expected_end[3]),
@@ -90,7 +94,9 @@ def test_product_permutation_preserves_reactant_order():
     product_atoms = product.to_ase()
     permutation = np.array([4, 5, 6, 3, 0, 1, 2])
     permuted = MolecularCrystal.from_ase_atoms(product_atoms[permutation])
-    inverse = tuple(int(np.where(permutation == index)[0][0]) for index in range(len(permutation)))
+    inverse = tuple(
+        int(np.where(permutation == index)[0][0]) for index in range(len(permutation))
+    )
 
     result = interpolate_reactive_path(
         reactant,
@@ -99,8 +105,8 @@ def test_product_permutation_preserves_reactant_order():
         product_index_by_reactant=inverse,
         config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
     )
-    assert result.images[-1].to_ase().get_chemical_symbols() == SYMBOLS
-    np.testing.assert_array_equal(result.images[-1].to_ase().arrays["atom_id"], np.arange(7))
+    assert result.images[-1].get_chemical_symbols() == SYMBOLS
+    np.testing.assert_array_equal(result.images[-1].arrays["atom_id"], np.arange(7))
 
 
 def test_free_atom_uses_continuous_periodic_image():
@@ -114,7 +120,7 @@ def test_free_atom_uses_continuous_periodic_image():
         rigid_groups=_groups(),
         config=ReactivePathConfig(n_images=5, validate_bond_changes=False),
     )
-    x = np.array([frame.to_ase().positions[3, 0] for frame in result.images])
+    x = np.array([frame.positions[3, 0] for frame in result.images])
     np.testing.assert_allclose(x, [9.8, 9.9, 10.0, 10.1, 10.2], atol=1e-12)
     assert result.product_image_shifts[3] == (1, 0, 0)
 
@@ -173,7 +179,7 @@ def test_invalid_rigid_groups_are_rejected(groups, message):
         )
 
 
-def test_inputs_and_atom_partition_are_preserved():
+def test_inputs_and_reactant_partition_provenance_are_preserved():
     reactant, product = _endpoint_pair()
     for crystal in (reactant, product):
         atoms = crystal.to_ase()
@@ -196,18 +202,24 @@ def test_inputs_and_atom_partition_are_preserved():
     np.testing.assert_allclose(reactant.to_ase().positions, positions_before, atol=0.0)
     expected_partition = reactant.to_ase().arrays["molecule_index"]
     for frame in result.images:
-        atoms = frame.to_ase()
-        assert atoms.get_chemical_symbols() == SYMBOLS
-        np.testing.assert_array_equal(atoms.arrays["molecule_index"], expected_partition)
-        np.testing.assert_array_equal(atoms.arrays["atom_id"], np.arange(7))
-        assert not {"frac_x", "frac_y", "frac_z"}.intersection(atoms.arrays)
-        assert frame.metadata["path_kind"] == "reactive"
+        assert frame.get_chemical_symbols() == SYMBOLS
+        assert "molecule_index" not in frame.arrays
+        np.testing.assert_array_equal(
+            frame.arrays["reactant_molecule_index"], expected_partition
+        )
+        np.testing.assert_array_equal(frame.arrays["atom_id"], np.arange(7))
+        assert not {"frac_x", "frac_y", "frac_z"}.intersection(frame.arrays)
+        assert frame.info["path_kind"] == "reactive"
 
 
 def test_endpoint_exclusion_uses_existing_frame_count_semantics():
     reactant, product = _endpoint_pair()
-    config = ReactivePathConfig(n_images=4, include_endpoints=False, validate_bond_changes=False)
-    result = interpolate_reactive_path(reactant, product, rigid_groups=_groups(), config=config)
+    config = ReactivePathConfig(
+        n_images=4, include_endpoints=False, validate_bond_changes=False
+    )
+    result = interpolate_reactive_path(
+        reactant, product, rigid_groups=_groups(), config=config
+    )
     assert len(result.images) == 4
-    lambdas = [frame.metadata["path_lambda"] for frame in result.images]
+    lambdas = [frame.info["path_lambda"] for frame in result.images]
     np.testing.assert_allclose(lambdas, [0.2, 0.4, 0.6, 0.8])
