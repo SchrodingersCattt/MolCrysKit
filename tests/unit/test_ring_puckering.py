@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import networkx as nx
 import pytest
 from ase import Atoms
 
+from molcrys_kit.io import read_mol_crystal
 from molcrys_kit.operations.ring_conformation import (
     DegenerateRingGeometryError,
     InvalidRingOrderError,
@@ -17,6 +20,11 @@ from molcrys_kit.operations.ring_conformation import (
     reconstruct_z_from_modes,
 )
 from molcrys_kit.structures.molecule import CrystalMolecule
+
+
+pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
+
+CIF_DATA_DIR = Path(__file__).parents[1] / "data" / "cif"
 
 
 def _regular_polygon_molecule(n: int, radius: float = None) -> CrystalMolecule:
@@ -527,6 +535,29 @@ class TestFindRingSystems:
         )
         systems = find_ring_systems(mol)
         assert len(systems) == 0
+
+    @pytest.mark.parametrize(
+        "filename, expected_atoms, expected_molecules, expected_rings",
+        [
+            ("Acetaminophen_HXACAN.cif", 160, 8, [(6, "simple")]),
+            ("ISATIN.cif", 44, 4, [(5, "fused"), (6, "fused")]),
+        ],
+    )
+    def test_real_cif_ring_topology(
+        self,
+        filename,
+        expected_atoms,
+        expected_molecules,
+        expected_rings,
+    ):
+        crystal = read_mol_crystal(str(CIF_DATA_DIR / filename))
+        assert crystal.get_total_nodes() == expected_atoms
+        assert len(crystal.molecules) == expected_molecules
+        for molecule in crystal.molecules:
+            systems = find_ring_systems(molecule, max_ring_size=8)
+            assert [
+                (system.ring_size, system.classification) for system in systems
+            ] == expected_rings
 
     def test_fused_ring(self):
         graph = nx.Graph()
