@@ -5,6 +5,8 @@ This module provides access to configuration parameters and constants used throu
 """
 
 # Standard keys for disorder metadata
+BOND_ROTATION_AXIS_TOLERANCE = 1e-12
+
 KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer
 KEY_ASSEMBLY = "assembly"                       # Default: "" empty string
@@ -18,8 +20,6 @@ KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
 KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (n, 3)
 KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
 KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
-
-BOND_ROTATION_AXIS_TOLERANCE = 1e-12
 
 # Transition metals set
 TRANSITION_METALS = {

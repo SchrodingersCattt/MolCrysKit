@@ -12,8 +12,6 @@ from .perturbation import (
     apply_random_rotation,
 )
 
-from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
-
 from .bond_rotation import (
     BondNotFoundError,
     BondPartition,
@@ -24,6 +22,8 @@ from .bond_rotation import (
     rotate_fragment_about_bond,
     rotate_fragment_in_crystal,
 )
+
+from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
 
 from .builders import (
     create_supercell,
@@ -84,8 +84,6 @@ __all__ = [
     "apply_gaussian_displacement_crystal",
     "apply_directional_displacement",
     "apply_random_rotation",
-    "rotate_molecule_at_center",
-    "rotate_molecule_at_com",
     "BondNotFoundError",
     "BondPartition",
     "BondRotationError",
@@ -94,6 +92,8 @@ __all__ = [
     "partition_at_bond",
     "rotate_fragment_about_bond",
     "rotate_fragment_in_crystal",
+    "rotate_molecule_at_center",
+    "rotate_molecule_at_com",
     "create_supercell",
     "create_defect_structure",
     "generate_topological_slab",
