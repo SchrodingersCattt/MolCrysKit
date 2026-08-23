@@ -476,7 +476,7 @@ When replacing a molecule, the system automatically checks whether the replaceme
 | | `max_rotation_attempts` | `100` | Max rotation tries for clash resolution |
 | | `align_method` | `"com"` | Alignment: `"com"` or `"centroid"` |
 
-## Topology-Preserving Nanocluster Carving
+## Shared Implicit Shapes and Topology-Preserving Nanoclusters
 
 `NanoClusterCarver` creates finite nanoparticle models without re-identifying
 molecules, cutting atoms, rebuilding bonds, or adding caps. The output is a
@@ -488,12 +488,12 @@ also supplies a finite Cartesian search box relative to its center. Four common
 presets are included:
 
 ```python
-from molcrys_kit.operations import NanoShape
+from molcrys_kit.operations import ImplicitShape
 
-sphere = NanoShape.sphere(radius=30.0)
-box = NanoShape.box((20.0, 80.0, 120.0))       # full side lengths
-ellipsoid = NanoShape.ellipsoid((20.0, 35.0, 60.0))  # semi-axes
-cylinder = NanoShape.cylinder(radius=20.0, height=100.0, axis="z")
+sphere = ImplicitShape.sphere(radius=30.0)
+box = ImplicitShape.box((20.0, 80.0, 120.0))       # full side lengths
+ellipsoid = ImplicitShape.ellipsoid((20.0, 35.0, 60.0))  # semi-axes
+cylinder = ImplicitShape.cylinder(radius=20.0, height=100.0, axis=(1, 1, 0.5))
 ```
 
 Arbitrary 3-D shapes use the same interface. The function must accept NumPy
@@ -502,14 +502,14 @@ arrays and return one finite real value per point:
 ```python
 import numpy as np
 
-from molcrys_kit.operations import NanoShape, carve_nanocluster
+from molcrys_kit.operations import ImplicitShape, carve_nanocluster
 
 
 def superellipsoid(x, y, z):
     return (np.abs(x) / 40) ** 4 + (np.abs(y) / 25) ** 4 + (np.abs(z) / 15) ** 4 - 1
 
 
-shape = NanoShape(
+shape = ImplicitShape(
     superellipsoid,
     bounds=((-40, 40), (-25, 25), (-15, 15)),
     name="superellipsoid",
@@ -517,15 +517,17 @@ shape = NanoShape(
 particle = carve_nanocluster(crystal, shape, vacuum=10.0)
 ```
 
-The default topology unit is a complete molecule or ion, represented by its
+`NanoShape` remains an exact compatibility alias of `ImplicitShape`. The
+default topology unit is a complete molecule or ion, represented by its
 geometric centroid. Set `center_kind="com"` to use center of mass. For mixed
 salts, molecule mode preserves each component's graph but does not guarantee
 charge neutrality or the source stoichiometric ratio. Use complete source-cell
 packets when exact composition is required. The shape center defaults to the
-source cell center and can be overridden with `center=(x, y, z)`:
+source cell center and can be overridden with Cartesian `center=(x, y, z)` or
+fractional `center_frac=(u, v, w)`:
 
 ```python
-needle = NanoShape.box((30.0, 30.0, 600.0))
+needle = ImplicitShape.box((30.0, 30.0, 600.0))
 particle = carve_nanocluster(
     crystal,
     needle,
@@ -543,6 +545,53 @@ the field inequality. With `target_units=N`, it selects the smallest stable
 shaped models can contain exactly the same number of complete topology units.
 Candidates are evaluated in bounded vectorized batches and only selected units
 are copied, so large search regions do not instantiate a rejected supercell.
+
+## Topology-Preserving Void Carving
+
+`VoidCarver` uses the same vectorized shape contract but applies it to the
+finite molecule/ion partition already present in a periodic crystal. It keeps
+the original lattice and PBC and removes selected units whole:
+
+```python
+from molcrys_kit.operations import ImplicitShape, carve_void
+
+shape = ImplicitShape.sphere(18.0)
+remaining, removed = carve_void(
+    ordered_supercell,
+    shape,
+    center_frac=(0.5, 0.5, 0.5),
+    hit_mode="centroid",
+    target_units=48,
+    target_spec={"C6H14N2_1": 1, "ClO4_1": 3, "H4N_1": 1},
+    species_charge_map={"C6H14N2_1": 2, "ClO4_1": -1, "H4N_1": 1},
+    return_removed_cluster=True,
+)
+assert remaining.metadata["void"]["removed_atom_count"] == 2016
+assert remaining.metadata["void"]["removed_net_charge_e"] == 0.0
+```
+
+For fixed geometry, `boundary_policy="inside"` rounds every raw species count
+down to the largest common stoichiometric-unit count. `"cover"` rounds up and
+supplements deficient species with outside candidates having the smallest
+positive implicit-field values. For a periodically continuous pore, define one
+primitive lattice period and let periodic shape images connect it:
+
+```python
+channel = ImplicitShape.through_cylinder(
+    radius=10.0,
+    lattice=ordered_supercell.lattice,
+    direction_hkl=(1, 1, 0),
+)
+porous = carve_void(ordered_supercell, channel, periodic_images=True)
+```
+
+Large-model operations warn when non-unit occupancies or active disorder
+metadata remain, but do not silently resolve the structure. Their output
+statistics record the input counts under `input_disorder`. Nanocluster, void,
+and vacancy operations reject a molecule with `unwrap_completed=False` because
+its topology unit is incomplete; ordinary supercell replication remains valid.
+Neither nanocluster nor void carving is a 3-D framework/MOF cutting tool, and
+neither automatically caps severed network bonds.
 
 ## Carving Finite Clusters for QM
 

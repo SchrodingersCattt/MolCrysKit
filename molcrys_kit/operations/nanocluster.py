@@ -20,128 +20,80 @@ import copy
 import itertools
 import math
 import warnings
-from dataclasses import dataclass
-from typing import Callable, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
-from ..constants.config import KEY_IMAGE_SHIFT
+from ..analysis.disorder import UnresolvedDisorderWarning
+from ..constants.config import (
+    KEY_ASSEMBLY,
+    KEY_DISORDER_GROUP,
+    KEY_IMAGE_SHIFT,
+    KEY_OCCUPANCY,
+)
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
+from .implicit_shape import (
+    DEFAULT_SHAPE_BATCH_SIZE,
+    ImplicitShape,
+    NanoShape,
+    evaluate_shape_field,
+    merge_stable_topk,
+    resolve_shape_center,
+)
 
 
-ShapeField = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
-DEFAULT_NANOCLUSTER_BATCH_SIZE = 100_000
+DEFAULT_NANOCLUSTER_BATCH_SIZE = DEFAULT_SHAPE_BATCH_SIZE
 
 
-def _positive_values(values: Sequence[float], name: str, length: int) -> np.ndarray:
-    array = np.asarray(values, dtype=float)
-    if array.shape != (length,) or not np.isfinite(array).all() or np.any(array <= 0):
-        raise ValueError(f"{name} must contain {length} positive finite values.")
-    return array
+def _warn_if_unresolved_disorder(
+    crystal: MolecularCrystal,
+) -> dict[str, bool | int]:
+    nonunit_occupancies = 0
+    active_groups = 0
+    active_assemblies = 0
+    for molecule in crystal.molecules:
+        occupancies = np.asarray(molecule.arrays.get(KEY_OCCUPANCY, []), dtype=float)
+        nonunit_occupancies += int(
+            np.count_nonzero(~np.isclose(occupancies, 1.0, rtol=0.0, atol=1e-8))
+        )
+        active_groups += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_DISORDER_GROUP, [])
+        )
+        active_assemblies += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_ASSEMBLY, [])
+        )
+    stats = {
+        "all_atom_ordered": not bool(
+            nonunit_occupancies or active_groups or active_assemblies
+        ),
+        "nonunit_occupancy_count": nonunit_occupancies,
+        "active_disorder_group_count": active_groups,
+        "active_disorder_assembly_count": active_assemblies,
+    }
+    if not stats["all_atom_ordered"]:
+        warnings.warn(
+            "NanoClusterCarver is continuing with unresolved disorder; resolve an "
+            "ordered replica before production MD.",
+            UnresolvedDisorderWarning,
+            stacklevel=2,
+        )
+    return stats
 
 
-@dataclass(frozen=True)
-class NanoShape:
-    """A bounded vectorized implicit shape.
-
-    Parameters
-    ----------
-    field
-        Callable ``field(x, y, z)`` accepting equally shaped NumPy arrays and
-        returning one finite real value per point.  Values ``<= 0`` are inside.
-    bounds
-        Cartesian ``((xmin, xmax), (ymin, ymax), (zmin, zmax))`` search bounds,
-        in Angstrom, relative to the shape center.
-    name
-        Human-readable identifier stored in output metadata.
-    """
-
-    field: ShapeField
-    bounds: np.ndarray
-    name: str = "custom"
-
-    def __post_init__(self) -> None:
-        if not callable(self.field):
-            raise TypeError("field must be callable.")
-        bounds = np.asarray(self.bounds, dtype=float)
-        if bounds.shape != (3, 2):
-            raise ValueError("bounds must have shape (3, 2).")
-        if not np.isfinite(bounds).all():
-            raise ValueError("bounds must contain only finite values.")
-        if np.any(bounds[:, 0] >= bounds[:, 1]):
-            raise ValueError("Each bounds lower limit must be smaller than its upper limit.")
-        name = str(self.name).strip()
-        if not name:
-            raise ValueError("name must not be empty.")
-        stored_bounds = bounds.copy()
-        stored_bounds.setflags(write=False)
-        object.__setattr__(self, "bounds", stored_bounds)
-        object.__setattr__(self, "name", name)
-
-    @classmethod
-    def sphere(cls, radius: float) -> "NanoShape":
-        """Return a sphere of ``radius`` Angstrom."""
-        radius_value = float(_positive_values([radius], "radius", 1)[0])
-        bounds = np.repeat([[-radius_value, radius_value]], 3, axis=0)
-
-        def field(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
-            return (x * x + y * y + z * z) / (radius_value * radius_value) - 1.0
-
-        return cls(field=field, bounds=bounds, name="sphere")
-
-    @classmethod
-    def box(cls, size: Sequence[float]) -> "NanoShape":
-        """Return an axis-aligned box with full side lengths ``size``."""
-        half = _positive_values(size, "size", 3) / 2.0
-        bounds = np.column_stack((-half, half))
-
-        def field(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
-            return np.maximum.reduce(
-                (np.abs(x) / half[0], np.abs(y) / half[1], np.abs(z) / half[2])
-            ) - 1.0
-
-        return cls(field=field, bounds=bounds, name="box")
-
-    @classmethod
-    def ellipsoid(cls, semi_axes: Sequence[float]) -> "NanoShape":
-        """Return an axis-aligned ellipsoid with the given semi-axes."""
-        axes = _positive_values(semi_axes, "semi_axes", 3)
-        bounds = np.column_stack((-axes, axes))
-
-        def field(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
-            return (x / axes[0]) ** 2 + (y / axes[1]) ** 2 + (z / axes[2]) ** 2 - 1.0
-
-        return cls(field=field, bounds=bounds, name="ellipsoid")
-
-    @classmethod
-    def cylinder(
-        cls,
-        radius: float,
-        height: float,
-        axis: str = "z",
-    ) -> "NanoShape":
-        """Return a finite cylinder aligned with Cartesian ``axis``."""
-        radius_value = float(_positive_values([radius], "radius", 1)[0])
-        half_height = float(_positive_values([height], "height", 1)[0]) / 2.0
-        axis_name = str(axis).lower()
-        if axis_name not in {"x", "y", "z"}:
-            raise ValueError("axis must be 'x', 'y', or 'z'.")
-        axial_index = {"x": 0, "y": 1, "z": 2}[axis_name]
-        radial_indices = tuple(index for index in range(3) if index != axial_index)
-        half_sizes = np.full(3, radius_value, dtype=float)
-        half_sizes[axial_index] = half_height
-        bounds = np.column_stack((-half_sizes, half_sizes))
-
-        def field(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
-            coords = (x, y, z)
-            radial = (
-                coords[radial_indices[0]] ** 2 + coords[radial_indices[1]] ** 2
-            ) / (radius_value * radius_value) - 1.0
-            axial = np.abs(coords[axial_index]) / half_height - 1.0
-            return np.maximum(radial, axial)
-
-        return cls(field=field, bounds=bounds, name=f"cylinder_{axis_name}")
+def _require_complete_topology_units(crystal: MolecularCrystal) -> None:
+    incomplete_count = sum(
+        molecule.info.get("unwrap_completed") is False
+        for molecule in crystal.molecules
+    )
+    if incomplete_count:
+        raise ValueError(
+            "NanoClusterCarver requires finite, completely unwrapped molecules or "
+            f"ions; {incomplete_count} topology unit(s) are incomplete. Periodic 3-D "
+            "frameworks/MOFs are not supported and are not automatically cut or capped."
+        )
 
 
 class NanoClusterCarver:
@@ -178,13 +130,16 @@ class NanoClusterCarver:
         self._lattice = lattice.copy()
         self._inverse_lattice = np.linalg.inv(lattice)
         self._source_molecule_indices = crystal._molecule_global_indices()
+        self._input_disorder = _warn_if_unresolved_disorder(crystal)
+        _require_complete_topology_units(crystal)
 
     def carve(
         self,
-        shape: NanoShape,
+        shape: ImplicitShape,
         *,
         topology_unit: str = "molecule",
         center: Optional[Sequence[float]] = None,
+        center_frac: Optional[Sequence[float]] = None,
         center_kind: str = "centroid",
         target_units: Optional[int] = None,
         vacuum: float = 0.0,
@@ -196,8 +151,8 @@ class NanoClusterCarver:
         smallest field values inside ``shape.bounds`` are selected, with the
         stable candidate id breaking ties.
         """
-        if not isinstance(shape, NanoShape):
-            raise TypeError("shape must be a NanoShape.")
+        if not isinstance(shape, ImplicitShape):
+            raise TypeError("shape must be an ImplicitShape.")
         if topology_unit not in {"molecule", "unit_cell"}:
             raise ValueError("topology_unit must be 'molecule' or 'unit_cell'.")
         if center_kind not in {"centroid", "com"}:
@@ -214,12 +169,9 @@ class NanoClusterCarver:
         if not np.isfinite(vacuum_value) or vacuum_value < 0:
             raise ValueError("vacuum must be a non-negative finite value.")
 
-        if center is None:
-            shape_center = 0.5 * np.sum(self._lattice, axis=0)
-        else:
-            shape_center = np.asarray(center, dtype=float)
-            if shape_center.shape != (3,) or not np.isfinite(shape_center).all():
-                raise ValueError("center must contain three finite Cartesian values.")
+        shape_center, shape_center_frac = resolve_shape_center(
+            self._lattice, center, center_frac
+        )
 
         representatives = self._base_representatives(topology_unit, center_kind)
         if topology_unit == "molecule":
@@ -253,6 +205,7 @@ class NanoClusterCarver:
             center_kind=center_kind,
             shape=shape,
             shape_center=shape_center,
+            shape_center_frac=shape_center_frac,
             target_units=target_units,
             vacuum=vacuum_value,
             valid_candidate_count=valid_candidate_count,
@@ -274,7 +227,7 @@ class NanoClusterCarver:
 
     def _translation_grid(
         self,
-        shape: NanoShape,
+        shape: ImplicitShape,
         center: np.ndarray,
         representatives: np.ndarray,
     ) -> tuple[np.ndarray, tuple[int, int, int]]:
@@ -319,39 +272,10 @@ class NanoClusterCarver:
         z_index = remainder % dimensions[2]
         return np.column_stack((x_index, y_index, z_index)).astype(np.int64) + lower
 
-    @staticmethod
-    def _evaluate_field(shape: NanoShape, local_positions: np.ndarray) -> np.ndarray:
-        values = np.asarray(
-            shape.field(
-                local_positions[:, 0],
-                local_positions[:, 1],
-                local_positions[:, 2],
-            )
-        )
-        expected_shape = (len(local_positions),)
-        if values.shape != expected_shape:
-            raise ValueError(
-                "shape field must return one value per input point; "
-                f"expected {expected_shape}, got {values.shape}."
-            )
-        if np.issubdtype(values.dtype, np.bool_):
-            raise TypeError("shape field must return a real-valued implicit field, not booleans.")
-        if not np.issubdtype(values.dtype, np.number) or np.issubdtype(
-            values.dtype, np.complexfloating
-        ):
-            raise TypeError("shape field must return real numeric values.")
-        try:
-            values = values.astype(float, copy=False)
-        except (TypeError, ValueError) as exc:
-            raise TypeError("shape field must return real numeric values.") from exc
-        if not np.isfinite(values).all():
-            raise ValueError("shape field returned non-finite values.")
-        return values
-
     def _select_candidate_ids(
         self,
         *,
-        shape: NanoShape,
+        shape: ImplicitShape,
         center: np.ndarray,
         representatives: np.ndarray,
         lower: np.ndarray,
@@ -387,19 +311,20 @@ class NanoClusterCarver:
                 continue
             bounded_ids = candidate_ids[in_bounds]
             bounded_positions = local_positions[in_bounds]
-            scores = self._evaluate_field(shape, bounded_positions)
+            scores = evaluate_shape_field(shape, bounded_positions)
             valid_candidate_count += len(bounded_ids)
 
             if target_units is None:
                 selected_chunks.append(bounded_ids[scores <= 0.0])
                 continue
 
-            combined_ids = np.concatenate((best_ids, bounded_ids))
-            combined_scores = np.concatenate((best_scores, scores))
-            order = np.lexsort((combined_ids, combined_scores))
-            keep = order[:target_units]
-            best_ids = combined_ids[keep]
-            best_scores = combined_scores[keep]
+            best_ids, best_scores = merge_stable_topk(
+                best_ids,
+                best_scores,
+                bounded_ids,
+                scores,
+                target_units,
+            )
 
         if target_units is None:
             selected_ids = (
@@ -441,8 +366,9 @@ class NanoClusterCarver:
         dimensions: tuple[int, int, int],
         topology_unit: str,
         center_kind: str,
-        shape: NanoShape,
+        shape: ImplicitShape,
         shape_center: np.ndarray,
+        shape_center_frac: np.ndarray,
         target_units: Optional[int],
         vacuum: float,
         valid_candidate_count: int,
@@ -487,8 +413,10 @@ class NanoClusterCarver:
         metadata = copy.deepcopy(self.crystal.metadata)
         metadata["nanocluster"] = {
             "shape": shape.name,
+            "shape_parameters": dict(shape.parameters),
             "bounds_A": shape.bounds.tolist(),
             "source_center_A": shape_center.tolist(),
+            "source_center_frac": shape_center_frac.tolist(),
             "output_shift_A": output_shift.tolist(),
             "selection_mode": "fixed_count" if target_units is not None else "fixed_geometry",
             "topology_unit": topology_unit,
@@ -501,6 +429,7 @@ class NanoClusterCarver:
             "grid_candidate_count": int(grid_candidate_count),
             "batch_size": int(self.batch_size),
             "vacuum_A": float(vacuum),
+            "input_disorder": dict(self._input_disorder),
         }
 
         return MolecularCrystal(
@@ -528,10 +457,11 @@ class NanoClusterCarver:
 
 def carve_nanocluster(
     crystal: MolecularCrystal,
-    shape: NanoShape,
+    shape: ImplicitShape,
     *,
     topology_unit: str = "molecule",
     center: Optional[Sequence[float]] = None,
+    center_frac: Optional[Sequence[float]] = None,
     center_kind: str = "centroid",
     target_units: Optional[int] = None,
     vacuum: float = 0.0,
@@ -542,6 +472,7 @@ def carve_nanocluster(
         shape,
         topology_unit=topology_unit,
         center=center,
+        center_frac=center_frac,
         center_kind=center_kind,
         target_units=target_units,
         vacuum=vacuum,

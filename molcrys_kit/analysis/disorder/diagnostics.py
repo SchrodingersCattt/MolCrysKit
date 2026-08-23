@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class UnresolvedDisorderWarning(UserWarning):
+    """A structure operation is continuing with unresolved site disorder."""
+
 # Expected number of *bonded H atoms* for isolated (non-framework) heavy
 # atoms under standard protonation.  Only elements that frequently appear
 # as NH4+/NH3/H2O/etc. in organic/hybrid perovskite CIFs are listed;
