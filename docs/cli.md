@@ -38,8 +38,9 @@ mck operate cluster --help
 | `mck operate add-h INPUT` | Add missing hydrogen atoms | `-o/--output OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
 | `mck operate slab INPUT` | Generate surface slab models | `-o/--output OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all,INDEX}` |
 | `mck operate cluster INPUT` | Carve molecular clusters | `-o/--output OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--cut-cc-bonds I,J;K,L`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable), `--seed-merge-radius FLOAT`, `--convention-reference STR`, `--no-stop-at-non-seed-metals` |
-| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT` |
-| `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C` |
+| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
+| `mck operate void INPUT` | Remove complete molecular/ionic units to form a shaped void | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,through-cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--direction-hkl H K L`, `--center X Y Z`, `--center-frac U V W`, `--hit-mode {centroid,any_atom,all_atoms}`, `--boundary-policy {inside,cover}`, `--target-units INT`, `--species SPECIES_ID COUNT`, `--species-charge SPECIES_ID CHARGE`, `--periodic-images/--no-periodic-images`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
+| `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C`, `--resolve-disorder` |
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
 | `mck operate interpolate START END` | Interpolate between structures | `-o/--output OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
@@ -120,6 +121,44 @@ For a 12-atom source cell, the fixed-count example always contains exactly
 `537 × 12 = 6444` atoms, independent of whether the search box is needle-like,
 plate-like, or nearly isotropic. Custom implicit functions are available through
 the Python API only.
+
+### Topology-Preserving Voids
+
+`void` removes whole topology-derived molecules or polyatomic ions and retains
+the source lattice and PBC. It does not cut atoms, rebuild bonds, or add caps.
+The default `target_spec` is the simplest source species ratio. With
+`--target-units N`, each species contributes exactly `N × ratio` molecules,
+making different shapes directly comparable by missing composition, mass, and
+atom count.
+
+```bash
+# Fixed-count spherical void with an explicit neutral ionic formula unit
+mck operate void ordered.extxyz -o sphere_void.extxyz \
+  --shape sphere --radius 18 --center-frac 0.5 0.5 0.5 \
+  --target-units 48 \
+  --species C6H14N2_1 1 --species ClO4_1 3 --species H4N_1 1 \
+  --species-charge C6H14N2_1 2 --species-charge ClO4_1 -1 \
+  --species-charge H4N_1 1 --json-sidecar sphere_void.json
+
+# Periodically continuous cylinder along the reduced [1 1 0] lattice direction
+mck operate void ordered.extxyz -o through_void.extxyz \
+  --shape through-cylinder --radius 10 --direction-hkl 1 1 0
+```
+
+`centroid`, `any_atom`, and `all_atoms` change geometric hit testing only;
+every selected object is still removed whole. With no fixed count,
+`--boundary-policy inside` removes the largest complete stoichiometric packet
+contained by the raw hits, while `cover` supplements each deficient species
+with outside candidates having the smallest positive implicit-field values.
+If charge validation is requested, the
+charge map must cover every target species and both the formula unit and final
+removed cluster must be neutral.
+
+For large production models, use `--resolve-disorder` on CIF input or resolve
+an ordered replica first. Without it, unresolved partial occupancies issue a
+warning and are recorded in metadata/sidecars; they are never silently chosen.
+Three-dimensional MOFs and other infinite bonded networks are not supported by
+`nanocluster` or `void`: these commands do not sever or cap framework bonds.
 
 ### Surface Slabs
 

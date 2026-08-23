@@ -4,11 +4,52 @@ Structure builders for molecular crystals.
 This module provides functionality to build complex structures from simpler units.
 """
 
+import copy
+import warnings
 from typing import Tuple
 
 import numpy as np
 
+from ..analysis.disorder import UnresolvedDisorderWarning
+from ..constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
 from ..structures.crystal import MolecularCrystal
+
+
+def _warn_if_unresolved_disorder(
+    crystal: MolecularCrystal,
+) -> dict[str, bool | int]:
+    nonunit_occupancies = 0
+    active_groups = 0
+    active_assemblies = 0
+    for molecule in crystal.molecules:
+        occupancies = np.asarray(molecule.arrays.get(KEY_OCCUPANCY, []), dtype=float)
+        nonunit_occupancies += int(
+            np.count_nonzero(~np.isclose(occupancies, 1.0, rtol=0.0, atol=1e-8))
+        )
+        active_groups += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_DISORDER_GROUP, [])
+        )
+        active_assemblies += sum(
+            str(value).strip() not in {"", ".", "?", "0"}
+            for value in molecule.arrays.get(KEY_ASSEMBLY, [])
+        )
+    stats = {
+        "all_atom_ordered": not bool(
+            nonunit_occupancies or active_groups or active_assemblies
+        ),
+        "nonunit_occupancy_count": nonunit_occupancies,
+        "active_disorder_group_count": active_groups,
+        "active_disorder_assembly_count": active_assemblies,
+    }
+    if not stats["all_atom_ordered"]:
+        warnings.warn(
+            "create_supercell is continuing with unresolved disorder; resolve an "
+            "ordered replica before production MD.",
+            UnresolvedDisorderWarning,
+            stacklevel=2,
+        )
+    return stats
 
 
 def create_supercell(
@@ -30,37 +71,25 @@ def create_supercell(
         Supercell structure.  Delegates to
         :meth:`MolecularCrystal.get_supercell` which internally copies
         molecules while preserving per-atom disorder metadata and the
-        original ``sym_op_index``/``asym_id`` source provenance.
+        original ``sym_op_index``/``asym_id`` source provenance. Repeated
+        calls append their build records to ``metadata["supercell_history"]``.
     """
-    return crystal.get_supercell(*scaling_factors)
+    input_disorder = _warn_if_unresolved_disorder(crystal)
+    result = crystal.get_supercell(*scaling_factors)
+    result.metadata = copy.deepcopy(crystal.metadata)
+    result.metadata["input_disorder"] = input_disorder
+    supercell_info = {
+        "scaling_factors": [int(value) for value in scaling_factors],
+        "source_molecule_count": len(crystal.molecules),
+        "source_atom_count": sum(len(molecule) for molecule in crystal.molecules),
+    }
+    history = copy.deepcopy(result.metadata.get("supercell_history", []))
+    if not history and "supercell" in result.metadata:
+        history.append(copy.deepcopy(result.metadata["supercell"]))
+    history.append(copy.deepcopy(supercell_info))
+    result.metadata["supercell_history"] = history
+    result.metadata["supercell"] = supercell_info
+    return result
 
 
-def create_defect_structure(
-    crystal: MolecularCrystal, defect_type: str, defect_position: np.ndarray
-) -> MolecularCrystal:
-    """
-    Create a crystal with a specific defect.
-
-    Parameters
-    ----------
-    crystal : MolecularCrystal
-        The perfect crystal.
-    defect_type : str
-        Type of defect ('vacancy', 'interstitial', etc.).
-    defect_position : np.ndarray
-        Position of the defect.
-
-    Returns
-    -------
-    MolecularCrystal
-        Crystal structure with the defect.
-    """
-
-    # This is a simplified placeholder implementation
-    # A real implementation would modify the crystal according to the defect type
-
-    # For demonstration, we'll just return the original crystal
-    return crystal
-
-
-__all__ = ["create_supercell", "create_defect_structure"]
+__all__ = ["create_supercell"]
