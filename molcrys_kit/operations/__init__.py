@@ -69,7 +69,6 @@ from .interpolation import (
 from .reorientation import reorient_crystal, ReorientationInfo
 from .symmetry_path import (
     AtomCorrespondence,
-    CollectiveConstraint,
     CrystalCorrespondence,
     RigidReachabilityError,
     RigidReachabilityTolerance,
@@ -131,7 +130,6 @@ __all__ = [
     "reorient_crystal",
     "ReorientationInfo",
     "AtomCorrespondence",
-    "CollectiveConstraint",
     "CrystalCorrespondence",
     "RigidReachabilityError",
     "RigidReachabilityTolerance",

@@ -8,8 +8,8 @@ failed fit with Cartesian shape interpolation.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict, dataclass, field
-from enum import Enum
 from typing import Sequence
 
 import numpy as np
@@ -31,19 +31,16 @@ from ..utils.geometry import (
     cart_to_frac,
     frac_to_cart,
     kabsch_align,
-    minimum_image_vector,
-    quaternion_slerp,
-    quaternion_to_rotation_matrix,
-    rotation_matrix_to_quaternion,
+)
+from ._path_core import (
+    InterpolationMethod,
+    coerce_interpolation_method,
+    copy_crystal_with_molecule_positions,
+    interpolate_rigid_positions,
+    minimum_image_displacement,
+    path_lambda_values,
 )
 from .interpolation import best_atom_mapping
-
-
-class CollectiveConstraint(str, Enum):
-    """How independently fitted molecular paths share their progress."""
-
-    SHARED_PARAMETER = "shared_parameter"
-    SYMMETRY_EQUIVARIANT = "symmetry_equivariant"
 
 
 @dataclass(frozen=True)
@@ -64,9 +61,9 @@ class RigidReachabilityTolerance:
 class SymmetryPathConfig:
     """Configuration for strict rigid symmetry-path planning."""
 
+    method: InterpolationMethod | str = InterpolationMethod.SLERP
     n_images: int = 11
     include_endpoints: bool = True
-    collective: CollectiveConstraint | str = CollectiveConstraint.SHARED_PARAMETER
     tolerance: RigidReachabilityTolerance = field(
         default_factory=RigidReachabilityTolerance
     )
@@ -80,11 +77,18 @@ class SymmetryPathConfig:
     )
 
     def __post_init__(self) -> None:
-        if self.n_images < 1:
-            raise ValueError("n_images must be at least 1")
-        if self.max_isomorphisms < 1:
-            raise ValueError("max_isomorphisms must be at least 1")
-        object.__setattr__(self, "collective", CollectiveConstraint(self.collective))
+        path_lambda_values(self.n_images, self.include_endpoints)
+        if (
+            isinstance(self.max_isomorphisms, bool)
+            or int(self.max_isomorphisms) != self.max_isomorphisms
+            or self.max_isomorphisms < 1
+        ):
+            raise ValueError("max_isomorphisms must be an integer >= 1")
+        if self.correspondence_tolerance_angstrom < 0:
+            raise ValueError("correspondence tolerance must be non-negative")
+        if self.minimum_nontrivial_displacement_angstrom < 0:
+            raise ValueError("minimum path displacement must be non-negative")
+        object.__setattr__(self, "method", coerce_interpolation_method(self.method))
 
 
 @dataclass(frozen=True)
@@ -146,9 +150,9 @@ class SymmetryPathProvenance:
                 "determinant": self.operation.determinant,
             },
             "config": {
+                "method": self.config.method.value,
                 "n_images": self.config.n_images,
                 "include_endpoints": self.config.include_endpoints,
-                "collective": self.config.collective.value,
                 "tolerance": asdict(self.config.tolerance),
                 "max_isomorphisms": self.config.max_isomorphisms,
                 "correspondence_tolerance_angstrom": (
@@ -217,26 +221,9 @@ def _copy_crystal(
     positions_by_molecule: dict[int, np.ndarray] | None = None,
     metadata_update: dict | None = None,
 ) -> MolecularCrystal:
-    molecules = []
-    positions_by_molecule = positions_by_molecule or {}
-    for index, molecule in enumerate(crystal.molecules):
-        copied = molecule.copy()
-        if index in positions_by_molecule:
-            copied.set_positions(positions_by_molecule[index])
-            for key in ("frac_x", "frac_y", "frac_z"):
-                copied.arrays.pop(key, None)
-        molecules.append(copied)
-    metadata = dict(crystal.metadata)
-    metadata.update(metadata_update or {})
-    return MolecularCrystal(
-        np.asarray(crystal.lattice, dtype=float).copy(),
-        molecules,
-        crystal.pbc,
-        formula_moiety=crystal.formula_moiety,
-        disorder_provenance=crystal.disorder_provenance,
-        metadata=metadata,
-        extra_arrays={key: value.copy() for key, value in crystal.extra_arrays.items()},
-    )
+    frame = copy_crystal_with_molecule_positions(crystal, positions_by_molecule or {})
+    frame.metadata.update(copy.deepcopy(metadata_update or {}))
+    return frame
 
 
 def transform_crystal_fractional(
@@ -339,12 +326,15 @@ def _build_correspondence(
         raise ValueError("start and target must contain the same number of molecules")
     if not np.allclose(start.lattice, target.lattice):
         raise ValueError("strict rigid symmetry paths require identical lattices")
+    if not np.array_equal(
+        np.asarray(start.pbc, dtype=bool), np.asarray(target.pbc, dtype=bool)
+    ):
+        raise ValueError("strict rigid symmetry paths require identical PBC flags")
     count = len(start.molecules)
     costs = np.full((count, count), ASSIGNMENT_INFEASIBLE_COST, dtype=float)
     candidates = {}
     for source_index, source in enumerate(start.molecules):
         source_com = np.asarray(source.get_center_of_mass(), dtype=float)
-        source_frac = cart_to_frac(source_com, start.lattice)
         for target_index, target_molecule in enumerate(target.molecules):
             candidate = _candidate_match(
                 source, target_molecule, max_isomorphisms=config.max_isomorphisms
@@ -352,9 +342,8 @@ def _build_correspondence(
             if candidate is None:
                 continue
             target_com = np.asarray(target_molecule.get_center_of_mass(), dtype=float)
-            target_frac = cart_to_frac(target_com, target.lattice)
-            com_translation = minimum_image_vector(
-                target_frac - source_frac, start.lattice
+            com_translation, _ = minimum_image_displacement(
+                target_com - source_com, start.lattice, start.pbc
             )
             _mapping, _rotation, unweighted_rmsd, _weighted, _bond = candidate
             costs[source_index, target_index] = (
@@ -375,11 +364,9 @@ def _build_correspondence(
         ]
         source_com = np.asarray(source.get_center_of_mass(), dtype=float)
         target_com = np.asarray(target_molecule.get_center_of_mass(), dtype=float)
-        source_frac = cart_to_frac(source_com, start.lattice)
-        target_frac = cart_to_frac(target_com, target.lattice)
-        fractional_delta = target_frac - source_frac
-        com_translation = minimum_image_vector(fractional_delta, start.lattice)
-        image_shift = cart_to_frac(com_translation, start.lattice) - fractional_delta
+        com_translation, image_shift = minimum_image_displacement(
+            target_com - source_com, start.lattice, start.pbc
+        )
         if (
             weighted_rmsd > config.tolerance.mass_weighted_rmsd_angstrom
             or bond_error > config.tolerance.max_bond_relative_error
@@ -399,7 +386,7 @@ def _build_correspondence(
                 atom_correspondence=AtomCorrespondence(
                     mapping, "element_graph_isomorphism", unweighted_rmsd
                 ),
-                target_image_shift_fractional=image_shift,
+                target_image_shift_fractional=np.asarray(image_shift, dtype=float),
                 proper_rotation=rotation,
                 com_translation_cartesian=com_translation,
                 mass_weighted_rmsd_angstrom=weighted_rmsd,
@@ -408,6 +395,29 @@ def _build_correspondence(
         )
     matches.sort(key=lambda match: match.source_molecule_index)
     return CrystalCorrespondence(tuple(matches))
+
+
+def _maximum_correspondence_error(
+    source: MolecularCrystal,
+    target: MolecularCrystal,
+    correspondence: CrystalCorrespondence,
+) -> float:
+    """Return maximum mapped atom distance between two equivalent endpoints."""
+    maximum = 0.0
+    lattice = np.asarray(target.lattice, dtype=float)
+    for match in correspondence.molecule_matches:
+        source_positions = np.asarray(
+            source.molecules[match.source_molecule_index].get_positions(), dtype=float
+        )
+        target_positions = np.asarray(
+            target.molecules[match.target_molecule_index].get_positions(), dtype=float
+        )[match.atom_correspondence.source_to_target]
+        target_positions += match.target_image_shift_fractional @ lattice
+        maximum = max(
+            maximum,
+            float(np.linalg.norm(target_positions - source_positions, axis=1).max()),
+        )
+    return maximum
 
 
 def build_symmetry_path_plan(
@@ -419,18 +429,25 @@ def build_symmetry_path_plan(
 ) -> SymmetryPathPlan:
     """Build and validate a strict rigid path before generating any images."""
     config = config or SymmetryPathConfig()
-    if config.collective is CollectiveConstraint.SYMMETRY_EQUIVARIANT:
-        raise NotImplementedError(
-            "symmetry_equivariant paths require explicit molecular-orbit "
-            "generators; use shared_parameter until the orbit API is supplied"
-        )
     _require_resolved_occupancy(crystal, config, "start")
     if target is not None:
         _require_resolved_occupancy(target, config, "target")
+    generated_target = transform_crystal_fractional(crystal, operation)
     generated = target is None
-    resolved_target = (
-        transform_crystal_fractional(crystal, operation) if target is None else target
-    )
+    resolved_target = generated_target if target is None else target
+    if target is not None:
+        endpoint_correspondence = _build_correspondence(
+            generated_target, target, config
+        )
+        endpoint_error = _maximum_correspondence_error(
+            generated_target, target, endpoint_correspondence
+        )
+        if endpoint_error > config.correspondence_tolerance_angstrom:
+            raise ValueError(
+                "explicit target does not match the endpoint generated by the "
+                f"symmetry operation: max error {endpoint_error:.6g} Å exceeds "
+                f"{config.correspondence_tolerance_angstrom:.6g} Å"
+            )
     correspondence = _build_correspondence(crystal, resolved_target, config)
     maximum_displacement = 0.0
     lattice = np.asarray(resolved_target.lattice, dtype=float)
@@ -450,8 +467,7 @@ def build_symmetry_path_plan(
         )
     if (
         config.minimum_nontrivial_displacement_angstrom > 0.0
-        and maximum_displacement
-        <= config.minimum_nontrivial_displacement_angstrom
+        and maximum_displacement <= config.minimum_nontrivial_displacement_angstrom
     ):
         raise ValueError(
             "symmetry operation produces only a permutation of already present "
@@ -464,12 +480,6 @@ def build_symmetry_path_plan(
         target_generated_from_operation=generated,
     )
     return SymmetryPathPlan(crystal, resolved_target, provenance)
-
-
-def _lambda_values(n_images: int, include_endpoints: bool) -> np.ndarray:
-    if include_endpoints:
-        return np.linspace(0.0, 1.0, n_images)
-    return np.linspace(0.0, 1.0, n_images + 2)[1:-1]
 
 
 def _target_positions_in_source_order(
@@ -503,7 +513,7 @@ def interpolate_symmetry_path(
     )
     if count < 1:
         raise ValueError("n_images must be at least 1")
-    lambdas = _lambda_values(count, endpoints)
+    lambdas = path_lambda_values(count, endpoints)
     matches = plan.provenance.correspondence.molecule_matches
     frames = []
     for frame_index, lambda_value in enumerate(lambdas):
@@ -521,17 +531,13 @@ def interpolate_symmetry_path(
                 molecule = plan.start.molecules[match.source_molecule_index]
                 source_positions = np.asarray(molecule.get_positions(), dtype=float)
                 source_com = np.asarray(molecule.get_center_of_mass(), dtype=float)
-                centered = source_positions - source_com
-                quaternion = quaternion_slerp(
-                    np.array([1.0, 0.0, 0.0, 0.0]),
-                    rotation_matrix_to_quaternion(match.proper_rotation),
-                    float(lambda_value),
-                )
-                rotation = quaternion_to_rotation_matrix(quaternion)
-                positions[match.source_molecule_index] = (
-                    centered @ rotation.T
-                    + source_com
-                    + float(lambda_value) * match.com_translation_cartesian
+                positions[match.source_molecule_index] = interpolate_rigid_positions(
+                    source_positions,
+                    center=source_com,
+                    rotation=match.proper_rotation,
+                    translation=match.com_translation_cartesian,
+                    lam=float(lambda_value),
+                    method=config.method,
                 )
             frame = _copy_crystal(plan.start, positions_by_molecule=positions)
         frame.metadata["symmetry_path"] = plan.provenance.to_dict()

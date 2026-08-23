@@ -8,7 +8,7 @@ from molcrys_kit.constants.symmetry_path import (
     RIGID_MASS_WEIGHTED_RMSD_TOLERANCE_ANGSTROM,
 )
 from molcrys_kit.operations import (
-    CollectiveConstraint,
+    InterpolationMethod,
     RigidReachabilityError,
     SymmetryPathConfig,
     build_symmetry_path_plan,
@@ -18,7 +18,6 @@ from molcrys_kit.operations import (
 )
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 from molcrys_kit.structures.symmetry import FractionalAffineOperation
-from molcrys_kit.utils.geometry import get_rotation_matrix
 
 
 def molecule(symbols="OHH", positions=None):
@@ -33,14 +32,6 @@ def molecule(symbols="OHH", positions=None):
 def crystal(molecules, lattice=None):
     lattice = np.diag([10.0, 10.0, 10.0]) if lattice is None else lattice
     return MolecularCrystal(lattice, molecules, metadata={"tag": "start"})
-
-
-def rigid_target(source, rotation, translation):
-    source_com = source.get_center_of_mass()
-    positions = (
-        (source.get_positions() - source_com) @ rotation.T + source_com + translation
-    )
-    return molecule(source.get_chemical_symbols(), positions)
 
 
 def pair_distances(mol):
@@ -79,19 +70,19 @@ def test_fractional_transform_selects_one_nearest_image_for_whole_molecule():
     )
 
 
-def test_strict_rigid_plan_preserves_all_internal_distances_and_endpoints():
+@pytest.mark.parametrize("method", list(InterpolationMethod))
+def test_strict_rigid_plan_preserves_all_internal_distances_and_endpoints(method):
     source_molecule = molecule()
-    rotation = get_rotation_matrix([0, 0, 1], np.pi / 2)
-    target_molecule = rigid_target(source_molecule, rotation, [2.0, 1.0, 0.5])
     start = crystal([source_molecule])
-    target = crystal([target_molecule])
-    operation = FractionalAffineOperation(np.eye(3), [0.2, 0.1, 0.05])
+    operation = FractionalAffineOperation(
+        [[0, -1, 0], [1, 0, 0], [0, 0, 1]], [0.2, 0.1, 0.05]
+    )
     plan = build_symmetry_path_plan(
         start,
         operation,
-        target=target,
-        config=SymmetryPathConfig(n_images=5),
+        config=SymmetryPathConfig(n_images=5, method=method),
     )
+    target_molecule = plan.target.molecules[0]
     frames = interpolate_symmetry_path(plan)
     np.testing.assert_allclose(
         frames[0].molecules[0].get_positions(), source_molecule.get_positions()
@@ -119,14 +110,14 @@ def test_global_assignment_handles_reordered_identical_molecules():
     first = molecule(positions=np.asarray(molecule().get_positions()) + [1, 1, 1])
     second = molecule(positions=np.asarray(molecule().get_positions()) + [7, 1, 1])
     start = crystal([first, second])
-    target = crystal([second, first])
+    operation = FractionalAffineOperation(np.eye(3), [0.1, 0, 0])
+    generated = transform_crystal_fractional(start, operation)
+    target = crystal([generated.molecules[1], generated.molecules[0]])
     plan = build_symmetry_path_plan(
         start,
-        FractionalAffineOperation(np.eye(3), [0, 0, 0]),
+        operation,
         target=target,
-        config=SymmetryPathConfig(
-            n_images=3, minimum_nontrivial_displacement_angstrom=0.0
-        ),
+        config=SymmetryPathConfig(n_images=3),
     )
     mapping = {
         match.source_molecule_index: match.target_molecule_index
@@ -144,18 +135,32 @@ def test_global_assignment_handles_reordered_identical_molecules():
     )
 
 
-def test_deformed_endpoint_is_rejected_before_images_are_generated():
+def test_explicit_target_must_match_operation_endpoint():
     source_molecule = molecule()
-    deformed = source_molecule.get_positions().copy()
-    deformed[1, 0] += 0.20
     start = crystal([source_molecule])
+    operation = FractionalAffineOperation(np.eye(3), [0.1, 0, 0])
+    generated = transform_crystal_fractional(start, operation)
+    deformed = generated.molecules[0].get_positions().copy()
+    deformed[1, 0] += 1.0e-3
     target = crystal([molecule(positions=deformed)])
+    with pytest.raises(ValueError, match="does not match the endpoint"):
+        build_symmetry_path_plan(
+            start,
+            operation,
+            target=target,
+        )
+
+
+def test_improper_operation_rejects_chiral_molecule_without_valid_permutation():
+    chiral = molecule(
+        "HCNO",
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.1, 0.0], [0.0, 0.0, 1.2]],
+    )
+    start = crystal([chiral])
     with pytest.raises(RigidReachabilityError, match="not rigid-reachable"):
         build_symmetry_path_plan(
             start,
-            FractionalAffineOperation(np.eye(3), [0, 0, 0]),
-            target=target,
-            config=SymmetryPathConfig(minimum_nontrivial_displacement_angstrom=0.0),
+            FractionalAffineOperation(-np.eye(3), [0.5, 0.5, 0.5]),
         )
 
 
@@ -202,22 +207,12 @@ def test_improper_operation_allowed_when_atom_permutation_has_proper_realization
     )
 
 
-def test_equivariant_mode_requires_explicit_orbit_api():
-    start = crystal([molecule()])
-    with pytest.raises(NotImplementedError, match="orbit"):
-        build_symmetry_path_plan(
-            start,
-            FractionalAffineOperation(np.eye(3), [0, 0, 0]),
-            config=SymmetryPathConfig(
-                collective=CollectiveConstraint.SYMMETRY_EQUIVARIANT
-            ),
-        )
-
-
 def test_provenance_is_json_serializable():
     source = crystal([molecule()])
     operation = FractionalAffineOperation(np.eye(3), [0.1, 0.0, 0.0])
     plan = build_symmetry_path_plan(source, operation)
     import json
 
-    json.dumps(plan.provenance.to_dict())
+    payload = plan.provenance.to_dict()
+    assert payload["config"]["method"] == "slerp"
+    json.dumps(payload)

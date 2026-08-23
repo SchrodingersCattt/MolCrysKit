@@ -21,7 +21,7 @@ operation = symmetry.operations[1]
 plan = build_symmetry_path_plan(
   crystal,
   operation,
-  config=SymmetryPathConfig(n_images=7),
+  config=SymmetryPathConfig(n_images=7, method="slerp"),
 )
 frames = interpolate_symmetry_path(plan)
 ```
@@ -36,6 +36,9 @@ bonds or adding a discontinuous final frame.
 If an operation merely permutes symmetry-equivalent molecules already present
 in the full cell, the default planner rejects it as a zero-displacement relabeling
 rather than writing many identical trajectory frames.
+An explicitly supplied target must represent the same operation-generated
+endpoint within `correspondence_tolerance_angstrom`; an unrelated rigid target
+is rejected before any frames are created.
 
 Use `validate_subgroup`, `left_cosets`, and `domain_representatives` to enumerate
 domain states from arbitrary finite parent/subgroup operation sets.  These
