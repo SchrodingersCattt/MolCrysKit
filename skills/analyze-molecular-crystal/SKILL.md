@@ -1,6 +1,6 @@
 ---
 name: analyze-molecular-crystal
-description: 'Analyze molecular crystals with MolCrysKit. Use when identifying molecules and topology-aware species, running structural sanity checks, profiling hydrogen bonds, pi stacking and halogen bonds, detecting CH-pi or H-H contacts through the Python API, ranking BFDH facets, enumerating coordination polyhedra and CShM shapes, characterizing coordination, rings, planarity or anion groups, calculating stoichiometry, van der Waals volume or solvent-accessible boundaries, or assigning formal charges. Covers organic crystals, multicomponent crystals, hybrids, MOF-like structures and polyatomic-ion salts.'
+description: "Use before reasoning about molecular, ionic, or framework crystals: readiness, components, solvent/coordination, interactions, facets, geometry, stoichiometry, charge, protonation, H-bonds, pores, and accessible volume."
 ---
 
 # Analyze Molecular Crystals
