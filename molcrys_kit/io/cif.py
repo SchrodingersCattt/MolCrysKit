@@ -489,9 +489,30 @@ def identify_molecules(
         exclude_indices=exclude_indices,
         include_excluded=True,
     )
+    component_by_atom = {
+        int(atom_index): component_index
+        for component_index, atom_indices in enumerate(components)
+        for atom_index in atom_indices
+    }
+    bond_records_by_component = [[] for _ in components]
+    for record in crystal_graph.graph.get("bond_records", ()):
+        left_component = component_by_atom.get(int(record["left"]))
+        right_component = component_by_atom.get(int(record["right"]))
+        if left_component is None or left_component != right_component:
+            continue
+        bond_records_by_component[left_component].append(dict(record))
+
+    for bond_records in bond_records_by_component:
+        bond_records.sort(
+            key=lambda record: (
+                record["left"],
+                record["right"],
+                tuple(record["right_image_shift"]),
+            )
+        )
     molecules = []
 
-    for atom_indices in components:
+    for component_index, atom_indices in enumerate(components):
         mol_atoms = atoms[atom_indices]
         mol_atoms.info["atom_indices"] = list(atom_indices)
 
@@ -517,19 +538,7 @@ def identify_molecules(
         # because we have already unwrapped it perfectly.
         molecule = CrystalMolecule(mol_atoms, check_pbc=False)
         molecule.info["atom_indices"] = list(atom_indices)
-        component = set(atom_indices)
-        bond_records = [
-            dict(record)
-            for record in crystal_graph.graph.get("bond_records", ())
-            if int(record["left"]) in component and int(record["right"]) in component
-        ]
-        bond_records.sort(
-            key=lambda record: (
-                record["left"],
-                record["right"],
-                tuple(record["right_image_shift"]),
-            )
-        )
+        bond_records = bond_records_by_component[component_index]
         molecule.info["bond_pairs"] = [
             (int(min(u, v)), int(max(u, v)))
             for u, v in sorted(crystal_graph.subgraph(atom_indices).edges())
