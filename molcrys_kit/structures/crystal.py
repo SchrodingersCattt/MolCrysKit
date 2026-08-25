@@ -580,14 +580,35 @@ class MolecularCrystal:
                 int(global_index): local_index
                 for local_index, global_index in enumerate(molecule_globals)
             }
-            legacy_by_pair = {}
+            legacy_records = []
+            legacy_pairs = set()
+            seen_legacy = set()
             for raw in molecule.info.get("bond_records", ()):
                 try:
-                    pair = frozenset((int(raw["left"]), int(raw["right"])))
+                    raw_left = int(raw["left"])
+                    raw_right = int(raw["right"])
+                    raw_shift = np.asarray(raw["right_image_shift"], dtype=int)
+                    raw_vector = np.asarray(raw["vector"], dtype=float)
                 except (KeyError, TypeError, ValueError):
                     continue
+                pair = frozenset((raw_left, raw_right))
                 if pair.issubset(global_to_local):
-                    legacy_by_pair[pair] = raw
+                    left_global, right_global = sorted((raw_left, raw_right))
+                    if raw_left != left_global:
+                        raw_shift = -raw_shift
+                        raw_vector = -raw_vector
+                    key = (
+                        left_global,
+                        right_global,
+                        tuple(int(value) for value in raw_shift),
+                    )
+                    if key in seen_legacy:
+                        continue
+                    seen_legacy.add(key)
+                    legacy_pairs.add(pair)
+                    legacy_records.append(
+                        (left_global, right_global, raw_shift, raw_vector)
+                    )
 
             graph_pairs = {
                 frozenset(
@@ -598,12 +619,40 @@ class MolecularCrystal:
                 )
                 for first_local, second_local in molecule.graph.edges()
             }
+
+            for left_global, right_global, right_shift, vector in sorted(
+                legacy_records,
+                key=lambda item: (
+                    item[0],
+                    item[1],
+                    tuple(int(value) for value in item[2]),
+                ),
+            ):
+                left_local = global_to_local[left_global]
+                right_local = global_to_local[right_global]
+                left_site = site_records[(molecule_index, left_local)]
+                right_site = site_records[(molecule_index, right_local)]
+                result.append(
+                    BondRecord(
+                        molecule_index=molecule_index,
+                        left_local_index=left_local,
+                        right_local_index=right_local,
+                        left_global_index=left_global,
+                        right_global_index=right_global,
+                        left_asym_index=left_site.asym_index,
+                        right_asym_index=right_site.asym_index,
+                        right_image_shift=tuple(int(v) for v in right_shift),
+                        vector_A=tuple(float(v) for v in vector),
+                        distance_A=float(np.linalg.norm(vector)),
+                    )
+                )
+
             # A finite unwrapped embedding cannot represent every edge in a
             # periodic network cycle simultaneously.  Retain the exact
             # neighbor-list edges stored by identify_molecules instead of
             # silently dropping those absent from CrystalMolecule.graph.
             for pair in sorted(
-                graph_pairs | set(legacy_by_pair),
+                graph_pairs - legacy_pairs,
                 key=lambda item: tuple(sorted(item)),
             ):
                 first_global, second_global = sorted(pair)
@@ -616,27 +665,14 @@ class MolecularCrystal:
                     left_local, right_local = second_local, first_local
                     left_global, right_global = second_global, first_global
 
-                raw = legacy_by_pair.get(frozenset((left_global, right_global)))
-                if raw is not None:
-                    raw_left = int(raw["left"])
-                    raw_shift = np.asarray(raw["right_image_shift"], dtype=int)
-                    raw_vector = np.asarray(raw["vector"], dtype=float)
-                    if raw_left == left_global:
-                        right_shift = raw_shift
-                        vector = raw_vector
-                    else:
-                        right_shift = -raw_shift
-                        vector = -raw_vector
-                else:
-                    left_site = site_records[(molecule_index, left_local)]
-                    right_site = site_records[(molecule_index, right_local)]
-                    right_shift = np.asarray(right_site.image_shift, dtype=int) - np.asarray(
-                        left_site.image_shift, dtype=int
-                    )
-                    vector = (
-                        np.asarray(molecule.positions[right_local], dtype=float)
-                        - np.asarray(molecule.positions[left_local], dtype=float)
-                    )
+                left_site = site_records[(molecule_index, left_local)]
+                right_site = site_records[(molecule_index, right_local)]
+                right_shift = np.asarray(
+                    right_site.image_shift, dtype=int
+                ) - np.asarray(left_site.image_shift, dtype=int)
+                vector = np.asarray(
+                    molecule.positions[right_local], dtype=float
+                ) - np.asarray(molecule.positions[left_local], dtype=float)
 
                 left_site = site_records[(molecule_index, left_local)]
                 right_site = site_records[(molecule_index, right_local)]

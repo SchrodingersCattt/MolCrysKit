@@ -317,7 +317,10 @@ def _build_molecule_graph(
         "ijdDS", atoms, cutoff=candidate_cutoffs
     )
 
-    compatible = i_list != j_list
+    # Periodic self-image contacts are real topology edges for one-site
+    # primitive cells, although the simple membership graph cannot represent
+    # them as ordinary pair connectivity.
+    compatible = (i_list != j_list) | np.any(shifts != 0, axis=1)
     if excluded:
         excluded_indices = np.fromiter(excluded, dtype=int)
         compatible &= ~np.isin(i_list, excluded_indices)
@@ -350,6 +353,7 @@ def _build_molecule_graph(
     )
     accepted = d_list < thresholds * bond_scale
 
+    canonical_records = {}
     for i, j, D_vec, shift in zip(
         i_list[accepted],
         j_list[accepted],
@@ -366,12 +370,34 @@ def _build_molecule_graph(
             left, right = right, left
             image_shift = -image_shift
             vector = -vector
-        crystal_graph.add_edge(
-            left,
-            right,
-            vector=vector,
-            image_shift=image_shift,
+        elif left == right and tuple(image_shift) > tuple(-image_shift):
+            image_shift = -image_shift
+            vector = -vector
+
+        key = (left, right, tuple(int(value) for value in image_shift))
+        canonical_records.setdefault(
+            key,
+            {
+                "left": left,
+                "right": right,
+                "right_image_shift": list(key[2]),
+                "vector": [float(value) for value in vector],
+            },
         )
+
+        # Keep the simple graph for molecule membership and unwrapping. The
+        # renderer-ready record list preserves parallel periodic edges.
+        if left != right and not crystal_graph.has_edge(left, right):
+            crystal_graph.add_edge(
+                left,
+                right,
+                vector=vector,
+                image_shift=image_shift,
+            )
+
+    crystal_graph.graph["bond_records"] = [
+        canonical_records[key] for key in sorted(canonical_records)
+    ]
 
     return crystal_graph
 
@@ -491,41 +517,12 @@ def identify_molecules(
         # because we have already unwrapped it perfectly.
         molecule = CrystalMolecule(mol_atoms, check_pbc=False)
         molecule.info["atom_indices"] = list(atom_indices)
-        bond_records = []
-        for u, v, edge in crystal_graph.subgraph(atom_indices).edges(data=True):
-            # NetworkX emits undirected edges in node-insertion order, which
-            # is not necessarily the directed ASE orientation captured in the
-            # graph record. Recover that orientation from the stored vector:
-            # ``r_right + shift @ M - r_left == vector``.
-            first, second = int(u), int(v)
-            shift = np.asarray(edge.get("image_shift", (0, 0, 0)), dtype=int)
-            vector = np.asarray(edge.get("vector", (0.0, 0.0, 0.0)), dtype=float)
-            first_to_second = (
-                np.asarray(atoms.positions[second], dtype=float)
-                + shift @ np.asarray(atoms.cell, dtype=float)
-                - np.asarray(atoms.positions[first], dtype=float)
-            )
-            second_to_first = (
-                np.asarray(atoms.positions[first], dtype=float)
-                + shift @ np.asarray(atoms.cell, dtype=float)
-                - np.asarray(atoms.positions[second], dtype=float)
-            )
-            if np.allclose(first_to_second, vector, rtol=0.0, atol=1e-8):
-                left, right = first, second
-            elif np.allclose(second_to_first, vector, rtol=0.0, atol=1e-8):
-                left, right = second, first
-            else:
-                raise ValueError(
-                    f"bond edge ({first}, {second}) has inconsistent PBC vector provenance"
-                )
-            bond_records.append(
-                {
-                    "left": left,
-                    "right": right,
-                    "right_image_shift": [int(value) for value in shift],
-                    "vector": [float(value) for value in vector],
-                }
-            )
+        component = set(atom_indices)
+        bond_records = [
+            dict(record)
+            for record in crystal_graph.graph.get("bond_records", ())
+            if int(record["left"]) in component and int(record["right"]) in component
+        ]
         bond_records.sort(
             key=lambda record: (
                 record["left"],

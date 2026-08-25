@@ -272,6 +272,45 @@ def test_site_and_bond_records_expose_indices_and_periodic_image():
     assert bonds[0].vector_A == pytest.approx((0.4, 0.0, 0.0))
 
 
+def test_bond_records_preserve_parallel_periodic_images_for_same_pair():
+    atoms = Atoms(
+        "CC",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        cell=np.diag([2.0, 8.0, 8.0]),
+        pbc=True,
+    )
+
+    bonds = MolecularCrystal.from_ase(atoms).get_bond_records()
+
+    assert {
+        (
+            bond.left_global_index,
+            bond.right_global_index,
+            bond.right_image_shift,
+        )
+        for bond in bonds
+    } == {
+        (0, 1, (-1, 0, 0)),
+        (0, 1, (0, 0, 0)),
+    }
+
+
+def test_bond_records_preserve_periodic_self_image_edge():
+    atoms = Atoms(
+        "C",
+        positions=[[0.0, 0.0, 0.0]],
+        cell=np.diag([1.3, 8.0, 8.0]),
+        pbc=True,
+    )
+
+    bonds = MolecularCrystal.from_ase(atoms).get_bond_records()
+
+    assert len(bonds) == 1
+    assert bonds[0].left_global_index == bonds[0].right_global_index == 0
+    assert bonds[0].right_image_shift == (-1, 0, 0)
+    assert bonds[0].vector_A == pytest.approx((-1.3, 0.0, 0.0))
+
+
 def test_supercell_rebases_periodic_site_and_bond_images():
     atoms = Atoms(
         "CC",
