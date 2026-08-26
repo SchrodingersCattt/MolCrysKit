@@ -26,6 +26,9 @@ from ..utils.geometry import unwrap_positions_along_bonds
 import itertools
 
 
+_BOND_RECORDS_INFO_KEY = "_molcrys_bond_records"
+
+
 class MolecularCrystal:
     """
     Main container for a molecular crystal.
@@ -580,14 +583,38 @@ class MolecularCrystal:
                 int(global_index): local_index
                 for local_index, global_index in enumerate(molecule_globals)
             }
-            legacy_by_pair = {}
+            legacy_records = []
+            legacy_pairs = set()
+            seen_legacy = set()
+            # Endpoint order defines the shift direction for non-self pairs.
+            # Do not fold ``shift`` and ``-shift`` together: they can be
+            # distinct contacts to different periodic images.
             for raw in molecule.info.get("bond_records", ()):
                 try:
-                    pair = frozenset((int(raw["left"]), int(raw["right"])))
+                    raw_left = int(raw["left"])
+                    raw_right = int(raw["right"])
+                    raw_shift = np.asarray(raw["right_image_shift"], dtype=int)
+                    raw_vector = np.asarray(raw["vector"], dtype=float)
                 except (KeyError, TypeError, ValueError):
                     continue
+                pair = frozenset((raw_left, raw_right))
                 if pair.issubset(global_to_local):
-                    legacy_by_pair[pair] = raw
+                    left_global, right_global = sorted((raw_left, raw_right))
+                    if raw_left != left_global:
+                        raw_shift = -raw_shift
+                        raw_vector = -raw_vector
+                    key = (
+                        left_global,
+                        right_global,
+                        tuple(int(value) for value in raw_shift),
+                    )
+                    if key in seen_legacy:
+                        continue
+                    seen_legacy.add(key)
+                    legacy_pairs.add(pair)
+                    legacy_records.append(
+                        (left_global, right_global, raw_shift, raw_vector)
+                    )
 
             graph_pairs = {
                 frozenset(
@@ -598,12 +625,40 @@ class MolecularCrystal:
                 )
                 for first_local, second_local in molecule.graph.edges()
             }
+
+            for left_global, right_global, right_shift, vector in sorted(
+                legacy_records,
+                key=lambda item: (
+                    item[0],
+                    item[1],
+                    tuple(int(value) for value in item[2]),
+                ),
+            ):
+                left_local = global_to_local[left_global]
+                right_local = global_to_local[right_global]
+                left_site = site_records[(molecule_index, left_local)]
+                right_site = site_records[(molecule_index, right_local)]
+                result.append(
+                    BondRecord(
+                        molecule_index=molecule_index,
+                        left_local_index=left_local,
+                        right_local_index=right_local,
+                        left_global_index=left_global,
+                        right_global_index=right_global,
+                        left_asym_index=left_site.asym_index,
+                        right_asym_index=right_site.asym_index,
+                        right_image_shift=tuple(int(v) for v in right_shift),
+                        vector_A=tuple(float(v) for v in vector),
+                        distance_A=float(np.linalg.norm(vector)),
+                    )
+                )
+
             # A finite unwrapped embedding cannot represent every edge in a
             # periodic network cycle simultaneously.  Retain the exact
             # neighbor-list edges stored by identify_molecules instead of
             # silently dropping those absent from CrystalMolecule.graph.
             for pair in sorted(
-                graph_pairs | set(legacy_by_pair),
+                graph_pairs - legacy_pairs,
                 key=lambda item: tuple(sorted(item)),
             ):
                 first_global, second_global = sorted(pair)
@@ -616,30 +671,15 @@ class MolecularCrystal:
                     left_local, right_local = second_local, first_local
                     left_global, right_global = second_global, first_global
 
-                raw = legacy_by_pair.get(frozenset((left_global, right_global)))
-                if raw is not None:
-                    raw_left = int(raw["left"])
-                    raw_shift = np.asarray(raw["right_image_shift"], dtype=int)
-                    raw_vector = np.asarray(raw["vector"], dtype=float)
-                    if raw_left == left_global:
-                        right_shift = raw_shift
-                        vector = raw_vector
-                    else:
-                        right_shift = -raw_shift
-                        vector = -raw_vector
-                else:
-                    left_site = site_records[(molecule_index, left_local)]
-                    right_site = site_records[(molecule_index, right_local)]
-                    right_shift = np.asarray(right_site.image_shift, dtype=int) - np.asarray(
-                        left_site.image_shift, dtype=int
-                    )
-                    vector = (
-                        np.asarray(molecule.positions[right_local], dtype=float)
-                        - np.asarray(molecule.positions[left_local], dtype=float)
-                    )
-
                 left_site = site_records[(molecule_index, left_local)]
                 right_site = site_records[(molecule_index, right_local)]
+                right_shift = np.asarray(
+                    right_site.image_shift, dtype=int
+                ) - np.asarray(left_site.image_shift, dtype=int)
+                vector = np.asarray(
+                    molecule.positions[right_local], dtype=float
+                ) - np.asarray(molecule.positions[left_local], dtype=float)
+
                 result.append(
                     BondRecord(
                         molecule_index=molecule_index,
@@ -938,6 +978,37 @@ class MolecularCrystal:
             else:
                 atoms.info["disorder_provenance"] = str(self.disorder_provenance)
 
+        # Ordinary simple graphs are reconstructed on import. Preserve full
+        # provenance only when graph topology cannot express every contact.
+        has_non_simple_bonds = False
+        for molecule in self.molecules:
+            seen_pairs = set()
+            for raw in molecule.info.get("bond_records", ()):
+                try:
+                    left = int(raw["left"])
+                    right = int(raw["right"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                pair = (min(left, right), max(left, right))
+                if left == right or pair in seen_pairs:
+                    has_non_simple_bonds = True
+                    break
+                seen_pairs.add(pair)
+            if has_non_simple_bonds:
+                break
+        if has_non_simple_bonds:
+            bond_records = self.get_bond_records()
+            atoms.info[_BOND_RECORDS_INFO_KEY] = [
+                {
+                    "molecule_index": record.molecule_index,
+                    "left": record.left_global_index,
+                    "right": record.right_global_index,
+                    "right_image_shift": list(record.right_image_shift),
+                    "vector": list(record.vector_A),
+                }
+                for record in bond_records
+            ]
+
         # --- propagate calculator if attached ---
         if self._calc_results is not None:
             from ase.calculators.singlepoint import SinglePointCalculator
@@ -997,6 +1068,51 @@ class MolecularCrystal:
             molecules.append(mol)
 
         info = dict(atoms.info)
+        serialized_bonds = info.pop(_BOND_RECORDS_INFO_KEY, ())
+        valid_globals = [
+            set(int(index) for index in molecule.info["atom_indices"])
+            for molecule in molecules
+        ]
+        records_by_molecule = [[] for _ in molecules]
+        for raw in serialized_bonds:
+            try:
+                molecule_index = int(raw["molecule_index"])
+                left = int(raw["left"])
+                right = int(raw["right"])
+                shift = [int(value) for value in raw["right_image_shift"]]
+                vector = [float(value) for value in raw["vector"]]
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not 0 <= molecule_index < len(molecules):
+                continue
+            if not {left, right}.issubset(valid_globals[molecule_index]):
+                continue
+            records_by_molecule[molecule_index].append(
+                {
+                    "left": left,
+                    "right": right,
+                    "right_image_shift": shift,
+                    "vector": vector,
+                }
+            )
+        for molecule, records in zip(molecules, records_by_molecule):
+            if not records:
+                continue
+            records.sort(
+                key=lambda record: (
+                    record["left"],
+                    record["right"],
+                    tuple(record["right_image_shift"]),
+                )
+            )
+            molecule.info["bond_records"] = records
+            molecule.info["bond_pairs"] = sorted(
+                {
+                    (record["left"], record["right"])
+                    for record in records
+                    if record["left"] != record["right"]
+                }
+            )
         formula_moiety = info.pop("formula_moiety", None)
         disorder_provenance = info.pop("disorder_provenance", None)
 
