@@ -233,6 +233,18 @@ class CrystalChemistry:
     warnings: tuple[str, ...] = ()
     alternatives: tuple[tuple[ChemicalEntity, ...], ...] = ()
 
+    @property
+    def component_dimensions(self) -> tuple[int | None, ...]:
+        """Chemical dimensionality of each component in stable order."""
+        return tuple(getattr(component, "dimension", None) for component in self.components)
+
+    @property
+    def is_molecular_crystal(self) -> bool:
+        """Whether every attached component is a finite 0D entity."""
+        return bool(self.components) and all(
+            isinstance(component, FiniteChemicalEntity) for component in self.components
+        )
+
 
 __all__ = [
     "BondKind",

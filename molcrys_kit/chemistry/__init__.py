@@ -2,6 +2,7 @@
 
 from .annotation import ChemistryIndeterminateError, annotate_chemistry
 from .perception import infer_chemistry
+from .topology import PeriodicTopology, analyze_periodic_topology
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -32,7 +33,9 @@ __all__ = [
     "InferenceStatus",
     "MulticomponentEntity",
     "PeriodicChemicalEntity",
+    "PeriodicTopology",
     "PolymerChemicalEntity",
     "annotate_chemistry",
     "infer_chemistry",
+    "analyze_periodic_topology",
 ]

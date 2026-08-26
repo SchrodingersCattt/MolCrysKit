@@ -29,6 +29,8 @@ from .io.cif import read_mol_crystal
 from .chemistry import (
     ChemistryIndeterminateError,
     CrystalChemistry,
+    PeriodicTopology,
+    analyze_periodic_topology,
     annotate_chemistry,
     infer_chemistry,
 )
@@ -46,6 +48,8 @@ __all__ = [
     "read_mol_crystal",
     "ChemistryIndeterminateError",
     "CrystalChemistry",
+    "PeriodicTopology",
+    "analyze_periodic_topology",
     "annotate_chemistry",
     "infer_chemistry",
     # Backward compatibility

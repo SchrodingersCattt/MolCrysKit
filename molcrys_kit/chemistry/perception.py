@@ -27,6 +27,7 @@ from .models import (
     EvidenceSource,
     FiniteChemicalEntity,
     InferenceStatus,
+    PeriodicChemicalEntity,
 )
 
 
@@ -113,12 +114,14 @@ def infer_chemistry(
             molecule.chemical_entity = previous_entity
     else:
         base = previous_chemistry
-    components: list[FiniteChemicalEntity] = []
-    all_alternatives: list[tuple[FiniteChemicalEntity, ...]] = []
+    components: list[FiniteChemicalEntity | PeriodicChemicalEntity] = []
+    all_alternatives: list[
+        tuple[FiniteChemicalEntity | PeriodicChemicalEntity, ...]
+    ] = []
     warnings: list[str] = []
 
     for component in base.components:
-        if not isinstance(component, FiniteChemicalEntity):
+        if not isinstance(component, (FiniteChemicalEntity, PeriodicChemicalEntity)):
             warnings.append(
                 f"{component.entity_id}: bond-order perception for this entity type is unavailable"
             )
@@ -151,10 +154,13 @@ def infer_chemistry(
 
 
 def _perceive_finite_entity(
-    entity: FiniteChemicalEntity,
+    entity: FiniteChemicalEntity | PeriodicChemicalEntity,
     *,
     max_candidates: int,
-) -> tuple[FiniteChemicalEntity, tuple[FiniteChemicalEntity, ...]]:
+) -> tuple[
+    FiniteChemicalEntity | PeriodicChemicalEntity,
+    tuple[FiniteChemicalEntity | PeriodicChemicalEntity, ...],
+]:
     atom_by_id = {atom.atom_id: atom for atom in entity.atoms}
     classified = tuple(_classify_bond(bond, atom_by_id) for bond in entity.bonds)
     order_candidates, search_exhaustive = _solve_bond_orders(
@@ -364,17 +370,23 @@ def _entity_with_orders(entity, bonds, *, status, warnings, evidence):
         for atom in entity.atoms
     )
     charges = [atom.formal_charge for atom in atoms]
-    return replace(
-        entity,
+    charges_resolved = bool(charges) and all(value is not None for value in charges)
+    if not charges_resolved and status is InferenceStatus.INFERRED:
+        status = InferenceStatus.PROVISIONAL
+        warnings = (*warnings, "Atomic formal charges remain unresolved.")
+    replacement = dict(
         atoms=atoms,
         bonds=tuple(
             replace(bond, evidence=bond.evidence + (evidence,)) for bond in bonds
         ),
-        net_charge=sum(charges) if charges and all(value is not None for value in charges) else None,
         status=status,
         evidence=entity.evidence + (evidence,),
         warnings=warnings,
     )
+    charge = sum(charges) if charges_resolved else None
+    if isinstance(entity, PeriodicChemicalEntity):
+        return replace(entity, **replacement, net_charge_per_repeat=charge)
+    return replace(entity, **replacement, net_charge=charge)
 
 
 def _order_signature(bonds) -> tuple[float, ...]:

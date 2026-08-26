@@ -12,7 +12,9 @@ from .models import (
     EvidenceSource,
     FiniteChemicalEntity,
     InferenceStatus,
+    PeriodicChemicalEntity,
 )
+from .topology import analyze_periodic_topology
 
 
 class ChemistryIndeterminateError(ValueError):
@@ -91,20 +93,40 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
             ),
             evidence=(evidence,),
         )
-        entity = FiniteChemicalEntity(
-            entity_id=f"molecule:{molecule_index}",
-            atoms=atoms,
-            bonds=entity_bonds,
-            embedding=embedding,
-            net_charge=(
-                sum(atom.formal_charge for atom in atoms if atom.formal_charge is not None)
-                if atoms and all(atom.formal_charge is not None for atom in atoms)
-                else None
-            ),
-            status=InferenceStatus.PROVISIONAL,
-            evidence=(evidence,),
-            warnings=(warning,),
+        net_charge = (
+            sum(atom.formal_charge for atom in atoms if atom.formal_charge is not None)
+            if atoms and all(atom.formal_charge is not None for atom in atoms)
+            else None
         )
+        topology = analyze_periodic_topology(
+            tuple(atom.atom_id for atom in atoms),
+            entity_bonds,
+            periodic_axes=tuple(bool(value) for value in structure.pbc),
+        )
+        if topology.rank:
+            entity = PeriodicChemicalEntity(
+                entity_id=f"periodic:{molecule_index}",
+                atoms=atoms,
+                bonds=entity_bonds,
+                periodic_rank=topology.rank,
+                translation_generators=topology.translation_generators,
+                embedding=embedding,
+                net_charge_per_repeat=net_charge,
+                status=InferenceStatus.PROVISIONAL,
+                evidence=(evidence,),
+                warnings=(warning,),
+            )
+        else:
+            entity = FiniteChemicalEntity(
+                entity_id=f"molecule:{molecule_index}",
+                atoms=atoms,
+                bonds=entity_bonds,
+                embedding=embedding,
+                net_charge=net_charge,
+                status=InferenceStatus.PROVISIONAL,
+                evidence=(evidence,),
+                warnings=(warning,),
+            )
         molecule.chemical_entity = entity
         components.append(entity)
 
