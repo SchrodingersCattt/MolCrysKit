@@ -620,6 +620,10 @@ class DisorderInfo:
     formula_moiety: str = None  # _chemical_formula_moiety from CIF
     z_value: int = None  # _cell_formula_units_Z from CIF
     pbc: Tuple[bool, bool, bool] = None  # Periodic boundary conditions
+    raw_type_symbols: List[str] = None  # Verbatim expanded _atom_site_type_symbol
+    isotopes: List[int] = None  # Mass number; 0 means unspecified
+    site_formal_charges: List[Optional[int]] = None  # Explicit per-site charge
+    cif_chemistry: dict = None  # Names, absolute-structure evidence, bond table
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -638,6 +642,14 @@ class DisorderInfo:
             self.u_cart = np.asarray(self.u_cart, dtype=float).reshape(len(self.labels), 9)
         if self.pbc is None:
             self.pbc = (True, True, True)
+        if self.raw_type_symbols is None:
+            self.raw_type_symbols = list(self.symbols)
+        if self.isotopes is None:
+            self.isotopes = [0] * len(self.labels)
+        if self.site_formal_charges is None:
+            self.site_formal_charges = [None] * len(self.labels)
+        if self.cif_chemistry is None:
+            self.cif_chemistry = {}
         # lattice_matrix stays None when not available (e.g. legacy callers);
         # from_crystal() and scan_cif_disorder() always set it.
 
@@ -681,6 +693,7 @@ class DisorderInfo:
             KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
             KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
             KEY_UISO, KEY_U_CART,
+            KEY_FORMAL_CHARGE, KEY_FORMAL_CHARGE_KNOWN, KEY_ISOTOPE,
         )
 
         atoms = crystal.to_ase()
@@ -726,6 +739,21 @@ class DisorderInfo:
             else np.full((n, 9), np.nan, dtype=float)
         )
 
+        isotope_arr = atoms.arrays.get(KEY_ISOTOPE)
+        isotopes = list(int(x) for x in isotope_arr) if isotope_arr is not None else [0] * n
+        charge_arr = atoms.arrays.get(KEY_FORMAL_CHARGE)
+        charge_known_arr = atoms.arrays.get(KEY_FORMAL_CHARGE_KNOWN)
+        site_formal_charges = (
+            [
+                int(charge_arr[index])
+                if charge_known_arr is None or bool(charge_known_arr[index])
+                else None
+                for index in range(n)
+            ]
+            if charge_arr is not None
+            else [None] * n
+        )
+
         lattice_matrix = np.array(crystal.lattice, dtype=float)
 
         pbc = tuple(crystal.pbc) if hasattr(crystal, 'pbc') else (True, True, True)
@@ -744,6 +772,9 @@ class DisorderInfo:
             u_cart=u_cart,
             lattice_matrix=lattice_matrix,
             pbc=pbc,
+            isotopes=isotopes,
+            site_formal_charges=site_formal_charges,
+            cif_chemistry=dict(crystal.metadata.get("cif_chemistry", {})),
         )
 
     def summary(self) -> str:
@@ -831,6 +862,132 @@ def _extract_numeric_value(value_str: str) -> float:
         return float(cleaned)
     except ValueError:
         return 0.0
+
+
+def _parse_cif_number_with_su(value) -> dict | None:
+    """Parse a CIF number while preserving its standard uncertainty."""
+    if value is None:
+        return None
+    raw = str(value).strip().strip("'\"")
+    if raw in {"", ".", "?"}:
+        return None
+    match = re.fullmatch(
+        r"(?P<number>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?)"
+        r"(?:\((?P<su>\d+)\))?",
+        raw,
+    )
+    if match is None:
+        return {"raw": raw, "value": None, "standard_uncertainty": None}
+    number = match.group("number")
+    parsed = float(number)
+    su_digits = match.group("su")
+    standard_uncertainty = None
+    if su_digits is not None:
+        mantissa, _, exponent_text = number.upper().partition("E")
+        decimals = len(mantissa.partition(".")[2]) if "." in mantissa else 0
+        exponent = int(exponent_text) if exponent_text else 0
+        standard_uncertainty = int(su_digits) * (10.0 ** (exponent - decimals))
+    return {
+        "raw": raw,
+        "value": parsed,
+        "standard_uncertainty": standard_uncertainty,
+    }
+
+
+def _clean_cif_text_value(value) -> str | None:
+    value = _first_cif_value(value)
+    if value is None:
+        return None
+    text = str(value).strip().strip("'\"")
+    return None if text in {"", ".", "?"} else text
+
+
+def _extract_cif_chemistry(data_block: dict) -> dict:
+    """Preserve chemistry and absolute-structure fields from one CIF block."""
+    metadata: dict = {}
+    text_tags = {
+        "chemical_name_systematic": "_chemical_name_systematic",
+        "chemical_name_common": "_chemical_name_common",
+        "chemical_absolute_configuration": "_chemical_absolute_configuration",
+    }
+    for key, tag in text_tags.items():
+        value = _clean_cif_text_value(data_block.get(tag))
+        if value is not None:
+            metadata[key] = value
+
+    absolute: dict = {}
+    for key, tag in {
+        "flack": "_refine_ls_abs_structure_Flack",
+        "hooft": "_refine_ls_abs_structure_Hooft",
+        "rogers": "_refine_ls_abs_structure_Rogers",
+    }.items():
+        parsed = _parse_cif_number_with_su(_first_cif_value(data_block.get(tag)))
+        if parsed is not None:
+            absolute[key] = parsed
+    details = _clean_cif_text_value(data_block.get("_refine_ls_abs_structure_details"))
+    if details is not None:
+        absolute["details"] = details
+    if absolute:
+        metadata["absolute_structure"] = absolute
+
+    type_symbols = _as_cif_list(data_block.get("_atom_type_symbol"))
+    oxidation = _as_cif_list(data_block.get("_atom_type_oxidation_number"))
+    if type_symbols:
+        metadata["atom_types"] = tuple(
+            {
+                "symbol": str(symbol),
+                "oxidation_number": (
+                    _parse_cif_number_with_su(oxidation[index])
+                    if index < len(oxidation)
+                    else None
+                ),
+            }
+            for index, symbol in enumerate(type_symbols)
+        )
+
+    left = _as_cif_list(data_block.get("_geom_bond_atom_site_label_1"))
+    right = _as_cif_list(data_block.get("_geom_bond_atom_site_label_2"))
+    distances = _as_cif_list(data_block.get("_geom_bond_distance"))
+    symmetries = _as_cif_list(data_block.get("_geom_bond_site_symmetry_2"))
+    bond_types = _as_cif_list(
+        data_block.get("_ccdc_geom_bond_type", data_block.get("_geom_bond_type"))
+    )
+    if left and right:
+        metadata["published_bonds"] = tuple(
+            {
+                "atom1_label": str(label),
+                "atom2_label": str(right[index]),
+                "distance_A": (
+                    _parse_cif_number_with_su(distances[index])
+                    if index < len(distances)
+                    else None
+                ),
+                "site_symmetry_2": str(symmetries[index]) if index < len(symmetries) else None,
+                "bond_type": str(bond_types[index]) if index < len(bond_types) else None,
+            }
+            for index, label in enumerate(left[: len(right)])
+        )
+    return metadata
+
+
+def _parse_atom_type_symbol(value) -> tuple[str, int, Optional[int]]:
+    """Return element, leading isotope, and explicit charge from a CIF type."""
+    raw = str(value).strip().strip("'\"").split(":", 1)[0]
+    match = re.match(r"^(?P<isotope>\d+)?(?P<element>[A-Z][a-z]?)(?P<tail>.*)$", raw)
+    if match is None:
+        return _clean_species_string(raw), 0, None
+    isotope = int(match.group("isotope")) if match.group("isotope") else 0
+    tail = match.group("tail")
+    charge = None
+    charge_match = re.fullmatch(
+        r"(?:(?P<mag1>\d+)(?P<sign1>[+-])|(?P<sign2>[+-])(?P<mag2>\d*))",
+        tail,
+    )
+    if charge_match is not None:
+        sign = charge_match.group("sign1") or charge_match.group("sign2")
+        magnitude_text = charge_match.group("mag1") or charge_match.group("mag2") or "1"
+        charge = int(magnitude_text) * (1 if sign == "+" else -1)
+    return match.group("element"), isotope, charge
 
 
 def _as_cif_list(value) -> list:
@@ -1167,6 +1324,7 @@ def scan_cif_disorder(
     # We'll use the first data block for simplicity
     first_key = list(cif_data.keys())[0]
     data_block = cif_data[first_key]
+    cif_chemistry = _extract_cif_chemistry(data_block)
 
     # Parse Z value (_cell_formula_units_Z)
     z_raw = data_block.get("_cell_formula_units_Z")
@@ -1198,8 +1356,9 @@ def scan_cif_disorder(
         lattice = Lattice.cubic(10.0)
 
     # Extract raw data fields
-    labels = data_block.get("_atom_site_label", [])
-    symbols = data_block.get("_atom_site_type_symbol", [])
+    labels = _as_cif_list(data_block.get("_atom_site_label"))
+    symbols = _as_cif_list(data_block.get("_atom_site_type_symbol"))
+    raw_type_symbols = list(symbols)
 
     # If type symbols are missing, try to extract them from labels
     if not symbols or all(s == "" for s in symbols):
@@ -1211,6 +1370,24 @@ def scan_cif_disorder(
                 symbols.append(element_match.group(1))
             else:
                 symbols.append("")
+        raw_type_symbols = list(symbols)
+
+    parsed_types = [_parse_atom_type_symbol(value) for value in raw_type_symbols]
+    symbols = [parsed[0] for parsed in parsed_types]
+    isotopes = [parsed[1] for parsed in parsed_types]
+    type_charges = [parsed[2] for parsed in parsed_types]
+    raw_site_charges = _as_cif_list(data_block.get("_atom_site_charge"))
+    site_formal_charges: list[Optional[int]] = []
+    for index in range(len(labels)):
+        if (
+            index < len(raw_site_charges)
+            and str(raw_site_charges[index]).strip() not in {"", ".", "?"}
+        ):
+            site_formal_charges.append(
+                int(round(_extract_numeric_value(raw_site_charges[index])))
+            )
+        else:
+            site_formal_charges.append(type_charges[index] if index < len(type_charges) else None)
 
     # Extract fractional coordinates
     frac_x = data_block.get("_atom_site_fract_x", [])
@@ -1386,6 +1563,9 @@ def scan_cif_disorder(
     all_site_sym_orders = []  # NEW: site symmetry order for each expanded atom
     all_uiso = []
     all_u_cart = []
+    all_raw_type_symbols = []
+    all_isotopes = []
+    all_site_formal_charges = []
 
     # Per-element buckets canonicalise symmetry-equivalent ASU rows (some CSD
     # exports contain multiple labelled rows from the same orbit).  Distinct
@@ -1459,6 +1639,9 @@ def scan_cif_disorder(
             )  # Copy the assembly ID to the new atom
             all_uiso.append(float(asu_uiso[i]))
             all_u_cart.append(_transform_u_cart(asu_u_cart[i], op, lattice))
+            all_raw_type_symbols.append(str(raw_type_symbols[i]))
+            all_isotopes.append(int(isotopes[i]))
+            all_site_formal_charges.append(site_formal_charges[i])
 
             # Use custom _molcrys_* provenance when available (CIF round-trip
             # for slabs/supercells where symmetry expansion is P1 identity).
@@ -1501,6 +1684,10 @@ def scan_cif_disorder(
         lattice_matrix=lattice_matrix,
         formula_moiety=formula_moiety,
         z_value=z_value,
+        raw_type_symbols=all_raw_type_symbols,
+        isotopes=all_isotopes,
+        site_formal_charges=all_site_formal_charges,
+        cif_chemistry=cif_chemistry,
     )
 
 
@@ -1544,6 +1731,7 @@ def read_mol_crystal(
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
         KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
         KEY_UISO, KEY_U_CART,
+        KEY_FORMAL_CHARGE, KEY_FORMAL_CHARGE_KNOWN, KEY_ISOTOPE,
     )
 
     # Extract disorder info — this is now the SOLE authority for atomic
@@ -1559,7 +1747,12 @@ def read_mol_crystal(
             crystals = generate_ordered_replicas_from_disordered_sites(
                 filepath, generate_count=1, method="optimal",
             )
-            return crystals[0]
+            resolved = crystals[0]
+            resolved.metadata["cif_chemistry"] = dict(disorder_info.cif_chemistry)
+            from ..chemistry import annotate_chemistry
+
+            annotate_chemistry(resolved)
+            return resolved
         else:
             n_partial = sum(1 for o in disorder_info.occupancies if o < 1.0)
             warnings.warn(
@@ -1598,6 +1791,23 @@ def read_mol_crystal(
         atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order, dtype=int))
     atoms.set_array(KEY_UISO, np.asarray(disorder_info.uiso, dtype=float))
     atoms.set_array(KEY_U_CART, np.asarray(disorder_info.u_cart, dtype=float).reshape(n, 9))
+    if any(value > 0 for value in disorder_info.isotopes):
+        atoms.set_array(KEY_ISOTOPE, np.asarray(disorder_info.isotopes, dtype=int))
+    if any(value is not None for value in disorder_info.site_formal_charges):
+        atoms.set_array(
+            KEY_FORMAL_CHARGE,
+            np.asarray(
+                [0 if value is None else value for value in disorder_info.site_formal_charges],
+                dtype=int,
+            ),
+        )
+        atoms.set_array(
+            KEY_FORMAL_CHARGE_KNOWN,
+            np.asarray(
+                [value is not None for value in disorder_info.site_formal_charges],
+                dtype=bool,
+            ),
+        )
     # Store CIF fractional coordinates for exact round-trip via from_crystal()
     atoms.set_array(KEY_FRAC_X, frac_coords[:, 0].copy())
     atoms.set_array(KEY_FRAC_Y, frac_coords[:, 1].copy())
@@ -1611,7 +1821,17 @@ def read_mol_crystal(
     molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
 
     pbc = (True, True, True)
-    return MolecularCrystal(lattice, molecules, pbc, formula_moiety=formula_moiety)
+    crystal = MolecularCrystal(
+        lattice,
+        molecules,
+        pbc,
+        formula_moiety=formula_moiety,
+        metadata={"cif_chemistry": dict(disorder_info.cif_chemistry)},
+    )
+    from ..chemistry import annotate_chemistry
+
+    annotate_chemistry(crystal)
+    return crystal
 
 
 def parse_cif_advanced(

@@ -524,7 +524,10 @@ class MolecularCrystal:
             KEY_FRAC_X,
             KEY_FRAC_Y,
             KEY_FRAC_Z,
+            KEY_FORMAL_CHARGE,
+            KEY_FORMAL_CHARGE_KNOWN,
             KEY_IMAGE_SHIFT,
+            KEY_ISOTOPE,
             KEY_LABEL,
             KEY_OCCUPANCY,
             KEY_SITE_SYMMETRY_ORDER,
@@ -600,6 +603,17 @@ class MolecularCrystal:
                         local_index=local_index,
                         symbol=str(symbols[local_index]),
                         label=label,
+                        isotope=(
+                            None
+                            if int(_array_value(KEY_ISOTOPE, 0)) <= 0
+                            else int(_array_value(KEY_ISOTOPE, 0))
+                        ),
+                        formal_charge=(
+                            None
+                            if KEY_FORMAL_CHARGE not in arrays
+                            or not bool(_array_value(KEY_FORMAL_CHARGE_KNOWN, True))
+                            else int(_array_value(KEY_FORMAL_CHARGE, 0))
+                        ),
                         cartesian_position_A=tuple(float(v) for v in position),
                         fractional_position=tuple(float(v) for v in fractional),
                         occupancy=float(_array_value(KEY_OCCUPANCY, 1.0)),

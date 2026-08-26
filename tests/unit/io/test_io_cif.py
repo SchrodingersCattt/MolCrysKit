@@ -19,6 +19,7 @@ from molcrys_kit.io.cif import (
     parse_cif_advanced,
     read_mol_crystal,
     scan_cif_disorder,
+    _parse_cif_number_with_su,
 )
 from molcrys_kit.structures.molecule import CrystalMolecule
 
@@ -147,6 +148,37 @@ C1 C 0 0 0 1 ?
             assert hasattr(mol, "get_chemical_symbols")
             assert hasattr(mol, "get_positions")
             assert hasattr(mol, "get_chemical_formula")
+
+    def test_read_attaches_chemistry_and_preserves_names(self):
+        path = Path(__file__).resolve().parents[2] / "data" / "cif" / "Acetaminophen_HXACAN.cif"
+        crystal = read_mol_crystal(str(path))
+
+        assert crystal.chemistry is not None
+        assert all(molecule.chemical_entity is not None for molecule in crystal.molecules)
+        metadata = crystal.metadata["cif_chemistry"]
+        assert metadata["chemical_name_common"] == "Acetaminophen"
+        assert metadata["chemical_name_systematic"] == "N-(4-Hydroxyphenyl)acetamide"
+
+    def test_flack_value_retains_standard_uncertainty(self):
+        path = Path(__file__).resolve().parents[2] / "data" / "cif" / "NOKGIH01.cif"
+        crystal = read_mol_crystal(str(path))
+
+        flack = crystal.metadata["cif_chemistry"]["absolute_structure"]["flack"]
+        assert flack["raw"] == "0.06(3)"
+        assert flack["value"] == pytest.approx(0.06)
+        assert flack["standard_uncertainty"] == pytest.approx(0.03)
+
+    @pytest.mark.parametrize(
+        "raw,value,su",
+        [("-0.65(5)", -0.65, 0.05), ("1.234(12)", 1.234, 0.012), ("2.0", 2.0, None)],
+    )
+    def test_cif_number_parser_preserves_su(self, raw, value, su):
+        parsed = _parse_cif_number_with_su(raw)
+        assert parsed["value"] == pytest.approx(value)
+        if su is None:
+            assert parsed["standard_uncertainty"] is None
+        else:
+            assert parsed["standard_uncertainty"] == pytest.approx(su)
 
 
 class TestParseCifAdvancedDeprecated:

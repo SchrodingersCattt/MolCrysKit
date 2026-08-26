@@ -32,6 +32,8 @@ class SiteRecord:
     local_index: int
     symbol: str
     label: str
+    isotope: int | None
+    formal_charge: int | None
     cartesian_position_A: Vector3
     fractional_position: Vector3
     occupancy: float

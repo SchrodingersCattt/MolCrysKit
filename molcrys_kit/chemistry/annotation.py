@@ -61,7 +61,16 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
                 atom_id=site.site_id,
                 element=site.symbol,
                 label=site.label,
-                evidence=(evidence,),
+                isotope=site.isotope,
+                formal_charge=site.formal_charge,
+                evidence=(
+                    Evidence(
+                        source=EvidenceSource.EXPLICIT_CIF,
+                        method="cif_atom_site",
+                    ),
+                )
+                if site.isotope is not None or site.formal_charge is not None
+                else (evidence,),
             )
             for site in molecule_sites
         )
@@ -87,6 +96,11 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
             atoms=atoms,
             bonds=entity_bonds,
             embedding=embedding,
+            net_charge=(
+                sum(atom.formal_charge for atom in atoms if atom.formal_charge is not None)
+                if atoms and all(atom.formal_charge is not None for atom in atoms)
+                else None
+            ),
             status=InferenceStatus.PROVISIONAL,
             evidence=(evidence,),
             warnings=(warning,),
