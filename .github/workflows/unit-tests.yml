@@ -34,8 +34,8 @@ jobs:
       - name: Check docs and skill contracts
         run: |
           pytest \
-            tests/unit/test_docs_api_sync.py \
-            tests/unit/test_skill_docs_sync.py \
+            tests/unit/contracts/test_docs_api_sync.py \
+            tests/unit/contracts/test_skill_docs_sync.py \
             -v --timeout=180
 
   unit-tests:

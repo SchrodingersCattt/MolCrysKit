@@ -16,7 +16,7 @@ from typing import Set
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DOCS_API = REPO_ROOT / "docs" / "api.md"
 
 # Sub-packages whose __all__ is checked against docs/api.md.

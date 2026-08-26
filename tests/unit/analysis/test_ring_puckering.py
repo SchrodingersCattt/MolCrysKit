@@ -24,7 +24,7 @@ from molcrys_kit.structures.molecule import CrystalMolecule
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
-CIF_DATA_DIR = Path(__file__).parents[1] / "data" / "cif"
+CIF_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "cif"
 
 
 def _regular_polygon_molecule(n: int, radius: float = None) -> CrystalMolecule:

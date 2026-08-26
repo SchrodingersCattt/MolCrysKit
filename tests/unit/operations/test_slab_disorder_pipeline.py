@@ -37,7 +37,7 @@ from molcrys_kit.constants.config import (
     KEY_FRAC_Z,
 )
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
+DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "cif"
 DAN2 = DATA_DIR / "DAN-2.cif"
 
 # Use a simpler disordered CIF for faster tests

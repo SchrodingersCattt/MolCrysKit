@@ -19,7 +19,7 @@ from molcrys_kit.constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_O
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.polyhedra import convex_hull_payload, ideal_polyhedra_for_cn
 
-_CIF_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
+_CIF_DIR = Path(__file__).resolve().parents[2] / "data" / "cif"
 
 
 def test_ideal_polyhedra_catalog_exposes_cn8_cube():

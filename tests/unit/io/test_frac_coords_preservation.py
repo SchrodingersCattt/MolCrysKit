@@ -18,7 +18,7 @@ from molcrys_kit.constants.config import (
     KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z, KEY_LABEL,
 )
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
+DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "cif"
 DAP4 = DATA_DIR / "DAP-4.cif"  # disordered (special-position)
 CAFFEINE = DATA_DIR / "anhydrousCaffeine_CGD_2007_7_1406.cif"  # assembly disorder
 PETN = DATA_DIR / "PETN_PERYTN10.cif"  # ordered
