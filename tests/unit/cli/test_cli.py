@@ -11,12 +11,12 @@ from molcrys_kit.cli import main
 from molcrys_kit.__main__ import main as module_main
 
 
-DATA = Path(__file__).resolve().parents[1] / "data" / "cif"
+DATA = Path(__file__).resolve().parents[2] / "data" / "cif"
 DAP4 = DATA / "DAP-4.cif"
 CAFFEINE = DATA / "anhydrousCaffeine_CGD_2007_7_1406.cif"
 PETN = DATA / "PETN_PERYTN10.cif"
 ACETAMINOPHEN = DATA / "Acetaminophen_HXACAN.cif"
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _load_carve_cluster_module():

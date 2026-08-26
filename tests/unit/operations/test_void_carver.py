@@ -23,7 +23,7 @@ from molcrys_kit.operations.implicit_shape import evaluate_shape_field
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
 
-DAP4 = Path(__file__).parents[1] / "data" / "cif" / "DAP-4.cif"
+DAP4 = Path(__file__).resolve().parents[2] / "data" / "cif" / "DAP-4.cif"
 
 
 @pytest.fixture(scope="module")

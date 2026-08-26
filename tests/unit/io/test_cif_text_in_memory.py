@@ -13,7 +13,7 @@ import pytest
 
 from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
+DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "cif"
 DAP4 = DATA_DIR / "DAP-4.cif"
 PETN = DATA_DIR / "PETN_PERYTN10.cif"
 CAFFEINE = DATA_DIR / "anhydrousCaffeine_CGD_2007_7_1406.cif"

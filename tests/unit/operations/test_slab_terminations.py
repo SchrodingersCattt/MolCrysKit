@@ -17,7 +17,9 @@ from molcrys_kit.io.output import write_cif
 
 def example_cif_path():
     project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
     )
     return os.path.join(project_root, "tests", "data", "cif", "Acetaminophen_HXACAN.cif")
 

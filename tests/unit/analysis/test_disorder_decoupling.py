@@ -15,7 +15,7 @@ from molcrys_kit.analysis.disorder.solver import DisorderSolver
 
 
 CIF_DATA_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "data", "cif")
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "cif")
 )
 
 

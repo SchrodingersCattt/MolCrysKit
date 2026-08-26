@@ -20,7 +20,7 @@ from molcrys_kit.constants.config import KEY_ASYM_ID, KEY_SYM_OP_INDEX
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 # Path to test CIF files
-EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
+EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
 
 
 def test_from_cif_api_exists():

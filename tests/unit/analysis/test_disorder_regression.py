@@ -50,7 +50,7 @@ from molcrys_kit.analysis.disorder.process import (
 
 
 CIF_DATA_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "data", "cif")
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "cif")
 )
 
 

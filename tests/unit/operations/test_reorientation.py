@@ -52,7 +52,9 @@ def nacl_crystal():
     """Load NaCl crystal from examples."""
     from molcrys_kit.io.cif import read_mol_crystal
     project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
     )
     path = os.path.join(project_root, "examples", "NaCl.cif")
     if not os.path.exists(path):
@@ -65,7 +67,9 @@ def acetaminophen_crystal():
     """Load Acetaminophen crystal (real molecular crystal)."""
     from molcrys_kit.io.cif import read_mol_crystal
     project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
     )
     path = os.path.join(project_root, "tests", "data", "cif", "Acetaminophen_HXACAN.cif")
     if not os.path.exists(path):
