@@ -3,7 +3,7 @@
 When you add/remove/rename a public symbol in any sub-package __init__.py,
 this test will fail, reminding you to update docs/api.md.
 
-Run locally:  pytest tests/unit/test_docs_api_sync.py -v
+Run locally:  pytest tests/unit/contracts/test_docs_api_sync.py -v
 """
 
 from __future__ import annotations
