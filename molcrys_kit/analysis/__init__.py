@@ -1,4 +1,13 @@
 from .bfdh import BFDHFacetInfo, enumerate_bfdh_facets, enumerate_low_index_millers
+from .array_bonds import (
+    BondBatch,
+    BondCandidateList,
+    VerletBondTracker,
+    build_bond_candidates,
+    candidate_list_needs_rebuild,
+    evaluate_bond_candidates,
+    infer_bond_pairs,
+)
 from .charge import MolChargeResult, assign_mol_formal_charges, compute_topo_signature
 from .chemical_env import ChemicalEnvironment
 from .formula_moiety import (
@@ -96,6 +105,9 @@ __all__ = [
     "AtomLocalGeometry",
     "AtomRef",
     "BFDHFacetInfo",
+    "BondBatch",
+    "BondCandidateList",
+    "VerletBondTracker",
     "BaseInteraction",
     "CHPiInteraction",
     "CHPiInteractionCriteria",
@@ -130,6 +142,8 @@ __all__ = [
     "angular_rmsd_vs_ideals",
     "assign_mol_formal_charges",
     "build_crystal_atom_offsets",
+    "build_bond_candidates",
+    "candidate_list_needs_rebuild",
     "calculate_accessible_boundary",
     "calculate_atomic_volumes",
     "calculate_total_volume",
@@ -148,6 +162,7 @@ __all__ = [
     "detect_prism_vs_antiprism",
     "enumerate_bfdh_facets",
     "enumerate_low_index_millers",
+    "evaluate_bond_candidates",
     "find_ch_pi",
     "find_ch_pi_interactions",
     "find_h_h_contacts",
@@ -160,6 +175,7 @@ __all__ = [
     "get_bonding_threshold",
     "heavy_signature",
     "hull_encloses_center",
+    "infer_bond_pairs",
     "match_molecule_to_fragment",
     "min_distance_to_boundary",
     "parse_moiety_string",
