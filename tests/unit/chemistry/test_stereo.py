@@ -184,3 +184,78 @@ def test_tied_ligands_and_planar_coordinates_are_indeterminate() -> None:
     planar_report = assign_stereochemistry(tied, planar).for_atom("C*")
     assert planar_report.descriptor is None
     assert "planar" in planar_report.reason
+
+
+def _but_2_ene(*, together: bool) -> FiniteChemicalEntity:
+    atoms = [
+        ChemicalAtom("C1", "C"),
+        ChemicalAtom("C2", "C"),
+        ChemicalAtom("Me1", "C", implicit_hydrogens=3),
+        ChemicalAtom("H1", "H"),
+        ChemicalAtom("Me2", "C", implicit_hydrogens=3),
+        ChemicalAtom("H2", "H"),
+    ]
+    bonds = [
+        ("C1", "C2", 2),
+        ("C1", "Me1", 1),
+        ("C1", "H1", 1),
+        ("C2", "Me2", 1),
+        ("C2", "H2", 1),
+    ]
+    right_sign = 1.0 if together else -1.0
+    coordinates = {
+        "C1": (-0.5, 0.0, 0.0),
+        "C2": (0.5, 0.0, 0.0),
+        "Me1": (-1.5, 1.0, 0.0),
+        "H1": (-1.5, -1.0, 0.0),
+        "Me2": (1.5, right_sign, 0.0),
+        "H2": (1.5, -right_sign, 0.0),
+    }
+    return _entity(atoms, bonds, coordinates, entity_id="but-2-ene")
+
+
+def test_double_bond_golden_assigns_z_and_e_from_cip_sides() -> None:
+    together = assign_stereochemistry(_but_2_ene(together=True)).for_atom("C1")
+    opposite = assign_stereochemistry(_but_2_ene(together=False)).for_atom("C1")
+
+    assert together.kind.value == "double_bond"
+    assert together.descriptor == "Z"
+    assert together.cip_order == ("Me1", "H1", "Me2", "H2")
+    assert opposite.descriptor == "E"
+
+
+def test_double_bond_descriptor_is_rotation_and_atom_order_invariant() -> None:
+    entity = _but_2_ene(together=False)
+    rotation = np.array(
+        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    transformed = Embedding(
+        tuple(
+            (atom_id, tuple(np.asarray(position) @ rotation.T + np.array([2, 3, 4])))
+            for atom_id, position in entity.embedding.coordinates_A
+        )
+    )
+    reordered = replace(
+        entity,
+        atoms=tuple(reversed(entity.atoms)),
+        bonds=tuple(reversed(entity.bonds)),
+        embedding=transformed,
+    )
+
+    assert assign_stereochemistry(reordered).for_atom("C1").descriptor == "E"
+
+
+def test_double_bond_with_equivalent_ligands_is_indeterminate() -> None:
+    entity = _but_2_ene(together=True)
+    atoms = tuple(
+        replace(atom, element="H", implicit_hydrogens=None)
+        if atom.atom_id == "Me1"
+        else atom
+        for atom in entity.atoms
+    )
+
+    descriptor = assign_stereochemistry(replace(entity, atoms=atoms)).for_atom("C1")
+
+    assert descriptor.descriptor is None
+    assert descriptor.status is InferenceStatus.INDETERMINATE
+    assert "CIP-equivalent" in descriptor.reason

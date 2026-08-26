@@ -2,9 +2,10 @@
 
 The implementation in this module does not call an external chemistry engine.
 It constructs hierarchical ligand digraphs from stable atom identities and
-applies IUPAC Blue Book 2013 sequence rules in rule order. This first public
-slice assigns ordinary tetrahedral ``R``/``S`` centers using sequence rules
-1a, 1b, and 2, including multiple-bond and saturated-ring duplicate nodes.
+applies IUPAC Blue Book 2013 sequence rules in rule order. It assigns ordinary
+tetrahedral ``R``/``S`` centers and double-bond ``E``/``Z`` units using
+sequence rules 1a, 1b, and 2, including multiple-bond and saturated-ring
+duplicate nodes.
 Cases requiring rules 3--5 remain explicitly indeterminate.
 """
 
@@ -35,6 +36,7 @@ class StereoKind(str, Enum):
     """Supported stereogenic-unit families."""
 
     TETRAHEDRAL = "tetrahedral"
+    DOUBLE_BOND = "double_bond"
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ def assign_stereochemistry(
     entity: FiniteChemicalEntity | PeriodicChemicalEntity,
     embedding: Embedding | None = None,
 ) -> StereoReport:
-    """Assign coordinate-supported tetrahedral ``R``/``S`` descriptors.
+    """Assign coordinate-supported tetrahedral ``R``/``S`` and alkene ``E``/``Z``.
 
     Near-planar geometry, unresolved bond orders, periodic-image ligands, or
     ligand ties that may require sequence rules 3--5 are reported as
@@ -127,6 +129,21 @@ def assign_stereochemistry(
         descriptors.append(descriptor)
         if descriptor.status is InferenceStatus.INDETERMINATE:
             warnings.append(f"{center.atom_id}: {descriptor.reason}")
+
+    seen_double_bonds = set()
+    for bond in entity.bonds:
+        if bond.kind in {BondKind.IONIC, BondKind.METALLIC} or bond.order != 2.0:
+            continue
+        edge = frozenset((bond.atom1_id, bond.atom2_id))
+        if edge in seen_double_bonds:
+            continue
+        seen_double_bonds.add(edge)
+        descriptor = _assign_double_bond(bond, atoms, adjacency, coordinates)
+        if descriptor is None:
+            continue
+        descriptors.append(descriptor)
+        if descriptor.status is InferenceStatus.INDETERMINATE:
+            warnings.append(f"{bond.atom1_id}={bond.atom2_id}: {descriptor.reason}")
 
     status = (
         InferenceStatus.INDETERMINATE
@@ -235,9 +252,173 @@ def _assign_tetrahedral_center(
     )
 
 
-def _indeterminate(center_id, rules, reason, cip_order=()) -> StereoDescriptor:
+def _assign_double_bond(
+    bond: ChemicalBond,
+    atoms: dict[str, ChemicalAtom],
+    adjacency: dict[str, tuple[tuple[str, ChemicalBond], ...]],
+    embedding: Embedding | None,
+) -> StereoDescriptor | None:
+    left_id, right_id = bond.atom1_id, bond.atom2_id
+    rules = (
+        "P-92.2.1 (1a)",
+        "P-92.2.2 (1b)",
+        "P-92.3 (2)",
+        "P-93.4 (E/Z)",
+    )
+    if any(bond.atom2_image_shift):
+        return _stereo_indeterminate(
+            StereoKind.DOUBLE_BOND,
+            left_id,
+            rules,
+            "periodic-image double-bond geometry is not expanded yet",
+        )
+    left_ligands = _alkene_ligands(left_id, right_id, atoms, adjacency)
+    right_ligands = _alkene_ligands(right_id, left_id, atoms, adjacency)
+    if left_ligands is None or right_ligands is None:
+        return None
+    try:
+        left_order, left_tied = _rank_alkene_ligands(
+            left_id, left_ligands, atoms, adjacency
+        )
+        right_order, right_tied = _rank_alkene_ligands(
+            right_id, right_ligands, atoms, adjacency
+        )
+    except _CIPIndeterminate as exc:
+        return _stereo_indeterminate(
+            StereoKind.DOUBLE_BOND,
+            left_id,
+            rules,
+            str(exc),
+        )
+    cip_order = (*left_order, *right_order)
+    if left_tied or right_tied:
+        return _stereo_indeterminate(
+            StereoKind.DOUBLE_BOND,
+            left_id,
+            rules,
+            "one double-bond end has CIP-equivalent ligands",
+            cip_order,
+        )
+    if embedding is None:
+        return _stereo_indeterminate(
+            StereoKind.DOUBLE_BOND,
+            left_id,
+            rules,
+            "3D embedding is unavailable",
+            cip_order,
+        )
+    try:
+        left = np.asarray(embedding.position(left_id), dtype=float)
+        right = np.asarray(embedding.position(right_id), dtype=float)
+        axis = right - left
+        axis_norm = float(np.linalg.norm(axis))
+        if axis_norm <= 1.0e-12:
+            raise ValueError("double-bond endpoints are coincident")
+        axis /= axis_norm
+        left_vector = _alkene_ligand_vector(
+            left_order[0], left_id, right_id, left, embedding, adjacency
+        )
+        right_vector = _alkene_ligand_vector(
+            right_order[0], right_id, left_id, right, embedding, adjacency
+        )
+        left_projection = left_vector - np.dot(left_vector, axis) * axis
+        right_projection = right_vector - np.dot(right_vector, axis) * axis
+        left_norm = float(np.linalg.norm(left_projection))
+        right_norm = float(np.linalg.norm(right_projection))
+        if min(left_norm, right_norm) <= 1.0e-8:
+            raise ValueError("a high-priority ligand is collinear with the double bond")
+        cosine = float(
+            np.dot(left_projection, right_projection) / (left_norm * right_norm)
+        )
+    except (KeyError, ValueError) as exc:
+        return _stereo_indeterminate(
+            StereoKind.DOUBLE_BOND,
+            left_id,
+            rules,
+            str(exc),
+            cip_order,
+        )
+    if abs(cosine) < STEREOCHEMISTRY_CONFIG["MIN_DOUBLE_BOND_SIDE_COSINE"]:
+        return _stereo_indeterminate(
+            StereoKind.DOUBLE_BOND,
+            left_id,
+            rules,
+            "double-bond side assignment is numerically ambiguous",
+            cip_order,
+        )
     return StereoDescriptor(
-        kind=StereoKind.TETRAHEDRAL,
+        kind=StereoKind.DOUBLE_BOND,
+        center_atom_id=left_id,
+        descriptor="Z" if cosine > 0.0 else "E",
+        cip_order=cip_order,
+        status=InferenceStatus.INFERRED,
+        reason="assigned from endpoint CIP priorities and projected double-bond geometry",
+        rules_applied=rules,
+        signed_volume=cosine,
+    )
+
+
+def _alkene_ligands(center_id, partner_id, atoms, adjacency):
+    explicit = [
+        atom_id
+        for atom_id, edge in adjacency.get(center_id, ())
+        if atom_id != partner_id
+        and edge.kind not in {BondKind.IONIC, BondKind.METALLIC}
+    ]
+    implicit_count = int(atoms[center_id].implicit_hydrogens or 0)
+    if len(explicit) + implicit_count != 2 or implicit_count > 1:
+        return None
+    if implicit_count:
+        explicit.append(f"{center_id}:implicit-H")
+    return tuple(explicit)
+
+
+def _rank_alkene_ligands(center_id, ligand_ids, atoms, adjacency):
+    ranked = []
+    for ligand_id in ligand_ids:
+        priority = (
+            _implicit_hydrogen_priority()
+            if ligand_id.endswith(":implicit-H")
+            else _ligand_priority(center_id, ligand_id, atoms, adjacency)
+        )
+        ranked.append((priority, ligand_id))
+    ranked.sort(reverse=True)
+    return tuple(item[1] for item in ranked), ranked[0][0] == ranked[1][0]
+
+
+def _alkene_ligand_vector(
+    ligand_id,
+    center_id,
+    partner_id,
+    center_position,
+    embedding,
+    adjacency,
+):
+    if not ligand_id.endswith(":implicit-H"):
+        return np.asarray(embedding.position(ligand_id), dtype=float) - center_position
+    explicit = [
+        atom_id
+        for atom_id, _ in adjacency.get(center_id, ())
+        if atom_id != partner_id
+    ]
+    if len(explicit) != 1:
+        raise ValueError(f"implicit alkene hydrogen at {center_id} is indeterminate")
+    return center_position - np.asarray(embedding.position(explicit[0]), dtype=float)
+
+
+def _indeterminate(center_id, rules, reason, cip_order=()) -> StereoDescriptor:
+    return _stereo_indeterminate(
+        StereoKind.TETRAHEDRAL,
+        center_id,
+        rules,
+        reason,
+        cip_order,
+    )
+
+
+def _stereo_indeterminate(kind, center_id, rules, reason, cip_order=()):
+    return StereoDescriptor(
+        kind=kind,
         center_atom_id=center_id,
         descriptor=None,
         cip_order=tuple(cip_order),

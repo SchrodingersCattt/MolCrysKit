@@ -153,7 +153,7 @@ def analyze_crystal_stereochemistry(
     # The current descriptor engine advertises its supported scope rather than
     # silently treating absence of a tetrahedral center as proof of achirality.
     warnings.append(
-        "coordinate classification currently covers tetrahedral centers; other stereogenic-unit families remain unevaluated"
+        "coordinate classification currently covers tetrahedral centers and double bonds; other stereogenic-unit families remain unevaluated"
     )
     warnings.extend(
         warning for report in reports.values() for warning in report.warnings
@@ -500,6 +500,8 @@ def _invert_descriptor(value):
         "Sa": "Ra",
         "Rp": "Sp",
         "Sp": "Rp",
+        "E": "E",
+        "Z": "Z",
     }.get(value, f"mirror({value})")
 
 

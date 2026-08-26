@@ -43,6 +43,7 @@ STEREOCHEMISTRY_CONFIG = {
     # Dimensionless signed tetrahedral volume below which 3D coordinates do
     # not support a stable handedness assignment.
     "MIN_NORMALIZED_TETRAHEDRAL_VOLUME": 1.0e-3,
+    "MIN_DOUBLE_BOND_SIDE_COSINE": 0.1,
     # Prevent pathological highly connected/cyclic inputs from expanding an
     # unbounded hierarchical CIP digraph.
     "MAX_CIP_DIGRAPH_NODES": 10_000,
