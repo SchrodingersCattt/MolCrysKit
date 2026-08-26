@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
+import tomllib
 
 import pytest
 
@@ -22,25 +24,25 @@ from molcrys_kit.chemistry import (
 )
 
 
-@pytest.mark.parametrize(
-    "notation, expected",
+_NAMING_GOLDEN = tomllib.loads(
     (
-        ("[CH4]", "methane"),
-        ("[CH3][CH3]", "ethane"),
-        ("[CH3][CH2][OH]", "ethanol"),
-        ("[CH3][CH]([OH])[CH3]", "propan-2-ol"),
-        ("[CH3][C](=[O])[OH]", "ethanoic acid"),
-        ("c1ccccc1", "benzene"),
-        ("c1cc(Cl)ccc1[CH3]", "1-chloro-4-methylbenzene"),
-    ),
-)
-def test_blue_book_organic_golden_examples(notation: str, expected: str) -> None:
-    result = name_entity(from_line_notation(notation))
+        Path(__file__).resolve().parents[2]
+        / "data"
+        / "chemistry_golden"
+        / "naming.toml"
+    ).read_text(encoding="utf-8")
+)["case"]
 
-    assert result.name == expected
+
+@pytest.mark.parametrize("case", _NAMING_GOLDEN, ids=lambda case: case["id"])
+def test_blue_book_organic_golden_examples(case) -> None:
+    assert case["human_reviewed"] is True
+    result = name_entity(from_line_notation(case["notation"]))
+
+    assert result.name == case["expected"]
     assert result.kind is NamingKind.PREFERRED_IUPAC_NAME
-    assert result.standard == "Blue Book"
-    assert result.version == "2013"
+    assert result.standard == case["standard"]
+    assert result.version == case["version"]
     assert result.status is InferenceStatus.EXPLICIT
     assert result.rule_trace
 
