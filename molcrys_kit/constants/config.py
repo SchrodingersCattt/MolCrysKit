@@ -39,6 +39,15 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     "BOND_LENGTH_SIGMA": 0.08,
 }
 
+STEREOCHEMISTRY_CONFIG = {
+    # Dimensionless signed tetrahedral volume below which 3D coordinates do
+    # not support a stable handedness assignment.
+    "MIN_NORMALIZED_TETRAHEDRAL_VOLUME": 1.0e-3,
+    # Prevent pathological highly connected/cyclic inputs from expanding an
+    # unbounded hierarchical CIP digraph.
+    "MAX_CIP_DIGRAPH_NODES": 10_000,
+}
+
 # Safety multiplier on machine epsilon for scale-normalized degeneracy checks.
 RING_CONFORMATION_TOLERANCE_FACTOR = 64.0
 

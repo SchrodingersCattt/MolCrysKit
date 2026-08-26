@@ -30,7 +30,11 @@ from .chemistry import (
     ChemistryIndeterminateError,
     CrystalChemistry,
     PeriodicTopology,
+    StereoDescriptor,
+    StereoKind,
+    StereoReport,
     analyze_periodic_topology,
+    assign_stereochemistry,
     annotate_chemistry,
     infer_chemistry,
 )
@@ -49,7 +53,11 @@ __all__ = [
     "ChemistryIndeterminateError",
     "CrystalChemistry",
     "PeriodicTopology",
+    "StereoDescriptor",
+    "StereoKind",
+    "StereoReport",
     "analyze_periodic_topology",
+    "assign_stereochemistry",
     "annotate_chemistry",
     "infer_chemistry",
     # Backward compatibility
