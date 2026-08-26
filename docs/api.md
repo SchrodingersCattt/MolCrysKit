@@ -52,6 +52,8 @@ Core crystal data model.
 - Renderer contracts: `SiteRecord`, `BondRecord`; use `MolecularCrystal.get_site_records()` and `MolecularCrystal.get_bond_records()` instead of private ASE metadata.
   - `SiteRecord` identifies one atom by global, molecule-local, and ASU-source indices and carries label/symmetry provenance, Cartesian and fractional coordinates, occupancy/disorder metadata, lattice image shift, uiso_A2, and Cartesian u_cart_A2.
   - `BondRecord` carries molecule-local and global endpoints, ASU-source endpoints when known, the right-end lattice image shift, Cartesian bond vector, and distance.
+  - `get_bond_records()` returns all perceived periodic-image bonds, including
+    multiple records for one atom pair and self-image bonds in one-site cells.
 - Symmetry: `FractionalAffineOperation`, `LatticeBasisChange`, `CrystalSymmetry`, `identity_operation`, `validate_subgroup`, `left_cosets`, `domain_representatives`
 - Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.

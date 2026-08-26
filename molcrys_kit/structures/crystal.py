@@ -26,6 +26,9 @@ from ..utils.geometry import unwrap_positions_along_bonds
 import itertools
 
 
+_BOND_RECORDS_INFO_KEY = "_molcrys_bond_records"
+
+
 class MolecularCrystal:
     """
     Main container for a molecular crystal.
@@ -583,6 +586,9 @@ class MolecularCrystal:
             legacy_records = []
             legacy_pairs = set()
             seen_legacy = set()
+            # Endpoint order defines the shift direction for non-self pairs.
+            # Do not fold ``shift`` and ``-shift`` together: they can be
+            # distinct contacts to different periodic images.
             for raw in molecule.info.get("bond_records", ()):
                 try:
                     raw_left = int(raw["left"])
@@ -674,8 +680,6 @@ class MolecularCrystal:
                     molecule.positions[right_local], dtype=float
                 ) - np.asarray(molecule.positions[left_local], dtype=float)
 
-                left_site = site_records[(molecule_index, left_local)]
-                right_site = site_records[(molecule_index, right_local)]
                 result.append(
                     BondRecord(
                         molecule_index=molecule_index,
@@ -974,6 +978,19 @@ class MolecularCrystal:
             else:
                 atoms.info["disorder_provenance"] = str(self.disorder_provenance)
 
+        bond_records = self.get_bond_records()
+        if bond_records:
+            atoms.info[_BOND_RECORDS_INFO_KEY] = [
+                {
+                    "molecule_index": record.molecule_index,
+                    "left": record.left_global_index,
+                    "right": record.right_global_index,
+                    "right_image_shift": list(record.right_image_shift),
+                    "vector": list(record.vector_A),
+                }
+                for record in bond_records
+            ]
+
         # --- propagate calculator if attached ---
         if self._calc_results is not None:
             from ase.calculators.singlepoint import SinglePointCalculator
@@ -1033,6 +1050,51 @@ class MolecularCrystal:
             molecules.append(mol)
 
         info = dict(atoms.info)
+        serialized_bonds = info.pop(_BOND_RECORDS_INFO_KEY, ())
+        valid_globals = [
+            set(int(index) for index in molecule.info["atom_indices"])
+            for molecule in molecules
+        ]
+        records_by_molecule = [[] for _ in molecules]
+        for raw in serialized_bonds:
+            try:
+                molecule_index = int(raw["molecule_index"])
+                left = int(raw["left"])
+                right = int(raw["right"])
+                shift = [int(value) for value in raw["right_image_shift"]]
+                vector = [float(value) for value in raw["vector"]]
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not 0 <= molecule_index < len(molecules):
+                continue
+            if not {left, right}.issubset(valid_globals[molecule_index]):
+                continue
+            records_by_molecule[molecule_index].append(
+                {
+                    "left": left,
+                    "right": right,
+                    "right_image_shift": shift,
+                    "vector": vector,
+                }
+            )
+        for molecule, records in zip(molecules, records_by_molecule):
+            if not records:
+                continue
+            records.sort(
+                key=lambda record: (
+                    record["left"],
+                    record["right"],
+                    tuple(record["right_image_shift"]),
+                )
+            )
+            molecule.info["bond_records"] = records
+            molecule.info["bond_pairs"] = sorted(
+                {
+                    (record["left"], record["right"])
+                    for record in records
+                    if record["left"] != record["right"]
+                }
+            )
         formula_moiety = info.pop("formula_moiety", None)
         disorder_provenance = info.pop("disorder_provenance", None)
 

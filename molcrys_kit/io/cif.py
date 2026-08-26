@@ -248,10 +248,17 @@ def _build_molecule_graph(
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
 ) -> nx.Graph:
-    """Build the bonded graph used for molecule identification."""
+    """Build molecule membership and periodic-image bond provenance.
+
+    The result is a simple graph with at most one edge per non-self atom
+    pair. Its ``graph["bond_records"]`` payload retains every accepted
+    periodic-image contact. Records use ``left < right``; self-image shifts
+    are oriented with their first non-zero component negative.
+    """
     from ..constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 
     crystal_graph = nx.Graph()
+    crystal_graph.graph["bond_records"] = []
     symbols = atoms.get_chemical_symbols()
 
     excluded = {int(i) for i in (exclude_indices or set())}
@@ -370,9 +377,13 @@ def _build_molecule_graph(
             left, right = right, left
             image_shift = -image_shift
             vector = -vector
-        elif left == right and tuple(image_shift) > tuple(-image_shift):
-            image_shift = -image_shift
-            vector = -vector
+        elif left == right:
+            # Select one member of {s, -s} without inventing a new image:
+            # the first non-zero lattice component is always negative.
+            first_nonzero = next((value for value in image_shift if value), 0)
+            if first_nonzero > 0:
+                image_shift = -image_shift
+                vector = -vector
 
         key = (left, right, tuple(int(value) for value in image_shift))
         canonical_records.setdefault(

@@ -272,7 +272,7 @@ def test_site_and_bond_records_expose_indices_and_periodic_image():
     assert bonds[0].vector_A == pytest.approx((0.4, 0.0, 0.0))
 
 
-def test_bond_records_preserve_parallel_periodic_images_for_same_pair():
+def test_bond_records_preserve_parallel_periodic_images_for_same_pair(tmp_path):
     atoms = Atoms(
         "CC",
         positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
@@ -280,7 +280,16 @@ def test_bond_records_preserve_parallel_periodic_images_for_same_pair():
         pbc=True,
     )
 
-    bonds = MolecularCrystal.from_ase(atoms).get_bond_records()
+    crystal = MolecularCrystal.from_ase(atoms)
+    molecule = crystal.molecules[0]
+    bonds = crystal.get_bond_records()
+
+    assert len(crystal.molecules) == 1
+    assert molecule.info["bond_pairs"] == [(0, 1)]
+    assert list(molecule.graph.edges()) == [(0, 1)]
+    assert np.linalg.norm(
+        molecule.positions[1] - molecule.positions[0]
+    ) == pytest.approx(1.0)
 
     assert {
         (
@@ -294,21 +303,64 @@ def test_bond_records_preserve_parallel_periodic_images_for_same_pair():
         (0, 1, (0, 0, 0)),
     }
 
+    path = tmp_path / "parallel-periodic.extxyz"
+    write_extxyz(crystal, str(path))
+    loaded = read_extxyz(str(path))
+    assert {
+        (
+            bond.left_global_index,
+            bond.right_global_index,
+            bond.right_image_shift,
+        )
+        for bond in loaded.get_bond_records()
+    } == {
+        (0, 1, (-1, 0, 0)),
+        (0, 1, (0, 0, 0)),
+    }
 
-def test_bond_records_preserve_periodic_self_image_edge():
+
+@pytest.mark.parametrize("axis", range(3))
+def test_bond_records_preserve_periodic_self_image_edge(axis):
+    lengths = np.full(3, 8.0)
+    lengths[axis] = 1.3
     atoms = Atoms(
         "C",
         positions=[[0.0, 0.0, 0.0]],
-        cell=np.diag([1.3, 8.0, 8.0]),
+        cell=np.diag(lengths),
         pbc=True,
     )
 
     bonds = MolecularCrystal.from_ase(atoms).get_bond_records()
 
+    expected_shift = [0, 0, 0]
+    expected_shift[axis] = -1
+    expected_vector = np.zeros(3)
+    expected_vector[axis] = -1.3
+
     assert len(bonds) == 1
     assert bonds[0].left_global_index == bonds[0].right_global_index == 0
-    assert bonds[0].right_image_shift == (-1, 0, 0)
-    assert bonds[0].vector_A == pytest.approx((-1.3, 0.0, 0.0))
+    assert bonds[0].right_image_shift == tuple(expected_shift)
+    assert bonds[0].vector_A == pytest.approx(expected_vector)
+
+
+def test_simple_membership_graph_unwraps_boundary_chain_once():
+    atoms = Atoms(
+        "CCC",
+        positions=[[9.4, 0.0, 0.0], [0.6, 0.0, 0.0], [1.8, 0.0, 0.0]],
+        cell=np.diag([10.0, 8.0, 8.0]),
+        pbc=True,
+    )
+
+    crystal = MolecularCrystal.from_ase(atoms)
+    molecule = crystal.molecules[0]
+
+    assert len(crystal.molecules) == 1
+    assert molecule.info["bond_pairs"] == [(0, 1), (1, 2)]
+    assert set(molecule.graph.edges()) == {(0, 1), (1, 2)}
+    assert sorted(
+        np.linalg.norm(molecule.positions[right] - molecule.positions[left])
+        for left, right in molecule.graph.edges()
+    ) == pytest.approx([1.2, 1.2])
 
 
 def test_supercell_rebases_periodic_site_and_bond_images():
