@@ -231,6 +231,7 @@ class CrystalChemistry:
     status: InferenceStatus
     evidence: tuple[Evidence, ...] = ()
     warnings: tuple[str, ...] = ()
+    alternatives: tuple[tuple[ChemicalEntity, ...], ...] = ()
 
 
 __all__ = [

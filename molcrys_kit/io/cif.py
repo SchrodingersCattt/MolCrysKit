@@ -1749,9 +1749,9 @@ def read_mol_crystal(
             )
             resolved = crystals[0]
             resolved.metadata["cif_chemistry"] = dict(disorder_info.cif_chemistry)
-            from ..chemistry import annotate_chemistry
+            from ..chemistry import infer_chemistry
 
-            annotate_chemistry(resolved)
+            infer_chemistry(resolved)
             return resolved
         else:
             n_partial = sum(1 for o in disorder_info.occupancies if o < 1.0)
@@ -1828,9 +1828,9 @@ def read_mol_crystal(
         formula_moiety=formula_moiety,
         metadata={"cif_chemistry": dict(disorder_info.cif_chemistry)},
     )
-    from ..chemistry import annotate_chemistry
+    from ..chemistry import infer_chemistry
 
-    annotate_chemistry(crystal)
+    infer_chemistry(crystal)
     return crystal
 
 

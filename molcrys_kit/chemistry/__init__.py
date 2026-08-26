@@ -1,6 +1,7 @@
 """Public chemistry-domain models and analysis entry points."""
 
 from .annotation import ChemistryIndeterminateError, annotate_chemistry
+from .perception import infer_chemistry
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -33,4 +34,5 @@ __all__ = [
     "PeriodicChemicalEntity",
     "PolymerChemicalEntity",
     "annotate_chemistry",
+    "infer_chemistry",
 ]

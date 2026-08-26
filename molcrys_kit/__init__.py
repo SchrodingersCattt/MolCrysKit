@@ -30,6 +30,7 @@ from .chemistry import (
     ChemistryIndeterminateError,
     CrystalChemistry,
     annotate_chemistry,
+    infer_chemistry,
 )
 
 # For backward compatibility
@@ -46,6 +47,7 @@ __all__ = [
     "ChemistryIndeterminateError",
     "CrystalChemistry",
     "annotate_chemistry",
+    "infer_chemistry",
     # Backward compatibility
     "Molecule",
 ]

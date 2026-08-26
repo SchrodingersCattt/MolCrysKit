@@ -22,6 +22,7 @@
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
 | Attach chemistry-domain records | `annotate_chemistry` | `MolecularCrystal` | `CrystalChemistry` | source docstring |
+| Infer bond orders and formal charges | `infer_chemistry` | `MolecularCrystal` | `CrystalChemistry` with alternatives/warnings | source docstring |
 | Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
@@ -67,7 +68,7 @@ Independent immutable chemistry records and crystal-to-chemistry mapping.
 
 - Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
-- Analysis: `annotate_chemistry`, `ChemistryIndeterminateError`
+- Analysis: `annotate_chemistry`, `infer_chemistry`, `ChemistryIndeterminateError`
 
 ### `mck.io`
 Read/write interfaces.

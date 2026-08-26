@@ -29,6 +29,16 @@ KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (
 KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
 KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
 
+# Bounded chemistry-perception search and confidence thresholds. Coordinate
+# cutoffs are in Angstroms; scores are squared bond-length residuals.
+CHEMISTRY_PERCEPTION_CONFIG = {
+    "MAX_EXHAUSTIVE_ASSIGNMENTS": 250_000,
+    "COMPETITIVE_SCORE_GAP": 0.25,
+    "SINGLE_BOND_DISTANCE": 1.75,
+    "TRIPLE_BOND_DISTANCE": 1.58,
+    "BOND_LENGTH_SIGMA": 0.08,
+}
+
 # Safety multiplier on machine epsilon for scale-normalized degeneracy checks.
 RING_CONFORMATION_TOLERANCE_FACTOR = 64.0
 
