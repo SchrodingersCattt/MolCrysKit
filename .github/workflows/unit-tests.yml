@@ -63,5 +63,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[test]"
 
+      - name: Run unit tests with coverage
+        if: matrix.python-version == '3.12'
+        env:
+          COVERAGE_CORE: sysmon
+        run: pytest tests/unit --cov=molcrys_kit --cov-report=term-missing -n 8 --dist worksteal --timeout=180
+
       - name: Run unit tests
-        run: pytest tests/unit --cov=molcrys_kit --cov-report=term-missing -n 8 --dist loadfile --timeout=180
+        if: matrix.python-version != '3.12'
+        run: pytest tests/unit -n 8 --dist worksteal --timeout=180
