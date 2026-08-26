@@ -128,8 +128,7 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
             i = j
             continue
         numeric_cols = {
-            col for col, tag in enumerate(tags)
-            if tag in _PYMATGEN_NUMERIC_MISSING_TAGS
+            col for col, tag in enumerate(tags) if tag in _PYMATGEN_NUMERIC_MISSING_TAGS
         }
         if not numeric_cols:
             i = j
@@ -140,7 +139,11 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
             if not stripped:
                 k += 1
                 continue
-            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+            if (
+                stripped.lower() == "loop_"
+                or stripped.startswith("_")
+                or stripped.startswith("data_")
+            ):
                 break
             tokens = stripped.split()
             if len(tokens) == len(tags):
@@ -158,7 +161,9 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
     return "".join(out), changed
 
 
-def _extract_custom_molcrys_provenance_rows(text: str) -> Dict[int, Tuple[int, int, int]]:
+def _extract_custom_molcrys_provenance_rows(
+    text: str,
+) -> Dict[int, Tuple[int, int, int]]:
     """Parse optional `_molcrys_*` provenance side-table from raw CIF text.
 
     New-format CIFs write atom-site data using only standard `_atom_site_*`
@@ -201,7 +206,11 @@ def _extract_custom_molcrys_provenance_rows(text: str) -> Dict[int, Tuple[int, i
             if not stripped:
                 k += 1
                 continue
-            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+            if (
+                stripped.lower() == "loop_"
+                or stripped.startswith("_")
+                or stripped.startswith("data_")
+            ):
                 break
             tokens = stripped.split()
             if len(tokens) == len(tags):
@@ -209,7 +218,9 @@ def _extract_custom_molcrys_provenance_rows(text: str) -> Dict[int, Tuple[int, i
                     atom_index = int(tokens[tag_to_idx["_molcrys_atom_index"]])
                     sym_op_index = int(tokens[tag_to_idx["_molcrys_sym_op_index"]])
                     asym_id = int(tokens[tag_to_idx["_molcrys_asym_id"]])
-                    site_sym_order = int(tokens[tag_to_idx["_molcrys_site_symmetry_order"]])
+                    site_sym_order = int(
+                        tokens[tag_to_idx["_molcrys_site_symmetry_order"]]
+                    )
                     rows[atom_index] = (sym_op_index, asym_id, site_sym_order)
                 except (TypeError, ValueError, IndexError):
                     pass
@@ -539,12 +550,18 @@ def identify_molecules(
             mol_atoms.info["unwrap_completed"] = completed
         # Preserve disorder-related arrays when creating molecules
         # Copy over disorder metadata for the sliced atoms
-        for key in [KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX]:
+        for key in [
+            KEY_OCCUPANCY,
+            KEY_DISORDER_GROUP,
+            KEY_ASSEMBLY,
+            KEY_LABEL,
+            KEY_SYM_OP_INDEX,
+        ]:
             if key in atoms.arrays:
                 original_array = atoms.arrays[key]
                 sliced_array = original_array[atom_indices]
                 mol_atoms.set_array(key, sliced_array)
-        
+
         # Create molecule, explicitly disabling internal PBC checks
         # because we have already unwrapped it perfectly.
         molecule = CrystalMolecule(mol_atoms, check_pbc=False)
@@ -624,6 +641,7 @@ class DisorderInfo:
     isotopes: List[int] = None  # Mass number; 0 means unspecified
     site_formal_charges: List[Optional[int]] = None  # Explicit per-site charge
     cif_chemistry: dict = None  # Names, absolute-structure evidence, bond table
+    crystal_symmetry: CrystalSymmetry = None  # Validated affine operation set
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -639,7 +657,9 @@ class DisorderInfo:
         if self.u_cart is None:
             self.u_cart = np.full((len(self.labels), 9), np.nan, dtype=float)
         else:
-            self.u_cart = np.asarray(self.u_cart, dtype=float).reshape(len(self.labels), 9)
+            self.u_cart = np.asarray(self.u_cart, dtype=float).reshape(
+                len(self.labels), 9
+            )
         if self.pbc is None:
             self.pbc = (True, True, True)
         if self.raw_type_symbols is None:
@@ -690,10 +710,18 @@ class DisorderInfo:
         DisorderInfo
         """
         from ..constants.config import (
-            KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
-            KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
-            KEY_UISO, KEY_U_CART,
-            KEY_FORMAL_CHARGE, KEY_FORMAL_CHARGE_KNOWN, KEY_ISOTOPE,
+            KEY_OCCUPANCY,
+            KEY_DISORDER_GROUP,
+            KEY_ASSEMBLY,
+            KEY_LABEL,
+            KEY_SYM_OP_INDEX,
+            KEY_ASYM_ID,
+            KEY_SITE_SYMMETRY_ORDER,
+            KEY_UISO,
+            KEY_U_CART,
+            KEY_FORMAL_CHARGE,
+            KEY_FORMAL_CHARGE_KNOWN,
+            KEY_ISOTOPE,
         )
 
         atoms = crystal.to_ase()
@@ -715,22 +743,34 @@ class DisorderInfo:
         occupancies = list(occ_arr) if occ_arr is not None else [1.0] * n
 
         dg_arr = atoms.arrays.get(KEY_DISORDER_GROUP)
-        disorder_groups = list(int(x) for x in dg_arr) if dg_arr is not None else [0] * n
+        disorder_groups = (
+            list(int(x) for x in dg_arr) if dg_arr is not None else [0] * n
+        )
 
         asm_arr = atoms.arrays.get(KEY_ASSEMBLY)
         assemblies = list(asm_arr) if asm_arr is not None else [""] * n
 
         soi_arr = atoms.arrays.get(KEY_SYM_OP_INDEX)
-        sym_op_indices = list(int(x) for x in soi_arr) if soi_arr is not None else list(range(n))
+        sym_op_indices = (
+            list(int(x) for x in soi_arr) if soi_arr is not None else list(range(n))
+        )
 
         aid_arr = atoms.arrays.get(KEY_ASYM_ID)
-        asym_id = list(int(x) for x in aid_arr) if aid_arr is not None else list(range(n))
+        asym_id = (
+            list(int(x) for x in aid_arr) if aid_arr is not None else list(range(n))
+        )
 
         sso_arr = atoms.arrays.get(KEY_SITE_SYMMETRY_ORDER)
-        site_symmetry_order = list(int(x) for x in sso_arr) if sso_arr is not None else [1] * n
+        site_symmetry_order = (
+            list(int(x) for x in sso_arr) if sso_arr is not None else [1] * n
+        )
 
         uiso_arr = atoms.arrays.get(KEY_UISO)
-        uiso = list(float(x) for x in uiso_arr) if uiso_arr is not None else [float("nan")] * n
+        uiso = (
+            list(float(x) for x in uiso_arr)
+            if uiso_arr is not None
+            else [float("nan")] * n
+        )
 
         u_cart_arr = atoms.arrays.get(KEY_U_CART)
         u_cart = (
@@ -740,7 +780,9 @@ class DisorderInfo:
         )
 
         isotope_arr = atoms.arrays.get(KEY_ISOTOPE)
-        isotopes = list(int(x) for x in isotope_arr) if isotope_arr is not None else [0] * n
+        isotopes = (
+            list(int(x) for x in isotope_arr) if isotope_arr is not None else [0] * n
+        )
         charge_arr = atoms.arrays.get(KEY_FORMAL_CHARGE)
         charge_known_arr = atoms.arrays.get(KEY_FORMAL_CHARGE_KNOWN)
         site_formal_charges = (
@@ -756,7 +798,7 @@ class DisorderInfo:
 
         lattice_matrix = np.array(crystal.lattice, dtype=float)
 
-        pbc = tuple(crystal.pbc) if hasattr(crystal, 'pbc') else (True, True, True)
+        pbc = tuple(crystal.pbc) if hasattr(crystal, "pbc") else (True, True, True)
 
         return cls(
             labels=labels,
@@ -775,6 +817,7 @@ class DisorderInfo:
             isotopes=isotopes,
             site_formal_charges=site_formal_charges,
             cif_chemistry=dict(crystal.metadata.get("cif_chemistry", {})),
+            crystal_symmetry=crystal.metadata.get("crystal_symmetry"),
         )
 
     def summary(self) -> str:
@@ -962,8 +1005,12 @@ def _extract_cif_chemistry(data_block: dict) -> dict:
                     if index < len(distances)
                     else None
                 ),
-                "site_symmetry_2": str(symmetries[index]) if index < len(symmetries) else None,
-                "bond_type": str(bond_types[index]) if index < len(bond_types) else None,
+                "site_symmetry_2": str(symmetries[index])
+                if index < len(symmetries)
+                else None,
+                "bond_type": str(bond_types[index])
+                if index < len(bond_types)
+                else None,
             }
             for index, label in enumerate(left[: len(right)])
         )
@@ -1028,7 +1075,9 @@ def _adp_from_cif_block(
     raw_uiso = _as_cif_list(tags.get("_atom_site_u_iso_or_equiv"))
     raw_biso = _as_cif_list(tags.get("_atom_site_b_iso_or_equiv"))
     for index in range(n_atoms):
-        value = _optional_cif_number(raw_uiso[index]) if index < len(raw_uiso) else np.nan
+        value = (
+            _optional_cif_number(raw_uiso[index]) if index < len(raw_uiso) else np.nan
+        )
         if not np.isfinite(value) and index < len(raw_biso):
             b_value = _optional_cif_number(raw_biso[index])
             if np.isfinite(b_value):
@@ -1041,12 +1090,10 @@ def _adp_from_cif_block(
 
     suffixes = ("11", "22", "33", "12", "13", "23")
     u_columns = [
-        _as_cif_list(tags.get(f"_atom_site_aniso_u_{suffix}"))
-        for suffix in suffixes
+        _as_cif_list(tags.get(f"_atom_site_aniso_u_{suffix}")) for suffix in suffixes
     ]
     b_columns = [
-        _as_cif_list(tags.get(f"_atom_site_aniso_b_{suffix}"))
-        for suffix in suffixes
+        _as_cif_list(tags.get(f"_atom_site_aniso_b_{suffix}")) for suffix in suffixes
     ]
     label_to_index = {str(label): index for index, label in enumerate(labels)}
     cart_basis = np.asarray(lattice.matrix, dtype=float).T
@@ -1059,7 +1106,9 @@ def _adp_from_cif_block(
             continue
         values = []
         for u_column, b_column in zip(u_columns, b_columns):
-            value = _optional_cif_number(u_column[row]) if row < len(u_column) else np.nan
+            value = (
+                _optional_cif_number(u_column[row]) if row < len(u_column) else np.nan
+            )
             if not np.isfinite(value) and row < len(b_column):
                 b_value = _optional_cif_number(b_column[row])
                 if np.isfinite(b_value):
@@ -1084,7 +1133,9 @@ def _adp_from_cif_block(
     return uiso, u_cart
 
 
-def _transform_u_cart(u_cart_flat: np.ndarray, op: SymmOp, lattice: Lattice) -> np.ndarray:
+def _transform_u_cart(
+    u_cart_flat: np.ndarray, op: SymmOp, lattice: Lattice
+) -> np.ndarray:
     """Apply a fractional symmetry rotation to one Cartesian ADP tensor."""
     values = np.asarray(u_cart_flat, dtype=float)
     if values.size != 9 or not np.all(np.isfinite(values)):
@@ -1111,9 +1162,7 @@ def _parse_symmetry_operations(
         data_block, expand_symmetry=expand_symmetry, strict=False
     )
     return [
-        SymmOp.from_rotation_and_translation(
-            operation.rotation, operation.translation
-        )
+        SymmOp.from_rotation_and_translation(operation.rotation, operation.translation)
         for operation in parsed.operations
     ]
 
@@ -1213,9 +1262,7 @@ def _crystal_symmetry_from_data_block(
     space_group_number = (
         int(declared_sg.int_number) if declared_sg is not None else None
     )
-    space_group_symbol = (
-        str(declared_sg.symbol) if declared_sg is not None else None
-    )
+    space_group_symbol = str(declared_sg.symbol) if declared_sg is not None else None
     hall_symbol = _clean_space_group_token(data_block.get("_space_group_name_Hall"))
     operations = tuple(
         FractionalAffineOperation(
@@ -1311,8 +1358,10 @@ def scan_cif_disorder(
     """
     # Parse the CIF using pymatgen to get the raw data dictionary
     parser = _pymatgen_cif_parser(
-        filepath, cif_text=cif_text,
-        occupancy_tolerance=1, site_tolerance=1e-2,
+        filepath,
+        cif_text=cif_text,
+        occupancy_tolerance=1,
+        site_tolerance=1e-2,
     )
     raw_text = cif_text
     if raw_text is None and filepath is not None:
@@ -1336,9 +1385,18 @@ def scan_cif_disorder(
             z_value = None
 
     # Parse symmetry operations from the CIF
-    sym_ops = _parse_symmetry_operations(
-        data_block, expand_symmetry=expand_symmetry
+    crystal_symmetry = _crystal_symmetry_from_data_block(
+        data_block,
+        expand_symmetry=expand_symmetry,
+        strict=False,
     )
+    sym_ops = [
+        SymmOp.from_rotation_and_translation(
+            operation.rotation,
+            operation.translation,
+        )
+        for operation in crystal_symmetry.operations
+    ]
 
     # Parse lattice for distance calculations
     try:
@@ -1379,15 +1437,16 @@ def scan_cif_disorder(
     raw_site_charges = _as_cif_list(data_block.get("_atom_site_charge"))
     site_formal_charges: list[Optional[int]] = []
     for index in range(len(labels)):
-        if (
-            index < len(raw_site_charges)
-            and str(raw_site_charges[index]).strip() not in {"", ".", "?"}
-        ):
+        if index < len(raw_site_charges) and str(
+            raw_site_charges[index]
+        ).strip() not in {"", ".", "?"}:
             site_formal_charges.append(
                 int(round(_extract_numeric_value(raw_site_charges[index])))
             )
         else:
-            site_formal_charges.append(type_charges[index] if index < len(type_charges) else None)
+            site_formal_charges.append(
+                type_charges[index] if index < len(type_charges) else None
+            )
 
     # Extract fractional coordinates
     frac_x = data_block.get("_atom_site_fract_x", [])
@@ -1469,9 +1528,15 @@ def scan_cif_disorder(
     )
     site_sym_orders = []
     for i in range(n_atoms):
-        if i < len(site_sym_orders_raw) and site_sym_orders_raw[i] not in [".", "?", None]:
+        if i < len(site_sym_orders_raw) and site_sym_orders_raw[i] not in [
+            ".",
+            "?",
+            None,
+        ]:
             try:
-                site_sym_orders.append(int(_extract_numeric_value(site_sym_orders_raw[i])))
+                site_sym_orders.append(
+                    int(_extract_numeric_value(site_sym_orders_raw[i]))
+                )
             except (ValueError, TypeError):
                 site_sym_orders.append(1)
         else:
@@ -1500,7 +1565,9 @@ def scan_cif_disorder(
         if len(raw) > limit:
             logging.warning(
                 "CIF field %s has %d entries, expected %d; extra ignored.",
-                label, len(raw), limit,
+                label,
+                len(raw),
+                limit,
             )
     _have_custom_soi = len(_raw_molcrys_soi) >= n_atoms or bool(_side_table)
     _have_custom_aid = len(_raw_molcrys_aid) >= n_atoms or bool(_side_table)
@@ -1519,17 +1586,23 @@ def scan_cif_disorder(
             continue
         if _have_custom_soi:
             try:
-                molcrys_sym_op_indices.append(int(_extract_numeric_value(_raw_molcrys_soi[i])))
+                molcrys_sym_op_indices.append(
+                    int(_extract_numeric_value(_raw_molcrys_soi[i]))
+                )
             except (ValueError, TypeError, IndexError):
                 molcrys_sym_op_indices.append(0)
         if _have_custom_aid:
             try:
-                molcrys_asym_ids.append(int(_extract_numeric_value(_raw_molcrys_aid[i])))
+                molcrys_asym_ids.append(
+                    int(_extract_numeric_value(_raw_molcrys_aid[i]))
+                )
             except (ValueError, TypeError, IndexError):
                 molcrys_asym_ids.append(-1)
         if _have_custom_sso:
             try:
-                molcrys_site_sym_orders.append(int(_extract_numeric_value(_raw_molcrys_sso[i])))
+                molcrys_site_sym_orders.append(
+                    int(_extract_numeric_value(_raw_molcrys_sso[i]))
+                )
             except (ValueError, TypeError, IndexError):
                 molcrys_site_sym_orders.append(1)
 
@@ -1589,9 +1662,7 @@ def scan_cif_disorder(
     # Pre-compute the 27 lattice-shift integer offsets used by the
     # minimum-image convention, plus their Cartesian counterparts.  We
     # reuse them on every comparison to avoid rebuilding the shift table.
-    _shifts_frac = np.array(
-        list(itertools.product([-1, 0, 1], repeat=3)), dtype=float
-    )
+    _shifts_frac = np.array(list(itertools.product([-1, 0, 1], repeat=3)), dtype=float)
 
     # For each original atom, apply each symmetry operation
     for i in range(len(labels)):
@@ -1634,9 +1705,7 @@ def scan_cif_disorder(
             all_frac_coords.append(new_coord)
             all_occupancies.append(occupancies[i])
             all_disorder_groups.append(disorder_groups[i])
-            all_assemblies.append(
-                assemblies[i]
-            )  # Copy the assembly ID to the new atom
+            all_assemblies.append(assemblies[i])  # Copy the assembly ID to the new atom
             all_uiso.append(float(asu_uiso[i]))
             all_u_cart.append(_transform_u_cart(asu_u_cart[i], op, lattice))
             all_raw_type_symbols.append(str(raw_type_symbols[i]))
@@ -1688,6 +1757,7 @@ def scan_cif_disorder(
         isotopes=all_isotopes,
         site_formal_charges=all_site_formal_charges,
         cif_chemistry=cif_chemistry,
+        crystal_symmetry=crystal_symmetry,
     )
 
 
@@ -1727,11 +1797,21 @@ def read_mol_crystal(
         Parsed crystal structure with identified molecular units.
     """
     from ..constants.config import (
-        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
-        KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
-        KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z,
-        KEY_UISO, KEY_U_CART,
-        KEY_FORMAL_CHARGE, KEY_FORMAL_CHARGE_KNOWN, KEY_ISOTOPE,
+        KEY_OCCUPANCY,
+        KEY_DISORDER_GROUP,
+        KEY_ASSEMBLY,
+        KEY_LABEL,
+        KEY_SYM_OP_INDEX,
+        KEY_ASYM_ID,
+        KEY_SITE_SYMMETRY_ORDER,
+        KEY_FRAC_X,
+        KEY_FRAC_Y,
+        KEY_FRAC_Z,
+        KEY_UISO,
+        KEY_U_CART,
+        KEY_FORMAL_CHARGE,
+        KEY_FORMAL_CHARGE_KNOWN,
+        KEY_ISOTOPE,
     )
 
     # Extract disorder info — this is now the SOLE authority for atomic
@@ -1743,12 +1823,18 @@ def read_mol_crystal(
 
     if disorder_info.has_disorder:
         if resolve_disorder:
-            from ..analysis.disorder.process import generate_ordered_replicas_from_disordered_sites
+            from ..analysis.disorder.process import (
+                generate_ordered_replicas_from_disordered_sites,
+            )
+
             crystals = generate_ordered_replicas_from_disordered_sites(
-                filepath, generate_count=1, method="optimal",
+                filepath,
+                generate_count=1,
+                method="optimal",
             )
             resolved = crystals[0]
             resolved.metadata["cif_chemistry"] = dict(disorder_info.cif_chemistry)
+            resolved.metadata["crystal_symmetry"] = disorder_info.crystal_symmetry
             from ..chemistry import infer_chemistry
 
             infer_chemistry(resolved)
@@ -1776,28 +1862,39 @@ def read_mol_crystal(
     # issue since everything is from a single CIF expansion pass.
     n = len(symbols)
     assert len(disorder_info.occupancies) == n, (
-        f"DisorderInfo/symbols length mismatch: "
-        f"{len(disorder_info.occupancies)} != {n}"
+        f"DisorderInfo/symbols length mismatch: {len(disorder_info.occupancies)} != {n}"
     )
     atoms.set_array(KEY_OCCUPANCY, np.array(disorder_info.occupancies))
-    atoms.set_array(KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups, dtype=int))
+    atoms.set_array(
+        KEY_DISORDER_GROUP, np.array(disorder_info.disorder_groups, dtype=int)
+    )
     atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies))
     atoms.set_array(KEY_LABEL, np.array(disorder_info.labels))
     if disorder_info.sym_op_indices:
-        atoms.set_array(KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices, dtype=int))
+        atoms.set_array(
+            KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices, dtype=int)
+        )
     if disorder_info.asym_id:
         atoms.set_array(KEY_ASYM_ID, np.array(disorder_info.asym_id, dtype=int))
     if disorder_info.site_symmetry_order:
-        atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.array(disorder_info.site_symmetry_order, dtype=int))
+        atoms.set_array(
+            KEY_SITE_SYMMETRY_ORDER,
+            np.array(disorder_info.site_symmetry_order, dtype=int),
+        )
     atoms.set_array(KEY_UISO, np.asarray(disorder_info.uiso, dtype=float))
-    atoms.set_array(KEY_U_CART, np.asarray(disorder_info.u_cart, dtype=float).reshape(n, 9))
+    atoms.set_array(
+        KEY_U_CART, np.asarray(disorder_info.u_cart, dtype=float).reshape(n, 9)
+    )
     if any(value > 0 for value in disorder_info.isotopes):
         atoms.set_array(KEY_ISOTOPE, np.asarray(disorder_info.isotopes, dtype=int))
     if any(value is not None for value in disorder_info.site_formal_charges):
         atoms.set_array(
             KEY_FORMAL_CHARGE,
             np.asarray(
-                [0 if value is None else value for value in disorder_info.site_formal_charges],
+                [
+                    0 if value is None else value
+                    for value in disorder_info.site_formal_charges
+                ],
                 dtype=int,
             ),
         )
@@ -1818,7 +1915,12 @@ def read_mol_crystal(
     formula_moiety = disorder_info.formula_moiety
 
     # Identify molecular units using graph-based approach
-    molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
+    molecules = identify_molecules(
+        atoms,
+        bond_thresholds=bond_thresholds,
+        max_atoms=max_atoms,
+        bond_scale=bond_scale,
+    )
 
     pbc = (True, True, True)
     crystal = MolecularCrystal(
@@ -1826,7 +1928,10 @@ def read_mol_crystal(
         molecules,
         pbc,
         formula_moiety=formula_moiety,
-        metadata={"cif_chemistry": dict(disorder_info.cif_chemistry)},
+        metadata={
+            "cif_chemistry": dict(disorder_info.cif_chemistry),
+            "crystal_symmetry": disorder_info.crystal_symmetry,
+        },
     )
     from ..chemistry import infer_chemistry
 
@@ -1872,7 +1977,13 @@ def parse_cif_advanced(
         DeprecationWarning,
         stacklevel=2,
     )
-    return read_mol_crystal(filepath, bond_thresholds, max_atoms=max_atoms, bond_scale=1.0, resolve_disorder=False)
+    return read_mol_crystal(
+        filepath,
+        bond_thresholds,
+        max_atoms=max_atoms,
+        bond_scale=1.0,
+        resolve_disorder=False,
+    )
 
 
 def _parse_cif_asu(
@@ -1901,15 +2012,22 @@ def _parse_cif_asu(
         - pymatgen Lattice object
     """
     from ..constants.config import (
-        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
-        KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
-        KEY_UISO, KEY_U_CART,
+        KEY_OCCUPANCY,
+        KEY_DISORDER_GROUP,
+        KEY_ASSEMBLY,
+        KEY_LABEL,
+        KEY_ASYM_ID,
+        KEY_SITE_SYMMETRY_ORDER,
+        KEY_UISO,
+        KEY_U_CART,
     )
 
     # Parse the CIF using pymatgen to get the raw data dictionary
     parser = _pymatgen_cif_parser(
-        filepath, cif_text=cif_text,
-        occupancy_tolerance=1, site_tolerance=1e-2,
+        filepath,
+        cif_text=cif_text,
+        occupancy_tolerance=1,
+        site_tolerance=1e-2,
     )
     cif_data = parser.as_dict()
 
@@ -2006,7 +2124,11 @@ def _parse_cif_asu(
 
     for i in range(n_atoms):
         if i < len(raw_assemblies):
-            assemblies.append(str(raw_assemblies[i]) if raw_assemblies[i] not in [".", "?", None] else "")
+            assemblies.append(
+                str(raw_assemblies[i])
+                if raw_assemblies[i] not in [".", "?", None]
+                else ""
+            )
         else:
             assemblies.append("")
 
@@ -2017,9 +2139,15 @@ def _parse_cif_asu(
     )
     site_sym_orders = []
     for i in range(n_atoms):
-        if i < len(site_sym_orders_raw) and site_sym_orders_raw[i] not in [".", "?", None]:
+        if i < len(site_sym_orders_raw) and site_sym_orders_raw[i] not in [
+            ".",
+            "?",
+            None,
+        ]:
             try:
-                site_sym_orders.append(int(_extract_numeric_value(site_sym_orders_raw[i])))
+                site_sym_orders.append(
+                    int(_extract_numeric_value(site_sym_orders_raw[i]))
+                )
             except (ValueError, TypeError):
                 site_sym_orders.append(1)
         else:
@@ -2085,7 +2213,10 @@ def _identify_molecules_asu_first(
         Parsed crystal structure with identified molecular units.
     """
     from ..constants.config import (
-        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX, KEY_ASYM_ID,
+        KEY_OCCUPANCY,
+        KEY_DISORDER_GROUP,
+        KEY_SYM_OP_INDEX,
+        KEY_ASYM_ID,
         KEY_SITE_SYMMETRY_ORDER,
         KEY_U_CART,
     )
@@ -2130,8 +2261,8 @@ def _identify_molecules_asu_first(
         hydrogen_asym_ids = {int(asym_ids[i]) for i in hydrogens}
         # A hydrogen with its own site stabilizer contributes
         # occupancy * centre_order / hydrogen_order to each centre image.
-        expected_occupancies = (
-            site_orders[hydrogens].astype(float) / int(site_orders[centre])
+        expected_occupancies = site_orders[hydrogens].astype(float) / int(
+            site_orders[centre]
         )
         if (
             not hydrogens
@@ -2228,9 +2359,7 @@ def _identify_molecules_asu_first(
             # special-position centre, so compare their centre only.  Other
             # ASU molecules still require the original atom-wise comparison.
             compare = (
-                [anchor_index]
-                if asu_mol_idx in complete_h_centres
-                else slice(None)
+                [anchor_index] if asu_mol_idx in complete_h_centres else slice(None)
             )
             deltas = ex_frac[compare] - new_frac[compare]
             deltas -= np.round(deltas)
@@ -2263,12 +2392,15 @@ def _identify_molecules_asu_first(
             new_positions = new_frac_coords @ lattice_matrix
 
             # Create the replicated molecule
-            new_mol = CrystalMolecule(Atoms(
-                symbols=asu_mol.get_chemical_symbols(),
-                positions=new_positions,
-                cell=lattice_matrix,
-                pbc=True,
-            ), check_pbc=False)
+            new_mol = CrystalMolecule(
+                Atoms(
+                    symbols=asu_mol.get_chemical_symbols(),
+                    positions=new_positions,
+                    cell=lattice_matrix,
+                    pbc=True,
+                ),
+                check_pbc=False,
+            )
 
             # Preserve generic metadata arrays (skip symop/asym which we set below)
             for key in asu_mol.arrays.keys():
@@ -2284,7 +2416,9 @@ def _identify_molecules_asu_first(
                     new_mol.set_array(key, values)
 
             # Set symmetry operation index (same for all atoms in this replica)
-            new_mol.set_array(KEY_SYM_OP_INDEX, np.full(len(asu_mol), op_idx, dtype=int))
+            new_mol.set_array(
+                KEY_SYM_OP_INDEX, np.full(len(asu_mol), op_idx, dtype=int)
+            )
             # Preserve the original ASU atom IDs
             if KEY_ASYM_ID in asu_mol.arrays:
                 new_mol.set_array(KEY_ASYM_ID, asu_mol.arrays[KEY_ASYM_ID].copy())
@@ -2375,6 +2509,7 @@ def _identify_molecules_asu_first(
 
             # Group by (element, asym_id) for efficient dedup
             from collections import defaultdict
+
             groups: dict = defaultdict(list)
             for idx in range(n_sp):
                 key = (sp_symbols[idx], sp_asym_ids[idx])
