@@ -94,16 +94,18 @@ class MolecularCrystal:
             key: np.asarray(value).copy()
             for key, value in (extra_arrays or {}).items()
         }
+        self._chemistry = None
 
         # Wrap each ASE Atoms object in a CrystalMolecule
         self.molecules = []
-        for mol in molecules:
+        for molecule_index, mol in enumerate(molecules):
             if isinstance(mol, CrystalMolecule):
                 # If it's already a CrystalMolecule, just update the reference
                 # We assume it's already unwrapped correctly.
                 
                 # Ensure the atoms object contains the required disorder metadata arrays
                 self._ensure_disorder_metadata(mol)
+                self._ensure_atom_ids(mol, molecule_index)
                 
                 new_mol = (
                     mol.copy()
@@ -116,7 +118,10 @@ class MolecularCrystal:
                 # If it's a raw ASE Atoms, wrap it
                 # Ensure the atoms object contains the required disorder metadata arrays
                 self._ensure_disorder_metadata(mol)
+                self._ensure_atom_ids(mol, molecule_index)
                 self.molecules.append(CrystalMolecule(mol, self))
+
+        self._deduplicate_atom_ids()
 
     def _ensure_disorder_metadata(self, atoms_obj):
         """
@@ -140,6 +145,49 @@ class MolecularCrystal:
         if KEY_LABEL not in atoms_obj.arrays:
             # Use element symbols as default labels
             atoms_obj.set_array(KEY_LABEL, np.array(atoms_obj.get_chemical_symbols()))
+
+    @staticmethod
+    def _ensure_atom_ids(atoms_obj, molecule_index: int) -> None:
+        """Attach deterministic atom identities when a source has none.
+
+        The array is copied by ASE slicing and by :class:`CrystalMolecule`, so
+        identities survive ordinary MolCrysKit copy/operation paths. Existing
+        caller-provided identities are retained and validated at crystal level.
+        """
+        from ..constants.config import KEY_ATOM_ID
+
+        if KEY_ATOM_ID in atoms_obj.arrays and len(atoms_obj.arrays[KEY_ATOM_ID]) == len(atoms_obj):
+            return
+        atoms_obj.set_array(
+            KEY_ATOM_ID,
+            np.asarray(
+                [f"m{molecule_index}:a{local_index}" for local_index in range(len(atoms_obj))],
+                dtype=str,
+            ),
+        )
+
+    def _deduplicate_atom_ids(self) -> None:
+        """Guarantee identity uniqueness after replication or concatenation."""
+        from ..constants.config import KEY_ATOM_ID
+
+        seen: set[str] = set()
+        for molecule_index, molecule in enumerate(self.molecules):
+            values = [str(value) for value in molecule.arrays[KEY_ATOM_ID]]
+            changed = False
+            for local_index, value in enumerate(values):
+                candidate = value
+                if not candidate or candidate in seen:
+                    candidate = f"{value or 'atom'}~m{molecule_index}:a{local_index}"
+                    suffix = 2
+                    while candidate in seen:
+                        candidate = f"{value or 'atom'}~m{molecule_index}:a{local_index}:{suffix}"
+                        suffix += 1
+                    values[local_index] = candidate
+                    changed = True
+                seen.add(candidate)
+            if changed:
+                del molecule.arrays[KEY_ATOM_ID]
+                molecule.set_array(KEY_ATOM_ID, np.asarray(values, dtype=str))
 
     def __repr__(self):
         """String representation of the molecular crystal."""
@@ -421,7 +469,7 @@ class MolecularCrystal:
         """
         import copy
 
-        return MolecularCrystal(
+        copied = MolecularCrystal(
             lattice=np.asarray(self.lattice, dtype=float).copy(),
             molecules=[molecule.copy() for molecule in self.molecules],
             pbc=tuple(bool(value) for value in self.pbc),
@@ -434,6 +482,13 @@ class MolecularCrystal:
                 for key, value in self.extra_arrays.items()
             },
         )
+        copied._chemistry = self._chemistry
+        return copied
+
+    @property
+    def chemistry(self):
+        """Attached immutable :class:`CrystalChemistry`, when analysed."""
+        return self._chemistry
 
     def _molecule_global_indices(self) -> List[List[int]]:
         """Return each molecule's indices in :meth:`to_ase` ordering."""
@@ -463,6 +518,7 @@ class MolecularCrystal:
         """
         from ..constants.config import (
             KEY_ASSEMBLY,
+            KEY_ATOM_ID,
             KEY_ASYM_ID,
             KEY_DISORDER_GROUP,
             KEY_FRAC_X,
@@ -538,6 +594,7 @@ class MolecularCrystal:
 
                 records.append(
                     SiteRecord(
+                        site_id=str(_array_value(KEY_ATOM_ID, f"g{global_index}")),
                         global_index=int(global_index),
                         molecule_index=molecule_index,
                         local_index=local_index,

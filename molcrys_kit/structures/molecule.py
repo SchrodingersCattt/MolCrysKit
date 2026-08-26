@@ -7,7 +7,7 @@ This module defines the CrystalMolecule class which represents a rigid body of a
 import copy
 
 import numpy as np
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 import networkx as nx
 
 from ase import Atoms
@@ -20,6 +20,9 @@ from ..constants import (
     DEFAULT_NEIGHBOR_CUTOFF,
 )
 from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
+
+if TYPE_CHECKING:
+    from ..chemistry import FiniteChemicalEntity
 
 
 def _strip_stale_frac_arrays(atoms_obj) -> None:
@@ -116,6 +119,10 @@ class CrystalMolecule(Atoms):
         if getattr(self, "_topo_signature", None) is not None:
             new_mol._topo_signature = self._topo_signature
 
+        # Chemical entities are immutable snapshots, so sharing the reference
+        # is safe and preserves stable atom identities across geometry copies.
+        new_mol.chemical_entity = self.chemical_entity
+
         return new_mol
 
     def to_ase(self) -> Atoms:
@@ -144,7 +151,12 @@ class CrystalMolecule(Atoms):
         )
 
     def __init__(
-        self, atoms: Atoms = None, crystal=None, check_pbc: bool = True, **kwargs
+        self,
+        atoms: Atoms = None,
+        crystal=None,
+        check_pbc: bool = True,
+        chemical_entity: "FiniteChemicalEntity | None" = None,
+        **kwargs,
     ):
         """
         Initialize a CrystalMolecule.
@@ -158,6 +170,9 @@ class CrystalMolecule(Atoms):
         check_pbc : bool, default True
             Whether to check and fix PBC wrapping. Set to False if atoms are
             already known to be contiguous (unwrapped).
+        chemical_entity : FiniteChemicalEntity, optional
+            Immutable chemistry snapshot sharing this molecule's stable atom
+            identities. The constructor never infers chemistry implicitly.
         **kwargs : dict
             Additional arguments passed to ASE Atoms constructor.
         """
@@ -188,6 +203,7 @@ class CrystalMolecule(Atoms):
 
         self.crystal = crystal
         self._graph = None
+        self.chemical_entity = chemical_entity
 
         if check_pbc:
             self._adjust_positions_for_pbc()

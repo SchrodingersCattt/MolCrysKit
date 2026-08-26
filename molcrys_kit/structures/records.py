@@ -26,6 +26,7 @@ class SiteRecord:
     to make the molecule contiguous.
     """
 
+    site_id: str
     global_index: int
     molecule_index: int
     local_index: int

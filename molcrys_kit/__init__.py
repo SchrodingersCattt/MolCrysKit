@@ -26,6 +26,11 @@ from .structures.crystal import MolecularCrystal
 from .structures.trajectory import CrystalTrajectory
 from .structures.records import BondRecord, SiteRecord
 from .io.cif import read_mol_crystal
+from .chemistry import (
+    ChemistryIndeterminateError,
+    CrystalChemistry,
+    annotate_chemistry,
+)
 
 # For backward compatibility
 Molecule = CrystalMolecule
@@ -38,6 +43,9 @@ __all__ = [
     "BondRecord",
     "SiteRecord",
     "read_mol_crystal",
+    "ChemistryIndeterminateError",
+    "CrystalChemistry",
+    "annotate_chemistry",
     # Backward compatibility
     "Molecule",
 ]
