@@ -12,6 +12,15 @@ from .cluster import CrystalCluster, ClusterProvenance
 from .polyhedra import all_ideal_polyhedra, convex_hull_payload, ideal_polyhedra_for_cn
 from .trajectory import CrystalTrajectory
 from .records import BondRecord, SiteRecord
+from .bond import (
+    BondCandidates,
+    BondPairs,
+    VerletBondTracker,
+    build_bond_candidates,
+    candidate_list_needs_rebuild,
+    evaluate_bond_candidates,
+    infer_bond_pairs,
+)
 from .symmetry import (
     CrystalSymmetry,
     FractionalAffineOperation,
@@ -37,7 +46,14 @@ __all__ = [
     "ideal_polyhedra_for_cn",
     "CrystalTrajectory",
     "BondRecord",
+    "BondCandidates",
+    "BondPairs",
     "SiteRecord",
+    "VerletBondTracker",
+    "build_bond_candidates",
+    "candidate_list_needs_rebuild",
+    "evaluate_bond_candidates",
+    "infer_bond_pairs",
     "CrystalSymmetry",
     "FractionalAffineOperation",
     "LatticeBasisChange",
