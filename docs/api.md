@@ -27,6 +27,7 @@
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
 | Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / notation | `LineNotation` / chemical entity | source docstring |
+| Name an entity or crystal | `name_entity`, `name_crystal` | chemical entity / crystal | `NamingResult` | source docstring |
 | Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
@@ -70,9 +71,9 @@ Core crystal data model.
 ### `mck.chemistry`
 Independent immutable chemistry records and crystal-to-chemistry mapping.
 
-- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`
+- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
-- Analysis: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`
+- Analysis: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `name_entity`, `name_crystal`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`
 
 ### `mck.io`
 Read/write interfaces.

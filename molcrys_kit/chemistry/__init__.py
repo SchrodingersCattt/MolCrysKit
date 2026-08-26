@@ -19,6 +19,13 @@ from .line_notation import (
     from_line_notation,
     to_line_notation,
 )
+from .naming import (
+    NamingIndeterminateError,
+    NamingKind,
+    NamingResult,
+    name_crystal,
+    name_entity,
+)
 from .topology import PeriodicTopology, analyze_periodic_topology
 from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
 from .models import (
@@ -58,6 +65,9 @@ __all__ = [
     "InferenceStatus",
     "LineNotation",
     "LineNotationError",
+    "NamingIndeterminateError",
+    "NamingKind",
+    "NamingResult",
     "MulticomponentEntity",
     "PeriodicChemicalEntity",
     "PeriodicTopology",
@@ -70,6 +80,8 @@ __all__ = [
     "classify_entity_relationship",
     "infer_chemistry",
     "from_line_notation",
+    "name_crystal",
+    "name_entity",
     "analyze_periodic_topology",
     "assign_stereochemistry",
     "to_line_notation",
