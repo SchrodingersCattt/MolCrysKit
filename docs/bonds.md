@@ -19,14 +19,19 @@ bonds = tracker.update(
 # bonds.distances: float32 (M,)
 ```
 
+The tracker retains the candidate-pair array and reference positions between
+frames. Call `tracker.clear()` to release that memory when reuse is no longer
+needed.
+
 The API uses MolCrysKit atomic radii and metal/non-metal threshold factors.
 `VerletBondTracker` evaluates distances every frame and rebuilds its candidate
 list when any displacement exceeds half the skin, or when the cell or PBC
-changes. It therefore detects both bond formation and bond breaking without
-duplicating chemistry rules in a caller.
+changes. Candidate distances are evaluated on every frame, so both bond
+formation and bond breaking are detected without duplicating chemistry rules
+in a caller.
 
 `infer_bond_pairs` is the stateless one-frame entry point.
 `build_bond_candidates` plus `evaluate_bond_candidates` exposes the two
-stages for callers that manage their own trajectory state. Orthogonal cells use
-a periodic cKDTree fast path; triclinic cells use the ASE neighbour-list path.
-
+stages for callers that manage their own trajectory state. Axis-aligned
+orthogonal cells use a periodic cKDTree fast path; rotated or triclinic cells
+use the ASE neighbour-list path.

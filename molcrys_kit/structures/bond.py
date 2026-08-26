@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.spatial import cKDTree
 
 from ..constants import (
     METAL_ELEMENTS,
-    METAL_NON_METAL_THRESHOLD_FACTOR,
-    METAL_THRESHOLD_FACTOR,
-    NON_METAL_THRESHOLD_FACTOR,
     get_atomic_radius,
     has_atomic_radius,
 )
+from ..constants.config import BONDING_CONFIG
+
+_DEFAULT_ATOMIC_RADIUS = float(BONDING_CONFIG["DEFAULT_ATOMIC_RADIUS"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +54,7 @@ class BondCandidates:
     pbc: np.ndarray
     skin: float
     search_cutoff: float
+    inverse_cell: np.ndarray = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         pairs = np.ascontiguousarray(self.pairs, dtype=np.int32)
@@ -69,24 +70,31 @@ class BondCandidates:
             raise ValueError("atomic_numbers must have shape (N,)")
         if cell.shape != (3, 3) or pbc.shape != (3,):
             raise ValueError("cell and pbc must have shapes (3, 3) and (3,)")
-        for array in (pairs, positions, numbers, cell, pbc):
+        inverse_cell = np.linalg.inv(cell) if np.any(pbc) else np.eye(3)
+        inverse_cell = np.ascontiguousarray(inverse_cell, dtype=np.float64)
+        for array in (pairs, positions, numbers, cell, pbc, inverse_cell):
             array.setflags(write=False)
         object.__setattr__(self, "pairs", pairs)
         object.__setattr__(self, "reference_positions", positions)
         object.__setattr__(self, "atomic_numbers", numbers)
         object.__setattr__(self, "cell", cell)
         object.__setattr__(self, "pbc", pbc)
+        object.__setattr__(self, "inverse_cell", inverse_cell)
 
 
 def _element_tables() -> tuple[np.ndarray, np.ndarray]:
     from ase.data import chemical_symbols
 
-    radii = np.full(len(chemical_symbols), 0.5, dtype=np.float64)
+    radii = np.full(len(chemical_symbols), _DEFAULT_ATOMIC_RADIUS, dtype=np.float64)
     metals = np.zeros(len(chemical_symbols), dtype=bool)
     for number, symbol in enumerate(chemical_symbols):
         if number == 0 or not symbol:
             continue
-        radii[number] = get_atomic_radius(symbol) if has_atomic_radius(symbol) else 0.5
+        radii[number] = (
+            get_atomic_radius(symbol)
+            if has_atomic_radius(symbol)
+            else _DEFAULT_ATOMIC_RADIUS
+        )
         metals[number] = symbol in METAL_ELEMENTS
     return radii, metals
 
@@ -124,27 +132,24 @@ def _validate_inputs(
 
 
 def _thresholds(first: np.ndarray, second: np.ndarray) -> np.ndarray:
-    first_metal = _METALS[first]
-    second_metal = _METALS[second]
-    factors = np.where(
-        first_metal & second_metal,
-        METAL_THRESHOLD_FACTOR,
-        np.where(
-            first_metal | second_metal,
-            METAL_NON_METAL_THRESHOLD_FACTOR,
-            NON_METAL_THRESHOLD_FACTOR,
-        ),
+    from ..analysis.interactions.bonding import get_bonding_thresholds
+
+    return get_bonding_thresholds(
+        _RADII[first],
+        _RADII[second],
+        _METALS[first],
+        _METALS[second],
     )
-    return (_RADII[first] + _RADII[second]) * factors
 
 
 def _maximum_threshold(numbers: np.ndarray) -> float:
     present = np.unique(numbers)
-    first, second = np.meshgrid(present, present, indexing="ij")
-    return float(np.max(_thresholds(first.ravel(), second.ravel())))
+    first, second = np.triu_indices(len(present))
+    return float(np.max(_thresholds(present[first], present[second])))
 
 
-def _is_orthogonal(cell: np.ndarray) -> bool:
+def _is_axis_aligned_orthogonal(cell: np.ndarray) -> bool:
+    """Return whether ``cell`` is compatible with cKDTree's axis-aligned box."""
     off_diagonal = cell - np.diag(np.diag(cell))
     return bool(np.max(np.abs(off_diagonal)) <= 1.0e-10)
 
@@ -172,6 +177,8 @@ def _orthogonal_candidates(
             minimum = float(data[:, axis].min(initial=0.0))
             maximum = float(data[:, axis].max(initial=0.0))
             data[:, axis] = data[:, axis] - minimum + cutoff
+            # cKDTree requires every coordinate to lie strictly inside boxsize;
+            # 2*cutoff also gives zero-width non-periodic data a valid box.
             box[axis] = max(maximum - minimum + 2.0 * cutoff, 2.0 * cutoff)
             box[axis] += max(1.0e-8, cutoff * 1.0e-8)
     pairs = cKDTree(data, boxsize=box).query_pairs(cutoff, output_type="ndarray")
@@ -219,7 +226,7 @@ def build_bond_candidates(
         positions, atomic_numbers, cell, pbc
     )
     search_cutoff = _maximum_threshold(numbers) + float(skin)
-    if _is_orthogonal(matrix):
+    if _is_axis_aligned_orthogonal(matrix):
         pairs = _orthogonal_candidates(
             positions,
             cell=matrix,
@@ -249,12 +256,12 @@ def _minimum_image_vectors(
     positions: np.ndarray,
     pairs: np.ndarray,
     cell: np.ndarray,
+    inverse_cell: np.ndarray,
     pbc: np.ndarray,
 ) -> np.ndarray:
     vectors = positions[pairs[:, 1]] - positions[pairs[:, 0]]
     if len(vectors) and np.any(pbc):
-        inverse = np.linalg.inv(cell)
-        fractional = vectors @ inverse
+        fractional = vectors @ inverse_cell
         fractional[:, pbc] -= np.rint(fractional[:, pbc])
         vectors = fractional @ cell
     return vectors
@@ -280,7 +287,13 @@ def evaluate_bond_candidates(
     if not np.array_equal(numbers, candidates.atomic_numbers):
         raise ValueError("atomic_numbers changed relative to the candidate list")
     pairs = candidates.pairs
-    vectors = _minimum_image_vectors(positions, pairs, matrix, periodic)
+    vectors = _minimum_image_vectors(
+        positions,
+        pairs,
+        matrix,
+        candidates.inverse_cell,
+        periodic,
+    )
     distances = np.linalg.norm(vectors, axis=1)
     limits = _thresholds(numbers[pairs[:, 0]], numbers[pairs[:, 1]])
     keep = distances < limits
@@ -312,8 +325,7 @@ def candidate_list_needs_rebuild(
         return True
     displacement = positions - candidates.reference_positions
     if np.any(periodic):
-        inverse = np.linalg.inv(matrix)
-        fractional = displacement @ inverse
+        fractional = displacement @ candidates.inverse_cell
         fractional[:, periodic] -= np.rint(fractional[:, periodic])
         displacement = fractional @ matrix
     maximum = float(np.linalg.norm(displacement, axis=1).max(initial=0.0))
@@ -321,7 +333,12 @@ def candidate_list_needs_rebuild(
 
 
 class VerletBondTracker:
-    """Stateful bond inference that safely reuses candidate pairs."""
+    """Stateful bond inference that safely reuses candidate pairs.
+
+    Every frame re-evaluates candidate distances, so both bond formation and
+    breaking are detected immediately. Rebuilding protects against pairs that
+    were outside the search shell entering bonding range.
+    """
 
     def __init__(self, *, skin: float = 0.5):
         if not np.isfinite(skin) or skin <= 0.0:
@@ -329,6 +346,10 @@ class VerletBondTracker:
         self.skin = float(skin)
         self.candidates: BondCandidates | None = None
         self.rebuild_count = 0
+
+    def clear(self) -> None:
+        """Release the retained candidate pairs and reference frame."""
+        self.candidates = None
 
     def update(
         self,

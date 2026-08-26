@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from ase import Atoms
+from ase.data import atomic_numbers
 
 from molcrys_kit.structures import (
     VerletBondTracker,
@@ -15,6 +16,7 @@ from molcrys_kit.constants import (
     is_metal_element,
 )
 from molcrys_kit.structures import CrystalMolecule
+from molcrys_kit.structures.bond import _thresholds
 
 
 def _threshold(first: str, second: str) -> float:
@@ -47,6 +49,14 @@ def test_bond_pairs_strictly_match_existing_molecule_graph() -> None:
     assert not batch.pairs.flags.writeable
 
 
+def test_vectorized_thresholds_match_scalar_authority() -> None:
+    symbols = [("Fe", "Fe"), ("Na", "Cl"), ("C", "H")]
+    first = np.asarray([atomic_numbers[left] for left, _ in symbols])
+    second = np.asarray([atomic_numbers[right] for _, right in symbols])
+    expected = np.asarray([_threshold(left, right) for left, right in symbols])
+    np.testing.assert_allclose(_thresholds(first, second), expected)
+
+
 def test_verlet_reuses_candidates_for_bond_formation_then_rebuilds() -> None:
     limit = _threshold("C", "H")
     numbers = np.asarray([6, 1], dtype=np.uint8)
@@ -55,15 +65,24 @@ def test_verlet_reuses_candidates_for_bond_formation_then_rebuilds() -> None:
 
     assert len(tracker.update(positions, numbers).pairs) == 0
     assert tracker.rebuild_count == 1
+    assert tracker.candidates is not None
+    assert not candidate_list_needs_rebuild(tracker.candidates, positions)
 
     positions[1, 0] = limit - 0.03
+    assert not candidate_list_needs_rebuild(tracker.candidates, positions)
     bonded = tracker.update(positions, numbers)
     assert bonded.pairs.tolist() == [[0, 1]]
     assert tracker.rebuild_count == 1
 
     positions[1, 0] = limit + 1.0
+    assert candidate_list_needs_rebuild(tracker.candidates, positions)
     assert len(tracker.update(positions, numbers).pairs) == 0
     assert tracker.rebuild_count == 2
+
+    tracker.clear()
+    assert tracker.candidates is None
+    tracker.update(positions, numbers)
+    assert tracker.rebuild_count == 3
 
 
 def test_cell_change_and_skin_displacement_trigger_rebuild() -> None:
@@ -77,6 +96,8 @@ def test_cell_change_and_skin_displacement_trigger_rebuild() -> None:
         pbc=(True, True, True),
         skin=0.4,
     )
+    np.testing.assert_allclose(candidates.inverse_cell, np.linalg.inv(cell))
+    assert not candidates.inverse_cell.flags.writeable
     small_move = positions.copy()
     small_move[1, 0] += 0.19
     assert not candidate_list_needs_rebuild(
@@ -128,3 +149,24 @@ def test_triclinic_periodic_candidate_fallback_is_correct() -> None:
     )
     assert batch.pairs.tolist() == [[0, 1]]
     np.testing.assert_allclose(batch.distances[0], 0.3, atol=1.0e-6)
+
+
+def test_rotated_orthogonal_cell_uses_general_periodic_path() -> None:
+    angle = np.pi / 4.0
+    rotation = np.asarray(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    cell = np.diag([10.0, 4.0, 4.0]) @ rotation
+    positions = np.asarray([[0.01, 0.5, 0.5], [0.99, 0.5, 0.5]]) @ cell
+    batch = infer_bond_pairs(
+        positions,
+        np.asarray([6, 1]),
+        cell=cell,
+        pbc=(True, True, True),
+    )
+    assert batch.pairs.tolist() == [[0, 1]]
+    np.testing.assert_allclose(batch.distances[0], 0.2, atol=1.0e-6)

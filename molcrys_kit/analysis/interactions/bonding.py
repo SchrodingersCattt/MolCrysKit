@@ -1,10 +1,33 @@
 """Bonding-distance utilities shared by topology and interaction analysis."""
 
+import numpy as np
+
 from ...constants import (
     METAL_NON_METAL_THRESHOLD_FACTOR,
     METAL_THRESHOLD_FACTOR,
     NON_METAL_THRESHOLD_FACTOR,
 )
+
+
+def get_bonding_thresholds(
+    radius_i: np.ndarray | float,
+    radius_j: np.ndarray | float,
+    is_metal_i: np.ndarray | bool,
+    is_metal_j: np.ndarray | bool,
+) -> np.ndarray:
+    """Return bonding thresholds for broadcast-compatible array inputs."""
+    first_metal = np.asarray(is_metal_i, dtype=bool)
+    second_metal = np.asarray(is_metal_j, dtype=bool)
+    factors = np.where(
+        first_metal & second_metal,
+        METAL_THRESHOLD_FACTOR,
+        np.where(
+            first_metal | second_metal,
+            METAL_NON_METAL_THRESHOLD_FACTOR,
+            NON_METAL_THRESHOLD_FACTOR,
+        ),
+    )
+    return (np.asarray(radius_i) + np.asarray(radius_j)) * factors
 
 
 def get_bonding_threshold(
@@ -35,11 +58,4 @@ def get_bonding_threshold(
     float
         The bonding threshold distance, in Å.
     """
-    if is_metal_i and is_metal_j:
-        factor = METAL_THRESHOLD_FACTOR
-    elif not is_metal_i and not is_metal_j:
-        factor = NON_METAL_THRESHOLD_FACTOR
-    else:
-        factor = METAL_NON_METAL_THRESHOLD_FACTOR
-
-    return (radius_i + radius_j) * factor
+    return float(get_bonding_thresholds(radius_i, radius_j, is_metal_i, is_metal_j))
