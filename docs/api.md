@@ -25,6 +25,7 @@
 | Infer bond orders and formal charges | `infer_chemistry` | `MolecularCrystal` | `CrystalChemistry` with alternatives/warnings | source docstring |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
+| Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
 | Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
@@ -68,9 +69,9 @@ Core crystal data model.
 ### `mck.chemistry`
 Independent immutable chemistry records and crystal-to-chemistry mapping.
 
-- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`
+- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
-- Analysis: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `ChemistryIndeterminateError`
+- Analysis: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`
 
 ### `mck.io`
 Read/write interfaces.

@@ -28,15 +28,21 @@ from .structures.records import BondRecord, SiteRecord
 from .io.cif import read_mol_crystal
 from .chemistry import (
     ChemistryIndeterminateError,
+    CrystalStereoClass,
+    CrystalStereoIndeterminateError,
+    CrystalStereoReport,
+    EntityRelationship,
     CrystalChemistry,
     PeriodicTopology,
     StereoDescriptor,
     StereoKind,
     StereoReport,
     analyze_periodic_topology,
+    analyze_crystal_stereochemistry,
     assign_stereochemistry,
     annotate_chemistry,
     infer_chemistry,
+    classify_entity_relationship,
 )
 
 # For backward compatibility
@@ -52,14 +58,20 @@ __all__ = [
     "read_mol_crystal",
     "ChemistryIndeterminateError",
     "CrystalChemistry",
+    "CrystalStereoClass",
+    "CrystalStereoIndeterminateError",
+    "CrystalStereoReport",
+    "EntityRelationship",
     "PeriodicTopology",
     "StereoDescriptor",
     "StereoKind",
     "StereoReport",
     "analyze_periodic_topology",
+    "analyze_crystal_stereochemistry",
     "assign_stereochemistry",
     "annotate_chemistry",
     "infer_chemistry",
+    "classify_entity_relationship",
     # Backward compatibility
     "Molecule",
 ]
