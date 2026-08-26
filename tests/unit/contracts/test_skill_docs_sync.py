@@ -18,7 +18,7 @@ import pytest
 
 from molcrys_kit.cli import main as cli_main
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILLS_ROOT = REPO_ROOT / "skills"
 DOCS_CLI = REPO_ROOT / "docs" / "cli.md"
 

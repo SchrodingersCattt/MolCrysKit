@@ -1,6 +1,6 @@
 """Dump every regression CIF through optimal/random/enumerate modes.
 
-For each case in `tests/unit/test_disorder_regression.CASES` this script
+For each case in `tests.unit.analysis.test_disorder_regression.CASES` this script
 generates ordered replicas with all three solver methods and writes the
 resulting structures plus a per-mode summary into
 `output/disorder_dump/<case>/`.
@@ -29,7 +29,7 @@ from molcrys_kit.analysis.disorder.process import (  # noqa: E402
     generate_ordered_replicas_from_disordered_sites,
 )
 from molcrys_kit.io import write_cif  # noqa: E402
-from tests.unit.test_disorder_regression import CASES  # noqa: E402
+from tests.unit.analysis.test_disorder_regression import CASES  # noqa: E402
 
 
 CIF_DATA_DIR = ROOT / "tests" / "data" / "cif"

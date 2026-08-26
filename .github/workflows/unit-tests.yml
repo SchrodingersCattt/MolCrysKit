@@ -2,8 +2,6 @@ name: unit-tests
 
 on:
   push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -36,8 +34,8 @@ jobs:
       - name: Check docs and skill contracts
         run: |
           pytest \
-            tests/unit/test_docs_api_sync.py \
-            tests/unit/test_skill_docs_sync.py \
+            tests/unit/contracts/test_docs_api_sync.py \
+            tests/unit/contracts/test_skill_docs_sync.py \
             -v --timeout=180
 
   unit-tests:
@@ -65,12 +63,5 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[test]"
 
-      - name: Run unit tests with coverage
-        if: matrix.python-version == '3.12'
-        env:
-          COVERAGE_CORE: sysmon
-        run: pytest tests/unit --cov=molcrys_kit --cov-report=term-missing -n 8 --dist worksteal --timeout=180
-
       - name: Run unit tests
-        if: matrix.python-version != '3.12'
-        run: pytest tests/unit -n 8 --dist worksteal --timeout=180
+        run: pytest tests/unit --cov=molcrys_kit --cov-report=term-missing -n 8 --dist loadfile --timeout=180

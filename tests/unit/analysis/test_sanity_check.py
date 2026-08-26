@@ -338,7 +338,7 @@ class TestRealStructureSmoke:
         from pathlib import Path
         from molcrys_kit.io.cif import read_mol_crystal
 
-        cif_path = Path(__file__).parents[1] / "data" / "cif" / request.param
+        cif_path = Path(__file__).resolve().parents[2] / "data" / "cif" / request.param
         if not cif_path.exists():
             pytest.skip(f"{request.param} not found")
         return read_mol_crystal(str(cif_path))

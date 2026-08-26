@@ -1,6 +1,6 @@
 ---
 name: operate-molecular-crystal
-description: 'Generate or modify molecular crystal models with MolCrysKit. Use when resolving CIF disorder into ordered replicas, completing hydrogen atoms, generating topology-preserving surface slabs, carving finite nanoparticles or shaped voids, carving H-capped QM clusters, creating supercells, vacancies or desolvated structures, reorienting crystals, interpolating structures, translating, rotating or replacing molecules, or converting CIF, POSCAR, XYZ and ExtXYZ files. Covers organic crystals, multicomponent crystals, hybrids, MOF-like structures and polyatomic-ion salts, with operation-specific network limitations.'
+description: "Use before editing molecular, ionic, or framework crystals: resolve disorder, add H, cut slabs or capped clusters, remove solvent, guests, or molecules, create defects, reorient, interpolate, or convert structures."
 ---
 
 # Operate on Molecular Crystals

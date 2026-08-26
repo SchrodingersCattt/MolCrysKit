@@ -12,7 +12,7 @@ from molcrys_kit.analysis.disorder.process import (
 from molcrys_kit.io.cif import scan_cif_disorder
 
 
-CIF_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
+CIF_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "cif"
 
 
 def _formula(symbols: list[str]) -> str:

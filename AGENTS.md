@@ -31,7 +31,7 @@ tests/unit/           Pytest regression suite
   should prefer `mck` commands and probe the installed command with `--help`.
 - Python examples must import names exported through the target module's
   `__all__`; update `docs/api.md` when changing public exports.
-- Run `pytest tests/unit/test_docs_api_sync.py tests/unit/test_skill_docs_sync.py`
+- Run `pytest tests/unit/contracts/test_docs_api_sync.py tests/unit/contracts/test_skill_docs_sync.py`
   after changing CLI commands, public APIs, skills, or bundled skill scripts.
 
 ---
@@ -42,7 +42,7 @@ tests/unit/           Pytest regression suite
 - Assume test cases may involve unpublished research;
   sanitize committed data and avoid revealing system details in PRs.
 - Every bug-fix or new structural motif must add a regression case in
-  `tests/unit/test_disorder_regression.py`: a `CifCase` entry **and** a
+  `tests/unit/analysis/test_disorder_regression.py`: a `CifCase` entry **and** a
   targeted `test_<material>_topology()` that asserts per-molecule formula
   counts.
 - The corresponding CIF must be copied to `tests/data/cif/`.
@@ -76,13 +76,13 @@ tests/unit/           Pytest regression suite
   and optionally add a detailed tutorial in `docs/tutorials.md`.
 - When adding or changing a CLI subcommand, update `docs/cli.md` and the
   README CLI overview if the command tree changes, and add a smoke or
-  regression test in `tests/unit/test_cli.py`.
+  regression test in `tests/unit/cli/test_cli.py`.
 - The Module Index should stay in sync with each sub-package `__init__.py`
   `__all__` list.
-- **CI validates this automatically**: `tests/unit/test_docs_api_sync.py`
+- **CI validates this automatically**: `tests/unit/contracts/test_docs_api_sync.py`
   compares every `__all__` symbol against `docs/api.md` Module Index sections
   and verifies all CLI subcommands are listed in `docs/cli.md`.
-  Run `pytest tests/unit/test_docs_api_sync.py -v` locally before pushing.
+  Run `pytest tests/unit/contracts/test_docs_api_sync.py -v` locally before pushing.
 
 ---
 

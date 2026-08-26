@@ -211,7 +211,7 @@ def test_search_mode_evaluates_greedy_for_k4():
 
 def test_optional_cif_fixtures_are_available_for_manual_regression():
     cif_data_dir = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "data", "cif")
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "cif")
     )
     required = [
         "DAP-4.cif",

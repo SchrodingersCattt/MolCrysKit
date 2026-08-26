@@ -236,7 +236,7 @@ class TestIdentifyMoleculesFromAtoms:
 
     def test_dense_caffeine_disorder_has_bounded_bond_candidates(self, monkeypatch):
         cif_path = (
-            Path(__file__).parent.parent
+            Path(__file__).resolve().parents[2]
             / "data"
             / "cif"
             / "anhydrousCaffeine2_CGD_2007_7_1406.cif"
