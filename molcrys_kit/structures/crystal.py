@@ -978,8 +978,26 @@ class MolecularCrystal:
             else:
                 atoms.info["disorder_provenance"] = str(self.disorder_provenance)
 
-        bond_records = self.get_bond_records()
-        if bond_records:
+        # Ordinary simple graphs are reconstructed on import. Preserve full
+        # provenance only when graph topology cannot express every contact.
+        has_non_simple_bonds = False
+        for molecule in self.molecules:
+            seen_pairs = set()
+            for raw in molecule.info.get("bond_records", ()):
+                try:
+                    left = int(raw["left"])
+                    right = int(raw["right"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                pair = (min(left, right), max(left, right))
+                if left == right or pair in seen_pairs:
+                    has_non_simple_bonds = True
+                    break
+                seen_pairs.add(pair)
+            if has_non_simple_bonds:
+                break
+        if has_non_simple_bonds:
+            bond_records = self.get_bond_records()
             atoms.info[_BOND_RECORDS_INFO_KEY] = [
                 {
                     "molecule_index": record.molecule_index,
