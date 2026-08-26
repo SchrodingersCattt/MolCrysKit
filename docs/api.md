@@ -49,6 +49,7 @@
 Core crystal data model.
 
 - Core: `MolAtom`, `CrystalMolecule`, `MolecularCrystal`, `CrystalTrajectory`, `Molecule`
+- Bonds: `BondPairs`, `BondCandidates`, `VerletBondTracker`, `build_bond_candidates`, `candidate_list_needs_rebuild`, `evaluate_bond_candidates`, `infer_bond_pairs`; see [Bond inference](bonds.md)
 - Renderer contracts: `SiteRecord`, `BondRecord`; use `MolecularCrystal.get_site_records()` and `MolecularCrystal.get_bond_records()` instead of private ASE metadata.
   - `SiteRecord` identifies one atom by global, molecule-local, and ASU-source indices and carries label/symmetry provenance, Cartesian and fractional coordinates, occupancy/disorder metadata, lattice image shift, uiso_A2, and Cartesian u_cart_A2.
   - `BondRecord` carries molecule-local and global endpoints, ASU-source endpoints when known, the right-end lattice image shift, Cartesian bond vector, and distance.
@@ -89,7 +90,6 @@ spatial molecular vacancy or `carve_void` for a shaped, stoichiometric void.
 Analysis workflows and selected re-exports. Interaction-specific exports are listed under `mck.analysis.interactions`.
 
 - Facets/shape: `BFDHFacetInfo`, `enumerate_bfdh_facets` (accepts explicit parent symmetry), `enumerate_low_index_millers`, `classify_shell`, `cshm`, `topology_signature`
-- Array bonds: `BondBatch`, `BondCandidateList`, `VerletBondTracker`, `build_bond_candidates`, `candidate_list_needs_rebuild`, `evaluate_bond_candidates`, `infer_bond_pairs`; see [Array bond inference](array-bonds.md)
 - Chemistry/formula/charge: `ChemicalEnvironment`, `StoichiometryAnalyzer`, `FormulaUnitMember`, `FormulaUnitSelection`, `Fragment`, `parse_moiety_string`, `match_molecule_to_fragment`, `heavy_signature`, `MolChargeResult`, `assign_mol_formal_charges`, `compute_topo_signature`
 - Packing/polyhedra: `find_polyhedra`, `detect_coordination_number`, `detect_prism_vs_antiprism`, `angular_rmsd_vs_ideals`, `compute_angular_signature`, `hull_encloses_center`, `planarity_analysis`, `DEFAULT_POLYHEDRON_SEARCH_CUTOFF`, `DEFAULT_MOLECULAR_SEARCH_CUTOFF`, `DEFAULT_CENTROID_OFFSET_FRAC`
 - Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `RingCycleLimitError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`

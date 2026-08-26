@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ase import Atoms
 
-from molcrys_kit.analysis import (
+from molcrys_kit.structures import (
     VerletBondTracker,
     build_bond_candidates,
     candidate_list_needs_rebuild,
@@ -26,7 +26,7 @@ def _threshold(first: str, second: str) -> float:
     )
 
 
-def test_array_pairs_strictly_match_existing_molecule_graph() -> None:
+def test_bond_pairs_strictly_match_existing_molecule_graph() -> None:
     atoms = Atoms(
         symbols=["O", "H", "H"],
         positions=[[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]],

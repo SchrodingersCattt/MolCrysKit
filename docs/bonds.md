@@ -1,10 +1,11 @@
-# Array bond inference
+# Bond inference
 
-Use the array API when a trajectory renderer or numerical pipeline needs bond
-pairs without a NetworkX graph or per-bond Python records.
+Use this API when a trajectory renderer or numerical pipeline needs bond pairs
+without a NetworkX graph or per-bond Python records. Arrays are the default
+representation for positions, atomic numbers, pairs, vectors, and distances.
 
 ```python
-from molcrys_kit.analysis import VerletBondTracker
+from molcrys_kit.structures import VerletBondTracker
 
 tracker = VerletBondTracker(skin=0.5)
 bonds = tracker.update(

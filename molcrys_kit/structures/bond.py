@@ -1,4 +1,4 @@
-"""Array-oriented bond inference with a safe Verlet candidate list."""
+"""Bond pairs and trajectory-aware bond inference."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from ..constants import (
 
 
 @dataclass(frozen=True, slots=True)
-class BondBatch:
+class BondPairs:
     """Contiguous bond pairs, minimum-image vectors, and distances."""
 
     pairs: np.ndarray
@@ -44,7 +44,7 @@ class BondBatch:
 
 
 @dataclass(frozen=True, slots=True)
-class BondCandidateList:
+class BondCandidates:
     """Pairs that can become bonded before the Verlet skin is exhausted."""
 
     pairs: np.ndarray
@@ -211,7 +211,7 @@ def build_bond_candidates(
     cell: np.ndarray | None = None,
     pbc: np.ndarray | tuple[bool, bool, bool] = (False, False, False),
     skin: float = 0.5,
-) -> BondCandidateList:
+) -> BondCandidates:
     """Build a candidate list containing every pair that can become bonded."""
     if not np.isfinite(skin) or skin < 0.0:
         raise ValueError("skin must be finite and non-negative")
@@ -234,7 +234,7 @@ def build_bond_candidates(
             pbc=periodic,
             cutoff=search_cutoff,
         )
-    return BondCandidateList(
+    return BondCandidates(
         pairs=pairs,
         reference_positions=positions,
         atomic_numbers=numbers,
@@ -261,10 +261,10 @@ def _minimum_image_vectors(
 
 
 def evaluate_bond_candidates(
-    candidates: BondCandidateList,
+    candidates: BondCandidates,
     positions: np.ndarray,
     atomic_numbers: np.ndarray | None = None,
-) -> BondBatch:
+) -> BondPairs:
     """Recompute distances and threshold decisions for one trajectory frame."""
     numbers = (
         candidates.atomic_numbers
@@ -284,7 +284,7 @@ def evaluate_bond_candidates(
     distances = np.linalg.norm(vectors, axis=1)
     limits = _thresholds(numbers[pairs[:, 0]], numbers[pairs[:, 1]])
     keep = distances < limits
-    return BondBatch(
+    return BondPairs(
         pairs=pairs[keep],
         vectors=vectors[keep],
         distances=distances[keep],
@@ -292,7 +292,7 @@ def evaluate_bond_candidates(
 
 
 def candidate_list_needs_rebuild(
-    candidates: BondCandidateList,
+    candidates: BondCandidates,
     positions: np.ndarray,
     *,
     cell: np.ndarray | None = None,
@@ -327,7 +327,7 @@ class VerletBondTracker:
         if not np.isfinite(skin) or skin <= 0.0:
             raise ValueError("VerletBondTracker skin must be finite and positive")
         self.skin = float(skin)
-        self.candidates: BondCandidateList | None = None
+        self.candidates: BondCandidates | None = None
         self.rebuild_count = 0
 
     def update(
@@ -337,7 +337,7 @@ class VerletBondTracker:
         *,
         cell: np.ndarray | None = None,
         pbc: np.ndarray | tuple[bool, bool, bool] = (False, False, False),
-    ) -> BondBatch:
+    ) -> BondPairs:
         """Infer current bonds, rebuilding candidates only when required."""
         if self.candidates is None or candidate_list_needs_rebuild(
             self.candidates,
@@ -366,8 +366,8 @@ def infer_bond_pairs(
     *,
     cell: np.ndarray | None = None,
     pbc: np.ndarray | tuple[bool, bool, bool] = (False, False, False),
-) -> BondBatch:
-    """Infer bond arrays without constructing a graph or Python bond records."""
+) -> BondPairs:
+    """Infer bond pairs without constructing a graph or bond records."""
     candidates = build_bond_candidates(
         positions,
         atomic_numbers,
@@ -379,8 +379,8 @@ def infer_bond_pairs(
 
 
 __all__ = [
-    "BondBatch",
-    "BondCandidateList",
+    "BondPairs",
+    "BondCandidates",
     "VerletBondTracker",
     "build_bond_candidates",
     "candidate_list_needs_rebuild",
