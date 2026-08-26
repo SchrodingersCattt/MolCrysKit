@@ -37,7 +37,13 @@ mck = "molcrys_kit.cli:main"
 
 [project.optional-dependencies]
 vis = ["nglview", "py3Dmol"]
-test = ["pytest>=6.0.0", "pytest-cov", "pytest-xdist", "pytest-timeout>=2.0"]
+test = [
+    "pytest>=6.0.0",
+    "pytest-cov",
+    "pytest-xdist",
+    "pytest-timeout>=2.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
 dev = [
     "molcrys-kit[test,vis]",
     "build",
