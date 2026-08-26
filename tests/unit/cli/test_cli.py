@@ -16,6 +16,7 @@ DAP4 = DATA / "DAP-4.cif"
 CAFFEINE = DATA / "anhydrousCaffeine_CGD_2007_7_1406.cif"
 PETN = DATA / "PETN_PERYTN10.cif"
 ACETAMINOPHEN = DATA / "Acetaminophen_HXACAN.cif"
+ONE_HTP = DATA / "1-HTP.cif"
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -273,6 +274,63 @@ def test_operate_supercell_rejects_zero_scale(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "--scale factors must each be >= 1." in result.output
+
+
+def test_operate_disorder_supercell(tmp_path: Path) -> None:
+    from molcrys_kit.io import read_extxyz
+
+    output = tmp_path / "disorder_supercell.extxyz"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "disorder-supercell",
+            str(ONE_HTP),
+            "-o",
+            str(output),
+            "--scale",
+            "2",
+            "1",
+            "1",
+            "--method",
+            "enumerate",
+            "--replica-index",
+            "0",
+            "--replica-index",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    crystal = read_extxyz(str(output))
+    assert crystal.metadata["supercell"]["scaling_factors"] == [2, 1, 1]
+    assert [
+        cell["replica_index"] for cell in crystal.metadata["replica_supercell"]["cells"]
+    ] == [0, 1]
+
+
+def test_operate_disorder_supercell_rejects_mapping_length(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "disorder-supercell",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "disorder_supercell.cif"),
+            "--scale",
+            "2",
+            "1",
+            "1",
+            "--replica-index",
+            "0",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "exactly 2 --replica-index values" in result.output
+
+
 
 
 def test_operate_nanocluster_fixed_unit_cell_count(tmp_path: Path) -> None:

@@ -26,6 +26,7 @@ from .bond_rotation import (
 from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
 
 from .builders import (
+    assemble_replica_supercell,
     create_supercell,
 )
 
@@ -117,6 +118,7 @@ __all__ = [
     "rotate_fragment_in_crystal",
     "rotate_molecule_at_center",
     "rotate_molecule_at_com",
+    "assemble_replica_supercell",
     "create_supercell",
     "generate_topological_slab",
     "TopologicalSlabGenerator",

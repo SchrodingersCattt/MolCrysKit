@@ -19,6 +19,7 @@ from molcrys_kit.operations import (
     NanoClusterCarver,
     VoidCarver,
     add_hydrogens,
+    assemble_replica_supercell,
     create_supercell,
     generate_slabs_with_terminations,
     generate_topological_slab,
@@ -686,6 +687,75 @@ def supercell(
     click.echo(f"Wrote {output}")
 
 
+@click.command("disorder-supercell")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--scale",
+    nargs=3,
+    type=int,
+    required=True,
+    metavar="A B C",
+    help="Supercell dimensions.",
+)
+@click.option(
+    "--replica-index",
+    "replica_indices",
+    type=click.IntRange(min=0),
+    multiple=True,
+    required=True,
+    help="Zero-based replica index for one translated cell; repeat in cell order.",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["optimal", "random", "enumerate"]),
+    default="enumerate",
+    show_default=True,
+)
+@click.option("--seed", type=int, default=None, help="Random seed for random mode.")
+@click.option(
+    "--coupled",
+    is_flag=True,
+    help="Couple symmetry-expanded copies of the same disorder assembly.",
+)
+def disorder_supercell(
+    input: Path,
+    output: Path,
+    scale: tuple[int, int, int],
+    replica_indices: tuple[int, ...],
+    method: str,
+    seed: int | None,
+    coupled: bool,
+) -> None:
+    """Assemble explicitly selected disorder replicas into a supercell."""
+    if any(value < 1 for value in scale):
+        raise click.UsageError("--scale factors must each be >= 1.")
+    expected_count = scale[0] * scale[1] * scale[2]
+    if len(replica_indices) != expected_count:
+        raise click.UsageError(
+            f"Provide exactly {expected_count} --replica-index values for "
+            f"--scale {' '.join(str(value) for value in scale)}."
+        )
+
+    replicas = generate_ordered_replicas_from_disordered_sites(
+        str(input),
+        generate_count=max(replica_indices) + 1,
+        method=method,
+        random_seed=seed,
+        coupled=coupled,
+    )
+    crystals = [item[0] if isinstance(item, tuple) else item for item in replicas]
+    try:
+        result = assemble_replica_supercell(crystals, scale, replica_indices)
+    except (TypeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    write_structure(result, output)
+    click.echo(f"Wrote {output}")
+
+
+
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
@@ -771,6 +841,7 @@ def register_operate_commands(group: click.Group) -> None:
     group.add_command(nanocluster)
     group.add_command(void)
     group.add_command(supercell)
+    group.add_command(disorder_supercell)
     group.add_command(vacancy)
     group.add_command(desolvate)
     group.add_command(interpolate)
