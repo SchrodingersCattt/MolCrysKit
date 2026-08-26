@@ -13,6 +13,12 @@ from .crystal_stereo import (
     classify_entity_relationship,
 )
 from .perception import infer_chemistry
+from .line_notation import (
+    LineNotation,
+    LineNotationError,
+    from_line_notation,
+    to_line_notation,
+)
 from .topology import PeriodicTopology, analyze_periodic_topology
 from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
 from .models import (
@@ -50,6 +56,8 @@ __all__ = [
     "EntityStereoSummary",
     "FiniteChemicalEntity",
     "InferenceStatus",
+    "LineNotation",
+    "LineNotationError",
     "MulticomponentEntity",
     "PeriodicChemicalEntity",
     "PeriodicTopology",
@@ -61,6 +69,8 @@ __all__ = [
     "analyze_crystal_stereochemistry",
     "classify_entity_relationship",
     "infer_chemistry",
+    "from_line_notation",
     "analyze_periodic_topology",
     "assign_stereochemistry",
+    "to_line_notation",
 ]

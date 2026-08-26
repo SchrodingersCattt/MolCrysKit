@@ -33,6 +33,8 @@ from .chemistry import (
     CrystalStereoReport,
     EntityRelationship,
     CrystalChemistry,
+    LineNotation,
+    LineNotationError,
     PeriodicTopology,
     StereoDescriptor,
     StereoKind,
@@ -42,7 +44,9 @@ from .chemistry import (
     assign_stereochemistry,
     annotate_chemistry,
     infer_chemistry,
+    from_line_notation,
     classify_entity_relationship,
+    to_line_notation,
 )
 
 # For backward compatibility
@@ -62,6 +66,8 @@ __all__ = [
     "CrystalStereoIndeterminateError",
     "CrystalStereoReport",
     "EntityRelationship",
+    "LineNotation",
+    "LineNotationError",
     "PeriodicTopology",
     "StereoDescriptor",
     "StereoKind",
@@ -71,7 +77,9 @@ __all__ = [
     "assign_stereochemistry",
     "annotate_chemistry",
     "infer_chemistry",
+    "from_line_notation",
     "classify_entity_relationship",
+    "to_line_notation",
     # Backward compatibility
     "Molecule",
 ]

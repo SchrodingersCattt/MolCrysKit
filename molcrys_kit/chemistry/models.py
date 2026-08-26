@@ -72,6 +72,7 @@ class ChemicalAtom:
     explicit_hydrogens: int | None = None
     implicit_hydrogens: int | None = None
     oxidation_state: int | None = None
+    stereochemistry: str | None = None
     evidence: tuple[Evidence, ...] = ()
 
     def __post_init__(self) -> None:
