@@ -512,6 +512,30 @@ class TestReplicaSupercell:
         ]
         assert [cell["replica_index"] for cell in cells] == [0, 1, 0, 1]
 
+    def test_boundary_spanning_molecule_uses_contiguous_image_shifts(
+        self, cubic_lattice_10
+    ):
+        molecule = Atoms(
+            "CO",
+            positions=[[9.6, 0.0, 0.0], [10.8, 0.0, 0.0]],
+        )
+        molecule.set_array(
+            "image_shift",
+            np.asarray([[0, 0, 0], [1, 0, 0]], dtype=int),
+        )
+        replica = MolecularCrystal(cubic_lattice_10, [molecule])
+
+        result = assemble_replica_supercell([replica], (2, 1, 1), [0, 0])
+
+        assert {site.image_shift for site in result.get_site_records()} == {(0, 0, 0)}
+        assert {bond.right_image_shift for bond in result.get_bond_records()} == {
+            (0, 0, 0)
+        }
+        np.testing.assert_allclose(
+            [bond.vector_A for bond in result.get_bond_records()],
+            [[1.2, 0.0, 0.0], [1.2, 0.0, 0.0]],
+        )
+
     def test_rejects_invalid_mapping_length_and_index(self, cubic_lattice_10):
         replicas = self._replicas(cubic_lattice_10)
 

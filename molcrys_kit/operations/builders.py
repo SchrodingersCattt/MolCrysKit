@@ -154,8 +154,8 @@ def assemble_replica_supercell(
 
     Molecules are kept unwrapped. Output ordering is translation-major, then
     follows the selected replica's molecule and atom order. Stored fractional
-    coordinates are removed after translation and ``image_shift`` is
-    recomputed against the supercell lattice.
+    coordinates are removed after translation and ``image_shift`` is reset to
+    zero in the contiguous output coordinate frame.
 
     Parameters
     ----------
@@ -258,9 +258,6 @@ def assemble_replica_supercell(
         ],
         dtype=float,
     )
-    inverse_new_lattice = np.linalg.inv(new_lattice)
-    periodic = np.asarray(reference_pbc, dtype=bool)
-
     from ..constants.config import KEY_IMAGE_SHIFT
 
     new_molecules = []
@@ -276,12 +273,10 @@ def assemble_replica_supercell(
             new_atoms.info["source_molecule_index"] = source_molecule_index
             new_atoms.info["unit_cell_translation"] = list(translation)
             new_atoms.positions += np.dot(np.asarray(translation), reference_lattice)
-            supercell_fractional = new_atoms.positions @ inverse_new_lattice
-            image_shifts = np.zeros((len(new_atoms), 3), dtype=int)
-            image_shifts[:, periodic] = np.floor(
-                supercell_fractional[:, periodic] + 1e-10
-            ).astype(int)
-            new_atoms.set_array(KEY_IMAGE_SHIFT, image_shifts)
+            new_atoms.set_array(
+                KEY_IMAGE_SHIFT,
+                np.zeros((len(new_atoms), 3), dtype=int),
+            )
             _strip_stale_frac_arrays(new_atoms)
             new_molecules.append(new_atoms)
 
