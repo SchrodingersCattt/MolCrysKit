@@ -109,7 +109,7 @@ def infer_chemistry(
         # Annotation currently provides the public graph-to-atom-id bridge and
         # attaches its provisional result. Restore the caller's state while
         # perception is running so strict failure remains atomic.
-        structure._chemistry = previous_chemistry
+        structure._set_chemistry(previous_chemistry)
         for molecule, previous_entity in zip(structure.molecules, previous_entities):
             molecule.chemical_entity = previous_entity
     else:
@@ -149,7 +149,7 @@ def infer_chemistry(
     )
     for molecule, entity in zip(structure.molecules, components):
         molecule.chemical_entity = entity
-    structure._chemistry = result
+    structure._set_chemistry(result)
     return result
 
 
@@ -267,6 +267,8 @@ def _solve_bond_orders(
         return [], False
 
     candidates: list[tuple[float, tuple[ChemicalBond, ...]]] = []
+    # TODO: carry valence sums incrementally if profiling shows this bounded
+    # exhaustive path dominates large-ring perception.
     for assignment in product(*choices):
         valence_sums = {atom.atom_id: 0 for atom in atoms}
         for bond_index, order in zip(covalent_indices, assignment):

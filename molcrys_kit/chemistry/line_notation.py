@@ -171,6 +171,8 @@ def _canonical_colors(entity: FiniteChemicalEntity) -> dict[str, int]:
     initial = {atom.atom_id: _atom_signature(atom) for atom in entity.atoms}
     unique = {value: index for index, value in enumerate(sorted(set(initial.values())))}
     colors = {atom_id: unique[value] for atom_id, value in initial.items()}
+    # One-dimensional Weisfeiler-Leman refinement can split the partition at
+    # most n-1 times, so n passes are an explicit convergence bound.
     for _ in range(max(1, len(entity.atoms))):
         signatures = {
             atom_id: (

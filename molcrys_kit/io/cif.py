@@ -1769,6 +1769,7 @@ def read_mol_crystal(
     resolve_disorder: bool = False,
     *,
     cif_text: Optional[str] = None,
+    attach_chemistry: bool = True,
 ) -> MolecularCrystal:
     """
     Parse a CIF with advanced molecular grouping.
@@ -1790,6 +1791,9 @@ def read_mol_crystal(
         Resolve crystallographic disorder before molecule identification.
     cif_text : str, optional
         Raw CIF content as a string (mutually exclusive with *filepath*).
+    attach_chemistry : bool
+        Attach the default inferred chemistry snapshot. Set to ``False`` for
+        geometry-only callers that need to avoid the perception pass.
 
     Returns
     -------
@@ -1835,9 +1839,10 @@ def read_mol_crystal(
             resolved = crystals[0]
             resolved.metadata["cif_chemistry"] = dict(disorder_info.cif_chemistry)
             resolved.metadata["crystal_symmetry"] = disorder_info.crystal_symmetry
-            from ..chemistry import infer_chemistry
+            if attach_chemistry:
+                from ..chemistry import infer_chemistry
 
-            infer_chemistry(resolved)
+                infer_chemistry(resolved)
             return resolved
         else:
             n_partial = sum(1 for o in disorder_info.occupancies if o < 1.0)
@@ -1933,9 +1938,10 @@ def read_mol_crystal(
             "crystal_symmetry": disorder_info.crystal_symmetry,
         },
     )
-    from ..chemistry import infer_chemistry
+    if attach_chemistry:
+        from ..chemistry import infer_chemistry
 
-    infer_chemistry(crystal)
+        infer_chemistry(crystal)
     return crystal
 
 

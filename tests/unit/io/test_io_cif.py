@@ -19,6 +19,7 @@ from molcrys_kit.io.cif import (
     parse_cif_advanced,
     read_mol_crystal,
     scan_cif_disorder,
+    # Internal parser imported directly for focused CIF numeric/SU verification.
     _parse_cif_number_with_su,
 )
 from molcrys_kit.structures.molecule import CrystalMolecule
@@ -172,6 +173,21 @@ C1 C 0 0 0 1 ?
         symmetry = crystal.metadata["crystal_symmetry"]
         assert symmetry.operations
         assert symmetry.space_group_number is not None
+
+    def test_read_can_skip_chemistry_attachment(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "data"
+            / "cif"
+            / "Acetaminophen_HXACAN.cif"
+        )
+
+        crystal = read_mol_crystal(str(path), attach_chemistry=False)
+
+        assert crystal.chemistry is None
+        assert all(
+            molecule.chemical_entity is None for molecule in crystal.molecules
+        )
 
     def test_flack_value_retains_standard_uncertainty(self):
         path = Path(__file__).resolve().parents[2] / "data" / "cif" / "NOKGIH01.cif"

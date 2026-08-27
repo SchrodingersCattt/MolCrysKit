@@ -563,6 +563,9 @@ def _duplicate_priority(node: _DigraphNode) -> int:
 
 
 def _mass_number(node: _DigraphNode) -> float:
+    # CIP sequence rule 2 ranks explicitly specified nuclides by mass number;
+    # ASE's standard atomic mass is used only as the common value for otherwise
+    # identical, isotope-unspecified nodes, not as an isotope mass substitute.
     if node.isotope is not None:
         return float(node.isotope)
     if node.element == "D":

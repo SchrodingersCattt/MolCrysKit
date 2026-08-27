@@ -482,13 +482,17 @@ class MolecularCrystal:
                 for key, value in self.extra_arrays.items()
             },
         )
-        copied._chemistry = self._chemistry
+        copied._set_chemistry(self._chemistry)
         return copied
 
     @property
     def chemistry(self):
         """Attached immutable :class:`CrystalChemistry`, when analysed."""
         return self._chemistry
+
+    def _set_chemistry(self, chemistry) -> None:
+        """Attach an immutable chemistry snapshot through the owning class."""
+        self._chemistry = chemistry
 
     def _molecule_global_indices(self) -> List[List[int]]:
         """Return each molecule's indices in :meth:`to_ase` ordering."""

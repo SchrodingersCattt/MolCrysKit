@@ -4,6 +4,9 @@ MolCrysKit: A Python toolkit for molecular crystal analysis and manipulation.
 This toolkit provides functionality for parsing, analyzing, and manipulating
 molecular crystal structures, with a particular focus on molecular crystals
 where well-defined molecules occupy crystallographic sites.
+
+``annotate_chemistry`` attaches an identity-preserving provisional graph;
+``infer_chemistry`` refines that graph with bond, charge, and stereo semantics.
 """
 
 # Version is owned by setuptools_scm and derived from the git tag at build /

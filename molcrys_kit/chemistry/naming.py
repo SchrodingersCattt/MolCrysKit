@@ -52,6 +52,7 @@ class NamingIndeterminateError(ValueError):
     """Raised when strict naming would return a provisional description."""
 
 
+# Explicit straight-chain alkane stems currently implemented for C1-C12.
 _ALKANE_STEMS = {
     1: "meth",
     2: "eth",

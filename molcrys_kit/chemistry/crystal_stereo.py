@@ -402,6 +402,10 @@ def _isomorphic(left, right, left_stereo=None, right_stereo=None, *, relation=No
     mapping = {}
     used = set()
 
+    # This exact backtracking step is worst-case factorial. Current callers pass
+    # finite entities only, and invariant classes plus adjacency checks prune
+    # ordinary molecular graphs. Do not turn a future size budget into ``False``:
+    # exhausting a budget must propagate as an indeterminate relationship.
     def visit(position):
         if position == len(order):
             return _stereo_mapping_matches(

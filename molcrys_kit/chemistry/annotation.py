@@ -140,7 +140,7 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
         evidence=(evidence,),
         warnings=(warning,) if components else ("Crystal contains no chemical components.",),
     )
-    structure._chemistry = result
+    structure._set_chemistry(result)
     return result
 
 
