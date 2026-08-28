@@ -41,6 +41,7 @@ mck operate cluster --help
 | `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,bfdh}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--max-dimension FLOAT`, `--max-index INT`, `--miller H K L` (repeatable), `--extinction-filter/--no-extinction-filter`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
 | `mck operate void INPUT` | Remove complete molecular/ionic units to form a shaped void | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,through-cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--direction-hkl H K L`, `--center X Y Z`, `--center-frac U V W`, `--hit-mode {centroid,any_atom,all_atoms}`, `--boundary-policy {inside,cover}`, `--target-units INT`, `--species SPECIES_ID COUNT`, `--species-charge SPECIES_ID CHARGE`, `--periodic-images/--no-periodic-images`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
 | `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C`, `--resolve-disorder` |
+| `mck operate disorder-supercell INPUT` | Assemble selected disorder replicas into translated cells | `-o/--output OUTPUT`, `--scale A B C`, `--replica-index INT` (repeat once per cell), `--method {optimal,random,enumerate}`, `--seed INT`, `--coupled` |
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
 | `mck operate interpolate START END` | Interpolate between structures | `-o/--output OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
@@ -68,6 +69,12 @@ mck operate disorder structure.cif -o ordered.cif
 
 # Generate 10 random configurations
 mck operate disorder structure.cif -o replicas.cif --method random --count 10
+
+# Map replicas 0, 1, 2, 3 to a 2 x 2 x 1 supercell. Translation order is
+# (0,0,0), (0,1,0), (1,0,0), (1,1,0): k varies fastest, then j, then i.
+mck operate disorder-supercell structure.cif -o supercell.cif \
+  --scale 2 2 1 --method enumerate \
+  --replica-index 0 --replica-index 1 --replica-index 2 --replica-index 3
 ```
 
 ### Molecule Extraction

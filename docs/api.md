@@ -26,6 +26,7 @@
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
+| Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
 | Add hydrogens | `add_hydrogens` | `MolecularCrystal` | `MolecularCrystal` | [Tutorials](tutorials.md) |
 | Generate slabs | `generate_topological_slab`, `generate_slabs_with_terminations` | crystal + Miller plane | slab(s) | [Tutorials](tutorials.md) |
 | Reorient crystal | `reorient_crystal`, `get_surface_basis` | crystal + Miller direction | reoriented crystal + info | source docstring |
@@ -74,7 +75,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 
 - Bond fragments: `BondPartition`, `BondRotationError`, `BondNotFoundError`, `BondRotationSelectionError`, `RingBondRotationError`, `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal`
 - Perturb/rotate: `apply_gaussian_displacement_molecule`, `apply_gaussian_displacement_crystal`, `apply_directional_displacement`, `apply_random_rotation`, `rotate_molecule_at_center`, `rotate_molecule_at_com`
-- Build/edit: `create_supercell`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
+- Build/edit: `assemble_replica_supercell`, `create_supercell`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
 - Surface: `generate_topological_slab`, `TopologicalSlabGenerator`, `TerminationInfo`, `enumerate_terminations`, `generate_slabs_with_terminations`, `get_surface_basis`
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
