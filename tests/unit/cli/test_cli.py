@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 from pathlib import Path
@@ -153,6 +154,119 @@ def test_analyze_sanity_check_reads_all_extxyz_frames(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     report = json.loads(result.output)
     assert report["n_frames"] == 2
+
+
+def test_analyze_summary_json() -> None:
+    result = CliRunner().invoke(main, ["analyze", "summary", str(PETN), "--json"])
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["n_atoms"] == sum(report["species_counts"].values())
+    assert report["formula"]
+    assert report["pbc"] == [True, True, True]
+    assert report["cell"]["volume_A3"] > 0
+    assert report["symmetry"]["status"] == "ok"
+    assert report["symmetry"]["space_group_number"] > 0
+    assert report["symmetry"]["wyckoff_sites"]
+
+
+def test_analyze_summary_reports_disorder() -> None:
+    result = CliRunner().invoke(main, ["analyze", "summary", str(DAP4), "--json"])
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["disorder"]["has_disorder"] is True
+    assert report["disorder"]["partial_occupancy_sites"] > 0
+    assert report["n_atoms"] == sum(report["species_counts"].values())
+    assert report["formula"] == "H22C6N3(ClO4)3"
+
+
+def test_analyze_summary_text() -> None:
+    result = CliRunner().invoke(main, ["analyze", "summary", str(PETN)])
+    assert result.exit_code == 0, result.output
+    assert "Structure summary:" in result.output
+    assert "Reduced site formula:" in result.output
+    assert "Symmetry:" in result.output
+    assert "Wyckoff:" in result.output
+
+
+def test_analyze_summary_rejects_non_positive_symprec() -> None:
+    result = CliRunner().invoke(
+        main, ["analyze", "summary", str(PETN), "--symprec", "0"]
+    )
+    assert result.exit_code != 0
+    assert "--symprec must be positive." in result.output
+
+
+def test_analyze_summary_nonperiodic_extxyz(tmp_path: Path) -> None:
+    from ase import Atoms
+    from ase.io import write
+
+    path = tmp_path / "molecule.extxyz"
+    atoms = Atoms(
+        "OH2",
+        positions=[[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]],
+        pbc=False,
+    )
+    write(path, atoms, format="extxyz")
+
+    json_result = CliRunner().invoke(
+        main, ["analyze", "summary", str(path), "--json"]
+    )
+    assert json_result.exit_code == 0, json_result.output
+    report = json.loads(json_result.output)
+    assert report["pbc"] == [False, False, False]
+    assert report["periodic"] is False
+    assert report["symmetry"] is None
+
+    text_result = CliRunner().invoke(main, ["analyze", "summary", str(path)])
+    assert text_result.exit_code == 0, text_result.output
+    assert "Symmetry: not evaluated (nonperiodic structure)" in text_result.output
+
+
+def test_analyze_summary_partial_pbc_message(tmp_path: Path) -> None:
+    from ase import Atoms
+    from ase.io import write
+
+    path = tmp_path / "slab.extxyz"
+    atoms = Atoms(
+        "Cu2",
+        positions=[[0.0, 0.0, 0.0], [1.8, 1.8, 0.0]],
+        cell=[3.6, 3.6, 12.0],
+        pbc=[True, True, False],
+    )
+    write(path, atoms, format="extxyz")
+
+    result = CliRunner().invoke(main, ["analyze", "summary", str(path)])
+    assert result.exit_code == 0, result.output
+    assert "Symmetry: not evaluated (requires full 3D periodicity)" in result.output
+
+
+def test_analyze_summary_json_preserves_symmetry_failure(monkeypatch) -> None:
+    module = importlib.import_module("molcrys_kit.analysis.structure_summary")
+
+    class BrokenSpacegroupAnalyzer:
+        def __init__(self, *args, **kwargs) -> None:
+            raise RuntimeError("synthetic symmetry failure")
+
+    monkeypatch.setattr(module, "SpacegroupAnalyzer", BrokenSpacegroupAnalyzer)
+    result = CliRunner().invoke(
+        main, ["analyze", "summary", str(PETN), "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["symmetry"]["status"] == "unavailable"
+    assert report["symmetry"]["reason"] == (
+        "RuntimeError: synthetic symmetry failure"
+    )
+
+
+def test_analyze_summary_sorts_disorder_metadata() -> None:
+    result = CliRunner().invoke(
+        main, ["analyze", "summary", str(CAFFEINE), "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["disorder"]["groups"] == [-4, 1, 2, 3]
+    assert report["disorder"]["assemblies"] == ["A", "B", "C"]
 
 
 def test_io_extract_molecule_by_index(tmp_path: Path) -> None:
