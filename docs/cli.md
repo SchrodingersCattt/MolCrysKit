@@ -57,6 +57,11 @@ mck operate cluster --help
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
 | `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |
 
+`mck io info` is the human-readable molecular-crystal inventory: it reports
+recognized molecular units alongside cell and disorder details. Use
+`mck analyze summary --json` for the stable, generic structure facts consumed
+by scripts.
+
 ## Common Patterns
 
 ### Disorder Resolution

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from typing import Any
 
@@ -10,7 +11,13 @@ from pymatgen.core import Composition
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
+from molcrys_kit.constants.config import (
+    MIN_PERIODIC_CELL_VOLUME_A3,
+    PARTIAL_OCCUPANCY_TOLERANCE,
+)
 from molcrys_kit.structures import MolecularCrystal
+
+logger = logging.getLogger(__name__)
 
 
 def summarize_structure(
@@ -19,7 +26,18 @@ def summarize_structure(
     source: str | None = None,
     symprec: float = 0.1,
 ) -> dict[str, Any]:
-    """Return composition, cell, symmetry, and disorder facts."""
+    """Return a stable JSON-ready structure summary.
+
+    Design constraints:
+    - Existing keys are a compatibility contract; additions must be additive.
+    - ``formula`` is the reduced formula derived from expanded site rows.
+      ``n_atoms`` and ``species_counts`` count those rows as sites; they are
+      neither occupancy-weighted atom counts nor electron counts.
+    - Symmetry is evaluated only for a non-degenerate, fully 3D-periodic cell.
+      Runtime failures are represented by ``status='unavailable'`` so callers
+      still receive the other facts.
+    - The default ``symprec`` is 0.1 Angstrom unless the caller overrides it.
+    """
     if symprec <= 0:
         raise ValueError("symprec must be positive")
 
@@ -31,7 +49,7 @@ def summarize_structure(
     site_records = crystal.get_site_records()
 
     partial_occupancy_sites = sum(
-        record.occupancy < 1.0 - 1e-8 for record in site_records
+        record.occupancy < 1.0 - PARTIAL_OCCUPANCY_TOLERANCE for record in site_records
     )
     disorder_groups = sorted(
         {record.disorder_group for record in site_records if record.disorder_group}
@@ -67,7 +85,7 @@ def summarize_structure(
         "symmetry": None,
     }
 
-    if all(pbc) and report["cell"]["volume_A3"] > 1e-8:
+    if all(pbc) and report["cell"]["volume_A3"] > MIN_PERIODIC_CELL_VOLUME_A3:
         try:
             structure = AseAtomsAdaptor.get_structure(atoms)
             analyzer = SpacegroupAnalyzer(structure, symprec=symprec)
@@ -94,7 +112,8 @@ def summarize_structure(
                 "crystal_system": analyzer.get_crystal_system(),
                 "wyckoff_sites": wyckoff_sites,
             }
-        except Exception as exc:  # pragma: no cover - parser-specific edge cases
+        except Exception as exc:
+            logger.debug("Symmetry analysis unavailable", exc_info=True)
             report["symmetry"] = {
                 "status": "unavailable",
                 "symprec_A": symprec,

@@ -39,7 +39,9 @@ def summary(input: Path, symprec: float, as_json: bool) -> None:
     symmetry = report["symmetry"]
     disorder = report["disorder"]
     click.echo(f"Structure summary: {input}")
-    click.echo(f"  Formula: {report['formula']} ({report['n_atoms']} atoms)")
+    click.echo(
+        f"  Reduced site formula: {report['formula']} ({report['n_atoms']} sites)"
+    )
     click.echo(
         "  Species: "
         + ", ".join(
@@ -77,7 +79,12 @@ def summary(input: Path, symprec: float, as_json: bool) -> None:
     elif symmetry:
         click.echo(f"  Symmetry: unavailable ({symmetry['reason']})")
     else:
-        click.echo("  Symmetry: not evaluated for a nonperiodic structure")
+        reason = (
+            "requires full 3D periodicity"
+            if any(report["pbc"])
+            else "nonperiodic structure"
+        )
+        click.echo(f"  Symmetry: not evaluated ({reason})")
     click.echo(
         "  Disorder: "
         + (

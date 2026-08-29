@@ -10,6 +10,12 @@ BOND_ROTATION_AXIS_TOLERANCE = 1e-12
 # Cartesian/half-space tolerance for BFDH plane and vertex deduplication.
 BFDH_GEOMETRY_TOLERANCE = 1e-10
 
+# Occupancy tolerance shared by disorder predicates and summary reporting.
+PARTIAL_OCCUPANCY_TOLERANCE = 1e-6
+
+# Minimum positive 3D cell volume accepted for symmetry analysis, in Angstrom^3.
+MIN_PERIODIC_CELL_VOLUME_A3 = 1e-8
+
 # Standard keys for disorder metadata
 KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer

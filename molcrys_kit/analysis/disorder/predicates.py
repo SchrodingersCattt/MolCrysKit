@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
+from molcrys_kit.constants.config import PARTIAL_OCCUPANCY_TOLERANCE
+
 
 def _as_float(value: Any) -> Optional[float]:
     try:
@@ -24,9 +26,13 @@ def is_minor_site(site: Mapping[str, Any]) -> bool:
 
     if isinstance(dg, str) and dg.strip().startswith("-"):
         return True
-    if occ is None or occ >= 1.0 - 1e-6:
+    if occ is None or occ >= 1.0 - PARTIAL_OCCUPANCY_TOLERANCE:
         return False
-    if str(dg).strip() == "." and str(da).strip() == "." and occ < 0.5 - 1e-6:
+    if (
+        str(dg).strip() == "."
+        and str(da).strip() == "."
+        and occ < 0.5 - PARTIAL_OCCUPANCY_TOLERANCE
+    ):
         return True
     return False
 

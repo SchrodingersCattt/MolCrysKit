@@ -24,6 +24,7 @@
 | Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
+| Summarize structure | `mck analyze summary --json` | structure file | JSON composition, cell, symmetry, and disorder report | `mck analyze summary --help` |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
 | Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
