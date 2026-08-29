@@ -98,6 +98,7 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `RingCycleLimitError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`
+- Structure summary: `summarize_structure`
 
 ### `mck.analysis.volume`
 Van der Waals volume estimation and solvent-accessible boundary computation.
