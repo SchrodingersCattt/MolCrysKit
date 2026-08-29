@@ -6,7 +6,11 @@ from pathlib import Path
 
 import click
 
-from molcrys_kit.analysis import enumerate_bfdh_facets, find_polyhedra
+from molcrys_kit.analysis import (
+    enumerate_bfdh_facets,
+    find_polyhedra,
+    summarize_structure,
+)
 from molcrys_kit.analysis.interactions import interaction_profile
 
 from ._common import load_crystal, rows_to_json
@@ -14,6 +18,75 @@ from ._common import load_crystal, rows_to_json
 
 def _miller_text(value) -> str:
     return "(" + " ".join(str(int(x)) for x in value) + ")"
+
+
+@click.command()
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--symprec", type=float, default=0.1, show_default=True)
+@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
+def summary(input: Path, symprec: float, as_json: bool) -> None:
+    """Summarize composition, cell, symmetry, and disorder."""
+    if symprec <= 0:
+        raise click.UsageError("--symprec must be positive.")
+    report = summarize_structure(
+        load_crystal(input), source=str(input), symprec=symprec
+    )
+    if as_json:
+        click.echo(rows_to_json(report))
+        return
+
+    cell = report["cell"]
+    symmetry = report["symmetry"]
+    disorder = report["disorder"]
+    click.echo(f"Structure summary: {input}")
+    click.echo(f"  Formula: {report['formula']} ({report['n_atoms']} atoms)")
+    click.echo(
+        "  Species: "
+        + ", ".join(
+            f"{symbol}={count}"
+            for symbol, count in report["species_counts"].items()
+        )
+    )
+    click.echo(f"  PBC: {tuple(report['pbc'])}")
+    click.echo(
+        "  Cell: "
+        + " ".join(
+            f"{name}={value:.4f}"
+            for name, value in zip("abc", cell["lengths_A"], strict=True)
+        )
+        + " A; "
+        + " ".join(
+            f"{name}={value:.2f}"
+            for name, value in zip(
+                ("alpha", "beta", "gamma"), cell["angles_deg"], strict=True
+            )
+        )
+        + f" deg; V={cell['volume_A3']:.4f} A^3"
+    )
+    if symmetry and symmetry["status"] == "ok":
+        click.echo(
+            "  Symmetry: "
+            f"{symmetry['space_group_symbol']} "
+            f"(#{symmetry['space_group_number']}, {symmetry['crystal_system']})"
+        )
+        wyckoff = ", ".join(
+            f"{'/'.join(site['species'])}:{site['symbol']}"
+            for site in symmetry["wyckoff_sites"]
+        )
+        click.echo(f"  Wyckoff: {wyckoff}")
+    elif symmetry:
+        click.echo(f"  Symmetry: unavailable ({symmetry['reason']})")
+    else:
+        click.echo("  Symmetry: not evaluated for a nonperiodic structure")
+    click.echo(
+        "  Disorder: "
+        + (
+            f"partial_sites={disorder['partial_occupancy_sites']}, "
+            f"groups={disorder['groups']}, assemblies={disorder['assemblies']}"
+            if disorder["has_disorder"]
+            else "none detected"
+        )
+    )
 
 
 @click.command()
@@ -190,6 +263,7 @@ def sanity_check_cmd(
 
 
 def register_analyze_commands(group: click.Group) -> None:
+    group.add_command(summary)
     group.add_command(bfdh)
     group.add_command(interactions)
     group.add_command(polyhedra)

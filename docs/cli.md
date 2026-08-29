@@ -51,6 +51,7 @@ mck operate cluster --help
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
+| `mck analyze summary INPUT` | Summarize composition, cell, symmetry, Wyckoff sites, and disorder | `--symprec FLOAT`, `--json` |
 | `mck analyze bfdh INPUT` | Rank low-index facets by BFDH morphology | `--max-index INT`, `--top-n INT`, `--json` |
 | `mck analyze interactions INPUT` | Summarize weak interactions | `--json` |
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |

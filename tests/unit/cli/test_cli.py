@@ -155,6 +155,44 @@ def test_analyze_sanity_check_reads_all_extxyz_frames(tmp_path: Path) -> None:
     assert report["n_frames"] == 2
 
 
+def test_analyze_summary_json() -> None:
+    result = CliRunner().invoke(main, ["analyze", "summary", str(PETN), "--json"])
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["n_atoms"] == sum(report["species_counts"].values())
+    assert report["formula"]
+    assert report["pbc"] == [True, True, True]
+    assert report["cell"]["volume_A3"] > 0
+    assert report["symmetry"]["status"] == "ok"
+    assert report["symmetry"]["space_group_number"] > 0
+    assert report["symmetry"]["wyckoff_sites"]
+
+
+def test_analyze_summary_reports_disorder() -> None:
+    result = CliRunner().invoke(main, ["analyze", "summary", str(DAP4), "--json"])
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["disorder"]["has_disorder"] is True
+    assert report["disorder"]["partial_occupancy_sites"] > 0
+
+
+def test_analyze_summary_text() -> None:
+    result = CliRunner().invoke(main, ["analyze", "summary", str(PETN)])
+    assert result.exit_code == 0, result.output
+    assert "Structure summary:" in result.output
+    assert "Formula:" in result.output
+    assert "Symmetry:" in result.output
+    assert "Wyckoff:" in result.output
+
+
+def test_analyze_summary_rejects_non_positive_symprec() -> None:
+    result = CliRunner().invoke(
+        main, ["analyze", "summary", str(PETN), "--symprec", "0"]
+    )
+    assert result.exit_code != 0
+    assert "--symprec must be positive." in result.output
+
+
 def test_io_extract_molecule_by_index(tmp_path: Path) -> None:
     output = tmp_path / "mol.xyz"
     result = CliRunner().invoke(

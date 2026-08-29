@@ -39,6 +39,7 @@ PY
 Record the interpreter, version, and module path. Probe the intended analysis:
 
 ```bash
+mck analyze summary --help
 mck analyze bfdh --help
 mck analyze interactions --help
 mck analyze polyhedra --help

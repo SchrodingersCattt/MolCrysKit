@@ -21,6 +21,7 @@ Read [the Python analysis API](./references/analysis-api.md) only for API-only a
 ## Start with structure quality
 
 ```bash
+mck analyze summary input.cif --json
 mck analyze sanity-check input.cif --json -o input.sanity.json
 ```
 

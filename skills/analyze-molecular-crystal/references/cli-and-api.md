@@ -13,6 +13,8 @@ mck analyze interactions --help
 
 Use the CLI for BFDH ranking, aggregate interaction profiles, coordination-polyhedra enumeration, and structural sanity checks. Prefer `--json` for machine-readable results.
 
+Use `mck analyze summary INPUT --json` for composition, cell, symmetry, Wyckoff sites, and disorder facts.
+
 ## Use the API for detail or missing CLI coverage
 
 Read `docs/api.md` and source docstrings before using public imports. Use the API for custom criteria, detailed interaction records, CShM, stoichiometry, volume/boundary, formal charge, and local chemical environments.
