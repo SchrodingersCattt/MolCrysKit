@@ -1,6 +1,6 @@
 ---
 name: operate-molecular-crystal
-description: "Use to change molecular, ionic, or framework structures: disorder, hydrogens, slabs, clusters, guests, defects, orientation, or pathways."
+description: "Use before changing molecular, ionic, or framework structures, including disorder, hydrogens, slabs, clusters, guests, defects, orientation, or pathways."
 ---
 
 # Operate Molecular Crystals
