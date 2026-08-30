@@ -209,10 +209,16 @@ class TestMolecularCrystal:
         assert len(crystal.molecules) >= 1
 
     def test_get_supercell(self, cubic_lattice_10, co_molecule):
-        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
+        molecule = CrystalMolecule(co_molecule)
+        molecule.set_array("molecule_index", np.zeros(len(molecule), dtype=int))
+        crystal = MolecularCrystal(cubic_lattice_10, [molecule])
         supercell = crystal.get_supercell(2, 1, 1)
         np.testing.assert_allclose(supercell.lattice[0], crystal.lattice[0] * 2)
         assert len(supercell.molecules) == 2
+        np.testing.assert_array_equal(
+            supercell.to_ase().arrays["molecule_index"],
+            [0, 0, 1, 1],
+        )
 
     def test_summary(self, simple_crystal):
         s = simple_crystal.summary()
