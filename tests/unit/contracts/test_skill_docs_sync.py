@@ -171,6 +171,7 @@ def test_molecular_crystal_skill_routes_are_exclusive() -> None:
     assert "Read exactly one operation page" in operate
     assert "Never for drawings, trajectories, or vibrations" in analyze
     assert "full audit" in analyze
+    assert "stop after summary and sanity-check" in analyze
     assert len(operate.splitlines()) <= 45
     assert len(analyze.splitlines()) <= 45
 
