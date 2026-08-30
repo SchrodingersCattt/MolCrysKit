@@ -169,7 +169,7 @@ def test_molecular_crystal_skill_routes_are_exclusive() -> None:
     assert "Inspect once" not in operate
     assert "mck analyze summary INPUT --json" not in operate
     assert "Read exactly one operation page" in operate
-    assert "Not for requested drawings" in analyze
+    assert "Never for drawings, trajectories, or vibrations" in analyze
     assert "full audit" in analyze
     assert len(operate.splitlines()) <= 45
     assert len(analyze.splitlines()) <= 45
