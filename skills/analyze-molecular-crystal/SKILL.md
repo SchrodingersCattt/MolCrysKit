@@ -28,8 +28,8 @@ reports a version/capability error.
 ## When extra checks are justified
 
 - Run `mck io molecules INPUT --json` when component identity/count matters.
-- For readiness, run `mck analyze sanity-check INPUT --json`; stop after summary
-  and sanity-check unless either result names a specific unresolved condition.
+- For readiness, stop after summary and sanity-check unless either result names a
+  specific unresolved condition; use `mck analyze sanity-check INPUT --json`.
 - Compare ordered replicas when disorder changes the requested observable.
 - Visualize only when spatial arrangement is part of the evidence; use the
   atomistic visualization skill, not custom plotting.
