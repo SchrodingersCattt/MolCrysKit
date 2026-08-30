@@ -10,6 +10,9 @@ BOND_ROTATION_AXIS_TOLERANCE = 1e-12
 # Cartesian/half-space tolerance for BFDH plane and vertex deduplication.
 BFDH_GEOMETRY_TOLERANCE = 1e-10
 
+# Cartesian tolerance passed to periodic neighbor searches, in Angstrom.
+PERIODIC_NEIGHBOR_TOLERANCE_A = 1e-8
+
 # Occupancy tolerance shared by disorder predicates and summary reporting.
 PARTIAL_OCCUPANCY_TOLERANCE = 1e-6
 
