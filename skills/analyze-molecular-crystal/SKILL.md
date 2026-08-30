@@ -1,6 +1,6 @@
 ---
 name: analyze-molecular-crystal
-description: "Use before answering crystal-structure chemistry questions about components, disorder, readiness, interactions, coordination, facets, charge, or pores."
+description: "Use before answering crystal-structure chemistry questions about components, disorder, readiness, interactions, coordination, facets, charge, or pores. Not for requested drawings."
 ---
 
 # Analyze Molecular Crystals

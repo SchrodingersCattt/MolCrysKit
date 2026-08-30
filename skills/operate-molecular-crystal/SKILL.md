@@ -1,6 +1,6 @@
 ---
 name: operate-molecular-crystal
-description: "Use before changing molecular, ionic, or framework structures, including disorder, hydrogens, slabs, clusters, guests, defects, orientation, or pathways."
+description: "Use before editing or converting molecular, ionic, or framework structures: disorder, H, slabs, clusters, guests, defects, orientation, or pathways. Not for analysis or rendering."
 ---
 
 # Operate Molecular Crystals
@@ -12,18 +12,16 @@ or crystallographic metadata matters.
 
 1. Start from the caller's structure. Do not install packages, read repository
    docs, or run help commands as a preflight.
-2. Inspect once with `mck analyze summary INPUT --json`. Also run
-   `mck io molecules INPUT --json` only when the operation targets components.
-3. Read exactly one operation page:
+2. Read exactly one operation page:
    - disorder, hydrogen, solvent, guest, or vacancy:
      [chemical edits](./references/chemical-edits.md);
    - slab, cluster, supercell, void, reorientation, or interpolation:
      [geometric edits](./references/geometric-edits.md);
    - conversion or API-only molecule editing:
      [I/O and API](./references/io-and-api.md).
-4. Run the documented `mck operate ...` or `mck io ...` command directly.
+3. Run the documented `mck operate ...` or `mck io ...` command directly.
    Use `--help` once only if that exact command rejects an option.
-5. Read [verification](./references/verification.md), validate the written
+4. Read [verification](./references/verification.md), validate the written
    structure, then report the output path and actual composition.
 
 Read [runtime recovery](./references/runtime.md) only when `mck` is missing or
