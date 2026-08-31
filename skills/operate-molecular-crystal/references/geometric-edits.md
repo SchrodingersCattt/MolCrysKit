@@ -72,3 +72,6 @@ mck operate interpolate start.cif end.cif -o path.extxyz \
 Require matching chemistry, atom count, molecule mapping, and atom order. Inspect
 every image for periodic jumps, overlaps, flips, and implausible cell changes.
 This initializes a path; it is not a converged NEB or transition state.
+
+---
+→ Return to [verification](./verification.md) after completing the edit.

@@ -10,7 +10,7 @@ focused question into a full audit.
 
 ## Direct path
 
-1. Start with `mck analyze summary INPUT --json`.
+1. Start with `mck analyze summary input.cif --json`.
 2. Read exactly one matching page:
    - readiness, components, disorder, interactions, facets, or coordination:
      [CLI analyses](./references/cli-analyses.md);
@@ -27,9 +27,9 @@ reports a version/capability error.
 
 ## When extra checks are justified
 
-- Run `mck io molecules INPUT --json` when component identity/count matters.
+- Run `mck io molecules input.cif --json` when component identity/count matters.
 - For readiness, stop after summary and sanity-check unless either result names a
-  specific unresolved condition; use `mck analyze sanity-check INPUT --json`.
+  specific unresolved condition; use `mck analyze sanity-check input.cif --json`.
 - Compare ordered replicas when disorder changes the requested observable.
 - Visualize only when spatial arrangement is part of the evidence; use the
   atomistic visualization skill, not custom plotting.

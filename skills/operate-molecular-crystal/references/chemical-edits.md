@@ -50,3 +50,6 @@ mck operate vacancy input.cif -o vacancy.cif \
 
 Record whether the removed object represents a neutral molecule, ion, correlated
 cluster, or occupancy model. Preserve the seed and resulting periodic separation.
+
+---
+→ Return to [verification](./verification.md) after completing the edit.
