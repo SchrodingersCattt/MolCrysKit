@@ -174,7 +174,12 @@ def test_rotated_orthogonal_cell_uses_general_periodic_path() -> None:
     np.testing.assert_allclose(batch.distances[0], 0.2, atol=1.0e-6)
 
 
-@pytest.mark.parametrize("pbc", [(True, True, True), (True, True, False)])
+@pytest.mark.parametrize("pbc", [
+    (True, True, True),
+    (True, True, False),
+    (True, False, False),
+    (False, True, True),
+])
 def test_triclinic_candidates_match_ase_reference(pbc) -> None:
     rng = np.random.default_rng(812)
     cell = np.asarray([[24.0, 0.0, 0.0], [-8.0, 21.0, 0.0], [2.0, 1.0, 18.0]])

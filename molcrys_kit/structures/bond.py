@@ -187,13 +187,12 @@ def _orthogonal_candidates(
 
 def _triclinic_candidates(
     positions: np.ndarray,
-    atomic_numbers: np.ndarray,
+    _atomic_numbers: np.ndarray,
     *,
     cell: np.ndarray,
     pbc: np.ndarray,
     cutoff: float,
 ) -> np.ndarray:
-    del atomic_numbers
     from pymatgen.optimization.neighbors import find_points_in_spheres
 
     first, second, _, _ = find_points_in_spheres(
