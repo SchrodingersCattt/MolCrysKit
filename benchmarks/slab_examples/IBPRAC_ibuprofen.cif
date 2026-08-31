@@ -1,0 +1,96 @@
+####################################################################### 
+# 
+# This file contains crystal structure data downloaded from the 
+# Cambridge Structural Database (CSD) hosted by the Cambridge 
+# Crystallographic Data Centre (CCDC).
+# 
+# Full information about CCDC data access policies and citation 
+# guidelines are available at http://www.ccdc.cam.ac.uk/access/V1 
+# 
+# Audit and citation data items may have been added by the CCDC. 
+# Please retain this information to preserve the provenance of 
+# this file and to allow appropriate attribution of the data. 
+# 
+#######################################################################
+
+data_IBPRAC
+#This CIF has been generated from an entry in the Cambridge Structural Database
+_database_code_depnum_ccdc_archive 'CCDC 1179382'
+_database_code_CSD               IBPRAC
+_audit_creation_method           'Created from the CSD'
+_audit_update_record             
+;
+2026-01-09 downloaded from the CCDC.
+;
+_database_code_NBS               514388
+_chemical_name_common            Ibuprofen
+_chemical_formula_moiety         'C13 H18 O2'
+_chemical_name_systematic        '2-(4-Isobutylphenyl)propionic acid'
+_chemical_properties_biological  'analgesic and antiinflammatory agent'
+_chemical_absolute_configuration unk
+_diffrn_ambient_temperature      295
+_exptl_crystal_density_diffrn    1.119
+#These two values have been output from a single CSD field.
+_refine_ls_R_factor_gt           0.039
+_refine_ls_wR_factor_gt          0.039
+_diffrn_radiation_probe          x-ray
+_symmetry_cell_setting           monoclinic
+_symmetry_space_group_name_H-M   'P 21/c'
+_symmetry_Int_Tables_number      14
+_space_group_name_Hall           '-P 2ybc'
+loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 x,y,z
+2 -x,1/2+y,1/2-z
+3 -x,-y,-z
+4 x,1/2-y,1/2+z
+_cell_length_a                   14.667
+_cell_length_b                   7.886
+_cell_length_c                   10.730
+_cell_angle_alpha                90
+_cell_angle_beta                 99.362
+_cell_angle_gamma                90
+_cell_volume                     1224.54
+_cell_formula_units_Z            4
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+C1 C 0.41670 0.34660 0.39820
+C2 C 0.17360 -0.13560 0.70040
+C3 C 0.09850 -0.26040 0.64290
+C4 C 0.04240 -0.32000 0.74230
+C5 C 0.13810 -0.40970 0.58180
+C6 C 0.35080 0.22140 0.32530
+C7 C 0.40140 0.10910 0.24360
+C8 C 0.30430 0.12520 0.42110
+C9 C 0.21860 0.17410 0.44600
+C10 C 0.17710 0.09020 0.53510
+C11 C 0.21980 -0.04510 0.60350
+C12 C 0.30600 -0.09190 0.57980
+C13 C 0.34760 -0.00850 0.49000
+H1 H 0.43100 0.56450 0.47150
+H2 H 0.21830 -0.20430 0.76420
+H3 H 0.14500 -0.05730 0.74950
+H4 H 0.05490 -0.20110 0.57550
+H5 H 0.08650 -0.38870 0.80660
+H6 H 0.01830 -0.22600 0.78210
+H7 H -0.00450 -0.39940 0.70290
+H8 H 0.17980 -0.37480 0.51980
+H9 H 0.08510 -0.48140 0.54170
+H10 H 0.17690 -0.47080 0.65200
+H11 H 0.30610 0.28980 0.27330
+H12 H 0.45040 0.04300 0.29740
+H13 H 0.42240 0.18120 0.18080
+H14 H 0.36100 0.03140 0.19460
+H15 H 0.18960 0.26650 0.39700
+H16 H 0.11700 0.12670 0.55240
+H17 H 0.34040 -0.18930 0.63330
+H18 H 0.40760 -0.04730 0.47620
+O1 O 0.38020 0.49370 0.41630
+O2 O 0.49700 0.31200 0.44020
+
+#END
