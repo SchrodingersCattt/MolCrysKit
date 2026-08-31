@@ -21,6 +21,10 @@ KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer
 KEY_ASSEMBLY = "assembly"                       # Default: "" empty string
 KEY_LABEL = "label"                             # Default: Atom element symbol
+KEY_ATOM_ID = "mck_atom_id"                     # Stable identity within a crystal lineage
+KEY_ISOTOPE = "isotope"                         # Mass number; 0 means unspecified
+KEY_FORMAL_CHARGE = "formal_charge"             # Per-site formal charge when explicit
+KEY_FORMAL_CHARGE_KNOWN = "formal_charge_known" # Distinguish unknown from neutral zero
 KEY_SYM_OP_INDEX = "sym_op_index"               # Default: 0 as integer
 KEY_ASYM_ID = "asym_id"                         # Default: -1 as integer
 KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order" # Default: 1 as integer
@@ -30,6 +34,26 @@ KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
 KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (n, 3)
 KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
 KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
+
+# Bounded chemistry-perception search and confidence thresholds. Coordinate
+# cutoffs are in Angstroms; scores are squared bond-length residuals.
+CHEMISTRY_PERCEPTION_CONFIG = {
+    "MAX_EXHAUSTIVE_ASSIGNMENTS": 250_000,
+    "COMPETITIVE_SCORE_GAP": 0.25,
+    "SINGLE_BOND_DISTANCE": 1.75,
+    "TRIPLE_BOND_DISTANCE": 1.58,
+    "BOND_LENGTH_SIGMA": 0.08,
+}
+
+STEREOCHEMISTRY_CONFIG = {
+    # Dimensionless signed tetrahedral volume below which 3D coordinates do
+    # not support a stable handedness assignment.
+    "MIN_NORMALIZED_TETRAHEDRAL_VOLUME": 1.0e-3,
+    "MIN_DOUBLE_BOND_SIDE_COSINE": 0.1,
+    # Prevent pathological highly connected/cyclic inputs from expanding an
+    # unbounded hierarchical CIP digraph.
+    "MAX_CIP_DIGRAPH_NODES": 10_000,
+}
 
 # Safety multiplier on machine epsilon for scale-normalized degeneracy checks.
 RING_CONFORMATION_TOLERANCE_FACTOR = 64.0

@@ -26,11 +26,14 @@ class SiteRecord:
     to make the molecule contiguous.
     """
 
+    site_id: str
     global_index: int
     molecule_index: int
     local_index: int
     symbol: str
     label: str
+    isotope: int | None
+    formal_charge: int | None
     cartesian_position_A: Vector3
     fractional_position: Vector3
     occupancy: float

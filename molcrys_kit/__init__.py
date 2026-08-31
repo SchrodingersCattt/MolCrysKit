@@ -4,6 +4,9 @@ MolCrysKit: A Python toolkit for molecular crystal analysis and manipulation.
 This toolkit provides functionality for parsing, analyzing, and manipulating
 molecular crystal structures, with a particular focus on molecular crystals
 where well-defined molecules occupy crystallographic sites.
+
+``annotate_chemistry`` attaches an identity-preserving provisional graph;
+``infer_chemistry`` refines that graph with bond, charge, and stereo semantics.
 """
 
 # Version is owned by setuptools_scm and derived from the git tag at build /
@@ -26,6 +29,33 @@ from .structures.crystal import MolecularCrystal
 from .structures.trajectory import CrystalTrajectory
 from .structures.records import BondRecord, SiteRecord
 from .io.cif import read_mol_crystal
+from .chemistry import (
+    ChemistryIndeterminateError,
+    CrystalStereoClass,
+    CrystalStereoIndeterminateError,
+    CrystalStereoReport,
+    EntityRelationship,
+    CrystalChemistry,
+    LineNotation,
+    LineNotationError,
+    NamingIndeterminateError,
+    NamingKind,
+    NamingResult,
+    PeriodicTopology,
+    StereoDescriptor,
+    StereoKind,
+    StereoReport,
+    analyze_periodic_topology,
+    analyze_crystal_stereochemistry,
+    assign_stereochemistry,
+    annotate_chemistry,
+    infer_chemistry,
+    from_line_notation,
+    name_crystal,
+    name_entity,
+    classify_entity_relationship,
+    to_line_notation,
+)
 
 # For backward compatibility
 Molecule = CrystalMolecule
@@ -38,6 +68,31 @@ __all__ = [
     "BondRecord",
     "SiteRecord",
     "read_mol_crystal",
+    "ChemistryIndeterminateError",
+    "CrystalChemistry",
+    "CrystalStereoClass",
+    "CrystalStereoIndeterminateError",
+    "CrystalStereoReport",
+    "EntityRelationship",
+    "LineNotation",
+    "LineNotationError",
+    "NamingIndeterminateError",
+    "NamingKind",
+    "NamingResult",
+    "PeriodicTopology",
+    "StereoDescriptor",
+    "StereoKind",
+    "StereoReport",
+    "analyze_periodic_topology",
+    "analyze_crystal_stereochemistry",
+    "assign_stereochemistry",
+    "annotate_chemistry",
+    "infer_chemistry",
+    "from_line_notation",
+    "name_crystal",
+    "name_entity",
+    "classify_entity_relationship",
+    "to_line_notation",
     # Backward compatibility
     "Molecule",
 ]

@@ -19,6 +19,8 @@ from molcrys_kit.io.cif import (
     parse_cif_advanced,
     read_mol_crystal,
     scan_cif_disorder,
+    # Internal parser imported directly for focused CIF numeric/SU verification.
+    _parse_cif_number_with_su,
 )
 from molcrys_kit.structures.molecule import CrystalMolecule
 
@@ -39,7 +41,9 @@ class TestSymmetryExpansion:
             ops = _parse_symmetry_operations(block)
 
         assert len(ops) == 4
-        assert any(issubclass(item.category, SymmetryAutoExpandedWarning) for item in caught)
+        assert any(
+            issubclass(item.category, SymmetryAutoExpandedWarning) for item in caught
+        )
 
     def test_parse_symmetry_operations_respects_explicit_p1(self):
         block = {
@@ -97,7 +101,9 @@ C1 C 0.11 0.22 0.33 1
 
         assert len(expanded.labels) == 4
         assert len(verbatim.labels) == 1
-        assert any(issubclass(item.category, SymmetryAutoExpandedWarning) for item in caught)
+        assert any(
+            issubclass(item.category, SymmetryAutoExpandedWarning) for item in caught
+        )
 
 
 class TestReadMolCrystal:
@@ -147,6 +153,62 @@ C1 C 0 0 0 1 ?
             assert hasattr(mol, "get_chemical_symbols")
             assert hasattr(mol, "get_positions")
             assert hasattr(mol, "get_chemical_formula")
+
+    def test_read_attaches_chemistry_and_preserves_names(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "data"
+            / "cif"
+            / "Acetaminophen_HXACAN.cif"
+        )
+        crystal = read_mol_crystal(str(path))
+
+        assert crystal.chemistry is not None
+        assert all(
+            molecule.chemical_entity is not None for molecule in crystal.molecules
+        )
+        metadata = crystal.metadata["cif_chemistry"]
+        assert metadata["chemical_name_common"] == "Acetaminophen"
+        assert metadata["chemical_name_systematic"] == "N-(4-Hydroxyphenyl)acetamide"
+        symmetry = crystal.metadata["crystal_symmetry"]
+        assert symmetry.operations
+        assert symmetry.space_group_number is not None
+
+    def test_read_can_skip_chemistry_attachment(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "data"
+            / "cif"
+            / "Acetaminophen_HXACAN.cif"
+        )
+
+        crystal = read_mol_crystal(str(path), attach_chemistry=False)
+
+        assert crystal.chemistry is None
+        assert all(
+            molecule.chemical_entity is None for molecule in crystal.molecules
+        )
+
+    def test_flack_value_retains_standard_uncertainty(self):
+        path = Path(__file__).resolve().parents[2] / "data" / "cif" / "NOKGIH01.cif"
+        crystal = read_mol_crystal(str(path))
+
+        flack = crystal.metadata["cif_chemistry"]["absolute_structure"]["flack"]
+        assert flack["raw"] == "0.06(3)"
+        assert flack["value"] == pytest.approx(0.06)
+        assert flack["standard_uncertainty"] == pytest.approx(0.03)
+
+    @pytest.mark.parametrize(
+        "raw,value,su",
+        [("-0.65(5)", -0.65, 0.05), ("1.234(12)", 1.234, 0.012), ("2.0", 2.0, None)],
+    )
+    def test_cif_number_parser_preserves_su(self, raw, value, su):
+        parsed = _parse_cif_number_with_su(raw)
+        assert parsed["value"] == pytest.approx(value)
+        if su is None:
+            assert parsed["standard_uncertainty"] is None
+        else:
+            assert parsed["standard_uncertainty"] == pytest.approx(su)
 
 
 class TestParseCifAdvancedDeprecated:
@@ -442,7 +504,9 @@ class TestIdentifyMoleculesFromAtoms:
             ),
         ],
     )
-    def test_periodic_bond_records_preserve_signed_image_shift(self, cell, positions, expected_shift):
+    def test_periodic_bond_records_preserve_signed_image_shift(
+        self, cell, positions, expected_shift
+    ):
         if positions is None:
             frac = np.array([[0.98, 0.5, 0.5], [0.02, 0.5, 0.5]])
             positions = frac @ cell
@@ -459,5 +523,9 @@ class TestIdentifyMoleculesFromAtoms:
         assert record[0]["right"] == 1
         assert record[0]["right_image_shift"] == expected_shift
         assert record[0]["vector"] == pytest.approx(
-            (np.asarray(positions[1]) + np.asarray(expected_shift) @ cell - np.asarray(positions[0])).tolist()
+            (
+                np.asarray(positions[1])
+                + np.asarray(expected_shift) @ cell
+                - np.asarray(positions[0])
+            ).tolist()
         )

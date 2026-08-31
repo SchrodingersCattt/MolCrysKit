@@ -1,0 +1,59 @@
+# Human-reviewed structural naming examples. External engine output is not
+# accepted as truth. Each entry records the fixed IUPAC source family used by
+# the in-repository naming test.
+
+[[case]]
+id = "methane"
+notation = "[CH4]"
+expected = "methane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "ethane"
+notation = "[CH3][CH3]"
+expected = "ethane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "ethanol"
+notation = "[CH3][CH2][OH]"
+expected = "ethanol"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "propan-2-ol"
+notation = "[CH3][CH]([OH])[CH3]"
+expected = "propan-2-ol"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "ethanoic-acid"
+notation = "[CH3][C](=[O])[OH]"
+expected = "ethanoic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "benzene"
+notation = "c1ccccc1"
+expected = "benzene"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "para-chlorotoluene"
+notation = "c1cc(Cl)ccc1[CH3]"
+expected = "1-chloro-4-methylbenzene"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
