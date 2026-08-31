@@ -87,9 +87,17 @@ Deliver every generated XYZ together with its JSON sidecar and convention note.
 
 ```bash
 mck operate supercell bulk.cif -o bulk_2x2x2.cif --scale 2 2 2
+mck operate supercell-matrix bulk.cif -o bulk_matrix.cif \
+  --matrix 3 0 0 0 2 2 0 -2 2
 ```
 
-Choose replication factors from the physical question: interaction cutoff, defect separation, phonon wavelength, or finite-size convergence. Verify cell vectors and that atom and molecule counts increase by the scale product.
+Use `supercell` for diagonal replication and `supercell-matrix` when new
+lattice vectors are general integer combinations of the old vectors. Matrix
+rows define the new lattice, the determinant gives the replication count, and
+the matrix must be right-handed. Both operations copy complete molecular
+objects rather than repartitioning atoms by distance after replication.
+
+Choose replication factors from the physical question: interaction cutoff, defect separation, phonon wavelength, or finite-size convergence. Verify cell vectors and that atom and molecule counts increase by the scale product or absolute matrix determinant.
 
 Use `--resolve-disorder` for a CIF that must become one full-occupancy model.
 Without it, large-model builders warn and preserve the unresolved input state in

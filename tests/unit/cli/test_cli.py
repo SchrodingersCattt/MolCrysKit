@@ -85,9 +85,7 @@ def test_io_info_resolve_disorder_flag() -> None:
 def test_io_info_bond_scale_changes_output() -> None:
     """--bond-scale < 1 should produce different molecule counts."""
     default = CliRunner().invoke(main, ["io", "info", str(DAP4)])
-    scaled = CliRunner().invoke(
-        main, ["io", "info", str(DAP4), "--bond-scale", "0.5"]
-    )
+    scaled = CliRunner().invoke(main, ["io", "info", str(DAP4), "--bond-scale", "0.5"])
     assert default.exit_code == 0
     assert scaled.exit_code == 0
     # With tighter thresholds, output should differ
@@ -208,9 +206,7 @@ def test_analyze_summary_nonperiodic_extxyz(tmp_path: Path) -> None:
     )
     write(path, atoms, format="extxyz")
 
-    json_result = CliRunner().invoke(
-        main, ["analyze", "summary", str(path), "--json"]
-    )
+    json_result = CliRunner().invoke(main, ["analyze", "summary", str(path), "--json"])
     assert json_result.exit_code == 0, json_result.output
     report = json.loads(json_result.output)
     assert report["pbc"] == [False, False, False]
@@ -248,21 +244,15 @@ def test_analyze_summary_json_preserves_symmetry_failure(monkeypatch) -> None:
             raise RuntimeError("synthetic symmetry failure")
 
     monkeypatch.setattr(module, "SpacegroupAnalyzer", BrokenSpacegroupAnalyzer)
-    result = CliRunner().invoke(
-        main, ["analyze", "summary", str(PETN), "--json"]
-    )
+    result = CliRunner().invoke(main, ["analyze", "summary", str(PETN), "--json"])
     assert result.exit_code == 0, result.output
     report = json.loads(result.output)
     assert report["symmetry"]["status"] == "unavailable"
-    assert report["symmetry"]["reason"] == (
-        "RuntimeError: synthetic symmetry failure"
-    )
+    assert report["symmetry"]["reason"] == ("RuntimeError: synthetic symmetry failure")
 
 
 def test_analyze_summary_sorts_disorder_metadata() -> None:
-    result = CliRunner().invoke(
-        main, ["analyze", "summary", str(CAFFEINE), "--json"]
-    )
+    result = CliRunner().invoke(main, ["analyze", "summary", str(CAFFEINE), "--json"])
     assert result.exit_code == 0, result.output
     report = json.loads(result.output)
     assert report["disorder"]["groups"] == [-4, 1, 2, 3]
@@ -352,7 +342,9 @@ def test_io_extract_molecule_center_vacuum_cif(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8").startswith("data_")
 
 
-def test_io_extract_molecule_rejects_multiple_selectors_before_load(tmp_path: Path) -> None:
+def test_io_extract_molecule_rejects_multiple_selectors_before_load(
+    tmp_path: Path,
+) -> None:
     output = tmp_path / "mol.xyz"
     result = CliRunner().invoke(
         main,
@@ -375,16 +367,87 @@ def test_operate_supercell(tmp_path: Path) -> None:
     output = tmp_path / "super.cif"
     result = CliRunner().invoke(
         main,
-        ["operate", "supercell", str(DAP4), "-o", str(output), "--scale", "1", "1", "1"],
+        [
+            "operate",
+            "supercell",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--scale",
+            "1",
+            "1",
+            "1",
+        ],
     )
     assert result.exit_code == 0
     assert output.exists()
 
 
+def test_operate_supercell_matrix(tmp_path: Path) -> None:
+    output = tmp_path / "super_matrix.cif"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "supercell-matrix",
+            str(DAP4),
+            "-o",
+            str(output),
+            "--matrix",
+            "1",
+            "1",
+            "0",
+            "-1",
+            "1",
+            "0",
+            "0",
+            "0",
+            "1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert output.exists()
+
+
+def test_operate_supercell_matrix_rejects_left_handed(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "supercell-matrix",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "invalid.cif"),
+            "--matrix",
+            "-1",
+            "0",
+            "0",
+            "0",
+            "1",
+            "0",
+            "0",
+            "0",
+            "1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "right-handed" in result.output
+
+
 def test_operate_supercell_rejects_zero_scale(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "supercell", str(DAP4), "-o", str(tmp_path / "super.cif"), "--scale", "0", "1", "1"],
+        [
+            "operate",
+            "supercell",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "super.cif"),
+            "--scale",
+            "0",
+            "1",
+            "1",
+        ],
     )
     assert result.exit_code != 0
     assert "--scale factors must each be >= 1." in result.output
@@ -443,8 +506,6 @@ def test_operate_disorder_supercell_rejects_mapping_length(tmp_path: Path) -> No
 
     assert result.exit_code != 0
     assert "exactly 2 --replica-index values" in result.output
-
-
 
 
 def test_operate_nanocluster_fixed_unit_cell_count(tmp_path: Path) -> None:
@@ -911,7 +972,17 @@ def test_operate_void_through_cylinder_requires_hkl(tmp_path: Path) -> None:
 def test_slab_requires_layers_or_thickness(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "slab", str(DAP4), "-o", str(tmp_path / "slab.cif"), "--miller", "1", "1", "0"],
+        [
+            "operate",
+            "slab",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "slab.cif"),
+            "--miller",
+            "1",
+            "1",
+            "0",
+        ],
     )
     assert result.exit_code != 0
     assert "Specify --layers N or --min-thickness T" in result.output
@@ -920,7 +991,19 @@ def test_slab_requires_layers_or_thickness(tmp_path: Path) -> None:
 def test_slab_rejects_all_zero_miller(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "slab", str(DAP4), "-o", str(tmp_path / "slab.cif"), "--miller", "0", "0", "0", "--layers", "1"],
+        [
+            "operate",
+            "slab",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "slab.cif"),
+            "--miller",
+            "0",
+            "0",
+            "0",
+            "--layers",
+            "1",
+        ],
     )
     assert result.exit_code != 0
     assert "Miller indices cannot all be zero." in result.output
@@ -929,7 +1012,21 @@ def test_slab_rejects_all_zero_miller(tmp_path: Path) -> None:
 def test_slab_rejects_invalid_terminations(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "slab", str(DAP4), "-o", str(tmp_path / "slab.cif"), "--miller", "1", "1", "0", "--layers", "1", "--terminations", "garbage"],
+        [
+            "operate",
+            "slab",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "slab.cif"),
+            "--miller",
+            "1",
+            "1",
+            "0",
+            "--layers",
+            "1",
+            "--terminations",
+            "garbage",
+        ],
     )
     assert result.exit_code != 0
     assert "--terminations must be one of" in result.output
@@ -938,7 +1035,16 @@ def test_slab_rejects_invalid_terminations(tmp_path: Path) -> None:
 def test_vacancy_rejects_bad_species_count(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "vacancy", str(DAP4), "-o", str(tmp_path / "vacancy.cif"), "--species", "foo", "bar"],
+        [
+            "operate",
+            "vacancy",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "vacancy.cif"),
+            "--species",
+            "foo",
+            "bar",
+        ],
     )
     assert result.exit_code != 0
     assert "--species COUNT must be an integer" in result.output
@@ -947,7 +1053,15 @@ def test_vacancy_rejects_bad_species_count(tmp_path: Path) -> None:
 def test_vacancy_rejects_negative_seed_index(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "vacancy", str(DAP4), "-o", str(tmp_path / "vacancy.cif"), "--seed-index", "-1"],
+        [
+            "operate",
+            "vacancy",
+            str(DAP4),
+            "-o",
+            str(tmp_path / "vacancy.cif"),
+            "--seed-index",
+            "-1",
+        ],
     )
     assert result.exit_code != 0
     assert "--seed-index must be non-negative." in result.output
@@ -956,7 +1070,16 @@ def test_vacancy_rejects_negative_seed_index(tmp_path: Path) -> None:
 def test_interpolate_rejects_zero_images(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
-        ["operate", "interpolate", str(DAP4), str(DAP4), "-o", str(tmp_path / "traj.extxyz"), "--n-images", "0"],
+        [
+            "operate",
+            "interpolate",
+            str(DAP4),
+            str(DAP4),
+            "-o",
+            str(tmp_path / "traj.extxyz"),
+            "--n-images",
+            "0",
+        ],
     )
     assert result.exit_code != 0
     assert "--n-images must be >= 1." in result.output
@@ -970,13 +1093,17 @@ def test_analyze_bfdh() -> None:
 
 
 def test_analyze_bfdh_json() -> None:
-    result = CliRunner().invoke(main, ["analyze", "bfdh", str(DAP4), "--top-n", "1", "--json"])
+    result = CliRunner().invoke(
+        main, ["analyze", "bfdh", str(DAP4), "--top-n", "1", "--json"]
+    )
     assert result.exit_code == 0
     assert '"miller_index"' in result.output
 
 
 def test_bfdh_rejects_max_index_zero() -> None:
-    result = CliRunner().invoke(main, ["analyze", "bfdh", str(DAP4), "--max-index", "0"])
+    result = CliRunner().invoke(
+        main, ["analyze", "bfdh", str(DAP4), "--max-index", "0"]
+    )
     assert result.exit_code != 0
     assert "--max-index must be >= 1." in result.output
 
@@ -984,7 +1111,17 @@ def test_bfdh_rejects_max_index_zero() -> None:
 def test_polyhedra_rejects_non_positive_cutoff() -> None:
     result = CliRunner().invoke(
         main,
-        ["analyze", "polyhedra", str(DAP4), "--central", "Zn", "--ligand", "N", "--cutoff", "0"],
+        [
+            "analyze",
+            "polyhedra",
+            str(DAP4),
+            "--central",
+            "Zn",
+            "--ligand",
+            "N",
+            "--cutoff",
+            "0",
+        ],
     )
     assert result.exit_code != 0
     assert "--cutoff must be positive." in result.output
@@ -1020,7 +1157,9 @@ def test_cluster_requires_seed(tmp_path: Path) -> None:
 
 def test_carve_cluster_legacy_arg_translation_space_form() -> None:
     _translate_legacy_args = _load_carve_cluster_module()._translate_legacy_args
-    assert _translate_legacy_args(["--cif", "bulk.cif", "--out", "cluster", "--seed-index", "1"]) == [
+    assert _translate_legacy_args(
+        ["--cif", "bulk.cif", "--out", "cluster", "--seed-index", "1"]
+    ) == [
         "bulk.cif",
         "--output",
         "cluster",
@@ -1031,7 +1170,9 @@ def test_carve_cluster_legacy_arg_translation_space_form() -> None:
 
 def test_carve_cluster_legacy_arg_translation_equals_form() -> None:
     _translate_legacy_args = _load_carve_cluster_module()._translate_legacy_args
-    assert _translate_legacy_args(["--cif=bulk.cif", "--out=cluster", "--seed-index", "1"]) == [
+    assert _translate_legacy_args(
+        ["--cif=bulk.cif", "--out=cluster", "--seed-index", "1"]
+    ) == [
         "bulk.cif",
         "--output=cluster",
         "--seed-index",
@@ -1047,12 +1188,23 @@ def test_module_entrypoint_imports() -> None:
 # operate reorient
 # ---------------------------------------------------------------------------
 
+
 def test_reorient_basic(tmp_path: Path) -> None:
     """Smoke test: mck operate reorient should produce an output file."""
     out = tmp_path / "reoriented.cif"
     result = CliRunner().invoke(
         main,
-        ["operate", "reorient", str(ACETAMINOPHEN), "-o", str(out), "--direction", "1", "1", "0"],
+        [
+            "operate",
+            "reorient",
+            str(ACETAMINOPHEN),
+            "-o",
+            str(out),
+            "--direction",
+            "1",
+            "1",
+            "0",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert out.exists()
@@ -1065,7 +1217,19 @@ def test_reorient_target_axis_x(tmp_path: Path) -> None:
     out = tmp_path / "reoriented.cif"
     result = CliRunner().invoke(
         main,
-        ["operate", "reorient", str(ACETAMINOPHEN), "-o", str(out), "--direction", "1", "0", "0", "--target-axis", "x"],
+        [
+            "operate",
+            "reorient",
+            str(ACETAMINOPHEN),
+            "-o",
+            str(out),
+            "--direction",
+            "1",
+            "0",
+            "0",
+            "--target-axis",
+            "x",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert out.exists()
@@ -1076,7 +1240,17 @@ def test_reorient_rejects_zero_direction(tmp_path: Path) -> None:
     out = tmp_path / "reoriented.cif"
     result = CliRunner().invoke(
         main,
-        ["operate", "reorient", str(ACETAMINOPHEN), "-o", str(out), "--direction", "0", "0", "0"],
+        [
+            "operate",
+            "reorient",
+            str(ACETAMINOPHEN),
+            "-o",
+            str(out),
+            "--direction",
+            "0",
+            "0",
+            "0",
+        ],
     )
     assert result.exit_code != 0
     assert "cannot be (0, 0, 0)" in result.output
@@ -1116,8 +1290,13 @@ def test_add_h_rule(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
         [
-            "operate", "add-h", str(PETN), "-o", str(out),
-            "--rule", "N:target_coordination=3,geometry=trigonal_planar",
+            "operate",
+            "add-h",
+            str(PETN),
+            "-o",
+            str(out),
+            "--rule",
+            "N:target_coordination=3,geometry=trigonal_planar",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1130,9 +1309,15 @@ def test_add_h_rule_multiple(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         main,
         [
-            "operate", "add-h", str(PETN), "-o", str(out),
-            "--rule", "N:target_coordination=3",
-            "--rule", "O:neighbors=C+S,target_coordination=1",
+            "operate",
+            "add-h",
+            str(PETN),
+            "-o",
+            str(out),
+            "--rule",
+            "N:target_coordination=3",
+            "--rule",
+            "O:neighbors=C+S,target_coordination=1",
         ],
     )
     assert result.exit_code == 0, result.output

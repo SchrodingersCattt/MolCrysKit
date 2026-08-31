@@ -96,6 +96,31 @@ def create_supercell(
     return result
 
 
+def create_supercell_matrix(
+    crystal: MolecularCrystal, matrix: Sequence[Sequence[int]]
+) -> MolecularCrystal:
+    """Create a topology-preserving supercell from a right-handed integer matrix."""
+    input_disorder = _warn_if_unresolved_disorder(crystal)
+    matrix_array = np.asarray(matrix)
+    result = crystal.get_supercell_matrix(matrix_array)
+    integer_matrix = np.asarray(np.rint(matrix_array), dtype=int)
+    result.metadata = copy.deepcopy(crystal.metadata)
+    result.metadata["input_disorder"] = input_disorder
+    supercell_info = {
+        "matrix": integer_matrix.tolist(),
+        "determinant": int(round(np.linalg.det(integer_matrix))),
+        "source_molecule_count": len(crystal.molecules),
+        "source_atom_count": sum(len(molecule) for molecule in crystal.molecules),
+    }
+    history = copy.deepcopy(result.metadata.get("supercell_history", []))
+    if not history and "supercell" in result.metadata:
+        history.append(copy.deepcopy(result.metadata["supercell"]))
+    history.append(copy.deepcopy(supercell_info))
+    result.metadata["supercell_history"] = history
+    result.metadata["supercell"] = supercell_info
+    return result
+
+
 def _replica_schema(crystal: MolecularCrystal, replica_index: int) -> tuple:
     """Return the order-independent molecule and extra-array schema."""
     molecule_schema = []
@@ -339,4 +364,8 @@ def assemble_replica_supercell(
     )
 
 
-__all__ = ["assemble_replica_supercell", "create_supercell"]
+__all__ = [
+    "assemble_replica_supercell",
+    "create_supercell",
+    "create_supercell_matrix",
+]

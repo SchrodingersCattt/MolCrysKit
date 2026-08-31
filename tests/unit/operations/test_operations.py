@@ -26,6 +26,7 @@ from molcrys_kit.operations.desolvation import Desolvator, remove_solvents
 from molcrys_kit.operations.builders import (
     assemble_replica_supercell,
     create_supercell,
+    create_supercell_matrix,
 )
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
@@ -74,7 +75,9 @@ class TestVacancyGenerator:
 
     def test_unknown_species_id_raises_with_available_species(self, simple_crystal):
         gen = VacancyGenerator(simple_crystal)
-        with pytest.raises(ValueError, match=r"Species 'BAD_1' not found in crystal") as exc_info:
+        with pytest.raises(
+            ValueError, match=r"Species 'BAD_1' not found in crystal"
+        ) as exc_info:
             gen.generate_vacancy(target_spec={"BAD_1": 1})
         assert "Available species:" in str(exc_info.value)
 
@@ -172,7 +175,9 @@ class TestHydrogenCompleter:
         )
         crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(nh2)])
         hc = HydrogenCompleter(crystal)
-        custom = [{"symbol": "N", "target_coordination": 3, "geometry": "trigonal_pyramidal"}]
+        custom = [
+            {"symbol": "N", "target_coordination": 3, "geometry": "trigonal_pyramidal"}
+        ]
         new_crystal = hc.add_hydrogens(rules=custom)
         symbols = new_crystal.molecules[0].get_chemical_symbols()
         assert symbols[0] == "N"
@@ -183,14 +188,25 @@ class TestHydrogenCompleter:
         hc = HydrogenCompleter(crystal)
         chem_env = ChemicalEnvironment(crystal.molecules[0])
         rule = hc._find_matching_rule(
-            chem_env, 0, "C",
+            chem_env,
+            0,
+            "C",
             [{"symbol": "C", "neighbors": ["O"], "target_coordination": 4}],
             {},
         )
         assert rule is None
         rule = hc._find_matching_rule(
-            chem_env, 0, "C",
-            [{"symbol": "C", "neighbors": ["H"], "target_coordination": 4, "geometry": "tetrahedral"}],
+            chem_env,
+            0,
+            "C",
+            [
+                {
+                    "symbol": "C",
+                    "neighbors": ["H"],
+                    "target_coordination": 4,
+                    "geometry": "tetrahedral",
+                }
+            ],
             {"C": {"target_coordination": 3, "geometry": "trigonal_planar"}},
         )
         assert rule is not None
@@ -203,7 +219,9 @@ class TestHydrogenCompleter:
         new_crystal = hc.add_hydrogens(bond_lengths={"O-H": 1.1})
         assert len(new_crystal.molecules) == 1
 
-    def test_formula_constraint_skips_unmatched_inorganic_fragment(self, cubic_lattice_10):
+    def test_formula_constraint_skips_unmatched_inorganic_fragment(
+        self, cubic_lattice_10
+    ):
         organic = Atoms(symbols=["C"], positions=[[0, 0, 0]])
         inorganic = Atoms(symbols=["S"], positions=[[5, 0, 0]])
         crystal = MolecularCrystal(
@@ -212,7 +230,9 @@ class TestHydrogenCompleter:
             formula_moiety="C H4",
         )
 
-        with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
+        with pytest.warns(
+            RuntimeWarning, match="No .*fragment matches|Skipping H addition"
+        ):
             completed = add_hydrogens(crystal, use_formula_moiety=True)
 
         assert completed.molecules[0].get_chemical_formula() == "CH4"
@@ -241,10 +261,14 @@ class TestHydrogenCompleter:
             formula_moiety="C2 H7 N1 O1",
         )
 
-        with pytest.warns(RuntimeWarning, match="No .*fragment matches|Skipping H addition"):
+        with pytest.warns(
+            RuntimeWarning, match="No .*fragment matches|Skipping H addition"
+        ):
             completed = add_hydrogens(crystal, use_formula_moiety=True)
 
-        formulas = sorted(molecule.get_chemical_formula() for molecule in completed.molecules)
+        formulas = sorted(
+            molecule.get_chemical_formula() for molecule in completed.molecules
+        )
         assert formulas == ["C2H7NO", "CCdNS"]
 
     def test_placement_vector_shortfall_raises(self, cubic_lattice_10, monkeypatch):
@@ -333,7 +357,9 @@ class TestPerturbation:
         orig_pos = crystal_single_water.molecules[0].get_positions().copy()
         np.random.seed(42)
         apply_gaussian_displacement_crystal(crystal_single_water, sigma=0.01)
-        assert not np.allclose(crystal_single_water.molecules[0].get_positions(), orig_pos)
+        assert not np.allclose(
+            crystal_single_water.molecules[0].get_positions(), orig_pos
+        )
 
     def test_directional_displacement(self, water_atoms):
         mol = CrystalMolecule(water_atoms)
@@ -364,9 +390,7 @@ class TestDesolvation:
         water = CrystalMolecule(
             Atoms("OHH", positions=[[0, 0, 0], [0.96, 0, 0], [0, 0.96, 0]])
         )
-        co = CrystalMolecule(
-            Atoms("CO", positions=[[5, 5, 5], [6.2, 5, 5]])
-        )
+        co = CrystalMolecule(Atoms("CO", positions=[[5, 5, 5], [6.2, 5, 5]]))
         return MolecularCrystal(cubic_lattice_10, [co, water])
 
     def test_remove_by_name(self, crystal_with_water):
@@ -404,6 +428,54 @@ class TestBuilders:
         assert isinstance(supercell, MolecularCrystal)
         total_atoms = sum(len(m) for m in supercell.molecules)
         assert total_atoms == 4
+
+    @pytest.mark.parametrize(
+        ("matrix", "determinant"),
+        [
+            ([[3, 0, 0], [0, 2, 2], [0, -2, 2]], 24),
+            ([[3, 2, 0], [-3, 2, 0], [0, 0, 2]], 24),
+            ([[3, 1, 0], [-3, 1, 0], [0, 0, 4]], 24),
+            ([[2, 0, 0], [0, 3, 0], [0, 0, 2]], 12),
+        ],
+    )
+    def test_create_supercell_matrix_counts_and_lattice(
+        self, cubic_lattice_10, co_molecule, matrix, determinant
+    ):
+        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
+        supercell = create_supercell_matrix(crystal, matrix)
+        np.testing.assert_allclose(
+            supercell.lattice, np.asarray(matrix) @ crystal.lattice
+        )
+        assert len(supercell.molecules) == determinant
+        assert sum(len(molecule) for molecule in supercell.molecules) == 2 * determinant
+        assert supercell.metadata["supercell"]["determinant"] == determinant
+
+    def test_create_supercell_matrix_keeps_cross_boundary_molecule_intact(
+        self, cubic_lattice_10
+    ):
+        molecule = CrystalMolecule(
+            Atoms("HH", positions=[[9.8, 0.0, 0.0], [10.2, 0.0, 0.0]])
+        )
+        crystal = MolecularCrystal(cubic_lattice_10, [molecule])
+        supercell = create_supercell_matrix(crystal, [[1, 1, 0], [-1, 1, 0], [0, 0, 1]])
+        assert len(supercell.molecules) == 2
+        for replica in supercell.molecules:
+            assert len(replica) == 2
+            assert replica.get_distance(0, 1) == pytest.approx(0.4)
+
+    @pytest.mark.parametrize(
+        "matrix",
+        [
+            [[1, 0, 0], [0, 1, 0], [0, 0, 0]],
+            [[-1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        ],
+    )
+    def test_create_supercell_matrix_rejects_non_right_handed(
+        self, cubic_lattice_10, co_molecule, matrix
+    ):
+        crystal = MolecularCrystal(cubic_lattice_10, [CrystalMolecule(co_molecule)])
+        with pytest.raises(ValueError, match="right-handed"):
+            create_supercell_matrix(crystal, matrix)
 
     def test_create_supercell_allows_incomplete_periodic_topology(
         self, cubic_lattice_10, co_molecule

@@ -28,6 +28,7 @@ from .rotation import rotate_molecule_at_center, rotate_molecule_at_com
 from .builders import (
     assemble_replica_supercell,
     create_supercell,
+    create_supercell_matrix,
 )
 
 from .surface import (
@@ -120,6 +121,7 @@ __all__ = [
     "rotate_molecule_at_com",
     "assemble_replica_supercell",
     "create_supercell",
+    "create_supercell_matrix",
     "generate_topological_slab",
     "TopologicalSlabGenerator",
     "TerminationInfo",

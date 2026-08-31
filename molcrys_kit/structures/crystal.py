@@ -91,8 +91,7 @@ class MolecularCrystal:
         self._calc_results: Optional[dict] = calc_results
         self.metadata: dict = dict(metadata or {})
         self.extra_arrays: dict = {
-            key: np.asarray(value).copy()
-            for key, value in (extra_arrays or {}).items()
+            key: np.asarray(value).copy() for key, value in (extra_arrays or {}).items()
         }
         self._chemistry = None
 
@@ -102,11 +101,11 @@ class MolecularCrystal:
             if isinstance(mol, CrystalMolecule):
                 # If it's already a CrystalMolecule, just update the reference
                 # We assume it's already unwrapped correctly.
-                
+
                 # Ensure the atoms object contains the required disorder metadata arrays
                 self._ensure_disorder_metadata(mol)
                 self._ensure_atom_ids(mol, molecule_index)
-                
+
                 new_mol = (
                     mol.copy()
                 )  # Copy ensures we don't mutate the input list objects unexpectedly
@@ -128,20 +127,25 @@ class MolecularCrystal:
         Ensures that the atoms object has all required disorder metadata arrays.
         If any are missing, inject default values for the entire structure.
         """
-        from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL
-        
+        from ..constants.config import (
+            KEY_OCCUPANCY,
+            KEY_DISORDER_GROUP,
+            KEY_ASSEMBLY,
+            KEY_LABEL,
+        )
+
         n_atoms = len(atoms_obj)
-        
+
         # Check if required arrays exist, if not, inject default values
         if KEY_OCCUPANCY not in atoms_obj.arrays:
             atoms_obj.set_array(KEY_OCCUPANCY, np.full(n_atoms, 1.0))
-            
+
         if KEY_DISORDER_GROUP not in atoms_obj.arrays:
             atoms_obj.set_array(KEY_DISORDER_GROUP, np.full(n_atoms, 0, dtype=int))
-            
+
         if KEY_ASSEMBLY not in atoms_obj.arrays:
-            atoms_obj.set_array(KEY_ASSEMBLY, np.array([''] * n_atoms))
-            
+            atoms_obj.set_array(KEY_ASSEMBLY, np.array([""] * n_atoms))
+
         if KEY_LABEL not in atoms_obj.arrays:
             # Use element symbols as default labels
             atoms_obj.set_array(KEY_LABEL, np.array(atoms_obj.get_chemical_symbols()))
@@ -156,12 +160,17 @@ class MolecularCrystal:
         """
         from ..constants.config import KEY_ATOM_ID
 
-        if KEY_ATOM_ID in atoms_obj.arrays and len(atoms_obj.arrays[KEY_ATOM_ID]) == len(atoms_obj):
+        if KEY_ATOM_ID in atoms_obj.arrays and len(
+            atoms_obj.arrays[KEY_ATOM_ID]
+        ) == len(atoms_obj):
             return
         atoms_obj.set_array(
             KEY_ATOM_ID,
             np.asarray(
-                [f"m{molecule_index}:a{local_index}" for local_index in range(len(atoms_obj))],
+                [
+                    f"m{molecule_index}:a{local_index}"
+                    for local_index in range(len(atoms_obj))
+                ],
                 dtype=str,
             ),
         )
@@ -194,7 +203,9 @@ class MolecularCrystal:
         return f"MolecularCrystal(lattice={self.lattice.tolist()}, molecules_count={len(self.molecules)}, pbc={self.pbc})"
 
     @classmethod
-    def from_ase(cls, atoms: Atoms, bond_thresholds=None, max_atoms=None, bond_scale: float = 1.0) -> "MolecularCrystal":
+    def from_ase(
+        cls, atoms: Atoms, bond_thresholds=None, max_atoms=None, bond_scale: float = 1.0
+    ) -> "MolecularCrystal":
         """
         Create a MolecularCrystal from an ASE Atoms object.
 
@@ -226,7 +237,12 @@ class MolecularCrystal:
         pbc = tuple(atoms.get_pbc())
 
         # Identify molecular units using graph-based approach
-        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
+        molecules = identify_molecules(
+            atoms,
+            bond_thresholds=bond_thresholds,
+            max_atoms=max_atoms,
+            bond_scale=bond_scale,
+        )
 
         # Create and return a new MolecularCrystal instance
         return cls(lattice, molecules, pbc)
@@ -261,7 +277,7 @@ class MolecularCrystal:
         -------
         MolecularCrystal
             Crystal with identified molecules
-            
+
         Raises
         ------
         NotImplementedError
@@ -270,6 +286,7 @@ class MolecularCrystal:
         if use_asu_first:
             # ASU-first path: identify molecules on ASU, then replicate via symops
             from ..io.cif import _identify_molecules_asu_first, read_mol_crystal
+
             try:
                 return _identify_molecules_asu_first(
                     path,
@@ -285,9 +302,10 @@ class MolecularCrystal:
                     max_atoms=max_atoms,
                     bond_scale=bond_scale,
                 )
-        
+
         # Standard path: expand to full cell, then identify molecules
         from ..io.cif import read_mol_crystal
+
         return read_mol_crystal(
             path,
             bond_thresholds=bond_thresholds,
@@ -306,6 +324,84 @@ class MolecularCrystal:
             covalent radii (in Angstroms) as values.
         """
         return ATOMIC_RADII.copy()
+
+    @staticmethod
+    def _supercell_translations(matrix: np.ndarray) -> list[np.ndarray]:
+        """Return integer old-cell origins inside one new-cell fundamental domain."""
+        determinant = int(round(np.linalg.det(matrix)))
+        inverse = np.linalg.inv(matrix)
+        corners = np.asarray(
+            [
+                np.asarray(bits, dtype=float) @ matrix
+                for bits in itertools.product((0, 1), repeat=3)
+            ]
+        )
+        lower = np.floor(corners.min(axis=0)).astype(int) - 1
+        upper = np.ceil(corners.max(axis=0)).astype(int) + 1
+        tolerance = 1e-10
+        translations = []
+        for candidate in itertools.product(
+            *(range(int(lower[i]), int(upper[i]) + 1) for i in range(3))
+        ):
+            fractional = np.asarray(candidate, dtype=float) @ inverse
+            if np.all(fractional >= -tolerance) and np.all(
+                fractional < 1.0 - tolerance
+            ):
+                translations.append(np.asarray(candidate, dtype=float))
+
+        if len(translations) != determinant:
+            raise RuntimeError(
+                "Failed to enumerate the expected number of lattice translations: "
+                f"{len(translations)} != {determinant}."
+            )
+        translations.sort(key=lambda item: tuple((item @ inverse).tolist()))
+        return translations
+
+    def get_supercell_matrix(self, matrix: np.ndarray) -> "MolecularCrystal":
+        """Create a topology-preserving supercell from a 3x3 integer matrix.
+
+        With lattice vectors stored as rows, the returned lattice is the matrix
+        multiplied by the source lattice. Each source molecule is copied as one
+        intact object for every integer old-cell origin in the new-cell
+        fundamental domain; atoms are not repartitioned by distance.
+        """
+        raw_matrix = np.asarray(matrix)
+        if raw_matrix.shape != (3, 3):
+            raise ValueError("Supercell matrix must have shape (3, 3).")
+        if not np.allclose(raw_matrix, np.rint(raw_matrix), rtol=0.0, atol=1e-12):
+            raise ValueError("Supercell matrix entries must be integers.")
+        integer_matrix = np.asarray(np.rint(raw_matrix), dtype=int)
+        determinant_float = float(np.linalg.det(integer_matrix))
+        determinant = int(round(determinant_float))
+        if determinant <= 0:
+            raise ValueError("Supercell matrix must be right-handed and nonsingular.")
+
+        new_lattice = integer_matrix @ self.lattice
+        inverse_new_lattice = np.linalg.inv(new_lattice)
+        periodic = np.asarray(self.pbc, dtype=bool)
+
+        from .molecule import _strip_stale_frac_arrays
+        from ..constants.config import KEY_IMAGE_SHIFT
+
+        new_molecules = []
+        for translation in self._supercell_translations(integer_matrix):
+            cartesian_translation = translation @ self.lattice
+            for molecule in self.molecules:
+                new_atoms = molecule.copy()
+                new_atoms.info.pop("atom_indices", None)
+                new_atoms.info.pop("bond_records", None)
+                new_atoms.info.pop("bond_pairs", None)
+                new_atoms.positions += cartesian_translation
+                supercell_fractional = new_atoms.positions @ inverse_new_lattice
+                image_shifts = np.zeros((len(new_atoms), 3), dtype=int)
+                image_shifts[:, periodic] = np.floor(
+                    supercell_fractional[:, periodic] + 1e-10
+                ).astype(int)
+                new_atoms.set_array(KEY_IMAGE_SHIFT, image_shifts)
+                _strip_stale_frac_arrays(new_atoms)
+                new_molecules.append(new_atoms)
+
+        return MolecularCrystal(new_lattice, new_molecules, self.pbc)
 
     def get_supercell(self, n1: int, n2: int, n3: int) -> "MolecularCrystal":
         """
@@ -498,7 +594,9 @@ class MolecularCrystal:
         """Return each molecule's indices in :meth:`to_ase` ordering."""
         n_total = self.get_total_nodes()
         saved = [molecule.info.get("atom_indices") for molecule in self.molecules]
-        flat = [int(index) for indices in saved if indices is not None for index in indices]
+        flat = [
+            int(index) for indices in saved if indices is not None for index in indices
+        ]
         if (
             all(indices is not None for indices in saved)
             and len(flat) == n_total
@@ -551,6 +649,7 @@ class MolecularCrystal:
             positions = np.asarray(molecule.get_positions(), dtype=float)
             arrays = molecule.arrays
             for local_index, global_index in enumerate(molecule_globals):
+
                 def _array_value(key, default):
                     array = arrays.get(key)
                     return default if array is None else array[local_index]
@@ -575,7 +674,9 @@ class MolecularCrystal:
                 fractional = position @ inv_lattice
                 image_array = arrays.get(KEY_IMAGE_SHIFT)
                 if image_array is not None:
-                    raw_image = np.asarray(image_array[local_index], dtype=int).reshape(3)
+                    raw_image = np.asarray(image_array[local_index], dtype=int).reshape(
+                        3
+                    )
                 elif all(key in arrays for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z)):
                     source_fractional = np.array(
                         [
@@ -792,7 +893,7 @@ class MolecularCrystal:
         summary_str = "MolecularCrystal:\n"
         summary_str += "  Lattice vectors:\n"
         for i, vec in enumerate(self.lattice):
-            summary_str += f"    a{i+1}: [{vec[0]:.4f}, {vec[1]:.4f}, {vec[2]:.4f}]\n"
+            summary_str += f"    a{i + 1}: [{vec[0]:.4f}, {vec[1]:.4f}, {vec[2]:.4f}]\n"
         summary_str += f"  Number of molecules: {len(self.molecules)}\n"
         summary_str += f"  PBC: {self.pbc}\n"
 
@@ -922,13 +1023,15 @@ class MolecularCrystal:
             An ASE Atoms object representing the entire crystal structure.
         """
         from ..constants.config import (
-            KEY_ASSEMBLY, KEY_LABEL, KEY_U_CART, KEY_UISO,
+            KEY_ASSEMBLY,
+            KEY_LABEL,
+            KEY_U_CART,
+            KEY_UISO,
         )
 
         n_total = sum(len(molecule) for molecule in self.molecules)
         indices_lists = [
-            molecule.info.get("atom_indices")
-            for molecule in self.molecules
+            molecule.info.get("atom_indices") for molecule in self.molecules
         ]
         flat_indices = [
             int(index)
@@ -950,19 +1053,16 @@ class MolecularCrystal:
         base_keys = {"numbers", "positions"}
         string_disorder_keys = {KEY_ASSEMBLY, KEY_LABEL}
         all_custom_keys = sorted(
-            {
-                key
-                for molecule in self.molecules
-                for key in molecule.arrays.keys()
-            }
+            {key for molecule in self.molecules for key in molecule.arrays.keys()}
             - base_keys
         )
 
         # Collect ALL per-atom arrays (string and numeric) in one pass.
         def _collect_arrays(key_list):
             """Return {key: values_list} for the given keys."""
-            arrays = {k: ([None] * n_total if can_restore_order else [])
-                      for k in key_list}
+            arrays = {
+                k: ([None] * n_total if can_restore_order else []) for k in key_list
+            }
             return arrays
 
         all_arrays = _collect_arrays(all_custom_keys)
@@ -971,7 +1071,9 @@ class MolecularCrystal:
             symbols = [None] * n_total
             positions = np.zeros((n_total, 3), dtype=float)
             mol_idx = np.empty(n_total, dtype=int)
-            for i_mol, (molecule, indices) in enumerate(zip(self.molecules, indices_lists)):
+            for i_mol, (molecule, indices) in enumerate(
+                zip(self.molecules, indices_lists)
+            ):
                 molecule_symbols = molecule.get_chemical_symbols()
                 molecule_positions = molecule.get_positions()
                 for local_index, global_index in enumerate(indices):
@@ -993,7 +1095,7 @@ class MolecularCrystal:
                 symbols.extend(molecule.get_chemical_symbols())
                 positions.extend(molecule.get_positions())
                 n = len(molecule)
-                mol_idx[offset:offset + n] = i_mol
+                mol_idx[offset : offset + n] = i_mol
                 for k in all_custom_keys:
                     arr = molecule.arrays.get(k)
                     if arr is not None:
@@ -1003,7 +1105,10 @@ class MolecularCrystal:
                 offset += n
 
         atoms = Atoms(
-            symbols=symbols, positions=positions, cell=self.lattice, pbc=self.pbc,
+            symbols=symbols,
+            positions=positions,
+            cell=self.lattice,
+            pbc=self.pbc,
         )
         atoms.set_array("molecule_index", mol_idx)
 
@@ -1011,8 +1116,7 @@ class MolecularCrystal:
             arr = np.asarray(values)
             if len(arr) != len(atoms):
                 raise ValueError(
-                    f"Extra array {key!r} has length {len(arr)}; "
-                    f"expected {len(atoms)}."
+                    f"Extra array {key!r} has length {len(arr)}; expected {len(atoms)}."
                 )
             atoms.set_array(key, arr.copy())
 
@@ -1044,10 +1148,13 @@ class MolecularCrystal:
             atoms.info["formula_moiety"] = self.formula_moiety
         if self.disorder_provenance is not None:
             import dataclasses
+
             if hasattr(self.disorder_provenance, "to_dict"):
                 atoms.info["disorder_provenance"] = self.disorder_provenance.to_dict()
             elif dataclasses.is_dataclass(self.disorder_provenance):
-                atoms.info["disorder_provenance"] = dataclasses.asdict(self.disorder_provenance)
+                atoms.info["disorder_provenance"] = dataclasses.asdict(
+                    self.disorder_provenance
+                )
             elif isinstance(self.disorder_provenance, dict):
                 atoms.info["disorder_provenance"] = self.disorder_provenance
             else:
@@ -1087,12 +1194,15 @@ class MolecularCrystal:
         # --- propagate calculator if attached ---
         if self._calc_results is not None:
             from ase.calculators.singlepoint import SinglePointCalculator
+
             atoms.calc = SinglePointCalculator(atoms, **self._calc_results)
 
         return atoms
 
     @classmethod
-    def from_ase_atoms(cls, atoms: Atoms, bond_scale: float = 1.0) -> "MolecularCrystal":
+    def from_ase_atoms(
+        cls, atoms: Atoms, bond_scale: float = 1.0
+    ) -> "MolecularCrystal":
         """
         Reconstruct a MolecularCrystal from a flat ASE Atoms object
         that was produced by :meth:`to_ase`.
@@ -1115,7 +1225,9 @@ class MolecularCrystal:
             return cls.from_ase(atoms, bond_scale=bond_scale)
 
         from ..constants.config import (
-            KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY,
+            KEY_OCCUPANCY,
+            KEY_DISORDER_GROUP,
+            KEY_ASSEMBLY,
         )
 
         # Desanitise string arrays: "." placeholder → "" (see to_ase)
@@ -1129,9 +1241,7 @@ class MolecularCrystal:
         n_mol = int(mol_idx.max()) + 1
         base_keys = {"numbers", "positions"}
         preserved_array_keys = [
-            key
-            for key in atoms.arrays.keys()
-            if key not in base_keys
+            key for key in atoms.arrays.keys() if key not in base_keys
         ]
         molecules = []
         for i in range(n_mol):
@@ -1198,8 +1308,9 @@ class MolecularCrystal:
             calc_results = dict(calc.results)
 
         crystal = cls(
-            lattice=atoms.get_cell().array if np.array(atoms.get_cell()).ndim == 2
-                     else atoms.get_cell().array,
+            lattice=atoms.get_cell().array
+            if np.array(atoms.get_cell()).ndim == 2
+            else atoms.get_cell().array,
             molecules=molecules,
             pbc=tuple(atoms.get_pbc()),
             formula_moiety=formula_moiety,

@@ -8,7 +8,9 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import click
 
-from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
+from molcrys_kit.analysis.disorder import (
+    generate_ordered_replicas_from_disordered_sites,
+)
 from molcrys_kit.io import read_cif_symmetry, write_xyz_with_freeze
 from molcrys_kit.operations import (
     ClusterCarver,
@@ -21,6 +23,7 @@ from molcrys_kit.operations import (
     add_hydrogens,
     assemble_replica_supercell,
     create_supercell,
+    create_supercell_matrix,
     generate_slabs_with_terminations,
     generate_topological_slab,
     generate_vacancy,
@@ -48,7 +51,9 @@ def _parse_seed(seed_element: str | None, seed_index: tuple[int, ...] | None):
         return seed_element
     if seed_index:
         return list(seed_index)
-    raise click.UsageError("Specify a seed via --seed-element ELEMENT or --seed-index I [I ...].")
+    raise click.UsageError(
+        "Specify a seed via --seed-element ELEMENT or --seed-index I [I ...]."
+    )
 
 
 def _parse_cut_cc_bonds(text: str | None) -> List[Tuple[int, int]]:
@@ -62,11 +67,15 @@ def _parse_cut_cc_bonds(text: str | None) -> List[Tuple[int, int]]:
             continue
         parts = [p.strip() for p in item.split(",")]
         if len(parts) != 2:
-            raise click.UsageError("--cut-cc-bonds expects 'i,j;k,l' parent-index pairs.")
+            raise click.UsageError(
+                "--cut-cc-bonds expects 'i,j;k,l' parent-index pairs."
+            )
         try:
             out.append((int(parts[0]), int(parts[1])))
         except ValueError as exc:
-            raise click.UsageError("--cut-cc-bonds entries must be integer pairs.") from exc
+            raise click.UsageError(
+                "--cut-cc-bonds entries must be integer pairs."
+            ) from exc
     return out
 
 
@@ -74,7 +83,9 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
     cap_overrides: dict[str, float] = {}
     for entry in entries:
         if "=" not in entry:
-            raise click.UsageError(f"--cap-bond-length expects ELEM=DIST, got {entry!r}.")
+            raise click.UsageError(
+                f"--cap-bond-length expects ELEM=DIST, got {entry!r}."
+            )
         elem, dist_str = entry.split("=", 1)
         try:
             cap_overrides[elem.strip()] = float(dist_str)
@@ -85,15 +96,42 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output file or file stem.")
-@click.option("--method", type=click.Choice(["optimal", "random", "enumerate"]), default="optimal", show_default=True)
-@click.option("--count", type=int, default=1, show_default=True, help="Number of structures for random/enumerate modes.")
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Output file or file stem.",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["optimal", "random", "enumerate"]),
+    default="optimal",
+    show_default=True,
+)
+@click.option(
+    "--count",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Number of structures for random/enumerate modes.",
+)
 @click.option("--seed", type=int, default=None, help="Random seed for random mode.")
-@click.option("--coupled", is_flag=True, help="Couple symmetry-expanded copies of the same disorder assembly.")
-def disorder(input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool) -> None:
+@click.option(
+    "--coupled",
+    is_flag=True,
+    help="Couple symmetry-expanded copies of the same disorder assembly.",
+)
+def disorder(
+    input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool
+) -> None:
     """Resolve CIF disorder into ordered replica structures."""
     replicas = generate_ordered_replicas_from_disordered_sites(
-        str(input), generate_count=count, method=method, random_seed=seed, coupled=coupled
+        str(input),
+        generate_count=count,
+        method=method,
+        random_seed=seed,
+        coupled=coupled,
     )
     crystals = [item[0] if isinstance(item, tuple) else item for item in replicas]
     echo_paths(write_crystal_sequence(crystals, output))
@@ -147,15 +185,38 @@ def _parse_rule(rule_str: str) -> Dict:
 
 @click.command(name="add-h")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
-@click.option("--bond-scale", type=float, default=1.0, show_default=True,
-              help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
-@click.option("--target-elements", multiple=True, help="Element symbols to hydrogenate; repeatable.")
-@click.option("--rule", "rules_raw", multiple=True,
-              help="Hydrogen-placement rule as SYMBOL:key=value,... (repeatable). "
-                   "Keys: target_coordination (int), geometry (str), neighbors (elem+elem).")
-@click.option("--optimize-torsion", is_flag=True, help="Enable torsion optimization during placement.")
-@click.option("--no-formula-moiety", is_flag=True, help="Disable CIF formula-moiety H-count correction.")
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--bond-scale",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).",
+)
+@click.option(
+    "--target-elements",
+    multiple=True,
+    help="Element symbols to hydrogenate; repeatable.",
+)
+@click.option(
+    "--rule",
+    "rules_raw",
+    multiple=True,
+    help="Hydrogen-placement rule as SYMBOL:key=value,... (repeatable). "
+    "Keys: target_coordination (int), geometry (str), neighbors (elem+elem).",
+)
+@click.option(
+    "--optimize-torsion",
+    is_flag=True,
+    help="Enable torsion optimization during placement.",
+)
+@click.option(
+    "--no-formula-moiety",
+    is_flag=True,
+    help="Disable CIF formula-moiety H-count correction.",
+)
 def add_h(
     input: Path,
     output: Path,
@@ -181,16 +242,53 @@ def add_h(
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
-@click.option("--miller", nargs=3, type=int, required=True, metavar="H K L", help="Miller indices.")
-@click.option("--layers", type=int, default=None, help="Explicit number of unit planes.")
-@click.option("--min-thickness", type=float, default=None, help="Minimum slab thickness in Angstrom.")
-@click.option("--vacuum", type=float, default=10.0, show_default=True, help="Vacuum thickness in Angstrom.")
-@click.option("--terminations", default="single", show_default=True, help="single, tasker_preferred, all, or a termination index.")
-def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | None, min_thickness: float | None, vacuum: float, terminations: str) -> None:
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--miller",
+    nargs=3,
+    type=int,
+    required=True,
+    metavar="H K L",
+    help="Miller indices.",
+)
+@click.option(
+    "--layers", type=int, default=None, help="Explicit number of unit planes."
+)
+@click.option(
+    "--min-thickness",
+    type=float,
+    default=None,
+    help="Minimum slab thickness in Angstrom.",
+)
+@click.option(
+    "--vacuum",
+    type=float,
+    default=10.0,
+    show_default=True,
+    help="Vacuum thickness in Angstrom.",
+)
+@click.option(
+    "--terminations",
+    default="single",
+    show_default=True,
+    help="single, tasker_preferred, all, or a termination index.",
+)
+def slab(
+    input: Path,
+    output: Path,
+    miller: tuple[int, int, int],
+    layers: int | None,
+    min_thickness: float | None,
+    vacuum: float,
+    terminations: str,
+) -> None:
     """Generate a topology-preserving surface slab."""
     if layers is None and min_thickness is None:
-        raise click.UsageError("Specify --layers N or --min-thickness T (at least one is required).")
+        raise click.UsageError(
+            "Specify --layers N or --min-thickness T (at least one is required)."
+        )
     if all(m == 0 for m in miller):
         raise click.UsageError("Miller indices cannot all be zero.")
     if terminations not in _VALID_SLAB_TERMINATIONS and not terminations.isdigit():
@@ -200,7 +298,9 @@ def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | 
         )
     crystal = load_crystal(input)
     if terminations == "single":
-        result = generate_topological_slab(crystal, miller, layers=layers, min_thickness=min_thickness, vacuum=vacuum)
+        result = generate_topological_slab(
+            crystal, miller, layers=layers, min_thickness=min_thickness, vacuum=vacuum
+        )
         write_structure(result, output)
         click.echo(f"Wrote {output}")
         return
@@ -233,19 +333,75 @@ def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | 
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output stem; writes <stem>__group<k>.xyz plus JSON sidecar.")
-@click.option("--mode", type=click.Choice(["bond_shells", "rcut"]), default="bond_shells", show_default=True)
-@click.option("--seed-element", type=str, default=None, help="Seed on every atom of this element.")
-@click.option("--seed-index", type=int, multiple=True, help="Explicit zero-based global atom seed index; repeatable.")
-@click.option("--max-atoms", type=int, default=500, show_default=True, help="Hard safety cap for bond_shells mode.")
-@click.option("--cut-cc-bonds", type=str, default=None, metavar="I,J;K,L", help="Parent-index C-C bonds to truncate.")
-@click.option("--rcut", type=float, default=None, help="Radial cutoff in Angstrom for rcut mode.")
-@click.option("--freeze-shell", type=click.Choice(["0", "1", "2"]), default="1", show_default=True)
-@click.option("--cap-distance", type=float, default=None, help="Uniform cap distance in Angstrom.")
-@click.option("--cap-bond-length", multiple=True, metavar="ELEM=DIST", help="Override one X-H cap length; repeatable.")
-@click.option("--seed-merge-radius", type=float, default=0.0, show_default=True, help="Group adjacent seeds within this radius.")
-@click.option("--convention-reference", type=str, default="", help="Free-text citation/protocol note for the sidecar JSON.")
-@click.option("--no-stop-at-non-seed-metals", is_flag=True, help="Disable implicit metal-boundary rule.")
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Output stem; writes <stem>__group<k>.xyz plus JSON sidecar.",
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["bond_shells", "rcut"]),
+    default="bond_shells",
+    show_default=True,
+)
+@click.option(
+    "--seed-element", type=str, default=None, help="Seed on every atom of this element."
+)
+@click.option(
+    "--seed-index",
+    type=int,
+    multiple=True,
+    help="Explicit zero-based global atom seed index; repeatable.",
+)
+@click.option(
+    "--max-atoms",
+    type=int,
+    default=500,
+    show_default=True,
+    help="Hard safety cap for bond_shells mode.",
+)
+@click.option(
+    "--cut-cc-bonds",
+    type=str,
+    default=None,
+    metavar="I,J;K,L",
+    help="Parent-index C-C bonds to truncate.",
+)
+@click.option(
+    "--rcut", type=float, default=None, help="Radial cutoff in Angstrom for rcut mode."
+)
+@click.option(
+    "--freeze-shell", type=click.Choice(["0", "1", "2"]), default="1", show_default=True
+)
+@click.option(
+    "--cap-distance", type=float, default=None, help="Uniform cap distance in Angstrom."
+)
+@click.option(
+    "--cap-bond-length",
+    multiple=True,
+    metavar="ELEM=DIST",
+    help="Override one X-H cap length; repeatable.",
+)
+@click.option(
+    "--seed-merge-radius",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help="Group adjacent seeds within this radius.",
+)
+@click.option(
+    "--convention-reference",
+    type=str,
+    default="",
+    help="Free-text citation/protocol note for the sidecar JSON.",
+)
+@click.option(
+    "--no-stop-at-non-seed-metals",
+    is_flag=True,
+    help="Disable implicit metal-boundary rule.",
+)
 def cluster(
     input: Path,
     output: Path,
@@ -297,7 +453,9 @@ def cluster(
     except LigandTopologyOverflowError as exc:
         if exc.candidates:
             formatted = ";".join(f"{a},{b}" for a, b in exc.candidates)
-            raise click.ClickException(f"{exc}\nAll candidate bonds: --cut-cc-bonds \"{formatted}\"") from exc
+            raise click.ClickException(
+                f'{exc}\nAll candidate bonds: --cut-cc-bonds "{formatted}"'
+            ) from exc
         raise click.ClickException(str(exc)) from exc
 
     out_dir = output.parent
@@ -406,13 +564,17 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rows_to_json(dict(info)) + "\n", encoding="utf-8")
     except OSError as exc:
-        raise click.ClickException(f"Could not write JSON sidecar {path}: {exc}") from exc
+        raise click.ClickException(
+            f"Could not write JSON sidecar {path}: {exc}"
+        ) from exc
     click.echo(f"Wrote {path}")
 
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
 @click.option(
     "--shape",
     "shape_name",
@@ -420,10 +582,14 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
     required=True,
 )
 @click.option("--size", nargs=3, type=float, default=None, metavar="X Y Z")
-@click.option("--radius", type=float, default=None, help="Sphere/cylinder radius in Angstrom.")
+@click.option(
+    "--radius", type=float, default=None, help="Sphere/cylinder radius in Angstrom."
+)
 @click.option("--semi-axes", nargs=3, type=float, default=None, metavar="A B C")
 @click.option("--height", type=float, default=None, help="Cylinder height in Angstrom.")
-@click.option("--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True)
+@click.option(
+    "--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True
+)
 @click.option("--axis-vector", nargs=3, type=float, default=None, metavar="X Y Z")
 @click.option(
     "--max-dimension",
@@ -459,7 +625,9 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
     default="molecule",
     show_default=True,
 )
-@click.option("--target-units", type=int, default=None, help="Select exactly this many units.")
+@click.option(
+    "--target-units", type=int, default=None, help="Select exactly this many units."
+)
 @click.option("--center", nargs=3, type=float, default=None, metavar="X Y Z")
 @click.option("--center-frac", nargs=3, type=float, default=None, metavar="U V W")
 @click.option(
@@ -475,7 +643,9 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
     default=DEFAULT_NANOCLUSTER_BATCH_SIZE,
     show_default=True,
 )
-@click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
+@click.option(
+    "--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving."
+)
 @click.option(
     "--json-sidecar",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -509,9 +679,7 @@ def nanocluster(
     """Carve a topology-preserving nanocluster without cutting molecules."""
     try:
         if shape_name == "bfdh" and max_dimension is None:
-            raise click.UsageError(
-                "--max-dimension is required for --shape bfdh."
-            )
+            raise click.UsageError("--max-dimension is required for --shape bfdh.")
         parent_symmetry = (
             read_cif_symmetry(str(input))
             if shape_name == "bfdh" and input.suffix.lower() == ".cif"
@@ -561,7 +729,9 @@ def nanocluster(
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
 @click.option(
     "--shape",
     "shape_name",
@@ -569,10 +739,16 @@ def nanocluster(
     required=True,
 )
 @click.option("--size", nargs=3, type=float, default=None, metavar="X Y Z")
-@click.option("--radius", type=float, default=None, help="Sphere/cylinder radius in Angstrom.")
+@click.option(
+    "--radius", type=float, default=None, help="Sphere/cylinder radius in Angstrom."
+)
 @click.option("--semi-axes", nargs=3, type=float, default=None, metavar="A B C")
-@click.option("--height", type=float, default=None, help="Finite cylinder height in Angstrom.")
-@click.option("--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True)
+@click.option(
+    "--height", type=float, default=None, help="Finite cylinder height in Angstrom."
+)
+@click.option(
+    "--axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True
+)
 @click.option("--axis-vector", nargs=3, type=float, default=None, metavar="X Y Z")
 @click.option("--direction-hkl", nargs=3, type=int, default=None, metavar="H K L")
 @click.option("--center", nargs=3, type=float, default=None, metavar="X Y Z")
@@ -589,7 +765,12 @@ def nanocluster(
     default="inside",
     show_default=True,
 )
-@click.option("--target-units", type=int, default=None, help="Remove exactly this many formula units.")
+@click.option(
+    "--target-units",
+    type=int,
+    default=None,
+    help="Remove exactly this many formula units.",
+)
 @click.option("--species", nargs=2, multiple=True, metavar="SPECIES_ID COUNT")
 @click.option("--species-charge", nargs=2, multiple=True, metavar="SPECIES_ID CHARGE")
 @click.option(
@@ -597,8 +778,12 @@ def nanocluster(
     default=True,
     show_default=True,
 )
-@click.option("--batch-size", type=int, default=DEFAULT_SHAPE_BATCH_SIZE, show_default=True)
-@click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
+@click.option(
+    "--batch-size", type=int, default=DEFAULT_SHAPE_BATCH_SIZE, show_default=True
+)
+@click.option(
+    "--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving."
+)
 @click.option(
     "--json-sidecar",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -670,9 +855,20 @@ def void(
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
-@click.option("--scale", nargs=3, type=int, required=True, metavar="A B C", help="Supercell replication factors.")
-@click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before replication.")
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--scale",
+    nargs=3,
+    type=int,
+    required=True,
+    metavar="A B C",
+    help="Supercell replication factors.",
+)
+@click.option(
+    "--resolve-disorder", is_flag=True, help="Resolve CIF disorder before replication."
+)
 def supercell(
     input: Path,
     output: Path,
@@ -682,7 +878,44 @@ def supercell(
     """Create a supercell."""
     if any(s < 1 for s in scale):
         raise click.UsageError("--scale factors must each be >= 1.")
-    result = create_supercell(load_crystal(input, resolve_disorder=resolve_disorder), scale)
+    result = create_supercell(
+        load_crystal(input, resolve_disorder=resolve_disorder), scale
+    )
+    write_structure(result, output)
+    click.echo(f"Wrote {output}")
+
+
+@click.command("supercell-matrix")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--matrix",
+    nargs=9,
+    type=int,
+    required=True,
+    metavar="M11 M12 M13 M21 M22 M23 M31 M32 M33",
+    help="Right-handed integer matrix whose rows define the new lattice vectors.",
+)
+@click.option(
+    "--resolve-disorder", is_flag=True, help="Resolve CIF disorder before replication."
+)
+def supercell_matrix(
+    input: Path,
+    output: Path,
+    matrix: tuple[int, ...],
+    resolve_disorder: bool,
+) -> None:
+    """Create a topology-preserving general integer-matrix supercell."""
+    matrix_rows = (matrix[0:3], matrix[3:6], matrix[6:9])
+    try:
+        result = create_supercell_matrix(
+            load_crystal(input, resolve_disorder=resolve_disorder),
+            matrix_rows,
+        )
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
     write_structure(result, output)
     click.echo(f"Wrote {output}")
 
@@ -755,15 +988,29 @@ def disorder_supercell(
     click.echo(f"Wrote {output}")
 
 
-
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
-@click.option("--species", nargs=2, multiple=True, metavar="SPECIES_ID COUNT", help="Species/count pair; repeatable.")
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--species",
+    nargs=2,
+    multiple=True,
+    metavar="SPECIES_ID COUNT",
+    help="Species/count pair; repeatable.",
+)
 @click.option("--seed-index", type=int, default=None, help="Seed molecule index.")
 @click.option("--method", default="spatial_cluster", show_default=True)
 @click.option("--random-seed", type=int, default=None)
-def vacancy(input: Path, output: Path, species: tuple[tuple[str, str], ...], seed_index: int | None, method: str, random_seed: int | None) -> None:
+def vacancy(
+    input: Path,
+    output: Path,
+    species: tuple[tuple[str, str], ...],
+    seed_index: int | None,
+    method: str,
+    random_seed: int | None,
+) -> None:
     """Generate a vacancy by removing a molecule cluster."""
     if seed_index is not None and seed_index < 0:
         raise click.UsageError("--seed-index must be non-negative.")
@@ -774,19 +1021,34 @@ def vacancy(input: Path, output: Path, species: tuple[tuple[str, str], ...], see
             try:
                 count = int(count_str)
             except ValueError:
-                raise click.UsageError(f"--species COUNT must be an integer, got {count_str!r}.")
+                raise click.UsageError(
+                    f"--species COUNT must be an integer, got {count_str!r}."
+                )
             if count < 1:
                 raise click.UsageError(f"--species COUNT must be >= 1, got {count}.")
             species_list.append({"species_id": sid, "count": count})
-    result = generate_vacancy(load_crystal(input), species_list=species_list, seed_index=seed_index, method=method, random_seed=random_seed)
+    result = generate_vacancy(
+        load_crystal(input),
+        species_list=species_list,
+        seed_index=seed_index,
+        method=method,
+        random_seed=random_seed,
+    )
     write_structure(result, output)
     click.echo(f"Wrote {output}")
 
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
-@click.option("--targets", multiple=True, required=True, help="Solvent species identifiers to remove; repeatable.")
+@click.option(
+    "-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--targets",
+    multiple=True,
+    required=True,
+    help="Solvent species identifiers to remove; repeatable.",
+)
 def desolvate(input: Path, output: Path, targets: tuple[str, ...]) -> None:
     """Remove solvent species from a crystal."""
     result = remove_solvents(load_crystal(input), list(targets))
@@ -797,25 +1059,81 @@ def desolvate(input: Path, output: Path, targets: tuple[str, ...]) -> None:
 @click.command()
 @click.argument("start", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.argument("end", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output file (.extxyz for bundle) or filename stem.")
-@click.option("--method", type=click.Choice(["se3_screw", "com_so3", "slerp"]), default="se3_screw", show_default=True)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Output file (.extxyz for bundle) or filename stem.",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["se3_screw", "com_so3", "slerp"]),
+    default="se3_screw",
+    show_default=True,
+)
 @click.option("--n-images", type=int, default=11, show_default=True)
-@click.option("--include-endpoints/--exclude-endpoints", default=True, show_default=True)
-def interpolate(start: Path, end: Path, output: Path, method: str, n_images: int, include_endpoints: bool) -> None:
+@click.option(
+    "--include-endpoints/--exclude-endpoints", default=True, show_default=True
+)
+def interpolate(
+    start: Path,
+    end: Path,
+    output: Path,
+    method: str,
+    n_images: int,
+    include_endpoints: bool,
+) -> None:
     """Interpolate crystal images between two endpoints."""
     if n_images < 1:
         raise click.UsageError("--n-images must be >= 1.")
-    frames = interpolate_crystal(load_crystal(start), load_crystal(end), method=method, n_images=n_images, include_endpoints=include_endpoints)
+    frames = interpolate_crystal(
+        load_crystal(start),
+        load_crystal(end),
+        method=method,
+        n_images=n_images,
+        include_endpoints=include_endpoints,
+    )
     echo_paths(write_crystal_sequence(frames, output))
 
 
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output file path.")
-@click.option("--direction", nargs=3, type=int, required=True, metavar="H K L", help="Miller indices of the direction to align.")
-@click.option("--target-axis", type=click.Choice(["x", "y", "z"]), default="z", show_default=True, help="Cartesian axis to align the direction to.")
-@click.option("--no-reduce", is_flag=True, default=False, help="Skip 2D Gauss reduction of in-plane vectors.")
-def reorient(input: Path, output: Path, direction: tuple[int, int, int], target_axis: str, no_reduce: bool) -> None:
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Output file path.",
+)
+@click.option(
+    "--direction",
+    nargs=3,
+    type=int,
+    required=True,
+    metavar="H K L",
+    help="Miller indices of the direction to align.",
+)
+@click.option(
+    "--target-axis",
+    type=click.Choice(["x", "y", "z"]),
+    default="z",
+    show_default=True,
+    help="Cartesian axis to align the direction to.",
+)
+@click.option(
+    "--no-reduce",
+    is_flag=True,
+    default=False,
+    help="Skip 2D Gauss reduction of in-plane vectors.",
+)
+def reorient(
+    input: Path,
+    output: Path,
+    direction: tuple[int, int, int],
+    target_axis: str,
+    no_reduce: bool,
+) -> None:
     """Reorient a crystal so that a Miller direction aligns with a Cartesian axis.
 
     Useful for setting up MSST shock simulations or strain loading along
@@ -824,7 +1142,9 @@ def reorient(input: Path, output: Path, direction: tuple[int, int, int], target_
     if all(d == 0 for d in direction):
         raise click.UsageError("Direction cannot be (0, 0, 0).")
     crystal = load_crystal(input)
-    result, info = reorient_crystal(crystal, direction, target_axis=target_axis, reduce_2d=not no_reduce)
+    result, info = reorient_crystal(
+        crystal, direction, target_axis=target_axis, reduce_2d=not no_reduce
+    )
     write_structure(result, output)
     click.echo(
         f"Wrote {output}  |  d-spacing: {info.d_spacing:.4f} Å  |  "
@@ -841,6 +1161,7 @@ def register_operate_commands(group: click.Group) -> None:
     group.add_command(nanocluster)
     group.add_command(void)
     group.add_command(supercell)
+    group.add_command(supercell_matrix)
     group.add_command(disorder_supercell)
     group.add_command(vacancy)
     group.add_command(desolvate)
