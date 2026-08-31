@@ -947,7 +947,9 @@ class MolecularCrystal:
         # All disorder metadata arrays are propagated to ensure extxyz
         # round-trip preserves the information needed for disorder resolution
         # without re-reading the original CIF file.
-        base_keys = {"numbers", "positions"}
+        # molecule_index is derived from the current molecule partition.
+        # Never propagate a stale index carried by replicated source molecules.
+        base_keys = {"numbers", "positions", "molecule_index"}
         string_disorder_keys = {KEY_ASSEMBLY, KEY_LABEL}
         all_custom_keys = sorted(
             {

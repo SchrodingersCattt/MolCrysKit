@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 from ase import Atoms
 from ase.data import atomic_numbers
+from ase.neighborlist import neighbor_list
+import pytest
 
 from molcrys_kit.structures import (
     VerletBondTracker,
@@ -170,3 +172,32 @@ def test_rotated_orthogonal_cell_uses_general_periodic_path() -> None:
     )
     assert batch.pairs.tolist() == [[0, 1]]
     np.testing.assert_allclose(batch.distances[0], 0.2, atol=1.0e-6)
+
+
+@pytest.mark.parametrize("pbc", [
+    (True, True, True),
+    (True, True, False),
+    (True, False, False),
+    (False, True, True),
+])
+def test_triclinic_candidates_match_ase_reference(pbc) -> None:
+    rng = np.random.default_rng(812)
+    cell = np.asarray([[24.0, 0.0, 0.0], [-8.0, 21.0, 0.0], [2.0, 1.0, 18.0]])
+    positions = rng.random((256, 3)) @ cell
+    numbers = np.full(256, atomic_numbers["C"])
+    candidates = build_bond_candidates(
+        positions,
+        numbers,
+        cell=cell,
+        pbc=pbc,
+        skin=0.5,
+    )
+
+    atoms = Atoms(numbers=numbers, positions=positions, cell=cell, pbc=pbc)
+    first, second = neighbor_list("ij", atoms, cutoff=candidates.search_cutoff)
+    expected = np.column_stack((first, second)).astype(np.int32, copy=False)
+    expected.sort(axis=1)
+    expected = expected[expected[:, 0] != expected[:, 1]]
+    expected = np.unique(expected, axis=0)
+
+    np.testing.assert_array_equal(candidates.pairs, expected)
