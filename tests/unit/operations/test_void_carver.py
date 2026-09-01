@@ -91,6 +91,30 @@ def test_implicit_shape_alias_and_arbitrary_axis_cylinder() -> None:
     assert evaluate(shape, *(axis * 3.0)) == pytest.approx(0.0)
 
 
+def test_cone_and_frustum_fields_follow_axis_and_end_radii() -> None:
+    frustum = ImplicitShape.frustum(3.0, 1.0, 6.0, axis="z")
+    assert evaluate(frustum, 3.0, 0.0, -3.0) == pytest.approx(0.0)
+    assert evaluate(frustum, 2.0, 0.0, 0.0) == pytest.approx(0.0)
+    assert evaluate(frustum, 1.0, 0.0, 3.0) == pytest.approx(0.0)
+    assert evaluate(frustum, 0.0, 0.0, 0.0) < 0.0
+    assert evaluate(frustum, 2.1, 0.0, 0.0) > 0.0
+
+    cone = ImplicitShape.cone(3.0, 6.0, axis=(0.0, 0.0, -1.0))
+    np.testing.assert_allclose(cone.parameters["axis_cartesian"], [0.0, 0.0, -1.0])
+    assert cone.parameters["radius_A"] == pytest.approx(3.0)
+    assert evaluate(cone, 0.0, 0.0, -3.0) == pytest.approx(0.0)
+    assert evaluate(cone, 3.0, 0.0, 3.0) == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    "bottom_radius, top_radius, message",
+    [(-1.0, 1.0, "non-negative"), (0.0, 0.0, "At least one")],
+)
+def test_frustum_rejects_invalid_radii(bottom_radius, top_radius, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        ImplicitShape.frustum(bottom_radius, top_radius, 2.0)
+
+
 def test_through_cylinder_uses_primitive_lattice_direction() -> None:
     lattice = np.diag([10.0, 12.0, 14.0])
     shape = ImplicitShape.through_cylinder(2.0, lattice, (2, 2, 0))

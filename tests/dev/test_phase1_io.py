@@ -5,13 +5,16 @@ This script tests the scan_cif_disorder function to ensure it extracts
 raw data correctly without applying any logic or fixing inconsistencies.
 """
 
+from pathlib import Path
 import numpy as np
 from molcrys_kit.io.cif import scan_cif_disorder
+
+DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "cif"
 
 
 def test_pap_m5_disorder():
     """Test PAP-M5.cif which has explicit disorder groups."""
-    filepath = "examples/PAP-M5.cif"
+    filepath = DATA_DIR / "PAP-M5.cif"
     disorder_info = scan_cif_disorder(filepath)
 
     print("Testing PAP-M5.cif:")
@@ -51,7 +54,7 @@ def test_pap_m5_disorder():
 
 def test_dap_4_disorder():
     """Test DAP-4.cif which has implicit disorder (suffixes, occupancy < 1.0) but likely all groups=0."""
-    filepath = "examples/DAP-4.cif"
+    filepath = DATA_DIR / "DAP-4.cif"
     disorder_info = scan_cif_disorder(filepath)
 
     print("Testing DAP-4.cif:")
@@ -107,7 +110,7 @@ def test_dap_4_disorder():
 
 def test_general_functionality():
     """Test general functionality of the disorder scanner."""
-    filepath = "examples/PAP-M5.cif"  # Using PAP-M5 as a general test case
+    filepath = DATA_DIR / "PAP-M5.cif"
     disorder_info = scan_cif_disorder(filepath)
 
     # Verify that frac_coords is a proper nx3 array

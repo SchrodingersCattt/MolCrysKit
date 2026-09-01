@@ -102,7 +102,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
-- Implicit shapes/nanoclusters: `ImplicitShape` (including `ImplicitShape.bfdh`), `NanoShape` (compatibility alias), `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_SHAPE_BATCH_SIZE`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
+- Implicit shapes/nanoclusters: `ImplicitShape` (including `ImplicitShape.bfdh`, `ImplicitShape.cone`, and `ImplicitShape.frustum`), `NanoShape` (compatibility alias), `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_SHAPE_BATCH_SIZE`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
 - Symmetry paths: `RigidReachabilityTolerance`, `SymmetryPathConfig`, `AtomCorrespondence`, `SymmetryMoleculeMatch`, `CrystalCorrespondence`, `SymmetryPathProvenance`, `SymmetryPathPlan`, `RigidReachabilityError`, `transform_crystal_fractional`, `build_symmetry_path_plan`, `interpolate_symmetry_path`, `generate_collective_symmetry_path`
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 - Reactive paths: `RigidGroup`, `BondChange`, `ReactivePathConfig`, `ReactivePathResult`, `interpolate_reactive_path`

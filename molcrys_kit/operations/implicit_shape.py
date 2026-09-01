@@ -32,6 +32,13 @@ def _positive_values(values: Sequence[float], name: str, length: int) -> np.ndar
     return array
 
 
+def _nonnegative_values(values: Sequence[float], name: str, length: int) -> np.ndarray:
+    array = np.asarray(values, dtype=float)
+    if array.shape != (length,) or not np.isfinite(array).all() or np.any(array < 0):
+        raise ValueError(f"{name} must contain {length} non-negative finite values.")
+    return array
+
+
 def _axis_vector(axis: str | Sequence[float]) -> tuple[np.ndarray, str]:
     if isinstance(axis, str):
         axis_name = axis.lower()
@@ -175,6 +182,74 @@ class ImplicitShape:
             return (x / axes[0]) ** 2 + (y / axes[1]) ** 2 + (z / axes[2]) ** 2 - 1.0
 
         return cls(field, bounds, "ellipsoid", {"semi_axes_A": axes.tolist()})
+
+    @classmethod
+    def frustum(
+        cls,
+        bottom_radius: float,
+        top_radius: float,
+        height: float,
+        axis: str | Sequence[float] = "z",
+    ) -> "ImplicitShape":
+        """Return a finite circular frustum along a Cartesian axis or 3-vector.
+
+        The shape is centred at the origin. bottom_radius is located at
+        -height / 2 along the axis and top_radius at +height / 2.
+        Either radius may be zero, but not both.
+        """
+        radii = _nonnegative_values(
+            [bottom_radius, top_radius], "bottom_radius and top_radius", 2
+        )
+        if not np.any(radii > 0.0):
+            raise ValueError("At least one frustum radius must be positive.")
+        height_value = float(_positive_values([height], "height", 1)[0])
+        half_height = height_value / 2.0
+        max_radius = float(np.max(radii))
+        unit_axis, axis_label = _axis_vector(axis)
+        radial_extent = max_radius * np.sqrt(
+            np.maximum(0.0, 1.0 - unit_axis**2)
+        )
+        half_extent = half_height * np.abs(unit_axis) + radial_extent
+        bounds = np.column_stack((-half_extent, half_extent))
+
+        def field(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+            axial_position = x * unit_axis[0] + y * unit_axis[1] + z * unit_axis[2]
+            radius_squared = np.maximum(
+                0.0,
+                x * x + y * y + z * z - axial_position * axial_position,
+            )
+            interpolation = (axial_position + half_height) / height_value
+            local_radius = radii[0] + (radii[1] - radii[0]) * interpolation
+            radial = (np.sqrt(radius_squared) - local_radius) / max_radius
+            axial = np.abs(axial_position) / half_height - 1.0
+            return np.maximum(radial, axial)
+
+        return cls(
+            field,
+            bounds,
+            f"frustum_{axis_label}",
+            {
+                "bottom_radius_A": float(radii[0]),
+                "top_radius_A": float(radii[1]),
+                "height_A": height_value,
+                "axis_cartesian": unit_axis.tolist(),
+            },
+        )
+
+    @classmethod
+    def cone(
+        cls,
+        radius: float,
+        height: float,
+        axis: str | Sequence[float] = "z",
+    ) -> "ImplicitShape":
+        """Return a sharp cone with its apex along the positive axis."""
+        shape = cls.frustum(radius, 0.0, height, axis=axis)
+        parameters = dict(shape.parameters)
+        parameters["radius_A"] = parameters.pop("bottom_radius_A")
+        parameters.pop("top_radius_A")
+        axis_label = shape.name.removeprefix("frustum_")
+        return cls(shape.field, shape.bounds, f"cone_{axis_label}", parameters)
 
     @classmethod
     def bfdh(
