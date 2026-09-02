@@ -6,13 +6,6 @@ from pathlib import Path
 
 import click
 
-from molcrys_kit.analysis import (
-    enumerate_bfdh_facets,
-    find_polyhedra,
-    summarize_structure,
-)
-from molcrys_kit.analysis.interactions import interaction_profile
-
 from ._common import load_crystal, rows_to_json
 
 
@@ -26,6 +19,8 @@ def _miller_text(value) -> str:
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
 def summary(input: Path, symprec: float, as_json: bool) -> None:
     """Summarize composition, cell, symmetry, and disorder."""
+    from molcrys_kit.analysis import summarize_structure
+
     if symprec <= 0:
         raise click.UsageError("--symprec must be positive.")
     report = summarize_structure(
@@ -103,6 +98,8 @@ def summary(input: Path, symprec: float, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
 def bfdh(input: Path, max_index: int, top_n: int, as_json: bool) -> None:
     """Rank low-index facets using BFDH morphology."""
+    from molcrys_kit.analysis import enumerate_bfdh_facets
+
     if max_index < 1:
         raise click.UsageError("--max-index must be >= 1.")
     if top_n < 1:
@@ -124,6 +121,8 @@ def bfdh(input: Path, max_index: int, top_n: int, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
 def interactions(input: Path, as_json: bool) -> None:
     """Summarize weak interactions and continuous scores."""
+    from molcrys_kit.analysis.interactions import interaction_profile
+
     profile = interaction_profile(load_crystal(input))
     if as_json:
         click.echo(rows_to_json(profile))
@@ -150,6 +149,8 @@ def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float 
     """Enumerate coordination polyhedra."""
     if cutoff is not None and cutoff <= 0:
         raise click.UsageError("--cutoff must be positive.")
+    from molcrys_kit.analysis import find_polyhedra
+
     rows = find_polyhedra(load_crystal(input), central=central, ligand=ligand, level=level, cutoff=cutoff)
     if as_json:
         click.echo(rows_to_json(rows))
