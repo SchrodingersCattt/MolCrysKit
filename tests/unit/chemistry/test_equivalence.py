@@ -52,6 +52,27 @@ def test_empty_notation_returns_none() -> None:
     assert notations_equivalent("", "CCO") is None
 
 
+def test_malformed_mck_ln_returns_none_instead_of_crashing() -> None:
+    # Invalid BondKind inside MCK-LN raises bare ValueError, not LineNotationError.
+    bogus = (
+        "MCK-LN1|type=finite|id=x"
+        "|atoms=x~C~_~_~_~_~_~_~_~_"
+        "|bonds=0~0~1.0~BOGUS~0~0,0,0~_"
+        "|coord=_|xyz=_|charge=_|status=explicit"
+    )
+    assert notations_equivalent(bogus, "CCO") is None
+
+
+def test_malformed_mck_ln_bad_float_returns_none() -> None:
+    bad_float = (
+        "MCK-LN1|type=finite|id=x"
+        "|atoms=x~C~_~_~_~_~_~_~_~_"
+        "|bonds=0~0~not_a_number~covalent~0~0,0,0~_"
+        "|coord=_|xyz=_|charge=_|status=explicit"
+    )
+    assert notations_equivalent(bad_float, "CCO") is None
+
+
 def test_disconnected_fragments() -> None:
     assert notations_equivalent("C.C", "C.C") is True
     assert notations_equivalent("C.C", "C.N") is False

@@ -30,7 +30,7 @@ def notations_equivalent(left: str, right: str) -> bool | None:
     try:
         left_entity = from_line_notation(left)
         right_entity = from_line_notation(right)
-    except LineNotationError:
+    except (LineNotationError, ValueError, TypeError):
         return None
     if not isinstance(left_entity, FiniteChemicalEntity) or not isinstance(
         right_entity, FiniteChemicalEntity
@@ -41,6 +41,7 @@ def notations_equivalent(left: str, right: str) -> bool | None:
         return True
     if result is EntityRelationship.INDETERMINATE:
         return None
+    # MIRROR, STEREOISOMER, DIFFERENT_CONSTITUTION → not equivalent.
     return False
 
 

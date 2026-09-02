@@ -12,6 +12,7 @@ from .crystal_stereo import (
     analyze_crystal_stereochemistry,
     classify_entity_relationship,
 )
+from .equivalence import notations_equivalent
 from .perception import infer_chemistry
 from .line_notation import (
     LineNotation,
@@ -28,7 +29,6 @@ from .naming import (
 )
 from .topology import PeriodicTopology, analyze_periodic_topology
 from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
-from .equivalence import notations_equivalent
 from .models import (
     BondKind,
     ChemicalAtom,
