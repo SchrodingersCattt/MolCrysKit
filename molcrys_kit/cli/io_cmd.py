@@ -10,10 +10,7 @@ from typing import Any
 
 import click
 
-from molcrys_kit.analysis.molecular_identity import ChemicalIdentity
-
 from ._common import load_crystal, rows_to_json, write_structure
-from ..io.cif import scan_cif_disorder
 
 
 logger = logging.getLogger(__name__)
@@ -26,6 +23,8 @@ def _round_triplet(values) -> list[float]:
 
 def _species_ids(crystal) -> list[str]:
     """Assign stable formula/topology species labels to all molecules."""
+    from molcrys_kit.analysis.molecular_identity import ChemicalIdentity
+
     identities = [
         ChemicalIdentity.from_molecule(molecule, idx, crystal=crystal)
         for idx, molecule in enumerate(crystal.molecules)
@@ -45,6 +44,8 @@ def _species_ids(crystal) -> list[str]:
 
 def _molecule_inventory(crystal) -> list[dict[str, Any]]:
     """Build JSON-friendly molecule inventory rows for a crystal."""
+    from molcrys_kit.analysis.molecular_identity import ChemicalIdentity
+
     labels = _species_ids(crystal)
     rows: list[dict[str, Any]] = []
     atom_offset = 0
@@ -192,6 +193,8 @@ def info(input: Path, resolve_disorder: bool, bond_scale: float) -> None:
     # ── disorder section ─────────────────────────────────────────────
     if input.suffix.lower() == ".cif":
         # CIF: use scan_cif_disorder for rich metadata
+        from molcrys_kit.io.cif import scan_cif_disorder
+
         try:
             dinfo = scan_cif_disorder(str(input))
         except Exception as exc:  # noqa: BLE001

@@ -4,29 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import click
 
-from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
-from molcrys_kit.io import read_cif_symmetry, write_xyz_with_freeze
-from molcrys_kit.operations import (
-    ClusterCarver,
+from molcrys_kit.constants.config import (
     DEFAULT_NANOCLUSTER_BATCH_SIZE,
     DEFAULT_SHAPE_BATCH_SIZE,
-    ImplicitShape,
-    LigandTopologyOverflowError,
-    NanoClusterCarver,
-    VoidCarver,
-    add_hydrogens,
-    assemble_replica_supercell,
-    create_supercell,
-    generate_slabs_with_terminations,
-    generate_topological_slab,
-    generate_vacancy,
-    interpolate_crystal,
-    reorient_crystal,
-    remove_solvents,
 )
 
 from ._common import (
@@ -36,6 +20,9 @@ from ._common import (
     write_crystal_sequence,
     write_structure,
 )
+
+if TYPE_CHECKING:
+    from molcrys_kit.operations import ImplicitShape
 
 
 _VALID_SLAB_TERMINATIONS = {"single", "tasker_preferred", "all"}
@@ -92,6 +79,8 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
 @click.option("--coupled", is_flag=True, help="Couple symmetry-expanded copies of the same disorder assembly.")
 def disorder(input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool) -> None:
     """Resolve CIF disorder into ordered replica structures."""
+    from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
+
     replicas = generate_ordered_replicas_from_disordered_sites(
         str(input), generate_count=count, method=method, random_seed=seed, coupled=coupled
     )
@@ -166,6 +155,8 @@ def add_h(
     no_formula_moiety: bool,
 ) -> None:
     """Add missing hydrogen atoms."""
+    from molcrys_kit.operations import add_hydrogens
+
     crystal = load_crystal(input, bond_scale=bond_scale)
     rules: Optional[List[Dict]] = [_parse_rule(r) for r in rules_raw] or None
     result = add_hydrogens(
@@ -199,6 +190,11 @@ def slab(input: Path, output: Path, miller: tuple[int, int, int], layers: int | 
             f"or a termination index (integer), got {terminations!r}."
         )
     crystal = load_crystal(input)
+    from molcrys_kit.operations import (
+        generate_slabs_with_terminations,
+        generate_topological_slab,
+    )
+
     if terminations == "single":
         result = generate_topological_slab(crystal, miller, layers=layers, min_thickness=min_thickness, vacuum=vacuum)
         write_structure(result, output)
@@ -270,6 +266,8 @@ def cluster(
     cap_overrides = _parse_cap_bond_lengths(cap_bond_length)
 
     crystal = load_crystal(input)
+    from molcrys_kit.operations import ClusterCarver, LigandTopologyOverflowError
+
     carver = ClusterCarver(crystal, seed_merge_radius=seed_merge_radius)
     try:
         if mode == "bond_shells":
@@ -305,6 +303,8 @@ def cluster(
         out_dir.mkdir(parents=True, exist_ok=True)
     for idx, carved in enumerate(clusters):
         xyz_path = f"{output}__group{idx}.xyz"
+        from molcrys_kit.io import write_xyz_with_freeze
+
         sidecar = write_xyz_with_freeze(carved, xyz_path)
         click.echo(
             f"[group {idx}] mode={carved.provenance.mode} natoms={len(carved)} "
@@ -325,6 +325,8 @@ def _implicit_shape_from_cli(
     lattice: Sequence[Sequence[float]] | None = None,
     direction_hkl: tuple[int, int, int] | None = None,
 ) -> ImplicitShape:
+    from molcrys_kit.operations import ImplicitShape
+
     if shape_name == "sphere":
         if radius is None:
             raise click.UsageError("--radius is required for --shape sphere.")
@@ -507,6 +509,9 @@ def nanocluster(
     json_sidecar: Path | None,
 ) -> None:
     """Carve a topology-preserving nanocluster without cutting molecules."""
+    from molcrys_kit.io import read_cif_symmetry
+    from molcrys_kit.operations import ImplicitShape, NanoClusterCarver
+
     try:
         if shape_name == "bfdh" and max_dimension is None:
             raise click.UsageError(
@@ -629,6 +634,8 @@ def void(
     json_sidecar: Path | None,
 ) -> None:
     """Remove complete molecular/ionic units to form an implicit-shape void."""
+    from molcrys_kit.operations import VoidCarver
+
     try:
         crystal = load_crystal(input, resolve_disorder=resolve_disorder)
         shape = _implicit_shape_from_cli(
@@ -680,6 +687,8 @@ def supercell(
     resolve_disorder: bool,
 ) -> None:
     """Create a supercell."""
+    from molcrys_kit.operations import create_supercell
+
     if any(s < 1 for s in scale):
         raise click.UsageError("--scale factors must each be >= 1.")
     result = create_supercell(load_crystal(input, resolve_disorder=resolve_disorder), scale)
@@ -730,6 +739,8 @@ def disorder_supercell(
     coupled: bool,
 ) -> None:
     """Assemble explicitly selected disorder replicas into a supercell."""
+    from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
+
     if any(value < 1 for value in scale):
         raise click.UsageError("--scale factors must each be >= 1.")
     expected_count = scale[0] * scale[1] * scale[2]
@@ -748,6 +759,8 @@ def disorder_supercell(
     )
     crystals = [item[0] if isinstance(item, tuple) else item for item in replicas]
     try:
+        from molcrys_kit.operations import assemble_replica_supercell
+
         result = assemble_replica_supercell(crystals, scale, replica_indices)
     except (TypeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
@@ -765,6 +778,8 @@ def disorder_supercell(
 @click.option("--random-seed", type=int, default=None)
 def vacancy(input: Path, output: Path, species: tuple[tuple[str, str], ...], seed_index: int | None, method: str, random_seed: int | None) -> None:
     """Generate a vacancy by removing a molecule cluster."""
+    from molcrys_kit.operations import generate_vacancy
+
     if seed_index is not None and seed_index < 0:
         raise click.UsageError("--seed-index must be non-negative.")
     species_list: list[dict] | None = None
@@ -789,6 +804,8 @@ def vacancy(input: Path, output: Path, species: tuple[tuple[str, str], ...], see
 @click.option("--targets", multiple=True, required=True, help="Solvent species identifiers to remove; repeatable.")
 def desolvate(input: Path, output: Path, targets: tuple[str, ...]) -> None:
     """Remove solvent species from a crystal."""
+    from molcrys_kit.operations import remove_solvents
+
     result = remove_solvents(load_crystal(input), list(targets))
     write_structure(result, output)
     click.echo(f"Wrote {output}")
@@ -803,6 +820,8 @@ def desolvate(input: Path, output: Path, targets: tuple[str, ...]) -> None:
 @click.option("--include-endpoints/--exclude-endpoints", default=True, show_default=True)
 def interpolate(start: Path, end: Path, output: Path, method: str, n_images: int, include_endpoints: bool) -> None:
     """Interpolate crystal images between two endpoints."""
+    from molcrys_kit.operations import interpolate_crystal
+
     if n_images < 1:
         raise click.UsageError("--n-images must be >= 1.")
     frames = interpolate_crystal(load_crystal(start), load_crystal(end), method=method, n_images=n_images, include_endpoints=include_endpoints)
@@ -824,6 +843,8 @@ def reorient(input: Path, output: Path, direction: tuple[int, int, int], target_
     if all(d == 0 for d in direction):
         raise click.UsageError("Direction cannot be (0, 0, 0).")
     crystal = load_crystal(input)
+    from molcrys_kit.operations import reorient_crystal
+
     result, info = reorient_crystal(crystal, direction, target_axis=target_axis, reduce_2d=not no_reduce)
     write_structure(result, output)
     click.echo(

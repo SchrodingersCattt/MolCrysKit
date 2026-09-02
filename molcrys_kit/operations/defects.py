@@ -19,12 +19,16 @@ import numpy as np
 
 from ..analysis.disorder import UnresolvedDisorderWarning
 from ..analysis.stoichiometry import StoichiometryAnalyzer
-from ..constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
+from ..constants.config import (
+    DEFAULT_SHAPE_BATCH_SIZE,
+    KEY_ASSEMBLY,
+    KEY_DISORDER_GROUP,
+    KEY_OCCUPANCY,
+)
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
 from ..utils.geometry import minimum_image_distance
 from .implicit_shape import (
-    DEFAULT_SHAPE_BATCH_SIZE,
     ImplicitShape,
     evaluate_shape_field,
     merge_stable_topk,
