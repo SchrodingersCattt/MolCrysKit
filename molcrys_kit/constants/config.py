@@ -58,6 +58,11 @@ STEREOCHEMISTRY_CONFIG = {
     "MAX_CIP_DIGRAPH_NODES": 10_000,
 }
 
+# Default batch sizes for shape-based carving operations (nanocluster, void).
+# Shared between operations modules and the CLI layer.
+DEFAULT_SHAPE_BATCH_SIZE = 100_000
+DEFAULT_NANOCLUSTER_BATCH_SIZE = DEFAULT_SHAPE_BATCH_SIZE
+
 # Safety multiplier on machine epsilon for scale-normalized degeneracy checks.
 RING_CONFORMATION_TOLERANCE_FACTOR = 64.0
 

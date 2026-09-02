@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import click
+
+from molcrys_kit.constants.config import (
+    DEFAULT_NANOCLUSTER_BATCH_SIZE,
+    DEFAULT_SHAPE_BATCH_SIZE,
+)
 
 from ._common import (
     echo_paths,
@@ -15,6 +20,9 @@ from ._common import (
     write_crystal_sequence,
     write_structure,
 )
+
+if TYPE_CHECKING:
+    from molcrys_kit.operations import ImplicitShape
 
 
 _VALID_SLAB_TERMINATIONS = {"single", "tasker_preferred", "all"}
@@ -466,7 +474,7 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
 @click.option(
     "--batch-size",
     type=int,
-    default=100_000,  # operations.DEFAULT_NANOCLUSTER_BATCH_SIZE
+    default=DEFAULT_NANOCLUSTER_BATCH_SIZE,
     show_default=True,
 )
 @click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
@@ -594,7 +602,7 @@ def nanocluster(
     default=True,
     show_default=True,
 )
-@click.option("--batch-size", type=int, default=100_000, show_default=True)  # operations.DEFAULT_SHAPE_BATCH_SIZE
+@click.option("--batch-size", type=int, default=DEFAULT_SHAPE_BATCH_SIZE, show_default=True)
 @click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
 @click.option(
     "--json-sidecar",

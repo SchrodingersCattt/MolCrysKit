@@ -83,11 +83,21 @@ def __getattr__(name: str):
         globals()[name] = value
         return value
 
+    # Lazy subpackage resolution: ``molcrys_kit.structures``, ``.io``, ``.chemistry``
+    # were previously importable as attributes because the eager imports initialized
+    # them.  Preserve that behaviour without paying the startup cost.
+    _SUBPACKAGES = {"structures", "io", "chemistry", "operations", "analysis", "constants"}
+    if name in _SUBPACKAGES:
+        import importlib
+        mod = importlib.import_module(f".{name}", __name__)
+        globals()[name] = mod
+        return mod
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__():
-    return list(__all__) + list(_LAZY_IMPORTS) + ["Molecule", "__version__"]
+    return sorted(set(globals()) | set(__all__) | {"Molecule", "__version__"})
 
 
 __all__ = [
