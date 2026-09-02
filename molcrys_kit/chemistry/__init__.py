@@ -28,6 +28,7 @@ from .naming import (
 )
 from .topology import PeriodicTopology, analyze_periodic_topology
 from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
+from .equivalence import notations_equivalent
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -84,5 +85,6 @@ __all__ = [
     "infer_chemistry",
     "name_crystal",
     "name_entity",
+    "notations_equivalent",
     "to_line_notation",
 ]
