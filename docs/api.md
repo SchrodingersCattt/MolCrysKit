@@ -60,11 +60,13 @@ Core crystal data model.
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
 - Polyhedra reference data: `all_ideal_polyhedra`, `ideal_polyhedra_for_cn`, `convex_hull_payload`
+- Periodic geometry: `BoundaryPort`, `ChainSpec`, `ConnectionRule`, `FragmentInstance`, `FragmentTemplate`, `PeriodicBundle`, `PeriodicEdge`, `PeriodicGraph`, `ScrewSpec`
 
 ### `mck.io`
 Read/write interfaces.
 
 - Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
+- Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
 - Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
@@ -80,6 +82,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
 - Clusters: `ClusterCarver`, `LigandTopologyOverflowError`, `carve_cluster`
 - Implicit shapes/nanoclusters: `ImplicitShape` (including `ImplicitShape.bfdh`), `NanoShape` (compatibility alias), `NanoClusterCarver`, `carve_nanocluster`, `DEFAULT_SHAPE_BATCH_SIZE`, `DEFAULT_NANOCLUSTER_BATCH_SIZE`
+- Periodic chains: `build_periodic_chains`
 - Symmetry paths: `RigidReachabilityTolerance`, `SymmetryPathConfig`, `AtomCorrespondence`, `SymmetryMoleculeMatch`, `CrystalCorrespondence`, `SymmetryPathProvenance`, `SymmetryPathPlan`, `RigidReachabilityError`, `transform_crystal_fractional`, `build_symmetry_path_plan`, `interpolate_symmetry_path`, `generate_collective_symmetry_path`
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 - Reactive paths: `RigidGroup`, `BondChange`, `ReactivePathConfig`, `ReactivePathResult`, `interpolate_reactive_path`

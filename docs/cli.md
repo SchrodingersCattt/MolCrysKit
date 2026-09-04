@@ -12,6 +12,20 @@ mck io --help
 mck operate cluster --help
 ```
 
+### `mck build`
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `mck build chain CONFIG` | Build a periodic chain bundle from a geometry configuration | `-o/--output OUTPUT`, `--format {cif,poscar,xyz,extxyz}`, `--overwrite` |
+
+### `mck validate-periodic-bundle`
+
+Validate a periodic structure bundle and its JSON sidecar before downstream use.
+
+```bash
+mck validate-periodic-bundle structure.cif --json
+```
+
 ## Global Options
 
 - `--verbose` — Enable debug logging
