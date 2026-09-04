@@ -1,7 +1,14 @@
 """Small reproducible benchmark entry point for periodic-chain construction."""
 from __future__ import annotations
+from pathlib import Path
+import sys
 import time
 import numpy as np
+
+# Make the benchmark runnable directly from a source checkout, without relying
+# on whichever molcrys-kit version happens to be installed in the environment.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from molcrys_kit.operations.periodic_chain import build_periodic_chains
 from molcrys_kit.structures.periodic_geometry import BoundaryPort, ChainSpec, ConnectionRule, FragmentTemplate
 

@@ -66,7 +66,8 @@ class PeriodicGraph:
     nodes:tuple[str,...]; edges:tuple[PeriodicEdge,...]; closure:str="translation"
     def __post_init__(self):
         if len(set(self.nodes))!=len(self.nodes): raise ValueError("periodic graph node ids must be unique")
-        if any(e.left_node not in self.nodes or e.right_node not in self.nodes for e in self.edges): raise ValueError("periodic edge references unknown node")
+        node_set=set(self.nodes)
+        if any(e.left_node not in node_set or e.right_node not in node_set for e in self.edges): raise ValueError("periodic edge references unknown node")
     @property
     def cycle_rank(self): return len(self.edges)-len(self.nodes)+len(self._components())
     def _components(self):
