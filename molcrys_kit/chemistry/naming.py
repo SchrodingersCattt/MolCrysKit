@@ -71,7 +71,13 @@ _HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
 
 
 def name_entity(entity: ChemicalEntity, *, strict: bool = False) -> NamingResult:
-    """Name an entity within the explicitly implemented IUPAC rule scope."""
+    """Name an entity within the explicitly implemented IUPAC rule scope.
+
+    This is the general one-way naming API: non-strict mode may return a
+    deterministic composition description when no preferred name is
+    established.  Call ``smiles_to_iupac(..., strict=True)`` for the narrower
+    API that additionally requires a round-trip through ``iupac_to_smiles``.
+    """
     if isinstance(entity, FiniteChemicalEntity):
         result = _name_finite(entity)
     elif isinstance(entity, PeriodicChemicalEntity):

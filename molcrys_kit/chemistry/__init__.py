@@ -27,6 +27,12 @@ from .naming import (
     name_crystal,
     name_entity,
 )
+from .name_conversion import (
+    NamingParseError,
+    from_iupac_name,
+    iupac_to_smiles,
+    smiles_to_iupac,
+)
 from .topology import PeriodicTopology, analyze_periodic_topology
 from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
 from .models import (
@@ -69,6 +75,7 @@ __all__ = [
     "MulticomponentEntity",
     "NamingIndeterminateError",
     "NamingKind",
+    "NamingParseError",
     "NamingResult",
     "PeriodicChemicalEntity",
     "PeriodicTopology",
@@ -82,9 +89,12 @@ __all__ = [
     "assign_stereochemistry",
     "classify_entity_relationship",
     "from_line_notation",
+    "from_iupac_name",
     "infer_chemistry",
+    "iupac_to_smiles",
     "name_crystal",
     "name_entity",
     "notations_equivalent",
+    "smiles_to_iupac",
     "to_line_notation",
 ]
