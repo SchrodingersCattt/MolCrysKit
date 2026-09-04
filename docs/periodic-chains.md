@@ -10,7 +10,9 @@ it is never copied from a requested answer. Ordinary translation closure support
 zero, non-zero, and mixed-direction winding. `ScrewSpec` checks finite order and
 cell compatibility and fails instead of expanding the cell implicitly.
 
-The builder uses explicit port rules followed by distance checks. It does not
+The builder uses explicit port rules followed by distance checks. A closed
+one-instance chain must expose distinct endpoint ports or a non-zero image
+shift; a same-port zero-winding self-loop is rejected. It does not
 infer bonds, valence, charge, oxidation state, reactivity, density, or a force
 field, and it never calls MD to repair geometry. The collision index is periodic
 and cell-list based; its image range is derived from the cell metric rather than

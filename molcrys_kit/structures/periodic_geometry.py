@@ -28,6 +28,8 @@ class FragmentTemplate:
     def __post_init__(self):
         if not self.template_id or not self.symbols or len(self.symbols)!=len(self.positions): raise ValueError("template_id, symbols, and positions are required")
         object.__setattr__(self,"positions",tuple(_v(p,"template position") for p in self.positions))
+        if len({port.port_id for port in self.ports}) != len(self.ports):
+            raise ValueError("fragment port ids must be unique")
         for a,b in self.explicit_connections:
             if not (0<=int(a)<len(self.symbols) and 0<=int(b)<len(self.symbols)): raise ValueError("explicit connection index out of range")
     @property
@@ -57,6 +59,7 @@ class FragmentInstance:
 @dataclass(frozen=True)
 class PeriodicEdge:
     left_node:str; right_node:str; right_image_shift:Int3=(0,0,0); rule_id:str=""; closure:bool=False
+    left_port:str|None=None; right_port:str|None=None
     def __post_init__(self): object.__setattr__(self,"right_image_shift",_i(self.right_image_shift,"image shift"))
 @dataclass
 class PeriodicGraph:

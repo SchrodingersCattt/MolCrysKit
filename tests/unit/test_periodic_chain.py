@@ -19,6 +19,21 @@ def _rule() -> ConnectionRule:
     return ConnectionRule("join", "atom", "join", "atom", "join", allowed_image_shifts=((0, 0, 0), (1, 0, 0)), distance_range=(0.0, 6.0))
 
 
+def _valid_repeat() -> tuple[FragmentTemplate, ConnectionRule]:
+    template = FragmentTemplate(
+        "repeat",
+        ("C", "C"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+        (BoundaryPort("in", (0.0, 0.0, 0.0)), BoundaryPort("out", (1.0, 0.0, 0.0))),
+        ((0, 1),),
+    )
+    rule = ConnectionRule(
+        "repeat-close", "repeat", "out", "repeat", "in",
+        allowed_image_shifts=((0, 0, 0), (1, 0, 0)), distance_range=(0.5, 1.5),
+    )
+    return template, rule
+
+
 def test_zero_and_nonzero_winding_from_graph():
     cell = np.diag([10.0, 10.0, 10.0])
     zero = build_periodic_chains({"atom": _template()}, (_rule(),), cell, (True, True, True), ChainSpec(("atom", "atom"), instance_centers=((0.25, 0.5, 0.5), (0.75, 0.5, 0.5)), target_winding=(0, 0, 0)))
@@ -30,12 +45,13 @@ def test_zero_and_nonzero_winding_from_graph():
 
 def test_triclinic_partial_pbc_and_round_trip(tmp_path):
     cell = np.array([[8.0, 0.0, 0.0], [1.2, 7.5, 0.0], [0.1, 0.3, 9.0]])
-    bundle = build_periodic_chains({"atom": _template()}, (_rule(),), cell, (True, True, False), ChainSpec(("atom",), instance_centers=((0.3, 0.4, 0.2),), min_distance=0.5))
+    template, rule = _valid_repeat()
+    bundle = build_periodic_chains({"repeat": template}, (rule,), cell, (True, True, False), ChainSpec(("repeat",), instance_centers=((0.3, 0.4, 0.2),), min_distance=0.5))
     validate_periodic_bundle(bundle)
     structure, sidecar = write_periodic_bundle(bundle, tmp_path / "bundle")
     assert structure.name == "structure.cif"
     atoms, metadata = read_periodic_bundle(structure, sidecar)
-    assert len(atoms) == 1
+    assert len(atoms) == 2
     validate_periodic_bundle(atoms, metadata)
     assert metadata["periodic_graph"]["winding_cycles"] == [[0, 0, 0]]
     assert json.loads(sidecar.read_text())["files"]["structure_sha256"]
@@ -44,12 +60,22 @@ def test_triclinic_partial_pbc_and_round_trip(tmp_path):
 @pytest.mark.parametrize("format_name", ("cif", "poscar", "xyz", "extxyz"))
 def test_supported_structure_formats(tmp_path, format_name):
     cell = np.diag([10.0, 10.0, 10.0])
-    bundle = build_periodic_chains({"atom": _template()}, (_rule(),), cell, (True, True, True), ChainSpec(("atom",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5))
+    template, rule = _valid_repeat()
+    bundle = build_periodic_chains({"repeat": template}, (rule,), cell, (True, True, True), ChainSpec(("repeat",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5))
     structure, sidecar = write_periodic_bundle(bundle, tmp_path / format_name, format=format_name)
     atoms, metadata = read_periodic_bundle(structure, sidecar)
-    assert len(atoms) == 1
+    assert len(atoms) == 2
     validate_periodic_bundle(atoms, metadata)
     assert metadata["files"]["format"] == format_name
+
+
+def test_zero_winding_same_port_self_loop_is_rejected():
+    with pytest.raises(ValueError, match="degenerate one-instance"):
+        build_periodic_chains(
+            {"atom": _template()}, (_rule(),), np.diag([10.0, 10.0, 10.0]),
+            (True, True, True),
+            ChainSpec(("atom",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5),
+        )
 
 
 def test_screw_compatibility_and_no_implicit_expansion():

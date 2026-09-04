@@ -19,7 +19,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 def _graph(graph: PeriodicGraph):
-    return {"nodes":list(graph.nodes),"edges":[{"left_node":e.left_node,"right_node":e.right_node,"right_image_shift":list(e.right_image_shift),"rule_id":e.rule_id,"closure":e.closure} for e in graph.edges],"closure":graph.closure,"cycle_rank":graph.cycle_rank,"winding_cycles":[list(v) for v in graph.winding_cycles()]}
+    return {"nodes":list(graph.nodes),"edges":[{"left_node":e.left_node,"right_node":e.right_node,"right_image_shift":list(e.right_image_shift),"rule_id":e.rule_id,"closure":e.closure,"left_port":e.left_port,"right_port":e.right_port} for e in graph.edges],"closure":graph.closure,"cycle_rank":graph.cycle_rank,"winding_cycles":[list(v) for v in graph.winding_cycles()]}
 
 def _atom_records(atoms):
     names=("atom_id","chain_id","fragment_id","repeat_id")

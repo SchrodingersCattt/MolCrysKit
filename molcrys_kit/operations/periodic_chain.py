@@ -56,18 +56,41 @@ class _PeriodicCellList:
     def insert(self, position):
         index = len(self.positions); value = np.asarray(position, dtype=float); self.positions.append(value); self.items[self.key(value @ self.inverse)].append((index, value)); return index
 
-def _rule(rules: Sequence[ConnectionRule], left: FragmentTemplate, right: FragmentTemplate):
+def _resolve_rule(rules: Sequence[ConnectionRule], left: FragmentTemplate, right: FragmentTemplate):
+    """Resolve one explicit rule and its orientation for an actual edge.
+
+    A template may expose more than one port.  Selecting ``ports[0]`` made a
+    one-fragment fixture look connected even when its declared input/output
+    ports were never used.  The rule is now the source of truth for both
+    endpoint port ids; ambiguous declarations fail rather than being guessed.
+    """
+    matches = []
     for rule in rules:
-        if (rule.left_template, rule.left_port, rule.right_template, rule.right_port) == (left.template_id, left.ports[0].port_id, right.template_id, right.ports[0].port_id): return rule
-        if (rule.right_template, rule.right_port, rule.left_template, rule.left_port) == (left.template_id, left.ports[0].port_id, right.template_id, right.ports[0].port_id): return rule
-    raise ValueError(f"no explicit connection rule for {left.template_id} -> {right.template_id}")
+        if (rule.left_template, rule.right_template) == (left.template_id, right.template_id):
+            matches.append((rule, rule.left_port, rule.right_port, False))
+        elif (rule.right_template, rule.left_template) == (left.template_id, right.template_id):
+            matches.append((rule, rule.right_port, rule.left_port, True))
+    unique = {(item[0].rule_id, item[1], item[2], item[3]): item for item in matches}
+    matches = list(unique.values())
+    if not matches:
+        raise ValueError(f"no explicit connection rule for {left.template_id} -> {right.template_id}")
+    if len(matches) > 1:
+        ids = ", ".join(repr(item[0].rule_id) for item in matches)
+        raise ValueError(f"ambiguous connection rules for {left.template_id} -> {right.template_id}: {ids}")
+    rule, left_port_id, right_port_id, reversed_rule = matches[0]
+    left.port(left_port_id)
+    right.port(right_port_id)
+    return rule, left_port_id, right_port_id, reversed_rule
 
 def _check(rule, distance):
     if rule.distance_range is not None and not rule.distance_range[0] <= distance <= rule.distance_range[1]: raise ValueError(f"connection {rule.rule_id!r} distance {distance:.6g} A is outside {rule.distance_range} A")
 
-def _check_shift(rule, shift):
+def _check_shift(rule, shift, reversed_rule=False):
     value = tuple(int(x) for x in shift)
-    if value not in rule.allowed_image_shifts: raise ValueError(f"image shift {value} is not allowed by connection {rule.rule_id!r}")
+    allowed = rule.allowed_image_shifts
+    if reversed_rule:
+        allowed = tuple(tuple(-x for x in item) for item in allowed)
+    if value not in allowed: raise ValueError(f"image shift {value} is not allowed by connection {rule.rule_id!r}")
 
 def _check_ports(rule, left_port, right_port, left_rotation, right_rotation):
     if rule.angle_range_deg is not None:
@@ -79,6 +102,35 @@ def _check_ports(rule, left_port, right_port, left_rotation, right_rotation):
         if not rule.angle_range_deg[0] <= angle <= rule.angle_range_deg[1]: raise ValueError(f"connection {rule.rule_id!r} angle {angle:.6g} deg is outside {rule.angle_range_deg} deg")
     if rule.dihedral_range_deg is not None:
         raise ValueError(f"connection {rule.rule_id!r} requests a dihedral range but no reference planes were supplied")
+
+
+def _world_port(template: FragmentTemplate, port_id: str, rotation, translation):
+    port = template.port(port_id)
+    return np.asarray(port.position, dtype=float) @ rotation.T + translation
+
+
+def _check_edge(rule, left_template, right_template, left_port_id, right_port_id,
+                reversed_rule, left_transform, right_transform, shift, cell):
+    """Check one edge using the declared ports and integer image shift."""
+    _check_shift(rule, shift, reversed_rule)
+    left_rotation, left_translation = left_transform
+    right_rotation, right_translation = right_transform
+    left_port = left_template.port(left_port_id)
+    right_port = right_template.port(right_port_id)
+    _check_ports(rule, left_port, right_port, left_rotation, right_rotation)
+    left_position = _world_port(left_template, left_port_id, left_rotation, left_translation)
+    right_position = _world_port(right_template, right_port_id, right_rotation, right_translation)
+    distance = float(np.linalg.norm(left_position - (right_position + np.asarray(shift, dtype=float) @ cell)))
+    _check(rule, distance)
+    return distance
+
+
+def _resolve_and_check_edge(rules, left_template, right_template, left_transform,
+                            right_transform, shift, cell):
+    rule, left_port_id, right_port_id, reversed_rule = _resolve_rule(rules, left_template, right_template)
+    _check_edge(rule, left_template, right_template, left_port_id, right_port_id,
+                reversed_rule, left_transform, right_transform, shift, cell)
+    return rule, left_port_id, right_port_id
 
 def _build_once(templates: Mapping[str, FragmentTemplate], rules: Sequence[ConnectionRule], cell: Sequence[Sequence[float]], pbc: Sequence[bool], spec: ChainSpec) -> PeriodicBundle:
     cell = _cell(cell); pbc = tuple(bool(x) for x in pbc)
@@ -117,10 +169,77 @@ def _build_once(templates: Mapping[str, FragmentTemplate], rules: Sequence[Conne
                 index.insert(position); positions.append(position); symbols.append(symbol); arrays["atom_id"].append(len(positions)-1); arrays["chain_id"].append(chain_id); arrays["fragment_id"].append(name); arrays["repeat_id"].append(repeat_id)
         if spec.closure == "translation":
             for i in range(len(chain_nodes)-1):
-                rule=_rule(rules,templates[spec.sequence[i]],templates[spec.sequence[i+1]]); _check_shift(rule,(0,0,0)); _check_ports(rule,templates[spec.sequence[i]].ports[0],templates[spec.sequence[i+1]].ports[0],transforms[i][0],transforms[i+1][0]); a=templates[spec.sequence[i]].ports[0].position@transforms[i][0].T+transforms[i][1]; b=templates[spec.sequence[i+1]].ports[0].position@transforms[i+1][0].T+transforms[i+1][1]; _check(rule,float(np.linalg.norm(a-b))); edges.append(PeriodicEdge(chain_nodes[i],chain_nodes[i+1],(0,0,0),rule.rule_id))
-            rule=_rule(rules,templates[spec.sequence[-1]],templates[spec.sequence[0]]); _check_shift(rule,winding); _check_ports(rule,templates[spec.sequence[-1]].ports[0],templates[spec.sequence[0]].ports[0],transforms[-1][0],transforms[0][0]); a=templates[spec.sequence[-1]].ports[0].position@transforms[-1][0].T+transforms[-1][1]; b=templates[spec.sequence[0]].ports[0].position@transforms[0][0].T+transforms[0][1]+np.asarray(winding)@cell; _check(rule,float(np.linalg.norm(a-b))); edges.append(PeriodicEdge(chain_nodes[-1],chain_nodes[0],tuple(int(x) for x in winding),rule.rule_id,True))
+                rule, left_port, right_port = _resolve_and_check_edge(
+                    rules,
+                    templates[spec.sequence[i]],
+                    templates[spec.sequence[i + 1]],
+                    transforms[i],
+                    transforms[i + 1],
+                    (0, 0, 0),
+                    cell,
+                )
+                edges.append(PeriodicEdge(
+                    chain_nodes[i], chain_nodes[i + 1], (0, 0, 0), rule.rule_id,
+                    False, left_port, right_port,
+                ))
+            rule, left_port, right_port = _resolve_and_check_edge(
+                rules,
+                templates[spec.sequence[-1]],
+                templates[spec.sequence[0]],
+                transforms[-1],
+                transforms[0],
+                winding,
+                cell,
+            )
+            if len(chain_nodes) == 1 and winding == (0, 0, 0):
+                left_position = _world_port(templates[spec.sequence[-1]], left_port, *transforms[-1])
+                right_position = _world_port(templates[spec.sequence[0]], right_port, *transforms[0])
+                if left_port == right_port or np.linalg.norm(left_position - right_position) <= spec.tolerance:
+                    raise ValueError(
+                        "degenerate one-instance zero-winding closure; "
+                        "provide distinct endpoint ports or a non-zero image shift"
+                    )
+            edges.append(PeriodicEdge(
+                chain_nodes[-1], chain_nodes[0], tuple(int(x) for x in winding),
+                rule.rule_id, True, left_port, right_port,
+            ))
         else:
-            edges.extend(PeriodicEdge(chain_nodes[i],chain_nodes[i+1],(0,0,0),"screw-step") for i in range(len(chain_nodes)-1)); edges.append(PeriodicEdge(chain_nodes[-1],chain_nodes[0],tuple(int(x) for x in winding),"screw-closure",True))
+            for i in range(len(chain_nodes)-1):
+                if rules:
+                    rule, left_port, right_port = _resolve_and_check_edge(
+                        rules,
+                        templates[spec.sequence[i]],
+                        templates[spec.sequence[i + 1]],
+                        transforms[i],
+                        transforms[i + 1],
+                        (0, 0, 0),
+                        cell,
+                    )
+                    edges.append(PeriodicEdge(
+                        chain_nodes[i], chain_nodes[i + 1], (0, 0, 0), rule.rule_id,
+                        False, left_port, right_port,
+                    ))
+                else:
+                    edges.append(PeriodicEdge(chain_nodes[i], chain_nodes[i + 1], (0, 0, 0), "screw-step"))
+            if rules:
+                rule, left_port, right_port = _resolve_and_check_edge(
+                    rules,
+                    templates[spec.sequence[-1]],
+                    templates[spec.sequence[0]],
+                    transforms[-1],
+                    transforms[0],
+                    winding,
+                    cell,
+                )
+                edges.append(PeriodicEdge(
+                    chain_nodes[-1], chain_nodes[0], tuple(int(x) for x in winding),
+                    rule.rule_id, True, left_port, right_port,
+                ))
+            else:
+                edges.append(PeriodicEdge(
+                    chain_nodes[-1], chain_nodes[0], tuple(int(x) for x in winding),
+                    "screw-closure", True,
+                ))
     atoms=Atoms(symbols=symbols,positions=np.asarray(positions),cell=cell,pbc=pbc)
     for name,values in arrays.items(): atoms.set_array(name,np.asarray(values,dtype="U64" if name=="fragment_id" else int))
     graph=PeriodicGraph(tuple(nodes),tuple(edges),spec.closure)
