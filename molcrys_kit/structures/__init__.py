@@ -12,6 +12,7 @@ from .cluster import CrystalCluster, ClusterProvenance
 from .polyhedra import all_ideal_polyhedra, convex_hull_payload, ideal_polyhedra_for_cn
 from .trajectory import CrystalTrajectory
 from .records import BondRecord, SiteRecord
+from .periodic_geometry import BoundaryPort, ChainSpec, ConnectionRule, FragmentInstance, FragmentTemplate, PeriodicBundle, PeriodicEdge, PeriodicGraph, ScrewSpec
 from .bond import (
     BondCandidates,
     BondPairs,
@@ -49,6 +50,15 @@ __all__ = [
     "BondCandidates",
     "BondPairs",
     "SiteRecord",
+    "BoundaryPort",
+    "ChainSpec",
+    "ConnectionRule",
+    "FragmentInstance",
+    "FragmentTemplate",
+    "PeriodicBundle",
+    "PeriodicEdge",
+    "PeriodicGraph",
+    "ScrewSpec",
     "VerletBondTracker",
     "build_bond_candidates",
     "candidate_list_needs_rebuild",
