@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from molcrys_kit.analysis.periodic_validation import validate_periodic_bundle
+from molcrys_kit.cli.periodic_chain_cmd import _rule as load_rule
+from molcrys_kit.cli.periodic_chain_cmd import _template as load_template
 from molcrys_kit.io.periodic_bundle import read_periodic_bundle, write_periodic_bundle
 from molcrys_kit.operations.periodic_chain import build_periodic_chains
 from molcrys_kit.structures.periodic_geometry import BoundaryPort, ChainSpec, ConnectionRule, FragmentTemplate, ScrewSpec
@@ -76,6 +79,41 @@ def test_zero_winding_same_port_self_loop_is_rejected():
             (True, True, True),
             ChainSpec(("atom",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5),
         )
+
+
+@pytest.mark.parametrize(
+    ("fixture", "formula", "atom_count", "winding"),
+    (
+        ("synthetic_nonzero_winding", "C2", 2, (1, 0, 0)),
+        ("red_phosphorus_local_chain", "P9", 9, (1, 0, 0)),
+        ("polyethylene_like_chain", "C2H4", 6, (1, 0, 0)),
+        ("alpha_se_local_chain", "Se3", 3, (0, 0, 1)),
+    ),
+)
+def test_material_fixture_requests_are_non_degenerate_and_round_trip(
+    fixture, formula, atom_count, winding, tmp_path
+):
+    request = json.loads((Path("examples/periodic_chains") / f"{fixture}.json").read_text())
+    templates = {item["template_id"]: load_template(item) for item in request["templates"]}
+    rules = tuple(load_rule(item) for item in request.get("rules", ()))
+    raw = request["spec"]
+    screw = ScrewSpec(**raw["screw"]) if raw.get("screw") else None
+    spec = ChainSpec(
+        tuple(raw["sequence"]), raw.get("chain_count", 1), raw.get("closure", "translation"),
+        tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,
+        tuple(tuple(item) for item in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,
+        screw, raw.get("seed", 0), raw.get("max_backtracks", 64), raw.get("min_distance", 0.8), raw.get("tolerance", 1e-6),
+    )
+    bundle = build_periodic_chains(templates, rules, request["cell"], request.get("pbc", (True, True, True)), spec)
+    report = validate_periodic_bundle(bundle)
+    assert bundle.atoms.get_chemical_formula() == formula
+    assert report["atom_count"] == atom_count
+    assert tuple(report["winding_cycles"][0]) == winding
+    assert all(edge.left_port is not None and edge.right_port is not None for edge in bundle.graph.edges)
+
+    structure, sidecar = write_periodic_bundle(bundle, tmp_path / fixture)
+    restored, metadata = read_periodic_bundle(structure, sidecar)
+    validate_periodic_bundle(restored, metadata)
 
 
 def test_screw_compatibility_and_no_implicit_expansion():

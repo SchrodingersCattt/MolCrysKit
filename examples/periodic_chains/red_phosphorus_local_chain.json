@@ -1,1 +1,39 @@
-{"cell":[[14,0,0],[0,14,0],[0,0,14]],"pbc":[true,true,true],"templates":[{"template_id":"red_p_local","symbols":["P"],"positions":[[0,0,0]],"ports":[{"port_id":"join","position":[0,0,0],"faces":["x0","x1"]}],"metadata":{"fixture":"red-phosphorus-local-chain"}}],"rules":[{"rule_id":"p-local","left_template":"red_p_local","left_port":"join","right_template":"red_p_local","right_port":"join","distance_range":[0,6]}],"spec":{"sequence":["red_p_local"],"instance_centers":[[0.5,0.5,0.5]],"min_distance":0.8}}
+{
+  "cell": [[-10.65624, -0.50639, 3.26829], [0.0, 20.0, 0.0], [0.0, 0.0, 20.0]],
+  "pbc": [true, true, true],
+  "templates": [{
+    "template_id": "red_p_local",
+    "symbols": ["P", "P", "P", "P", "P", "P", "P", "P", "P"],
+    "positions": [
+      [0.0, 0.0, 0.0], [-1.97553, 0.88730, -0.61107],
+      [-1.58746, 3.07868, -0.40208], [-3.72588, 3.66737, 0.03356],
+      [-4.65201, 1.71231, 0.58017], [-5.55576, 2.38170, 2.47839],
+      [-6.09883, 0.31853, 3.16556], [-8.27270, 0.43546, 2.69774],
+      [-8.68071, -1.39369, 3.87936]
+    ],
+    "ports": [
+      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["a0"]},
+      {"port_id": "out", "position": [-8.68071, -1.39369, 3.87936], "faces": ["a1"]}
+    ],
+    "explicit_connections": [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]],
+    "metadata": {
+      "fixture": "red-phosphorus-local-chain",
+      "geometry_only": true,
+      "source_context": "aP_1 public amorphous-phosphorus model",
+      "source_atom_indices": [0, 200, 27, 36, 185, 180, 108, 238, 16]
+    }
+  }],
+  "rules": [{
+    "rule_id": "p-periodic-close",
+    "left_template": "red_p_local", "left_port": "out",
+    "right_template": "red_p_local", "right_port": "in",
+    "allowed_image_shifts": [[1, 0, 0]],
+    "distance_range": [1.9, 2.5]
+  }],
+  "spec": {
+    "sequence": ["red_p_local"],
+    "instance_centers": [[0.15, 0.25, 0.25]],
+    "target_winding": [1, 0, 0],
+    "min_distance": 0.8
+  }
+}

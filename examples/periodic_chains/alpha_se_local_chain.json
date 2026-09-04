@@ -1,1 +1,32 @@
-{"cell":[[16,0,0],[0,16,0],[0,0,16]],"pbc":[true,true,true],"templates":[{"template_id":"alpha_se_local","symbols":["Se","Se"],"positions":[[0,0,0],[2.37,0,0]],"ports":[{"port_id":"join","position":[2.37,0,0],"faces":["x1"]}],"explicit_connections":[[0,1]],"metadata":{"fixture":"alpha-se-local-chain"}}],"rules":[{"rule_id":"se-close","left_template":"alpha_se_local","left_port":"join","right_template":"alpha_se_local","right_port":"join","distance_range":[0,6]}],"spec":{"sequence":["alpha_se_local"],"instance_centers":[[0.25,0.5,0.5]],"min_distance":0.8}}
+{
+  "cell": [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 3.0]],
+  "pbc": [true, true, true],
+  "templates": [{
+    "template_id": "alpha_se_local",
+    "symbols": ["Se"],
+    "positions": [[1.2, 0.0, 0.0]],
+    "ports": [{"port_id": "join", "position": [1.2, 0.0, 0.0], "faces": ["z0", "z1"]}],
+    "metadata": {"fixture": "alpha-se-local-chain", "idealized_screw": true, "geometry_only": true}
+  }],
+  "rules": [{
+    "rule_id": "se-screw-close",
+    "left_template": "alpha_se_local", "left_port": "join",
+    "right_template": "alpha_se_local", "right_port": "join",
+    "allowed_image_shifts": [[0, 0, 0], [0, 0, 1]],
+    "distance_range": [2.0, 2.6]
+  }],
+  "spec": {
+    "sequence": ["alpha_se_local", "alpha_se_local", "alpha_se_local"],
+    "closure": "screw",
+    "target_winding": [0, 0, 1],
+    "screw": {
+      "order": 3,
+      "axis": [0.0, 0.0, 1.0],
+      "angle_deg": 120.0,
+      "center": [0.0, 0.0, 0.0],
+      "translation": [0.0, 0.0, 1.0],
+      "max_instances": 3
+    },
+    "min_distance": 0.8
+  }
+}

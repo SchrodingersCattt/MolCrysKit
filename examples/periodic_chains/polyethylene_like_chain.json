@@ -1,1 +1,32 @@
-{"cell":[[20,0,0],[0,12,0],[0,0,12]],"pbc":[true,true,true],"templates":[{"template_id":"pe_local","symbols":["C","C","H","H"],"positions":[[0,0,0],[1.54,0,0],[0,1.09,0],[1.54,1.09,0]],"ports":[{"port_id":"join","position":[1.54,0,0],"faces":["x1"]}],"explicit_connections":[[0,1],[0,2],[1,3]],"metadata":{"fixture":"polyethylene-like-chain"}}],"rules":[{"rule_id":"pe-close","left_template":"pe_local","left_port":"join","right_template":"pe_local","right_port":"join","distance_range":[0,6]}],"spec":{"sequence":["pe_local"],"instance_centers":[[0.25,0.5,0.5]],"min_distance":0.8}}
+{
+  "cell": [[2.556, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+  "pbc": [true, true, true],
+  "templates": [{
+    "template_id": "pe_local",
+    "symbols": ["C", "C", "H", "H", "H", "H"],
+    "positions": [
+      [0.0, 0.0, 0.0], [1.278, 0.862, 0.0],
+      [-0.45, -0.45, 0.88], [-0.45, -0.45, -0.88],
+      [1.728, 1.312, 0.88], [1.728, 1.312, -0.88]
+    ],
+    "ports": [
+      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["x0"], "direction": [-0.83, -0.56, 0.0]},
+      {"port_id": "out", "position": [1.278, 0.862, 0.0], "faces": ["x1"], "direction": [0.83, -0.56, 0.0]}
+    ],
+    "explicit_connections": [[0, 1], [0, 2], [0, 3], [1, 4], [1, 5]],
+    "metadata": {"fixture": "polyethylene-like-chain", "formula": "C2H4", "geometry_only": true}
+  }],
+  "rules": [{
+    "rule_id": "pe-periodic-close",
+    "left_template": "pe_local", "left_port": "out",
+    "right_template": "pe_local", "right_port": "in",
+    "allowed_image_shifts": [[1, 0, 0]],
+    "distance_range": [1.45, 1.65]
+  }],
+  "spec": {
+    "sequence": ["pe_local"],
+    "instance_centers": [[0.2, 0.5, 0.5]],
+    "target_winding": [1, 0, 0],
+    "min_distance": 0.8
+  }
+}
