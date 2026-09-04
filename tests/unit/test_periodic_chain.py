@@ -36,6 +36,7 @@ def test_triclinic_partial_pbc_and_round_trip(tmp_path):
     assert structure.name == "structure.cif"
     atoms, metadata = read_periodic_bundle(structure, sidecar)
     assert len(atoms) == 1
+    validate_periodic_bundle(atoms, metadata)
     assert metadata["periodic_graph"]["winding_cycles"] == [[0, 0, 0]]
     assert json.loads(sidecar.read_text())["files"]["structure_sha256"]
 
@@ -47,6 +48,7 @@ def test_supported_structure_formats(tmp_path, format_name):
     structure, sidecar = write_periodic_bundle(bundle, tmp_path / format_name, format=format_name)
     atoms, metadata = read_periodic_bundle(structure, sidecar)
     assert len(atoms) == 1
+    validate_periodic_bundle(atoms, metadata)
     assert metadata["files"]["format"] == format_name
 
 

@@ -27,7 +27,7 @@ mck validate-periodic-bundle bundle/structure.cif --json
 The authoritative output is one structure file plus `structure.json`; the
 default structure format is CIF. The bundle also supports POSCAR, XYZ, and
 ExtXYZ via `--format` or a known output suffix. CIF/POSCAR/XYZ do not carry all
-geometry-native arrays, so the sidecar remains authoritative for atom, chain,
-fragment, repeat, graph, hash, transform, closure/winding, tolerance, and
-provenance metadata. It does not store an atom edge table, model/type map,
-force-field data, or trajectories.
+geometry-native arrays, so the sidecar remains authoritative for cell/PBC, atom,
+chain, fragment, repeat, graph, hash, transform, closure/winding, tolerance, and
+provenance metadata; bundle reads restore these fields before validation. It does
+not store an atom edge table, model/type map, force-field data, or trajectories.

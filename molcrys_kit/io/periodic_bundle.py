@@ -21,6 +21,11 @@ def _sha256(path: Path) -> str:
 def _graph(graph: PeriodicGraph):
     return {"nodes":list(graph.nodes),"edges":[{"left_node":e.left_node,"right_node":e.right_node,"right_image_shift":list(e.right_image_shift),"rule_id":e.rule_id,"closure":e.closure} for e in graph.edges],"closure":graph.closure,"cycle_rank":graph.cycle_rank,"winding_cycles":[list(v) for v in graph.winding_cycles()]}
 
+def _atom_records(atoms):
+    names=("atom_id","chain_id","fragment_id","repeat_id")
+    if any(name not in atoms.arrays for name in names): raise ValueError(f"periodic bundle atoms must contain arrays: {', '.join(names)}")
+    return [{name: atoms.arrays[name][index].item() if hasattr(atoms.arrays[name][index],"item") else atoms.arrays[name][index] for name in names} for index in range(len(atoms))]
+
 _FORMATS={"cif":"cif","extxyz":"extxyz","xyz":"xyz","poscar":"vasp"}
 _SUFFIXES={".cif":"cif",".extxyz":"extxyz",".xyz":"xyz",".poscar":"poscar",".vasp":"poscar"}
 
@@ -53,7 +58,7 @@ def write_periodic_bundle(bundle: PeriodicBundle, output: str|Path, *, format: s
     digest=_sha256(structure)
     files={"structure":structure.name,"format":format_name,"structure_sha256":digest}
     if format_name=="extxyz": files.update({"extxyz":structure.name,"extxyz_sha256":digest})
-    payload=dict(bundle.metadata); payload.update({"files":files,"atom_count":len(bundle.atoms),"instances":[{"instance_id":i.instance_id,"template_id":i.template_id,"chain_id":i.chain_id,"repeat_id":i.repeat_id,"rotation":[list(row) for row in i.rotation],"translation":list(i.translation)} for i in bundle.instances],"periodic_graph":_graph(bundle.graph),"validation":bundle.validation})
+    payload=dict(bundle.metadata); payload.update({"files":files,"atom_count":len(bundle.atoms),"atom_records":_atom_records(bundle.atoms),"instances":[{"instance_id":i.instance_id,"template_id":i.template_id,"chain_id":i.chain_id,"repeat_id":i.repeat_id,"rotation":[list(row) for row in i.rotation],"translation":list(i.translation)} for i in bundle.instances],"periodic_graph":_graph(bundle.graph),"validation":bundle.validation})
     sidecar.write_text(json.dumps(payload,indent=2,sort_keys=True,default=_default)+"\n",encoding="utf-8")
     return structure,sidecar
 
@@ -63,6 +68,13 @@ def read_periodic_bundle(structure: str|Path, sidecar: str|Path|None=None):
     format_name=_normalise_format(files.get("format") or _SUFFIXES.get(structure.suffix.lower()) or "extxyz")
     atoms=ase.io.read(structure,format=_FORMATS[format_name],index=0); expected=files.get("structure_sha256") or files.get("extxyz_sha256")
     if expected and expected != _sha256(structure): raise ValueError("periodic bundle checksum mismatch: structure changed after sidecar creation")
+    if payload.get("cell") is not None: atoms.set_cell(np.asarray(payload["cell"],dtype=float),scale_atoms=False)
+    if payload.get("pbc") is not None: atoms.pbc=tuple(bool(value) for value in payload["pbc"])
+    records=payload.get("atom_records",())
+    if records:
+        if len(records)!=len(atoms): raise ValueError("periodic bundle atom_records do not match structure atom count")
+        for name in ("atom_id","chain_id","fragment_id","repeat_id"):
+            if name not in atoms.arrays: atoms.set_array(name,np.asarray([record[name] for record in records],dtype="U64" if name=="fragment_id" else int))
     return atoms,payload
 
 __all__=["read_periodic_bundle","write_periodic_bundle"]

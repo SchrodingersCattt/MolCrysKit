@@ -13,7 +13,7 @@ def validate_periodic_bundle(bundle: PeriodicBundle|Any, metadata: Mapping[str,A
     if not np.all(np.isfinite(atoms.positions)): raise ValueError("periodic bundle contains non-finite coordinates")
     required={"atom_id","chain_id","fragment_id","repeat_id"}; missing=sorted(required-set(atoms.arrays))
     if missing: raise ValueError(f"periodic bundle is missing required arrays: {', '.join(missing)}")
-    if metadata is not None and metadata.get("atom_count") not in (None,len(atoms)): raise ValueError("sidecar atom_count does not match ExtXYZ")
+    if metadata is not None and metadata.get("atom_count") not in (None,len(atoms)): raise ValueError("sidecar atom_count does not match structure")
     frac=atoms.positions@np.linalg.inv(cell)
     for axis,periodic in enumerate(atoms.pbc):
         if not periodic and np.any((frac[:,axis]<-tolerance)|(frac[:,axis]>1+tolerance)): raise ValueError("coordinates leave a non-periodic cell direction")

@@ -1,0 +1,155 @@
+{
+  "atom_count": 2,
+  "atom_records": [
+    {
+      "atom_id": 0,
+      "chain_id": 0,
+      "fragment_id": "unit",
+      "repeat_id": 0
+    },
+    {
+      "atom_id": 1,
+      "chain_id": 0,
+      "fragment_id": "unit",
+      "repeat_id": 1
+    }
+  ],
+  "cell": [
+    [
+      10.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      10.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      10.0
+    ]
+  ],
+  "chemistry_policy": "geometry_only_no_implicit_chemistry",
+  "closure": "translation",
+  "collision_policy": "periodic_cell_list_hard_reject",
+  "files": {
+    "format": "cif",
+    "structure": "structure.cif",
+    "structure_sha256": "7ba249c6724f7997768b7af3ea5185f589c5694fc6352b671f9cedf404ff6cf1"
+  },
+  "instances": [
+    {
+      "chain_id": 0,
+      "instance_id": "chain0:repeat0",
+      "repeat_id": 0,
+      "rotation": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "template_id": "unit",
+      "translation": [
+        0.0,
+        5.0,
+        5.0
+      ]
+    },
+    {
+      "chain_id": 0,
+      "instance_id": "chain0:repeat1",
+      "repeat_id": 1,
+      "rotation": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "template_id": "unit",
+      "translation": [
+        5.0,
+        5.0,
+        5.0
+      ]
+    }
+  ],
+  "min_distance": 0.8,
+  "pbc": [
+    true,
+    true,
+    true
+  ],
+  "periodic_graph": {
+    "closure": "translation",
+    "cycle_rank": 1,
+    "edges": [
+      {
+        "closure": false,
+        "left_node": "chain0:repeat0",
+        "right_image_shift": [
+          0,
+          0,
+          0
+        ],
+        "right_node": "chain0:repeat1",
+        "rule_id": "unit-join"
+      },
+      {
+        "closure": true,
+        "left_node": "chain0:repeat1",
+        "right_image_shift": [
+          1,
+          0,
+          0
+        ],
+        "right_node": "chain0:repeat0",
+        "rule_id": "unit-join"
+      }
+    ],
+    "nodes": [
+      "chain0:repeat0",
+      "chain0:repeat1"
+    ],
+    "winding_cycles": [
+      [
+        1,
+        0,
+        0
+      ]
+    ]
+  },
+  "schema": "mck.periodic_bundle",
+  "seed": 0,
+  "target_winding": [
+    1,
+    0,
+    0
+  ],
+  "tolerance": 1e-06,
+  "validation": {},
+  "version": 1
+}
