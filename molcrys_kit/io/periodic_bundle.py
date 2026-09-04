@@ -24,7 +24,7 @@ def _graph(graph: PeriodicGraph):
 def _atom_records(atoms):
     names=("atom_id","chain_id","fragment_id","repeat_id")
     if any(name not in atoms.arrays for name in names): raise ValueError(f"periodic bundle atoms must contain arrays: {', '.join(names)}")
-    return [{name: atoms.arrays[name][index].item() if hasattr(atoms.arrays[name][index],"item") else atoms.arrays[name][index] for name in names} for index in range(len(atoms))]
+    return [{"symbol": atoms.symbols[index], **{name: atoms.arrays[name][index].item() if hasattr(atoms.arrays[name][index],"item") else atoms.arrays[name][index] for name in names}} for index in range(len(atoms))]
 
 _FORMATS={"cif":"cif","extxyz":"extxyz","xyz":"xyz","poscar":"vasp"}
 _SUFFIXES={".cif":"cif",".extxyz":"extxyz",".xyz":"xyz",".poscar":"poscar",".vasp":"poscar"}
@@ -73,8 +73,15 @@ def read_periodic_bundle(structure: str|Path, sidecar: str|Path|None=None):
     records=payload.get("atom_records",())
     if records:
         if len(records)!=len(atoms): raise ValueError("periodic bundle atom_records do not match structure atom count")
+        expected_symbols=[record.get("symbol") for record in records]
+        if all(symbol is not None for symbol in expected_symbols) and list(atoms.get_chemical_symbols()) != expected_symbols:
+            raise ValueError("periodic bundle symbols do not match sidecar atom order")
         for name in ("atom_id","chain_id","fragment_id","repeat_id"):
-            if name not in atoms.arrays: atoms.set_array(name,np.asarray([record[name] for record in records],dtype="U64" if name=="fragment_id" else int))
+            expected=np.asarray([record[name] for record in records],dtype="U64" if name=="fragment_id" else int)
+            if name in atoms.arrays:
+                actual=np.asarray(atoms.arrays[name])
+                if not np.array_equal(actual,expected): raise ValueError(f"periodic bundle array {name!r} does not match sidecar")
+            else: atoms.set_array(name,expected)
     return atoms,payload
 
 __all__=["read_periodic_bundle","write_periodic_bundle"]

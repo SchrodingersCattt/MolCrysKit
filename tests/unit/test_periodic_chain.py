@@ -72,6 +72,24 @@ def test_supported_structure_formats(tmp_path, format_name):
     assert metadata["files"]["format"] == format_name
 
 
+def test_sidecar_rejects_reordered_symbols_and_metadata_mismatch(tmp_path):
+    cell = np.diag([10.0, 10.0, 10.0])
+    template, rule = _valid_repeat()
+    bundle = build_periodic_chains({"repeat": template}, (rule,), cell, (True, True, True), ChainSpec(("repeat",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5))
+    structure, sidecar = write_periodic_bundle(bundle, tmp_path / "bundle", format="extxyz")
+    payload = json.loads(sidecar.read_text())
+    payload["atom_records"][0]["symbol"] = "O"
+    sidecar.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="symbols"):
+        read_periodic_bundle(structure, sidecar)
+
+    payload["atom_records"][0]["symbol"] = "C"
+    payload["atom_records"][0]["chain_id"] = 99
+    sidecar.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="array 'chain_id'"):
+        read_periodic_bundle(structure, sidecar)
+
+
 def test_zero_winding_same_port_self_loop_is_rejected():
     with pytest.raises(ValueError, match="degenerate one-instance"):
         build_periodic_chains(

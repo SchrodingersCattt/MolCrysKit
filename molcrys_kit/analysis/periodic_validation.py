@@ -14,6 +14,15 @@ def validate_periodic_bundle(bundle: PeriodicBundle|Any, metadata: Mapping[str,A
     required={"atom_id","chain_id","fragment_id","repeat_id"}; missing=sorted(required-set(atoms.arrays))
     if missing: raise ValueError(f"periodic bundle is missing required arrays: {', '.join(missing)}")
     if metadata is not None and metadata.get("atom_count") not in (None,len(atoms)): raise ValueError("sidecar atom_count does not match structure")
+    if len(set(np.asarray(atoms.arrays["atom_id"]).tolist())) != len(atoms): raise ValueError("periodic bundle atom_id values must be unique")
+    if metadata is not None and metadata.get("atom_records"):
+        records=metadata["atom_records"]
+        if len(records)!=len(atoms): raise ValueError("sidecar atom_records do not match structure atom count")
+        expected_symbols=[record.get("symbol") for record in records]
+        if all(symbol is not None for symbol in expected_symbols) and atoms.get_chemical_symbols()!=expected_symbols: raise ValueError("periodic bundle symbols do not match sidecar atom order")
+        for name in required:
+            expected=np.asarray([record[name] for record in records],dtype="U64" if name=="fragment_id" else int)
+            if not np.array_equal(np.asarray(atoms.arrays[name]),expected): raise ValueError(f"periodic bundle array {name!r} does not match sidecar")
     frac=atoms.positions@np.linalg.inv(cell)
     for axis,periodic in enumerate(atoms.pbc):
         if not periodic and np.any((frac[:,axis]<-tolerance)|(frac[:,axis]>1+tolerance)): raise ValueError("coordinates leave a non-periodic cell direction")
