@@ -13,6 +13,29 @@ from .models import FiniteChemicalEntity, InferenceStatus
 from .stereo import StereoReport
 
 
+def constitution_equivalent(
+    left: FiniteChemicalEntity,
+    right: FiniteChemicalEntity,
+) -> bool:
+    """Compare two finite graph constitutions without stereo inference."""
+    empty_left = StereoReport(
+        entity_id=left.entity_id,
+        descriptors=(),
+        status=InferenceStatus.INFERRED,
+        evidence=(),
+    )
+    empty_right = StereoReport(
+        entity_id=right.entity_id,
+        descriptors=(),
+        status=InferenceStatus.INFERRED,
+        evidence=(),
+    )
+    return (
+        classify_entity_relationship(left, right, empty_left, empty_right)
+        is EntityRelationship.SAME_STEREOISOMER
+    )
+
+
 def notations_equivalent(left: str, right: str) -> bool | None:
     """Return whether two line notations describe chemically equivalent entities.
 
@@ -43,12 +66,12 @@ def notations_equivalent(left: str, right: str) -> bool | None:
     # low-level parser intentionally leaves those defaults unresolved, so use
     # the same bounded completion as the reversible naming API before graph
     # comparison.  MCK-LN remains an exact field-preserving comparison.
-    from .name_conversion import _complete_open_smiles_hydrogens
+    from .name_conversion import complete_open_smiles_hydrogens
 
     if not left.strip().startswith("MCK-LN1|"):
-        left_entity = _complete_open_smiles_hydrogens(left_entity)
+        left_entity = complete_open_smiles_hydrogens(left_entity)
     if not right.strip().startswith("MCK-LN1|"):
-        right_entity = _complete_open_smiles_hydrogens(right_entity)
+        right_entity = complete_open_smiles_hydrogens(right_entity)
     result = classify_entity_relationship(left_entity, right_entity)
     if result is EntityRelationship.SAME_STEREOISOMER:
         return True
@@ -57,34 +80,28 @@ def notations_equivalent(left: str, right: str) -> bool | None:
         # helper report indistinguishable implicit-H centers.  If neither
         # notation carries stereo tokens, compare constitution with empty
         # stereo reports instead of returning an avoidable indeterminate.
-        if not any(
-            atom.stereochemistry is not None for atom in (*left_entity.atoms, *right_entity.atoms)
-        ) and not any(
-            bond.stereochemistry is not None for bond in (*left_entity.bonds, *right_entity.bonds)
-        ):
-            left_report = StereoReport(
-                entity_id=left_entity.entity_id,
-                descriptors=(),
-                status=InferenceStatus.INFERRED,
-                evidence=(),
-            )
-            right_report = StereoReport(
-                entity_id=right_entity.entity_id,
-                descriptors=(),
-                status=InferenceStatus.INFERRED,
-                evidence=(),
-            )
-            fallback = classify_entity_relationship(
-                left_entity,
-                right_entity,
-                left_report,
-                right_report,
-            )
-            if fallback is EntityRelationship.SAME_STEREOISOMER:
-                return True
+        left_atom_stereo = any(
+            atom.stereochemistry is not None for atom in left_entity.atoms
+        )
+        right_atom_stereo = any(
+            atom.stereochemistry is not None for atom in right_entity.atoms
+        )
+        left_bond_stereo = any(
+            bond.stereochemistry is not None for bond in left_entity.bonds
+        )
+        right_bond_stereo = any(
+            bond.stereochemistry is not None for bond in right_entity.bonds
+        )
+        if not (
+            left_atom_stereo
+            or right_atom_stereo
+            or left_bond_stereo
+            or right_bond_stereo
+        ) and constitution_equivalent(left_entity, right_entity):
+            return True
         return None
     # MIRROR, STEREOISOMER, DIFFERENT_CONSTITUTION → not equivalent.
     return False
 
 
-__all__ = ["notations_equivalent"]
+__all__ = ["constitution_equivalent", "notations_equivalent"]

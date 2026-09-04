@@ -11,6 +11,7 @@ from dataclasses import replace
 import re
 
 from .line_notation import LineNotation, from_line_notation, to_line_notation
+from .equivalence import constitution_equivalent
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -21,8 +22,8 @@ from .models import (
     InferenceStatus,
 )
 from .naming import (
-    _ALKANE_STEMS,
-    _HALOGEN_PREFIX,
+    ALKANE_STEMS,
+    HALOGEN_PREFIX,
     NamingIndeterminateError,
     NamingResult,
     name_entity,
@@ -33,7 +34,7 @@ class NamingParseError(ValueError):
     """Raised when a name is malformed or outside the reversible subset."""
 
 
-_STEM_TO_CARBON_COUNT = {stem: count for count, stem in _ALKANE_STEMS.items()}
+_STEM_TO_CARBON_COUNT = {stem: count for count, stem in ALKANE_STEMS.items()}
 _ALLOWED_PREFIXES = {
     "fluoro",
     "chloro",
@@ -70,6 +71,11 @@ def _evidence() -> tuple[Evidence, ...]:
     )
 
 
+def _optional_hydrogens(hydrogens: int | None) -> int | None:
+    """Use ``None`` for zero so omitted OpenSMILES H stays canonical."""
+    return hydrogens if hydrogens else None
+
+
 def _atom(atom_id: str, element: str, hydrogens: int | None = None) -> ChemicalAtom:
     return ChemicalAtom(
         atom_id=atom_id,
@@ -77,7 +83,7 @@ def _atom(atom_id: str, element: str, hydrogens: int | None = None) -> ChemicalA
         # OpenSMILES leaves aromatic and fully substituted atoms without an
         # explicit hydrogen field.  Treat zero as the same absent value so
         # graph equivalence does not depend on how the name was parsed.
-        implicit_hydrogens=hydrogens or None,
+        implicit_hydrogens=_optional_hydrogens(hydrogens),
         evidence=_evidence(),
     )
 
@@ -274,7 +280,7 @@ def _parse_benzene(name: str):
             bonds.append(_bond(ring_id, f"M{locant}", 1.0))
         else:
             element = next(
-                element for element, value in _HALOGEN_PREFIX.items() if value == prefix
+                element for element, value in HALOGEN_PREFIX.items() if value == prefix
             )
             atoms.append(_atom(f"X{locant}", element))
             bonds.append(_bond(ring_id, f"X{locant}", 1.0))
@@ -399,7 +405,7 @@ def _is_reversible_entity(entity: FiniteChemicalEntity) -> bool:
     )
 
 
-def _complete_open_smiles_hydrogens(
+def complete_open_smiles_hydrogens(
     entity: FiniteChemicalEntity,
 ) -> FiniteChemicalEntity:
     """Apply OpenSMILES default valences to unbracketed organic atoms.
@@ -490,17 +496,17 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
             )
         return name_entity(entity)
     naming_entity = (
-        _complete_open_smiles_hydrogens(entity) if strict else entity
+        complete_open_smiles_hydrogens(entity) if strict else entity
     )
     result = name_entity(naming_entity, strict=strict)
     if not strict:
         return result
     try:
-        rebuilt = _complete_open_smiles_hydrogens(from_iupac_name(result.name))
-        original = _complete_open_smiles_hydrogens(
+        rebuilt = complete_open_smiles_hydrogens(from_iupac_name(result.name))
+        original = complete_open_smiles_hydrogens(
             from_line_notation(smiles, dialect="opensmiles")
         )
-        if not _same_constitution(original, rebuilt):
+        if not constitution_equivalent(original, rebuilt):
             raise NamingIndeterminateError(
                 "generated IUPAC name does not round-trip to an equivalent graph"
             )
@@ -511,31 +517,9 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
     return result
 
 
-def _same_constitution(left: FiniteChemicalEntity, right: FiniteChemicalEntity) -> bool:
-    """Compare graph constitution without asking the stereo engine to infer H."""
-    from .crystal_stereo import EntityRelationship, classify_entity_relationship
-    from .stereo import StereoReport
-
-    empty_left = StereoReport(
-        entity_id=left.entity_id,
-        descriptors=(),
-        status=InferenceStatus.INFERRED,
-        evidence=(),
-    )
-    empty_right = StereoReport(
-        entity_id=right.entity_id,
-        descriptors=(),
-        status=InferenceStatus.INFERRED,
-        evidence=(),
-    )
-    return (
-        classify_entity_relationship(left, right, empty_left, empty_right)
-        is EntityRelationship.SAME_STEREOISOMER
-    )
-
-
 __all__ = [
     "NamingParseError",
+    "complete_open_smiles_hydrogens",
     "from_iupac_name",
     "iupac_to_smiles",
     "smiles_to_iupac",

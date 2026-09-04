@@ -12,8 +12,10 @@ from molcrys_kit import (
 from molcrys_kit.chemistry import (
     EvidenceSource,
     InferenceStatus,
+    from_line_notation,
     notations_equivalent,
 )
+from molcrys_kit.chemistry.name_conversion import complete_open_smiles_hydrogens
 
 
 @pytest.mark.parametrize(
@@ -26,6 +28,10 @@ from molcrys_kit.chemistry import (
         ("[CH3][C](=[O])[OH]", "ethanoic acid"),
         ("c1ccccc1", "benzene"),
         ("c1cc(Cl)ccc1[CH3]", "1-chloro-4-methylbenzene"),
+        (
+            "[CH3][C](=[O])[NH]c1ccc([OH])cc1",
+            "N-(4-hydroxyphenyl)acetamide",
+        ),
     ),
 )
 def test_smiles_and_iupac_round_trip(smiles: str, name: str) -> None:
@@ -102,3 +108,15 @@ def test_bracket_hydrogen_and_unbracketed_open_smiles_are_equivalent() -> None:
 def test_bracket_atom_without_hydrogen_does_not_gain_default_hydrogens() -> None:
     with pytest.raises(NamingIndeterminateError):
         smiles_to_iupac("[C]")
+
+
+def test_open_smiles_hydrogen_completion_handles_bare_bracket_and_mixed_atoms() -> None:
+    bare = complete_open_smiles_hydrogens(from_line_notation("C"))
+    assert bare.atoms[0].implicit_hydrogens == 4
+
+    bracket = from_line_notation("[C]")
+    assert complete_open_smiles_hydrogens(bracket) == bracket
+
+    mixed = complete_open_smiles_hydrogens(from_line_notation("C[O]"))
+    assert mixed.atoms[0].implicit_hydrogens == 3
+    assert mixed.atoms[1].implicit_hydrogens is None
