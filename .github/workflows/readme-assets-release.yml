@@ -1,0 +1,45 @@
+name: publish-readme-assets
+
+on:
+  push:
+    tags:
+      - "readme-assets-v1"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'SchrodingersCattt/MolCrysKit'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged asset bundle
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Create the fixed release and upload its six images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          assets=(
+            .readme-assets-v1/01_molecule_identification.png
+            .readme-assets-v1/02_disorder_handling.png
+            .readme-assets-v1/03_topological_surface.png
+            .readme-assets-v1/04_hydrogen_completion.png
+            .readme-assets-v1/05_cluster_carving.png
+            .readme-assets-v1/06_shape_operations.png
+          )
+          for asset in "${assets[@]}"; do
+            test -s "${asset}"
+          done
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" \
+              --verify-tag \
+              --title "README assets v1" \
+              --notes "Fixed, versioned image assets referenced by README.md."
+          fi
+          gh release upload "${tag}" "${assets[@]}" --clobber
