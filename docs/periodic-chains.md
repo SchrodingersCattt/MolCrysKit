@@ -33,3 +33,12 @@ geometry-native arrays, so the sidecar remains authoritative for cell/PBC, atom,
 chain, fragment, repeat, graph, hash, transform, closure/winding, tolerance, and
 provenance metadata; bundle reads restore these fields before validation. It does
 not store an atom edge table, model/type map, force-field data, or trajectories.
+
+## Verification snapshot
+
+The focused periodic-chain test set passes 13 tests. A source-checkout run of
+`benchmarks/periodic_chain_benchmark.py` constructed 1,000, 10,000, and 100,000
+atoms in 0.08, 0.88, and 8.70 seconds respectively on the reference local CPU;
+these timings are a regression indicator, not a hardware guarantee. The
+material fixtures are deliberately geometry-only examples: they do not claim
+charge, valence, force-field, relaxation, or bulk-material validation.
