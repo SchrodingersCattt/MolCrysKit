@@ -28,7 +28,13 @@ class _PeriodicCellList:
         self.shifts = _image_shifts(cell, self.pbc, self.radius)
         self.shift_array = np.asarray(self.shifts, dtype=float)
         self.orthogonal = np.allclose(cell, np.diag(np.diag(cell)), atol=1e-12)
-        spans = [max(1, int(np.ceil(self.radius * self.bins[i] / np.linalg.norm(self.cell[i])))) for i in range(3)]
+        # A close pair in a skew cell can be far apart in fractional
+        # coordinates because a combination of lattice vectors nearly
+        # cancels.  Bound each fractional component from the inverse cell,
+        # then search that conservative bin neighbourhood.  The orthogonal
+        # case reduces to the usual radius / box-length bound.
+        fractional_extent = self.radius * np.linalg.norm(self.inverse, axis=0)
+        spans = [max(1, int(np.ceil(fractional_extent[i] * self.bins[i])) + 1) for i in range(3)]
         self.offsets = tuple(product(*[range(-spans[i], spans[i] + 1) if self.pbc[i] else range(0, 1) for i in range(3)]))
     def key(self, frac):
         value = np.asarray(frac, dtype=float).copy()
@@ -143,7 +149,7 @@ def _build_once(templates: Mapping[str, FragmentTemplate], rules: Sequence[Conne
     if spec.closure == "screw" and winding != screw_shift: raise ValueError("target_winding is inconsistent with screw closure")
     for name in spec.sequence:
         if name not in templates: raise KeyError(f"unknown template {name!r}")
-    if spec.instance_centers is not None: centers = tuple((0., 0., 0.) for _ in range(spec.chain_count))
+    if spec.chain_centers is not None: centers = spec.chain_centers
     elif spec.chain_count > 1:
         rng = np.random.default_rng(spec.seed)
         centers = tuple(tuple(float(x) for x in rng.random(3)) for _ in range(spec.chain_count))
@@ -247,7 +253,7 @@ def _build_once(templates: Mapping[str, FragmentTemplate], rules: Sequence[Conne
     frac=np.asarray(positions)@np.linalg.inv(cell)
     for axis,periodic in enumerate(pbc):
         if not periodic and np.any((frac[:,axis] < -spec.tolerance)|(frac[:,axis]>1+spec.tolerance)): raise ValueError("constructed geometry leaves a non-periodic direction")
-    return PeriodicBundle(atoms,graph,tuple(instances),{"schema":"mck.periodic_bundle","version":1,"cell":cell.tolist(),"pbc":list(pbc),"closure":spec.closure,"target_winding":list(winding),"seed":spec.seed,"tolerance":spec.tolerance,"min_distance":spec.min_distance,"collision_policy":"periodic_cell_list_hard_reject","chemistry_policy":"geometry_only_no_implicit_chemistry"})
+    return PeriodicBundle(atoms,graph,tuple(instances),{"schema":"mck.periodic_bundle","version":1,"cell":cell.tolist(),"pbc":list(pbc),"closure":spec.closure,"target_winding":list(winding),"chain_count":spec.chain_count,"chain_centers":list(spec.chain_centers) if spec.chain_centers is not None else None,"seed":spec.seed,"tolerance":spec.tolerance,"min_distance":spec.min_distance,"collision_policy":"periodic_cell_list_hard_reject","chemistry_policy":"geometry_only_no_implicit_chemistry"})
 
 def build_periodic_chains(templates: Mapping[str, FragmentTemplate], rules: Sequence[ConnectionRule], cell: Sequence[Sequence[float]], pbc: Sequence[bool], spec: ChainSpec) -> PeriodicBundle:
     """Build with bounded deterministic retry when random chain packing clashes."""
@@ -260,6 +266,7 @@ def build_periodic_chains(templates: Mapping[str, FragmentTemplate], rules: Sequ
             if "periodic collision" not in str(error):
                 raise
             last_error = error
-    raise ValueError(f"could not pack {spec.chain_count} independent chains after {attempts} deterministic attempts") from last_error
+    detail = f"; last failure: {last_error}" if last_error is not None else ""
+    raise ValueError(f"could not pack {spec.chain_count} independent chains after {attempts} deterministic attempts{detail}") from last_error
 
 __all__=["build_periodic_chains"]

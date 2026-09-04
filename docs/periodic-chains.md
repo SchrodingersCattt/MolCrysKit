@@ -18,6 +18,12 @@ field, and it never calls MD to repair geometry. The collision index is periodic
 and cell-list based; its image range is derived from the cell metric rather than
 assuming 27 images.
 
+`ChainSpec.chain_count` defaults to one. Set it explicitly for independent
+chains; use `chain_centers` for reproducible fractional offsets when their
+locations must be prescribed. `instance_centers` describes the repeats within
+one chain. The builder records the chain count and IDs in the sidecar and
+rejects hard collisions, including close pairs hidden by a skew cell.
+
 The CLI accepts an explicit JSON request:
 
 ```text

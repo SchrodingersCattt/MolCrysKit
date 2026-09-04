@@ -27,7 +27,7 @@ def build_group():
 def build_chain(config: Path, output: Path, format_name: str|None, overwrite: bool):
     payload=json.loads(config.read_text(encoding="utf-8")); templates={x["template_id"]:_template(x) for x in payload["templates"]}; rules=tuple(_rule(x) for x in payload.get("rules",()))
     raw=payload["spec"]; screw=ScrewSpec(**raw["screw"]) if raw.get("screw") else None
-    spec=ChainSpec(tuple(raw["sequence"]),raw.get("chain_count",1),raw.get("closure","translation"),tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,tuple(tuple(x) for x in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,screw,raw.get("seed",0),raw.get("max_backtracks",64),raw.get("min_distance",0.8),raw.get("tolerance",1e-6))
+    spec=ChainSpec(tuple(raw["sequence"]),raw.get("chain_count",1),raw.get("closure","translation"),tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,tuple(tuple(x) for x in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,screw,raw.get("seed",0),raw.get("max_backtracks",64),raw.get("min_distance",0.8),raw.get("tolerance",1e-6),tuple(tuple(x) for x in raw["chain_centers"]) if raw.get("chain_centers") is not None else None)
     structure,sidecar=write_periodic_bundle(build_periodic_chains(templates,rules,payload["cell"],payload.get("pbc",(True,True,True)),spec),output,format=format_name,overwrite=overwrite); click.echo(f"Wrote {structure}"); click.echo(f"Wrote {sidecar}")
 
 @click.command("validate-periodic-bundle")

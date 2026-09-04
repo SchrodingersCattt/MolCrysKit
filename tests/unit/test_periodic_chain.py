@@ -121,6 +121,65 @@ def test_zero_winding_same_port_self_loop_is_rejected():
         )
 
 
+def test_multiple_chains_use_explicit_centers_and_are_recorded():
+    cell = np.diag([12.0, 10.0, 10.0])
+    template, rule = _valid_repeat()
+    bundle = build_periodic_chains(
+        {"repeat": template},
+        (rule,),
+        cell,
+        (True, True, True),
+        ChainSpec(
+            ("repeat",),
+            chain_count=2,
+            target_winding=(0, 0, 0),
+            instance_centers=((0.0, 0.0, 0.0),),
+            chain_centers=((0.1, 0.2, 0.5), (0.1, 0.7, 0.5)),
+            min_distance=0.5,
+        ),
+    )
+    assert len(bundle.atoms) == 4
+    assert set(bundle.atoms.arrays["chain_id"].tolist()) == {0, 1}
+    assert bundle.graph.cycle_rank == 2
+    assert bundle.metadata["chain_count"] == 2
+
+
+def test_skew_cell_collision_is_not_hidden_by_fractional_binning():
+    cell = np.array([[10.0, 0.0, 0.0], [9.9, 1.0, 0.0], [0.0, 0.0, 10.0]])
+    first_fractional = np.array([0.1, 0.1, 0.0])
+    second_fractional = np.array([0.5, 0.7, 0.0])
+    first = first_fractional @ cell
+    second = second_fractional @ cell
+    assert np.linalg.norm((second - first) - np.array([0.0, 1.0, 0.0]) @ cell) < 0.5
+    template = FragmentTemplate(
+        "skew",
+        ("C", "C"),
+        (tuple(first), tuple(second)),
+        (BoundaryPort("in", tuple(first)), BoundaryPort("out", tuple(second))),
+    )
+    rule = ConnectionRule(
+        "close",
+        "skew",
+        "out",
+        "skew",
+        "in",
+        allowed_image_shifts=((0, 0, 0),),
+        distance_range=(0.0, 20.0),
+    )
+    with pytest.raises(ValueError, match="periodic collision"):
+        build_periodic_chains(
+            {"skew": template},
+            (rule,),
+            cell,
+            (True, True, True),
+            ChainSpec(
+                ("skew",),
+                instance_centers=((0.0, 0.0, 0.0),),
+                min_distance=1.0,
+            ),
+        )
+
+
 @pytest.mark.parametrize(
     ("fixture", "formula", "atom_count", "winding"),
     (

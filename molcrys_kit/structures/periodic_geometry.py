@@ -148,7 +148,7 @@ class ScrewSpec:
         return tuple(int(x) for x in rounded)
 @dataclass(frozen=True)
 class ChainSpec:
-    sequence:tuple[str,...]; chain_count:int=1; closure:str="translation"; target_winding:Int3|None=None; instance_centers:tuple[Vector3,...]|None=None; screw:ScrewSpec|None=None; seed:int=0; max_backtracks:int=64; min_distance:float=.8; tolerance:float=1e-6
+    sequence:tuple[str,...]; chain_count:int=1; closure:str="translation"; target_winding:Int3|None=None; instance_centers:tuple[Vector3,...]|None=None; screw:ScrewSpec|None=None; seed:int=0; max_backtracks:int=64; min_distance:float=.8; tolerance:float=1e-6; chain_centers:tuple[Vector3,...]|None=None
     def __post_init__(self):
         if not self.sequence: raise ValueError("sequence cannot be empty")
         if self.chain_count<1 or self.closure not in {"translation","screw"}: raise ValueError("invalid ChainSpec")
@@ -158,6 +158,10 @@ class ChainSpec:
             c=tuple(_v(x,"instance center") for x in self.instance_centers)
             if len(c)!=len(self.sequence): raise ValueError("instance_centers must match sequence")
             object.__setattr__(self,"instance_centers",c)
+        if self.chain_centers is not None:
+            c=tuple(_v(x,"chain center") for x in self.chain_centers)
+            if len(c)!=self.chain_count: raise ValueError("chain_centers must match chain_count")
+            object.__setattr__(self,"chain_centers",c)
 @dataclass
 class PeriodicBundle:
     atoms:Any; graph:PeriodicGraph; instances:tuple[FragmentInstance,...]; metadata:dict[str,Any]; validation:dict[str,Any]=field(default_factory=dict)
