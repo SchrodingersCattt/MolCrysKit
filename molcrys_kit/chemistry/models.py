@@ -21,6 +21,7 @@ class EvidenceSource(str, Enum):
 
     EXPLICIT_CIF = "explicit_cif"
     LINE_NOTATION = "line_notation"
+    IUPAC_NAME = "iupac_name"
     INFERRED = "inferred"
     USER_CONFIRMED = "user_confirmed"
 

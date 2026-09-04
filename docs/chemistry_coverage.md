@@ -54,7 +54,23 @@ MolCrysKit-specific chemical semantics would be discarded.
 | Red Book 2005 | partial | Deterministic composition/dimensionality descriptions; general additive coordination naming is not released. |
 | Purple Book 2008 | partial | Single named repeat-unit `poly(...)` result is provisional; end groups and typed connections remain required. |
 | Full PIN selection | indeterminate outside rows above | `preferred` is never asserted for fallback composition descriptions. |
-| Name → structure | out of this epic | Tracked separately with offline name grammar/data requirements. |
+| Name → structure | partial | Exact canonical forms emitted by the self-contained reversible subset parser are accepted; general IUPAC names, synonyms, stereochemical names, and unsupported entity classes fail closed. |
+
+The reversible conversion API covers neutral finite covalent entities only:
+water, azane, C1–C12 straight-chain hydrocarbons, corresponding alcohols and
+carboxylic acids, benzene/phenol with simple halogen, methyl, and hydroxy
+substituents, and the supported `N-(hydroxyphenyl)alkanamide` forms.  Use
+`name_entity()` when a one-way composition description is acceptable; use
+`smiles_to_iupac(strict=True)` when a name must round-trip through
+`iupac_to_smiles()`.  Strict conversion applies OpenSMILES default valences to
+unbracketed organic-subset atoms (`CCO` is therefore accepted); bracket atoms
+such as `[C]` retain their explicitly requested hydrogen semantics.
+The `strict=False` compatibility path deliberately preserves the lower-level
+parser's unresolved hydrogen fields before one-way naming, so the same
+unbracketed input may remain a composition description there.  Empty or
+malformed OpenSMILES is a syntax error; strict conversion reports it as
+`NamingIndeterminateError` while non-strict conversion retains
+`LineNotationError`.
 
 Every `NamingResult` carries the result kind, standard/version, status, rule
 trace, warnings, and alternatives. `strict=True` rejects provisional or
