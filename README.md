@@ -20,28 +20,33 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - LLM-based AI agent Friendliness: Try on https://matmaster.bohrium.com/matmaster or build your own skill for your agent
 
 <p align="center">
-  <img src="docs/images/01_molecule_identification.png" width="357"><br>
+  <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/01_molecule_identification.png" width="357"><br>
   <em>Molecule Identification</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/02_disorder_handling.png" width="548"><br>
+  <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/02_disorder_handling.png" width="548"><br>
   <em>Disorder Handling</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/03_topological_surface.png" width="496"><br>
+  <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/03_topological_surface.png" width="496"><br>
   <em>Topological Surface Generation</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/04_hydrogen_completion.png" width="305"><br>
+  <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/04_hydrogen_completion.png" width="305"><br>
   <em>Hydrogen Completion</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/05_cluster_carving.png" width="700"><br>
+  <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/05_cluster_carving.png" width="700"><br>
   <em>Cluster Carving</em>
+</p>
+
+<p align="center">
+  <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/06_shape_operations.png" width="700"><br>
+  <em>Shape Operations</em>
 </p>
 
 ## Installation
