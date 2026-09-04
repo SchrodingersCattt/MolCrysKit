@@ -10,7 +10,12 @@ from __future__ import annotations
 from dataclasses import replace
 import re
 
-from .line_notation import LineNotation, from_line_notation, to_line_notation
+from .line_notation import (
+    LineNotation,
+    LineNotationError,
+    from_line_notation,
+    to_line_notation,
+)
 from .equivalence import constitution_equivalent
 from .models import (
     BondKind,
@@ -44,13 +49,26 @@ _ALLOWED_PREFIXES = {
     "hydroxy",
 }
 _PREFIX_PATTERN = re.compile(
-    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri)?(?P<prefix>"
+    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri|\d+-)?(?P<prefix>"
     r"fluoro|chloro|bromo|iodo|methyl|hydroxy))"
 )
 _ALCOHOL_PATTERN = re.compile(r"^(?P<stem>[a-z]+)an-(?P<locant>\d+)-ol$")
 _ANILIDE_PATTERN = re.compile(
     r"^n-\((?P<phenyl>[^()]+)phenyl\)(?P<parent>[a-z]+amide)$"
 )
+_DEFAULT_VALENCE = {
+    "H": 1.0,
+    "B": 3.0,
+    "C": 4.0,
+    "N": 3.0,
+    "O": 2.0,
+    "P": 3.0,
+    "S": 2.0,
+    "F": 1.0,
+    "Cl": 1.0,
+    "Br": 1.0,
+    "I": 1.0,
+}
 
 
 def _normalize_name(name: str) -> str:
@@ -216,7 +234,19 @@ def _parse_prefixes(text: str):
         locants = tuple(int(value) for value in match.group("locants").split(","))
         prefix = match.group("prefix")
         multiplier = match.group("multiplier")
-        expected = {None: 1, "di": 2, "tri": 3}[multiplier]
+        numeric_multiplier = multiplier[:-1] if multiplier and multiplier.endswith("-") else multiplier
+        expected = {None: 1, "di": 2, "tri": 3}.get(multiplier)
+        if expected is None:
+            try:
+                expected = int(numeric_multiplier)
+            except (TypeError, ValueError) as exc:
+                raise NamingParseError(
+                    f"unsupported multiplier in {text!r}"
+                ) from exc
+            if expected < 4:
+                raise NamingParseError(
+                    f"numeric prefix multiplier must be at least four in {text!r}"
+                )
         if len(locants) != expected:
             raise NamingParseError(
                 f"{multiplier or 'single'}-{prefix} requires {expected} locant(s)"
@@ -363,6 +393,10 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
     """
     normalized = _normalize_name(name)
     entity = _parse_name(normalized)
+    if not _is_reversible_entity(entity):
+        raise NamingParseError(
+            f"name {normalized!r} describes a graph with invalid valence or semantics"
+        )
     try:
         canonical = name_entity(entity, strict=True).name
     except (NamingIndeterminateError, ValueError) as exc:
@@ -396,13 +430,32 @@ def _is_reversible_entity(entity: FiniteChemicalEntity) -> bool:
         for atom in entity.atoms
     ):
         return False
-    return all(
+    if not all(
         bond.kind is BondKind.COVALENT
         and bond.atom2_image_shift == (0, 0, 0)
         and bond.stereochemistry is None
         and bond.order in {1.0, 1.5, 2.0, 3.0}
         for bond in entity.bonds
-    )
+    ):
+        return False
+    return _valence_not_exceeded(entity)
+
+
+def _valence_not_exceeded(entity: FiniteChemicalEntity) -> bool:
+    """Return whether each supported atom stays within its target valence."""
+    adjacency = {atom.atom_id: [] for atom in entity.atoms}
+    for bond in entity.bonds:
+        adjacency[bond.atom1_id].append(bond)
+        adjacency[bond.atom2_id].append(bond)
+    for atom in entity.atoms:
+        target = _DEFAULT_VALENCE.get(atom.element)
+        if target is None:
+            continue
+        valence = sum(bond.order or 0.0 for bond in adjacency[atom.atom_id])
+        valence += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        if valence > target + 1e-8:
+            return False
+    return True
 
 
 def complete_open_smiles_hydrogens(
@@ -485,19 +538,41 @@ def complete_open_smiles_hydrogens(
 
 
 def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
-    """Convert OpenSMILES to a naming result, optionally requiring reversibility."""
+    """Convert OpenSMILES to a naming result, optionally requiring reversibility.
+
+    In strict mode, malformed or empty notation is reported as
+    :class:`NamingIndeterminateError` together with unsupported semantics.
+    Non-strict mode preserves the one-way fallback behavior and therefore
+    leaves OpenSMILES default hydrogens unresolved before calling
+    :func:`name_entity`; for example, ``CCO`` may return a composition
+    description there.  Use strict mode when OpenSMILES defaults and a
+    reversible name are required.
+    """
     if not isinstance(smiles, str):
         raise TypeError("smiles must be a string")
-    entity = from_line_notation(smiles, dialect="opensmiles")
+    try:
+        entity = from_line_notation(smiles, dialect="opensmiles")
+    except LineNotationError as exc:
+        if strict:
+            raise NamingIndeterminateError(
+                "SMILES is empty or invalid OpenSMILES notation"
+            ) from exc
+        raise
     if not isinstance(entity, FiniteChemicalEntity) or not _is_reversible_entity(entity):
         if strict:
+            if isinstance(entity, FiniteChemicalEntity) and not _valence_not_exceeded(entity):
+                raise NamingIndeterminateError(
+                    "SMILES exceeds the default valence of one or more atoms"
+                )
             raise NamingIndeterminateError(
                 "SMILES contains semantics outside the reversible naming subset"
             )
         return name_entity(entity)
-    naming_entity = (
-        complete_open_smiles_hydrogens(entity) if strict else entity
-    )
+    naming_entity = complete_open_smiles_hydrogens(entity) if strict else entity
+    if strict and not _is_reversible_entity(naming_entity):
+        raise NamingIndeterminateError(
+            "SMILES exceeds the default valence of one or more atoms"
+        )
     result = name_entity(naming_entity, strict=strict)
     if not strict:
         return result

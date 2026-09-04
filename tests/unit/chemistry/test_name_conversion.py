@@ -7,6 +7,7 @@ from molcrys_kit import (
     NamingParseError,
     from_iupac_name,
     iupac_to_smiles,
+    name_entity,
     smiles_to_iupac,
 )
 from molcrys_kit.chemistry import (
@@ -88,6 +89,16 @@ def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
     assert result.name == "molecular entity CN"
     assert result.status is InferenceStatus.INDETERMINATE
 
+    unresolved = smiles_to_iupac("CCO", strict=False)
+    assert unresolved.name == "molecular entity C2O"
+    assert unresolved.status is InferenceStatus.INDETERMINATE
+
+
+@pytest.mark.parametrize("smiles", ("", "  "))
+def test_strict_smiles_conversion_normalizes_empty_input_error(smiles: str) -> None:
+    with pytest.raises(NamingIndeterminateError, match="empty or invalid"):
+        smiles_to_iupac(smiles)
+
 
 @pytest.mark.parametrize(
     ("smiles", "name"),
@@ -108,6 +119,42 @@ def test_bracket_hydrogen_and_unbracketed_open_smiles_are_equivalent() -> None:
 def test_bracket_atom_without_hydrogen_does_not_gain_default_hydrogens() -> None:
     with pytest.raises(NamingIndeterminateError):
         smiles_to_iupac("[C]")
+
+
+def test_bracket_bridgehead_hydrogen_is_retained_and_rejected_if_uncovered() -> None:
+    entity = from_line_notation("[CH]1CCCCC1")
+    assert entity.atoms[0].implicit_hydrogens == 1
+    with pytest.raises(NamingIndeterminateError):
+        smiles_to_iupac("[CH]1CCCCC1")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ("N-(1-hydroxyphenyl)acetamide", "N-(1-hydroxyphenyl)formamide"),
+)
+def test_impossible_anilide_valence_fails_closed(name: str) -> None:
+    with pytest.raises(NamingParseError, match="invalid valence"):
+        from_iupac_name(name)
+
+
+def test_impossible_anilide_smiles_valence_fails_closed() -> None:
+    smiles = "C([NH]c:1([OH]):c:c:c:c:c1)(=O)[CH3]"
+    with pytest.raises(NamingIndeterminateError, match="valence"):
+        smiles_to_iupac(smiles)
+
+
+def test_numeric_substituent_multiplier_is_reversible() -> None:
+    smiles = "Clc1cc(Cl)c(Cl)c(Cl)c1Cl"
+    result = smiles_to_iupac(smiles)
+    assert result.name == "1,2,3,4,5-5-chlorobenzene"
+    assert iupac_to_smiles(result.name).lossless is True
+
+
+def test_multi_hydroxy_benzene_beyond_di_is_parsed() -> None:
+    name = "1,2,3-trihydroxybenzene"
+    entity = from_iupac_name(name)
+    assert name_entity(entity, strict=True).name == name
+    assert iupac_to_smiles(name).lossless is True
 
 
 def test_open_smiles_hydrogen_completion_handles_bare_bracket_and_mixed_atoms() -> None:

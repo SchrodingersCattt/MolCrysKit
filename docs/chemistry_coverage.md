@@ -65,6 +65,12 @@ substituents, and the supported `N-(hydroxyphenyl)alkanamide` forms.  Use
 `iupac_to_smiles()`.  Strict conversion applies OpenSMILES default valences to
 unbracketed organic-subset atoms (`CCO` is therefore accepted); bracket atoms
 such as `[C]` retain their explicitly requested hydrogen semantics.
+The `strict=False` compatibility path deliberately preserves the lower-level
+parser's unresolved hydrogen fields before one-way naming, so the same
+unbracketed input may remain a composition description there.  Empty or
+malformed OpenSMILES is a syntax error; strict conversion reports it as
+`NamingIndeterminateError` while non-strict conversion retains
+`LineNotationError`.
 
 Every `NamingResult` carries the result kind, standard/version, status, rule
 trace, warnings, and alternatives. `strict=True` rejects provisional or
