@@ -184,9 +184,9 @@ def test_skew_cell_collision_is_not_hidden_by_fractional_binning():
     ("fixture", "formula", "atom_count", "winding"),
     (
         ("periodic_winding_regression", "C2", 2, (1, 0, 0)),
-        ("red_phosphorus_local_chain", "P8", 8, (1, 0, 0)),
-        ("polyethylene_like_chain", "C2H4", 6, (1, 0, 0)),
-        ("trigonal_se_chain", "Se3", 3, (0, 0, 1)),
+        ("red_phosphorus_local_chain", "P16", 16, (1, 0, 0)),
+        ("polyethylene_like_chain", "C4H8", 12, (1, 0, 0)),
+        ("trigonal_se_chain", "Se6", 6, (0, 0, 1)),
     ),
 )
 def test_periodic_fixture_requests_are_non_degenerate_and_round_trip(

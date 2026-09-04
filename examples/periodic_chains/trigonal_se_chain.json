@@ -22,6 +22,8 @@
   }],
   "spec": {
     "sequence": ["trigonal_se_local", "trigonal_se_local", "trigonal_se_local"],
+    "chain_count": 2,
+    "chain_centers": [[0.0, 0.0, 0.0], [0.25, 0.25, 0.0]],
     "closure": "screw",
     "target_winding": [0, 0, 1],
     "screw": {

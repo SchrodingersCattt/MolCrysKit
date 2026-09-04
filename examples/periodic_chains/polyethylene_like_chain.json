@@ -33,6 +33,8 @@
   }],
   "spec": {
     "sequence": ["pe_local"],
+    "chain_count": 2,
+    "chain_centers": [[0.0, 0.0, 0.0], [0.0, 0.4, 0.4]],
     "instance_centers": [[0.2, 0.5, 0.5]],
     "target_winding": [1, 0, 0],
     "min_distance": 0.8
