@@ -36,9 +36,14 @@ not store an atom edge table, model/type map, force-field data, or trajectories.
 
 ## Verification snapshot
 
-The focused periodic-chain test set passes 13 tests. A source-checkout run of
+The focused periodic-chain test set passes 16 tests. A source-checkout run of
 `benchmarks/periodic_chain_benchmark.py` constructed 1,000, 10,000, and 100,000
 atoms in 0.08, 0.88, and 8.70 seconds respectively on the reference local CPU;
 these timings are a regression indicator, not a hardware guarantee. The
 material fixtures are deliberately geometry-only examples: they do not claim
-charge, valence, force-field, relaxation, or bulk-material validation.
+charge, valence, force-field, dynamics, or bulk-material validation. The
+material set contains an idealized red-phosphorus P-P motif, an all-trans
+polyethylene repeat, and a trigonal-selenium helix; the non-zero-winding
+mathematical request is kept as a topology regression. Material-specific
+bond-length and angle assertions are tested separately from the generic
+periodic-closure checks.

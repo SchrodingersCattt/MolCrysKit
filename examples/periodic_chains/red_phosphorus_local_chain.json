@@ -1,26 +1,27 @@
 {
-  "cell": [[-10.65624, -0.50639, 3.26829], [0.0, 20.0, 0.0], [0.0, 0.0, 20.0]],
+  "cell": [[13.5436657543, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 12.0]],
   "pbc": [true, true, true],
   "templates": [{
     "template_id": "red_p_local",
-    "symbols": ["P", "P", "P", "P", "P", "P", "P", "P", "P"],
+    "symbols": ["P", "P", "P", "P", "P", "P", "P", "P"],
     "positions": [
-      [0.0, 0.0, 0.0], [-1.97553, 0.88730, -0.61107],
-      [-1.58746, 3.07868, -0.40208], [-3.72588, 3.66737, 0.03356],
-      [-4.65201, 1.71231, 0.58017], [-5.55576, 2.38170, 2.47839],
-      [-6.09883, 0.31853, 3.16556], [-8.27270, 0.43546, 2.69774],
-      [-8.68071, -1.39369, 3.87936]
+      [0.0, 0.0, 0.0], [1.69295822, 1.42056062, 0.0],
+      [3.38591644, 0.0, 0.0], [5.07887466, 1.42056062, 0.0],
+      [6.77183288, 0.0, 0.0], [8.46479110, 1.42056062, 0.0],
+      [10.15774932, 0.0, 0.0], [11.85070754, 1.42056062, 0.0]
     ],
     "ports": [
-      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["a0"]},
-      {"port_id": "out", "position": [-8.68071, -1.39369, 3.87936], "faces": ["a1"]}
+      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["x0"], "direction": [-0.7660444431, 0.6427876097, 0.0]},
+      {"port_id": "out", "position": [11.85070754, 1.42056062, 0.0], "faces": ["x1"], "direction": [0.7660444431, -0.6427876097, 0.0]}
     ],
-    "explicit_connections": [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]],
+    "explicit_connections": [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7]],
     "metadata": {
       "fixture": "red-phosphorus-local-chain",
+      "material": "red phosphorus local P-P chain motif",
       "geometry_only": true,
-      "source_context": "aP_1 public amorphous-phosphorus model",
-      "source_atom_indices": [0, 200, 27, 36, 185, 180, 108, 238, 16]
+      "geometry_basis": "idealized P-P zigzag with 2.21 A bonds and 100 deg angles",
+      "source_context": "idealized periodic motif parameterized from public amorphous-phosphorus structures; coordinates are constructed, not copied atom-for-atom",
+      "source_dataset_doi": "10.5281/zenodo.7613297"
     }
   }],
   "rules": [{
@@ -32,7 +33,7 @@
   }],
   "spec": {
     "sequence": ["red_p_local"],
-    "instance_centers": [[0.15, 0.25, 0.25]],
+    "instance_centers": [[0.05, 0.25, 0.25]],
     "target_winding": [1, 0, 0],
     "min_distance": 0.8
   }

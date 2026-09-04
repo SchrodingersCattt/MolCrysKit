@@ -1,20 +1,28 @@
 {
-  "cell": [[2.556, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+  "cell": [[2.5559228362, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
   "pbc": [true, true, true],
   "templates": [{
     "template_id": "pe_local",
     "symbols": ["C", "C", "H", "H", "H", "H"],
     "positions": [
-      [0.0, 0.0, 0.0], [1.278, 0.862, 0.0],
-      [-0.45, -0.45, 0.88], [-0.45, -0.45, -0.88],
-      [1.728, 1.312, 0.88], [1.728, 1.312, -0.88]
+      [0.0, 0.0, 0.0], [1.2779614181, 0.8619958607, 0.0],
+      [0.0, -0.6497459662, -0.8751743709],
+      [0.0, -0.6497459662, 0.8751743709],
+      [1.2779614181, 1.5117418269, 0.8751743709],
+      [1.2779614181, 1.5117418269, -0.8751743709]
     ],
     "ports": [
-      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["x0"], "direction": [-0.83, -0.56, 0.0]},
-      {"port_id": "out", "position": [1.278, 0.862, 0.0], "faces": ["x1"], "direction": [0.83, -0.56, 0.0]}
+      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["x0"], "direction": [-0.8290375726, 0.5591929035, 0.0]},
+      {"port_id": "out", "position": [1.2779614181, 0.8619958607, 0.0], "faces": ["x1"], "direction": [0.8290375726, -0.5591929035, 0.0]}
     ],
     "explicit_connections": [[0, 1], [0, 2], [0, 3], [1, 4], [1, 5]],
-    "metadata": {"fixture": "polyethylene-like-chain", "formula": "C2H4", "geometry_only": true}
+    "metadata": {
+      "fixture": "polyethylene-local-chain",
+      "formula": "C2H4",
+      "conformation": "all-trans zigzag repeat",
+      "geometry_basis": "C-C 1.5415 A, C-C-C 112 deg, C-H 1.09 A",
+      "geometry_only": true
+    }
   }],
   "rules": [{
     "rule_id": "pe-periodic-close",

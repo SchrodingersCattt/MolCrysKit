@@ -37,6 +37,28 @@ def _valid_repeat() -> tuple[FragmentTemplate, ConnectionRule]:
     return template, rule
 
 
+def _periodic_position(atoms, index: int, image_shift=(0, 0, 0)) -> np.ndarray:
+    return np.asarray(atoms.positions[index]) + np.asarray(image_shift, dtype=float) @ atoms.cell.array
+
+
+def _periodic_distance(atoms, left: int, right: int, right_image_shift=(0, 0, 0)) -> float:
+    return float(np.linalg.norm(_periodic_position(atoms, right, right_image_shift) - _periodic_position(atoms, left)))
+
+
+def _periodic_angle(
+    atoms,
+    left: int,
+    center: int,
+    right: int,
+    left_image_shift=(0, 0, 0),
+    right_image_shift=(0, 0, 0),
+) -> float:
+    first = _periodic_position(atoms, left, left_image_shift) - _periodic_position(atoms, center)
+    second = _periodic_position(atoms, right, right_image_shift) - _periodic_position(atoms, center)
+    cosine = np.dot(first, second) / np.linalg.norm(first) / np.linalg.norm(second)
+    return float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
+
+
 def test_zero_and_nonzero_winding_from_graph():
     cell = np.diag([10.0, 10.0, 10.0])
     zero = build_periodic_chains({"atom": _template()}, (_rule(),), cell, (True, True, True), ChainSpec(("atom", "atom"), instance_centers=((0.25, 0.5, 0.5), (0.75, 0.5, 0.5)), target_winding=(0, 0, 0)))
@@ -102,13 +124,13 @@ def test_zero_winding_same_port_self_loop_is_rejected():
 @pytest.mark.parametrize(
     ("fixture", "formula", "atom_count", "winding"),
     (
-        ("synthetic_nonzero_winding", "C2", 2, (1, 0, 0)),
-        ("red_phosphorus_local_chain", "P9", 9, (1, 0, 0)),
+        ("periodic_winding_regression", "C2", 2, (1, 0, 0)),
+        ("red_phosphorus_local_chain", "P8", 8, (1, 0, 0)),
         ("polyethylene_like_chain", "C2H4", 6, (1, 0, 0)),
-        ("alpha_se_local_chain", "Se3", 3, (0, 0, 1)),
+        ("trigonal_se_chain", "Se3", 3, (0, 0, 1)),
     ),
 )
-def test_material_fixture_requests_are_non_degenerate_and_round_trip(
+def test_periodic_fixture_requests_are_non_degenerate_and_round_trip(
     fixture, formula, atom_count, winding, tmp_path
 ):
     request = json.loads((Path("examples/periodic_chains") / f"{fixture}.json").read_text())
@@ -132,6 +154,63 @@ def test_material_fixture_requests_are_non_degenerate_and_round_trip(
     structure, sidecar = write_periodic_bundle(bundle, tmp_path / fixture)
     restored, metadata = read_periodic_bundle(structure, sidecar)
     validate_periodic_bundle(restored, metadata)
+
+
+def _build_fixture(fixture: str):
+    request = json.loads((Path("examples/periodic_chains") / f"{fixture}.json").read_text(encoding="utf-8"))
+    templates = {item["template_id"]: load_template(item) for item in request["templates"]}
+    rules = tuple(load_rule(item) for item in request.get("rules", ()))
+    raw = request["spec"]
+    screw = ScrewSpec(**raw["screw"]) if raw.get("screw") else None
+    spec = ChainSpec(
+        tuple(raw["sequence"]), raw.get("chain_count", 1), raw.get("closure", "translation"),
+        tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,
+        tuple(tuple(item) for item in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,
+        screw, raw.get("seed", 0), raw.get("max_backtracks", 64), raw.get("min_distance", 0.8), raw.get("tolerance", 1e-6),
+    )
+    return request, build_periodic_chains(templates, rules, request["cell"], request.get("pbc", (True, True, True)), spec).atoms
+
+
+def test_polyethylene_fixture_has_tetrahedral_local_geometry():
+    _, atoms = _build_fixture("polyethylene_like_chain")
+    assert _periodic_distance(atoms, 0, 1) == pytest.approx(1.5415, abs=1e-4)
+    assert _periodic_distance(atoms, 1, 0, (1, 0, 0)) == pytest.approx(1.5415, abs=1e-4)
+    assert _periodic_angle(atoms, 1, 0, 1, (-1, 0, 0)) == pytest.approx(112.0, abs=0.05)
+    assert _periodic_angle(atoms, 0, 1, 0, (1, 0, 0)) == pytest.approx(112.0, abs=0.05)
+    for carbon, hydrogens in ((0, (2, 3)), (1, (4, 5))):
+        for hydrogen in hydrogens:
+            assert _periodic_distance(atoms, carbon, hydrogen) == pytest.approx(1.09, abs=1e-4)
+        carbon_neighbors = ((1, (0, 0, 0)), (1, (-1, 0, 0))) if carbon == 0 else ((0, (0, 0, 0)), (0, (1, 0, 0)))
+        for hydrogen in hydrogens:
+            for neighbor, image in carbon_neighbors:
+                angle = _periodic_angle(atoms, hydrogen, carbon, neighbor, (0, 0, 0), image)
+                assert 105.0 <= angle <= 114.0
+
+
+def test_red_phosphorus_fixture_has_closed_p_p_zigzag_geometry():
+    _, atoms = _build_fixture("red_phosphorus_local_chain")
+    for index in range(8):
+        next_index = (index + 1) % 8
+        next_shift = (1, 0, 0) if index == 7 else (0, 0, 0)
+        assert _periodic_distance(atoms, index, next_index, next_shift) == pytest.approx(2.21, abs=1e-4)
+        previous_index = (index - 1) % 8
+        previous_shift = (-1, 0, 0) if index == 0 else (0, 0, 0)
+        angle = _periodic_angle(atoms, previous_index, index, next_index, previous_shift, next_shift)
+        assert angle == pytest.approx(100.0, abs=0.05)
+
+
+def test_trigonal_selenium_fixture_has_helical_geometry():
+    _, atoms = _build_fixture("trigonal_se_chain")
+    for index in range(3):
+        next_index = (index + 1) % 3
+        next_shift = (0, 0, 1) if index == 2 else (0, 0, 0)
+        assert _periodic_distance(atoms, index, next_index, next_shift) == pytest.approx(2.3672, abs=1e-3)
+    for index in range(3):
+        previous_index = (index - 1) % 3
+        next_index = (index + 1) % 3
+        previous_shift = (0, 0, -1) if index == 0 else (0, 0, 0)
+        next_shift = (0, 0, 1) if index == 2 else (0, 0, 0)
+        assert _periodic_angle(atoms, previous_index, index, next_index, previous_shift, next_shift) == pytest.approx(103.224, abs=0.1)
 
 
 def test_screw_compatibility_and_no_implicit_expansion():
