@@ -20,11 +20,14 @@ The CLI accepts an explicit JSON request:
 
 ```text
 mck build chain request.json --output bundle
-mck validate-periodic-bundle bundle/structure.extxyz --json
+mck build chain request.json --output structure.extxyz --format extxyz
+mck validate-periodic-bundle bundle/structure.cif --json
 ```
 
-The authoritative output is `structure.extxyz` plus `structure.json`. ExtXYZ
-stores symbols, cell/PBC, and atom/chain/fragment/repeat arrays. The sidecar
-stores hashes, transforms, ports, the port-level graph, image shifts,
-closure/winding, tolerances, and validation/provenance. It does not store an
-atom edge table, model/type map, force-field data, or trajectories.
+The authoritative output is one structure file plus `structure.json`; the
+default structure format is CIF. The bundle also supports POSCAR, XYZ, and
+ExtXYZ via `--format` or a known output suffix. CIF/POSCAR/XYZ do not carry all
+geometry-native arrays, so the sidecar remains authoritative for atom, chain,
+fragment, repeat, graph, hash, transform, closure/winding, tolerance, and
+provenance metadata. It does not store an atom edge table, model/type map,
+force-field data, or trajectories.

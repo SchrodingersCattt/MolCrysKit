@@ -32,11 +32,22 @@ def test_triclinic_partial_pbc_and_round_trip(tmp_path):
     cell = np.array([[8.0, 0.0, 0.0], [1.2, 7.5, 0.0], [0.1, 0.3, 9.0]])
     bundle = build_periodic_chains({"atom": _template()}, (_rule(),), cell, (True, True, False), ChainSpec(("atom",), instance_centers=((0.3, 0.4, 0.2),), min_distance=0.5))
     validate_periodic_bundle(bundle)
-    xyz, sidecar = write_periodic_bundle(bundle, tmp_path / "bundle")
-    atoms, metadata = read_periodic_bundle(xyz, sidecar)
+    structure, sidecar = write_periodic_bundle(bundle, tmp_path / "bundle")
+    assert structure.name == "structure.cif"
+    atoms, metadata = read_periodic_bundle(structure, sidecar)
     assert len(atoms) == 1
     assert metadata["periodic_graph"]["winding_cycles"] == [[0, 0, 0]]
-    assert json.loads(sidecar.read_text())["files"]["extxyz_sha256"]
+    assert json.loads(sidecar.read_text())["files"]["structure_sha256"]
+
+
+@pytest.mark.parametrize("format_name", ("cif", "poscar", "xyz", "extxyz"))
+def test_supported_structure_formats(tmp_path, format_name):
+    cell = np.diag([10.0, 10.0, 10.0])
+    bundle = build_periodic_chains({"atom": _template()}, (_rule(),), cell, (True, True, True), ChainSpec(("atom",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5))
+    structure, sidecar = write_periodic_bundle(bundle, tmp_path / format_name, format=format_name)
+    atoms, metadata = read_periodic_bundle(structure, sidecar)
+    assert len(atoms) == 1
+    assert metadata["files"]["format"] == format_name
 
 
 def test_screw_compatibility_and_no_implicit_expansion():

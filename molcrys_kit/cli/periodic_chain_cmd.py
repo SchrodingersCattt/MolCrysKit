@@ -22,12 +22,13 @@ def build_group():
 @build_group.command("chain")
 @click.argument("config",type=click.Path(exists=True,dir_okay=False,path_type=Path))
 @click.option("-o","--output",required=True,type=click.Path(path_type=Path))
+@click.option("--format", "format_name", type=click.Choice(("cif", "poscar", "xyz", "extxyz"), case_sensitive=False), default=None, help="Structure format; defaults to CIF when output is a directory.")
 @click.option("--overwrite",is_flag=True)
-def build_chain(config: Path, output: Path, overwrite: bool):
+def build_chain(config: Path, output: Path, format_name: str|None, overwrite: bool):
     payload=json.loads(config.read_text(encoding="utf-8")); templates={x["template_id"]:_template(x) for x in payload["templates"]}; rules=tuple(_rule(x) for x in payload.get("rules",()))
     raw=payload["spec"]; screw=ScrewSpec(**raw["screw"]) if raw.get("screw") else None
     spec=ChainSpec(tuple(raw["sequence"]),raw.get("chain_count",1),raw.get("closure","translation"),tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,tuple(tuple(x) for x in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,screw,raw.get("seed",0),raw.get("max_backtracks",64),raw.get("min_distance",0.8),raw.get("tolerance",1e-6))
-    xyz,sidecar=write_periodic_bundle(build_periodic_chains(templates,rules,payload["cell"],payload.get("pbc",(True,True,True)),spec),output,overwrite=overwrite); click.echo(f"Wrote {xyz}"); click.echo(f"Wrote {sidecar}")
+    structure,sidecar=write_periodic_bundle(build_periodic_chains(templates,rules,payload["cell"],payload.get("pbc",(True,True,True)),spec),output,format=format_name,overwrite=overwrite); click.echo(f"Wrote {structure}"); click.echo(f"Wrote {sidecar}")
 
 @click.command("validate-periodic-bundle")
 @click.argument("input",type=click.Path(exists=True,dir_okay=False,path_type=Path))
