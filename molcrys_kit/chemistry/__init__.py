@@ -12,6 +12,7 @@ from .crystal_stereo import (
     analyze_crystal_stereochemistry,
     classify_entity_relationship,
 )
+from .equivalence import notations_equivalent
 from .perception import infer_chemistry
 from .line_notation import (
     LineNotation,
@@ -84,5 +85,6 @@ __all__ = [
     "infer_chemistry",
     "name_crystal",
     "name_entity",
+    "notations_equivalent",
     "to_line_notation",
 ]
