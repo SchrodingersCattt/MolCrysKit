@@ -202,6 +202,7 @@ def test_periodic_fixture_requests_are_non_degenerate_and_round_trip(
         tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,
         tuple(tuple(item) for item in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,
         screw, raw.get("seed", 0), raw.get("max_backtracks", 64), raw.get("min_distance", 0.8), raw.get("tolerance", 1e-6),
+        tuple(tuple(item) for item in raw["chain_centers"]) if raw.get("chain_centers") is not None else None,
     )
     bundle = build_periodic_chains(templates, rules, request["cell"], request.get("pbc", (True, True, True)), spec)
     report = validate_periodic_bundle(bundle)
@@ -226,6 +227,7 @@ def _build_fixture(fixture: str):
         tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,
         tuple(tuple(item) for item in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,
         screw, raw.get("seed", 0), raw.get("max_backtracks", 64), raw.get("min_distance", 0.8), raw.get("tolerance", 1e-6),
+        tuple(tuple(item) for item in raw["chain_centers"]) if raw.get("chain_centers") is not None else None,
     )
     return request, build_periodic_chains(templates, rules, request["cell"], request.get("pbc", (True, True, True)), spec).atoms
 
@@ -270,6 +272,38 @@ def test_trigonal_selenium_fixture_has_helical_geometry():
         previous_shift = (0, 0, -1) if index == 0 else (0, 0, 0)
         next_shift = (0, 0, 1) if index == 2 else (0, 0, 0)
         assert _periodic_angle(atoms, previous_index, index, next_index, previous_shift, next_shift) == pytest.approx(103.224, abs=0.1)
+
+
+def test_trigonal_selenium_fixture_keeps_independent_chains_separated():
+    _, atoms = _build_fixture("trigonal_se_chain")
+    chains = atoms.arrays["chain_id"]
+    assert set(chains.tolist()) == {0, 1}
+    inverse = np.linalg.inv(atoms.cell.array)
+    minimum = float("inf")
+    for left in range(len(atoms)):
+        for right in range(left + 1, len(atoms)):
+            if chains[left] == chains[right]:
+                continue
+            delta = (atoms.positions[right] - atoms.positions[left]) @ inverse
+            for shift in np.ndindex(3, 3, 3):
+                image = np.asarray(shift, dtype=float) - 1.0
+                minimum = min(minimum, np.linalg.norm((delta + image) @ atoms.cell.array))
+    assert minimum > 3.0
+
+
+def test_trigonal_selenium_fixture_rejects_the_old_close_packing():
+    request = json.loads((Path("examples/periodic_chains") / "trigonal_se_chain.json").read_text(encoding="utf-8"))
+    templates = {item["template_id"]: load_template(item) for item in request["templates"]}
+    rules = tuple(load_rule(item) for item in request.get("rules", ()))
+    raw = request["spec"]
+    screw = ScrewSpec(**raw["screw"])
+    spec = ChainSpec(
+        tuple(raw["sequence"]), raw["chain_count"], raw["closure"], tuple(raw["target_winding"]),
+        screw=screw, min_distance=raw["min_distance"],
+        chain_centers=((0.0, 0.0, 0.0), (0.25, 0.25, 0.0)),
+    )
+    with pytest.raises(ValueError, match="periodic collision"):
+        build_periodic_chains(templates, rules, request["cell"], request["pbc"], spec)
 
 
 def test_screw_compatibility_and_no_implicit_expansion():
