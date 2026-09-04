@@ -1,0 +1,40 @@
+{
+  "cell": [[2.5559228362, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+  "pbc": [true, true, true],
+  "templates": [{
+    "template_id": "pe_local",
+    "symbols": ["C", "C", "H", "H", "H", "H"],
+    "positions": [
+      [0.0, 0.0, 0.0], [1.2779614181, 0.8619958607, 0.0],
+      [0.0, -0.6497459662, -0.8751743709],
+      [0.0, -0.6497459662, 0.8751743709],
+      [1.2779614181, 1.5117418269, 0.8751743709],
+      [1.2779614181, 1.5117418269, -0.8751743709]
+    ],
+    "ports": [
+      {"port_id": "in", "position": [0.0, 0.0, 0.0], "faces": ["x0"], "direction": [-0.8290375726, 0.5591929035, 0.0]},
+      {"port_id": "out", "position": [1.2779614181, 0.8619958607, 0.0], "faces": ["x1"], "direction": [0.8290375726, -0.5591929035, 0.0]}
+    ],
+    "explicit_connections": [[0, 1], [0, 2], [0, 3], [1, 4], [1, 5]],
+    "metadata": {
+      "fixture": "polyethylene-local-chain",
+      "formula": "C2H4",
+      "conformation": "all-trans zigzag repeat",
+      "geometry_basis": "C-C 1.5415 A, C-C-C 112 deg, C-H 1.09 A",
+      "geometry_only": true
+    }
+  }],
+  "rules": [{
+    "rule_id": "pe-periodic-close",
+    "left_template": "pe_local", "left_port": "out",
+    "right_template": "pe_local", "right_port": "in",
+    "allowed_image_shifts": [[1, 0, 0]],
+    "distance_range": [1.45, 1.65]
+  }],
+  "spec": {
+    "sequence": ["pe_local"],
+    "instance_centers": [[0.2, 0.5, 0.5]],
+    "target_winding": [1, 0, 0],
+    "min_distance": 0.8
+  }
+}

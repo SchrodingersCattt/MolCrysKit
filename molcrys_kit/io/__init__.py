@@ -24,6 +24,7 @@ from .output import (
 )
 from .poscar import read_poscar
 from .xyz import read_xyz
+from .periodic_bundle import read_periodic_bundle, write_periodic_bundle
 
 __all__ = [
     "DisorderInfo",
@@ -43,4 +44,6 @@ __all__ = [
     "read_poscar",
     "read_extxyz",
     "write_extxyz",
+    "read_periodic_bundle",
+    "write_periodic_bundle",
 ]
