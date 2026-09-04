@@ -1,7 +1,7 @@
 """Geometry-native data structures for periodic fragment chains."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 import numpy as np
 Vector3=tuple[float,float,float]
 Int3=tuple[int,int,int]
