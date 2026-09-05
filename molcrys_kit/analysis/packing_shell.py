@@ -615,14 +615,17 @@ def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarr
     n_a = int(np.ceil(search_radius / d_a))
     n_b = int(np.ceil(search_radius / d_b))
     n_c = int(np.ceil(search_radius / d_c))
-    translations: List[np.ndarray] = []
-    for ia in range(-n_a, n_a + 1):
-        for ib in range(-n_b, n_b + 1):
-            for ic in range(-n_c, n_c + 1):
-                t = ia * a + ib * b + ic * c
-                if np.linalg.norm(t) <= search_radius:
-                    translations.append(t)
-    return np.asarray(translations, dtype=float)
+    coefficients = np.stack(
+        np.meshgrid(
+            np.arange(-n_a, n_a + 1, dtype=int),
+            np.arange(-n_b, n_b + 1, dtype=int),
+            np.arange(-n_c, n_c + 1, dtype=int),
+            indexing="ij",
+        ),
+        axis=-1,
+    ).reshape(-1, 3)
+    translations = coefficients @ lattice
+    return translations[np.linalg.norm(translations, axis=1) <= search_radius]
 
 
 def _find_polyhedra_atom_level(
@@ -878,47 +881,52 @@ def _find_polyhedra_molecule_level(
         radius + centroid_extent,
     )
 
+    ligand_points = (
+        centres[ligand_mols][:, None, :] + translations[None, :, :]
+        if ligand_mols
+        else None
+    )
+    all_points = (
+        centres[:, None, :] + translations[None, :, :]
+        if return_diagnostics
+        else None
+    )
+    zero_translation_index = int(np.argmin(np.linalg.norm(translations, axis=1)))
+    ligand_row_by_molecule = {
+        int(molecule_index): row_index
+        for row_index, molecule_index in enumerate(ligand_mols)
+    }
+
     results: List[Dict[str, Any]] = []
     diagnostics: List[Dict[str, Any]] = []
     homo_pair = central_sig == ligand_sig
     for center_mol_idx in central_mols:
         center_pos = centres[center_mol_idx]
 
-        # Count every molecule image within the radius before ligand filtering.
+        # Diagnostic candidate counts are intentionally opt-in: they require
+        # a second all-molecule distance matrix and are not part of records.
         all_candidate_count = 0
-        if len(centres):
-            all_pts = centres[:, None, :] + translations[None, :, :]
-            all_vecs = all_pts - center_pos
-            all_dists = np.linalg.norm(all_vecs, axis=-1)
+        if return_diagnostics and all_points is not None:
+            all_dists = np.linalg.norm(all_points - center_pos, axis=-1)
             all_mask = all_dists <= radius
-            same_rows = [pos for pos, idx in enumerate(range(len(centres))) if idx == center_mol_idx]
-            if same_rows:
-                zero_t = int(np.argmin(np.linalg.norm(translations, axis=1)))
-                for pos in same_rows:
-                    all_mask[pos, zero_t] = False
+            all_mask[center_mol_idx, zero_translation_index] = False
             all_mask &= all_dists > 1e-6
             all_candidate_count = int(np.count_nonzero(all_mask))
 
-        # Generate every image of every ligand molecule, vectorised
-        if ligand_mols:
-            lig_centres = centres[ligand_mols]                       # (L, 3)
-            cand_pts = lig_centres[:, None, :] + translations[None, :, :]  # (L, T, 3)
-            cand_vecs = cand_pts - center_pos                       # (L, T, 3)
-            dists = np.linalg.norm(cand_vecs, axis=-1)              # (L, T)
+        # Build ligand images once above; only centre-relative distances vary.
+        if ligand_points is not None:
+            cand_vecs = ligand_points - center_pos
+            dists = np.linalg.norm(cand_vecs, axis=-1)
             mask = dists <= radius
             if homo_pair:
-                # Exclude the self image (centroid of the same molecule at t=0)
-                self_mask = np.zeros_like(mask, dtype=bool)
-                same = [pos for pos, idx in enumerate(ligand_mols) if idx == center_mol_idx]
-                if same:
-                    zero_t = int(np.argmin(np.linalg.norm(translations, axis=1)))
-                    for pos in same:
-                        self_mask[pos, zero_t] = True
-                mask &= ~self_mask
+                self_row = ligand_row_by_molecule.get(int(center_mol_idx))
+                if self_row is not None:
+                    mask[self_row, zero_translation_index] = False
             # Always drop numerically coincident centres (e.g. PBC duplicates
-            # that survived the lattice prune for a centroid sitting on a face)
+            # that survived the lattice prune for a centroid sitting on a face).
             mask &= dists > 1e-6
             rows, cols = np.where(mask)
+            cand_pts = ligand_points
         else:
             rows = cols = np.empty(0, dtype=int)
 

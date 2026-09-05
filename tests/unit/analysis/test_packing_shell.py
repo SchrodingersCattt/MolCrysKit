@@ -654,6 +654,24 @@ def test_find_polyhedra_molecule_level_dap4_nh4_octahedral_nearest_shell():
         assert 3.4 <= float(np.mean(record["shell_distances"])) <= 3.8
 
 
+def test_find_polyhedra_molecule_records_match_diagnostics_path():
+    """Diagnostic accounting must not alter molecule-level shell records."""
+    crys = _toy_perchlorate_crystal(a=6.0)
+    records = find_polyhedra(
+        crys, "N H4", "Cl O4", level="molecule", hard_cutoff=8.0
+    )
+    with_diagnostics, diagnostics = find_polyhedra(
+        crys,
+        "N H4",
+        "Cl O4",
+        level="molecule",
+        hard_cutoff=8.0,
+        return_diagnostics=True,
+    )
+    assert records == with_diagnostics
+    assert len(diagnostics) == len(records)
+
+
 def test_find_polyhedra_molecule_level_dap4_nh4_cuboctahedron_extended_shell():
     """At the perovskite A--X12 cuboctahedron cutoff (~8 Å), NH4 sees
     all 12 ClO4 anions on the surrounding cuboctahedron vertices: 6
