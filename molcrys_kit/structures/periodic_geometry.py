@@ -263,7 +263,7 @@ class PeriodicGraph:
         return tuple(result)
 
     @property
-    def winding(self):
+    def winding(self) -> Int3 | None:
         w = self.winding_cycles()
         if not w:
             return (0, 0, 0)
