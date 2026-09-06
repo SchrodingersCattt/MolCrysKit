@@ -16,6 +16,9 @@ from molcrys_kit.chemistry import (
     from_line_notation,
     notations_equivalent,
 )
+from molcrys_kit.chemistry import models as chemistry_models
+from molcrys_kit.chemistry import name_conversion as conversion_module
+from molcrys_kit.chemistry import naming as naming_module
 from molcrys_kit.chemistry.name_conversion import complete_open_smiles_hydrogens
 
 
@@ -93,11 +96,27 @@ def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
     assert unresolved.name == "molecular entity C2O"
     assert unresolved.status is InferenceStatus.INDETERMINATE
 
+    overvalent = smiles_to_iupac("OC1(Cl)(Br)(F)C=CC=C1", strict=False)
+    assert overvalent.name == "molecular entity C5BrClFO"
+    assert overvalent.status is InferenceStatus.INDETERMINATE
+
 
 @pytest.mark.parametrize("smiles", ("", "  "))
 def test_strict_smiles_conversion_normalizes_empty_input_error(smiles: str) -> None:
     with pytest.raises(NamingIndeterminateError, match="empty or invalid"):
         smiles_to_iupac(smiles)
+
+
+@pytest.mark.parametrize("smiles", ("c1ccncc1", "[nH]1cccc1"))
+def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence(smiles: str) -> None:
+    with pytest.raises(NamingIndeterminateError) as exc_info:
+        smiles_to_iupac(smiles)
+    assert "valence" not in str(exc_info.value)
+
+
+def test_valence_gates_share_one_default_table() -> None:
+    assert conversion_module.DEFAULT_VALENCE is chemistry_models.DEFAULT_VALENCE
+    assert naming_module.DEFAULT_VALENCE is chemistry_models.DEFAULT_VALENCE
 
 
 @pytest.mark.parametrize(

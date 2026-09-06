@@ -15,6 +15,7 @@ from .models import (
     BondKind,
     ChemicalEntity,
     CrystalChemistry,
+    DEFAULT_VALENCE,
     FiniteChemicalEntity,
     InferenceStatus,
     MulticomponentEntity,
@@ -595,13 +596,12 @@ def _hydrogen_count(entity, atom_id):
 
 def _normal_valence(entity):
     adjacency = _adjacency(entity)
-    expected = {"H": 1.0, "C": 4.0, "N": 3.0, "O": 2.0}
     for atom in entity.atoms:
-        if atom.element not in expected:
+        if atom.element not in DEFAULT_VALENCE:
             continue
         bond_sum = sum(bond.order or 0.0 for _, bond in adjacency[atom.atom_id])
         bond_sum += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
-        if abs(bond_sum - expected[atom.element]) > 1e-8:
+        if abs(bond_sum - DEFAULT_VALENCE[atom.element]) > 1e-8:
             return False
     return True
 

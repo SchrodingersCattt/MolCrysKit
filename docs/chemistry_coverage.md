@@ -70,7 +70,9 @@ parser's unresolved hydrogen fields before one-way naming, so the same
 unbracketed input may remain a composition description there.  Empty or
 malformed OpenSMILES is a syntax error; strict conversion reports it as
 `NamingIndeterminateError` while non-strict conversion retains
-`LineNotationError`.
+`LineNotationError`.  Non-strict conversion also intentionally does not enforce
+the strict valence gate; an over-valent input can therefore remain a
+composition description rather than being rejected.
 
 Every `NamingResult` carries the result kind, standard/version, status, rule
 trace, warnings, and alternatives. `strict=True` rejects provisional or

@@ -21,6 +21,7 @@ from .models import (
     BondKind,
     ChemicalAtom,
     ChemicalBond,
+    DEFAULT_VALENCE,
     Evidence,
     EvidenceSource,
     FiniteChemicalEntity,
@@ -56,19 +57,6 @@ _ALCOHOL_PATTERN = re.compile(r"^(?P<stem>[a-z]+)an-(?P<locant>\d+)-ol$")
 _ANILIDE_PATTERN = re.compile(
     r"^n-\((?P<phenyl>[^()]+)phenyl\)(?P<parent>[a-z]+amide)$"
 )
-_DEFAULT_VALENCE = {
-    "H": 1.0,
-    "B": 3.0,
-    "C": 4.0,
-    "N": 3.0,
-    "O": 2.0,
-    "P": 3.0,
-    "S": 2.0,
-    "F": 1.0,
-    "Cl": 1.0,
-    "Br": 1.0,
-    "I": 1.0,
-}
 
 
 def _normalize_name(name: str) -> str:
@@ -393,9 +381,13 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
     """
     normalized = _normalize_name(name)
     entity = _parse_name(normalized)
+    if not _valence_not_exceeded(entity):
+        raise NamingParseError(
+            f"name {normalized!r} describes a graph with invalid valence"
+        )
     if not _is_reversible_entity(entity):
         raise NamingParseError(
-            f"name {normalized!r} describes a graph with invalid valence or semantics"
+            f"name {normalized!r} is outside the reversible semantics subset"
         )
     try:
         canonical = name_entity(entity, strict=True).name
@@ -448,10 +440,13 @@ def _valence_not_exceeded(entity: FiniteChemicalEntity) -> bool:
         adjacency[bond.atom1_id].append(bond)
         adjacency[bond.atom2_id].append(bond)
     for atom in entity.atoms:
-        target = _DEFAULT_VALENCE.get(atom.element)
+        target = DEFAULT_VALENCE.get(atom.element)
         if target is None:
             continue
-        valence = sum(bond.order or 0.0 for bond in adjacency[atom.atom_id])
+        valence = sum(
+            1.0 if atom.element == "N" and bond.aromatic else bond.order or 0.0
+            for bond in adjacency[atom.atom_id]
+        )
         valence += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
         if valence > target + 1e-8:
             return False
@@ -477,14 +472,6 @@ def complete_open_smiles_hydrogens(
         adjacency[bond.atom1_id].append((bond.atom2_id, bond))
         adjacency[bond.atom2_id].append((bond.atom1_id, bond))
 
-    target_valence = {
-        "B": 3.0,
-        "C": 4.0,
-        "N": 3.0,
-        "O": 2.0,
-        "P": 3.0,
-        "S": 2.0,
-    }
     changed = False
     atoms = []
     for atom in entity.atoms:
@@ -496,12 +483,12 @@ def complete_open_smiles_hydrogens(
                 and evidence.method == "OpenSMILES bracket atom parser"
                 for evidence in atom.evidence
             )
-            or atom.element not in target_valence
+            or atom.element not in DEFAULT_VALENCE
         ):
             atoms.append(atom)
             continue
         bond_sum = sum(bond.order or 0.0 for _, bond in adjacency[atom.atom_id])
-        inferred = max(0, int(round(target_valence[atom.element] - bond_sum)))
+        inferred = max(0, int(round(DEFAULT_VALENCE[atom.element] - bond_sum)))
         # Aromatic atoms and fully substituted atoms use the same stable
         # representation as the line-notation generator: zero is omitted.
         hydrogen_value = inferred or None
