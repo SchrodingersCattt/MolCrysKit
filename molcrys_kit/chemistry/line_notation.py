@@ -497,7 +497,12 @@ def _parse_smiles_atom(token: str, bracketed: bool, index: int):
             implicit_hydrogens=implicit_h,
             stereochemistry=stereo,
             evidence=(
-                Evidence(EvidenceSource.LINE_NOTATION, "OpenSMILES atom parser"),
+                Evidence(
+                    EvidenceSource.LINE_NOTATION,
+                    "OpenSMILES bracket atom parser"
+                    if bracketed
+                    else "OpenSMILES organic atom parser",
+                ),
             ),
         ),
         aromatic,

@@ -15,12 +15,26 @@ from typing import Union
 Vector3 = tuple[float, float, float]
 ImageShift = tuple[int, int, int]
 
+# Shared target valences for the bounded OpenSMILES/naming subset.  Keeping
+# this table in the chemistry model avoids separate completion and validation
+# rules drifting apart.
+DEFAULT_VALENCE = {
+    "H": 1.0,
+    "B": 3.0,
+    "C": 4.0,
+    "N": 3.0,
+    "O": 2.0,
+    "P": 3.0,
+    "S": 2.0,
+}
+
 
 class EvidenceSource(str, Enum):
     """Origin of a chemical assertion."""
 
     EXPLICIT_CIF = "explicit_cif"
     LINE_NOTATION = "line_notation"
+    IUPAC_NAME = "iupac_name"
     INFERRED = "inferred"
     USER_CONFIRMED = "user_confirmed"
 

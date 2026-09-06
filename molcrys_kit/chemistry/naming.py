@@ -15,6 +15,7 @@ from .models import (
     BondKind,
     ChemicalEntity,
     CrystalChemistry,
+    DEFAULT_VALENCE,
     FiniteChemicalEntity,
     InferenceStatus,
     MulticomponentEntity,
@@ -53,7 +54,7 @@ class NamingIndeterminateError(ValueError):
 
 
 # Explicit straight-chain alkane stems currently implemented for C1-C12.
-_ALKANE_STEMS = {
+ALKANE_STEMS = {
     1: "meth",
     2: "eth",
     3: "prop",
@@ -67,11 +68,17 @@ _ALKANE_STEMS = {
     11: "undec",
     12: "dodec",
 }
-_HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
+HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
 
 
 def name_entity(entity: ChemicalEntity, *, strict: bool = False) -> NamingResult:
-    """Name an entity within the explicitly implemented IUPAC rule scope."""
+    """Name an entity within the explicitly implemented IUPAC rule scope.
+
+    This is the general one-way naming API: non-strict mode may return a
+    deterministic composition description when no preferred name is
+    established.  Call ``smiles_to_iupac(..., strict=True)`` for the narrower
+    API that additionally requires a round-trip through ``iupac_to_smiles``.
+    """
     if isinstance(entity, FiniteChemicalEntity):
         result = _name_finite(entity)
     elif isinstance(entity, PeriodicChemicalEntity):
@@ -251,7 +258,7 @@ def _name_hydrocarbon(entity):
         return None
     if not _normal_valence(entity):
         return None
-    stem = _ALKANE_STEMS.get(len(chain))
+    stem = ALKANE_STEMS.get(len(chain))
     if stem is None:
         return None
     return (
@@ -280,7 +287,7 @@ def _name_alcohol(entity):
     chain = _unbranched_carbon_chain(entity, carbons)
     if chain is None or not _all_bonds(entity, {1.0}) or not _normal_valence(entity):
         return None
-    stem = _ALKANE_STEMS.get(len(chain))
+    stem = ALKANE_STEMS.get(len(chain))
     if stem is None:
         return None
     positions = [
@@ -333,7 +340,7 @@ def _name_carboxylic_acid(entity):
         return None
     if sum(atom.element == "O" for atom in entity.atoms) != 2:
         return None
-    stem = _ALKANE_STEMS.get(len(chain))
+    stem = ALKANE_STEMS.get(len(chain))
     if stem is None:
         return None
     return (
@@ -373,7 +380,7 @@ def _name_anilide(entity):
         if len(ring_attachments) != 1:
             continue
         acyl_carbons = _acyclic_acyl_chain(entity, carbonyl.atom_id, set(ring))
-        stem = _ALKANE_STEMS.get(len(acyl_carbons))
+        stem = ALKANE_STEMS.get(len(acyl_carbons))
         if stem is None:
             continue
         hydroxy_positions = _ring_hydroxy_positions(
@@ -414,8 +421,8 @@ def _name_benzene_family(entity):
             atom = _atom(entity, neighbor)
             if atom.element == "O" and bond.order == 1.0 and _hydrogen_count(entity, neighbor) == 1:
                 names.append("hydroxy")
-            elif atom.element in _HALOGEN_PREFIX and len(adjacency[neighbor]) == 1:
-                names.append(_HALOGEN_PREFIX[atom.element])
+            elif atom.element in HALOGEN_PREFIX and len(adjacency[neighbor]) == 1:
+                names.append(HALOGEN_PREFIX[atom.element])
             elif atom.element == "C" and _is_methyl(entity, neighbor, ring_atom):
                 names.append("methyl")
             else:
@@ -589,13 +596,12 @@ def _hydrogen_count(entity, atom_id):
 
 def _normal_valence(entity):
     adjacency = _adjacency(entity)
-    expected = {"H": 1.0, "C": 4.0, "N": 3.0, "O": 2.0}
     for atom in entity.atoms:
-        if atom.element not in expected:
+        if atom.element not in DEFAULT_VALENCE:
             continue
         bond_sum = sum(bond.order or 0.0 for _, bond in adjacency[atom.atom_id])
         bond_sum += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
-        if abs(bond_sum - expected[atom.element]) > 1e-8:
+        if abs(bond_sum - DEFAULT_VALENCE[atom.element]) > 1e-8:
             return False
     return True
 
@@ -763,6 +769,8 @@ def _prefix_string(prefixes):
 
 
 __all__ = [
+    "ALKANE_STEMS",
+    "HALOGEN_PREFIX",
     "NamingIndeterminateError",
     "NamingKind",
     "NamingResult",

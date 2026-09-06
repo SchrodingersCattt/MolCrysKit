@@ -26,9 +26,10 @@
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
-| Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / notation | `LineNotation` / chemical entity | source docstring |
-| Compare notation equivalence | `notations_equivalent` | two notation strings | `True` / `False` / `None` | source docstring |
+| Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / OpenSMILES or MCK-LN | `LineNotation` / chemical entity | source docstring |
+| Compare notation equivalence | `notations_equivalent` | two line-notation strings | `True` / `False` / `None` | source docstring |
 | Name an entity or crystal | `name_entity`, `name_crystal` | chemical entity / crystal | `NamingResult` | source docstring |
+| Convert IUPAC and SMILES (bounded subset) | `smiles_to_iupac`, `iupac_to_smiles`, `from_iupac_name` | OpenSMILES / supported IUPAC name | `NamingResult` / `LineNotation` / `FiniteChemicalEntity` | source docstring |
 | Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
@@ -78,7 +79,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 
 - Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
-- Analysis: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`
+- Analysis and conversion: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `from_iupac_name`, `iupac_to_smiles`, `smiles_to_iupac`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`, `NamingParseError`
 
 ### `mck.io`
 Read/write interfaces.
