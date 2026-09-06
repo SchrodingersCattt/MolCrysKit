@@ -85,17 +85,9 @@ Implemented rule families and strict refusal boundaries are tracked in
 Read/write interfaces.
 
 - Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
-<<<<<<< HEAD
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
-=======
-  `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for
-  coordinates and disorder metadata. It preserves CIF chemical names,
-  published bond rows, isotopes/site charges, and absolute-structure values
-  with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`,
-  then attaches a provisional chemistry snapshot automatically. Geometry-only
-  callers can pass `attach_chemistry=False` to skip the perception pass.
->>>>>>> origin/main
+  - It preserves CIF chemical names, published bond rows, isotopes/site charges, and absolute-structure values with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`, then attaches a provisional chemistry snapshot automatically. Geometry-only callers can pass `attach_chemistry=False` to skip the perception pass.
 - Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
 
