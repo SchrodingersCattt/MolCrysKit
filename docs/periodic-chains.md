@@ -51,8 +51,9 @@ force-field data, or trajectories.
 
 All focused periodic-chain tests pass. A source-checkout run of
 `benchmarks/periodic_chain_benchmark.py` constructed 1,000, 10,000, and 100,000
-atoms in 0.08, 0.88, and 8.70 seconds respectively on the reference local CPU;
-these timings are a regression indicator, not a hardware guarantee. The
+atoms in 0.24, 4.83, and 41.27 seconds respectively on the reference local CPU,
+using a two-atom repeat and two independent chains. These timings are a
+regression indicator, not a hardware guarantee. The
 material fixtures are deliberately geometry-only examples: they do not claim
 charge, valence, force-field, dynamics, or bulk-material validation. The
 material set contains an idealized red-phosphorus P-P motif, an all-trans

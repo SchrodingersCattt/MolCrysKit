@@ -19,6 +19,7 @@ PETN = DATA / "PETN_PERYTN10.cif"
 ACETAMINOPHEN = DATA / "Acetaminophen_HXACAN.cif"
 ONE_HTP = DATA / "1-HTP.cif"
 REPO_ROOT = Path(__file__).resolve().parents[3]
+PERIODIC_REQUEST = REPO_ROOT / "examples" / "periodic_chains" / "periodic_winding_regression.json"
 
 
 def _load_carve_cluster_module():
@@ -36,6 +37,34 @@ def test_cli_root_help() -> None:
     assert "io" in result.output
     assert "operate" in result.output
     assert "analyze" in result.output
+
+
+def test_periodic_chain_cli_build_then_validate(tmp_path: Path) -> None:
+    output_dir = tmp_path / "periodic-bundle"
+    runner = CliRunner()
+    built = runner.invoke(
+        main, ["build", "chain", str(PERIODIC_REQUEST), "-o", str(output_dir)]
+    )
+    assert built.exit_code == 0, built.output
+    structure = output_dir / "structure.cif"
+    assert structure.is_file()
+    validated = runner.invoke(
+        main, ["validate-periodic-bundle", str(structure), "--json"]
+    )
+    assert validated.exit_code == 0, validated.output
+    report = json.loads(validated.output)
+    assert report["ok"] is True
+    assert report["atom_count"] == 2
+
+
+def test_periodic_chain_cli_reports_malformed_request(tmp_path: Path) -> None:
+    request = tmp_path / "invalid.json"
+    request.write_text('{"templates": "notalist"}', encoding="utf-8")
+    result = CliRunner().invoke(
+        main, ["build", "chain", str(request), "-o", str(tmp_path / "out")]
+    )
+    assert result.exit_code != 0
+    assert "Invalid chain request" in result.output
 
 
 def test_io_info() -> None:
