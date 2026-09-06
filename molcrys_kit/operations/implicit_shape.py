@@ -20,9 +20,9 @@ from ..constants.config import BFDH_GEOMETRY_TOLERANCE
 from ..structures.crystal import MolecularCrystal
 from ..structures.symmetry import CrystalSymmetry
 
+from ..constants.config import DEFAULT_SHAPE_BATCH_SIZE
 
 ShapeField = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
-DEFAULT_SHAPE_BATCH_SIZE = 100_000
 
 
 def _positive_values(values: Sequence[float], name: str, length: int) -> np.ndarray:

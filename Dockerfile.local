@@ -1,0 +1,58 @@
+# MolCrysKit Docker Image – fully-offline local-build variant
+# =============================================================
+# Requires ./wheels/ to be a real directory (not symlink) containing
+# pre-downloaded cp310 wheels before building.
+#
+# Build (from MolCrysKit/ directory):
+#   docker build -f Dockerfile.local -t molcryskit:latest .
+#
+# Run – Jupyter notebook (open http://localhost:8888):
+#   docker run -it --rm -p 8888:8888 molcryskit:latest
+#
+# Run – smoke test:
+#   docker run --rm molcryskit:latest python /workspace/scripts/docker_smoke_test.py
+
+FROM python:3.10-slim
+
+LABEL maintainer="Ming-Yu Guo <guomy26@mail2.sysu.edu.cn>"
+LABEL description="MolCrysKit: A Topology-Aware Toolkit for Molecular Crystal Preprocessing (offline build)"
+LABEL version="0.1.0"
+
+# -- Copy pre-downloaded wheels -----------------------------------------------
+COPY wheels /wheels
+
+# -- Copy local MolCrysKit source ---------------------------------------------
+COPY . /build/MolCrysKit
+
+# -- Install everything from local wheels -------------------------------------
+# nglview/py3Dmol are source-only and require build deps not available offline;
+# skip them here — the core toolkit and notebook still work without them.
+RUN pip install --no-index --find-links=/wheels --upgrade pip setuptools wheel && \
+    pip install --no-index --find-links=/wheels \
+        "setuptools>=45" "setuptools_scm[toml]>=6.2" \
+        "numpy>=1.18.0" "scipy>=1.4.0" "networkx>=2.5.0,<3.4" "ase>=3.26.0" pymatgen \
+        "notebook>=6.4,<7" jupyter ipykernel matplotlib && \
+    pip install --no-build-isolation --no-index --find-links=/wheels \
+        /build/MolCrysKit
+
+# -- Workspace ----------------------------------------------------------------
+RUN mkdir -p /workspace
+COPY notebook  /workspace/notebook
+COPY scripts   /workspace/scripts
+COPY examples  /workspace/examples
+
+WORKDIR /workspace
+
+# -- Jupyter configuration ----------------------------------------------------
+RUN jupyter notebook --generate-config && \
+    echo "c.NotebookApp.ip = '0.0.0.0'"               >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.allow_root = True"             >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.open_browser = False"          >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.token = ''"                    >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.password = ''"                 >> /root/.jupyter/jupyter_notebook_config.py && \
+    echo "c.NotebookApp.notebook_dir = '/workspace'"   >> /root/.jupyter/jupyter_notebook_config.py
+
+EXPOSE 8888
+
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--no-browser", "--allow-root", \
+     "--notebook-dir=/workspace"]

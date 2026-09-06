@@ -82,6 +82,7 @@ from .stoichiometry import (
     FormulaUnitSelection,
     StoichiometryAnalyzer,
 )
+from .structure_summary import summarize_structure
 from .volume import (
     calculate_accessible_boundary,
     calculate_atomic_volumes,
@@ -167,5 +168,6 @@ __all__ = [
     "puckering_coordinates",
     "reconstruct_z_from_modes",
     "sanity_check",
+    "summarize_structure",
     "topology_signature",
 ]

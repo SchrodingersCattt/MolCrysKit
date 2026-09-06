@@ -1,0 +1,1 @@
+set -x;mamba install -y -c conda-forge numpy matplotlib setuptools wheel networkx ase pymatgen; pip install --no-build-isolation git+https://github.com/SchrodingersCattt/MolCrysKit.git; python slab_efficiency.py > eff.log 2>&1

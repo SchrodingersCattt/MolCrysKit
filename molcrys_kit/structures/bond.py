@@ -12,7 +12,7 @@ from ..constants import (
     get_atomic_radius,
     has_atomic_radius,
 )
-from ..constants.config import BONDING_CONFIG
+from ..constants.config import BONDING_CONFIG, PERIODIC_NEIGHBOR_TOLERANCE_A
 
 _DEFAULT_ATOMIC_RADIUS = float(BONDING_CONFIG["DEFAULT_ATOMIC_RADIUS"])
 
@@ -187,27 +187,26 @@ def _orthogonal_candidates(
 
 def _triclinic_candidates(
     positions: np.ndarray,
-    atomic_numbers: np.ndarray,
+    _atomic_numbers: np.ndarray,
     *,
     cell: np.ndarray,
     pbc: np.ndarray,
     cutoff: float,
 ) -> np.ndarray:
-    from ase import Atoms
-    from ase.neighborlist import neighbor_list
+    from pymatgen.optimization.neighbors import find_points_in_spheres
 
-    atoms = Atoms(
-        numbers=atomic_numbers,
-        positions=positions,
-        cell=cell,
-        pbc=pbc,
+    first, second, _, _ = find_points_in_spheres(
+        positions,
+        positions,
+        cutoff,
+        pbc.astype(np.int64, copy=False),
+        cell,
+        tol=PERIODIC_NEIGHBOR_TOLERANCE_A,
     )
-    first, second = neighbor_list("ij", atoms, cutoff=cutoff)
-    pairs = np.column_stack((first, second)).astype(np.int32, copy=False)
-    if len(pairs) == 0:
+    keep = first < second
+    if not np.any(keep):
         return np.empty((0, 2), dtype=np.int32)
-    pairs.sort(axis=1)
-    pairs = pairs[pairs[:, 0] != pairs[:, 1]]
+    pairs = np.column_stack((first[keep], second[keep])).astype(np.int32, copy=False)
     return np.ascontiguousarray(np.unique(pairs, axis=0), dtype=np.int32)
 
 

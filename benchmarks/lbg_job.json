@@ -1,0 +1,11 @@
+{
+    "job_name": "eff_benchmark",
+    "job_type": "container",
+    "command": "set -x;mamba install -y -c conda-forge numpy matplotlib setuptools wheel networkx ase pymatgen; pip install --no-build-isolation git+https://github.com/SchrodingersCattt/MolCrysKit.git; python slab_efficiency.py > eff.log 2>&1",
+    "log_file": "log",
+    "backward_files": ["*.*"],
+    "project_id": 27666,
+    "platform": "ali",
+    "machine_type": "c4_m8_cpu",
+    "image_address": "registry.dp.tech/dptech/ubuntu:ubuntu24.04-py3.12"
+}

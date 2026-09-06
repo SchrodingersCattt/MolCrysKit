@@ -33,17 +33,14 @@ from ..constants.config import (
 )
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
+from ..constants.config import DEFAULT_NANOCLUSTER_BATCH_SIZE
 from .implicit_shape import (
-    DEFAULT_SHAPE_BATCH_SIZE,
     ImplicitShape,
     NanoShape,
     evaluate_shape_field,
     merge_stable_topk,
     resolve_shape_center,
 )
-
-
-DEFAULT_NANOCLUSTER_BATCH_SIZE = DEFAULT_SHAPE_BATCH_SIZE
 
 
 def _warn_if_unresolved_disorder(

@@ -10,11 +10,24 @@ BOND_ROTATION_AXIS_TOLERANCE = 1e-12
 # Cartesian/half-space tolerance for BFDH plane and vertex deduplication.
 BFDH_GEOMETRY_TOLERANCE = 1e-10
 
+# Cartesian tolerance passed to periodic neighbor searches, in Angstrom.
+PERIODIC_NEIGHBOR_TOLERANCE_A = 1e-8
+
+# Occupancy tolerance shared by disorder predicates and summary reporting.
+PARTIAL_OCCUPANCY_TOLERANCE = 1e-6
+
+# Minimum positive 3D cell volume accepted for symmetry analysis, in Angstrom^3.
+MIN_PERIODIC_CELL_VOLUME_A3 = 1e-8
+
 # Standard keys for disorder metadata
 KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
 KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer
 KEY_ASSEMBLY = "assembly"                       # Default: "" empty string
 KEY_LABEL = "label"                             # Default: Atom element symbol
+KEY_ATOM_ID = "mck_atom_id"                     # Stable identity within a crystal lineage
+KEY_ISOTOPE = "isotope"                         # Mass number; 0 means unspecified
+KEY_FORMAL_CHARGE = "formal_charge"             # Per-site formal charge when explicit
+KEY_FORMAL_CHARGE_KNOWN = "formal_charge_known" # Distinguish unknown from neutral zero
 KEY_SYM_OP_INDEX = "sym_op_index"               # Default: 0 as integer
 KEY_ASYM_ID = "asym_id"                         # Default: -1 as integer
 KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order" # Default: 1 as integer
@@ -24,6 +37,31 @@ KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
 KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (n, 3)
 KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
 KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
+
+# Bounded chemistry-perception search and confidence thresholds. Coordinate
+# cutoffs are in Angstroms; scores are squared bond-length residuals.
+CHEMISTRY_PERCEPTION_CONFIG = {
+    "MAX_EXHAUSTIVE_ASSIGNMENTS": 250_000,
+    "COMPETITIVE_SCORE_GAP": 0.25,
+    "SINGLE_BOND_DISTANCE": 1.75,
+    "TRIPLE_BOND_DISTANCE": 1.58,
+    "BOND_LENGTH_SIGMA": 0.08,
+}
+
+STEREOCHEMISTRY_CONFIG = {
+    # Dimensionless signed tetrahedral volume below which 3D coordinates do
+    # not support a stable handedness assignment.
+    "MIN_NORMALIZED_TETRAHEDRAL_VOLUME": 1.0e-3,
+    "MIN_DOUBLE_BOND_SIDE_COSINE": 0.1,
+    # Prevent pathological highly connected/cyclic inputs from expanding an
+    # unbounded hierarchical CIP digraph.
+    "MAX_CIP_DIGRAPH_NODES": 10_000,
+}
+
+# Default batch sizes for shape-based carving operations (nanocluster, void).
+# Shared between operations modules and the CLI layer.
+DEFAULT_SHAPE_BATCH_SIZE = 100_000
+DEFAULT_NANOCLUSTER_BATCH_SIZE = DEFAULT_SHAPE_BATCH_SIZE
 
 # Safety multiplier on machine epsilon for scale-normalized degeneracy checks.
 RING_CONFORMATION_TOLERANCE_FACTOR = 64.0

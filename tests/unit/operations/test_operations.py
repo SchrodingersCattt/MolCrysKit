@@ -23,10 +23,14 @@ from molcrys_kit.operations.perturbation import (
     apply_random_rotation,
 )
 from molcrys_kit.operations.desolvation import Desolvator, remove_solvents
-from molcrys_kit.operations.builders import create_supercell
+from molcrys_kit.operations.builders import (
+    assemble_replica_supercell,
+    create_supercell,
+)
 from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.analysis.chemical_env import ChemicalEnvironment
+from molcrys_kit.analysis.disorder import DisorderProvenance
 
 
 # =====================================================================
@@ -423,3 +427,138 @@ class TestBuilders:
         ] == [[2, 1, 1], [1, 3, 1]]
         assert second.metadata["supercell_history"][0]["source_atom_count"] == 2
         assert second.metadata["supercell_history"][1]["source_atom_count"] == 4
+
+
+class TestReplicaSupercell:
+    """assemble_replica_supercell."""
+
+    @staticmethod
+    def _replicas(lattice):
+        replicas = []
+        for index in range(4):
+            molecule = Atoms(
+                "CO",
+                positions=[
+                    [float(index), 0.0, 0.0],
+                    [float(index) + 1.2, 0.0, 0.0],
+                ],
+            )
+            replicas.append(
+                MolecularCrystal(
+                    lattice,
+                    [molecule],
+                    disorder_provenance=DisorderProvenance(
+                        kept_indices=[index],
+                        dropped_indices=[],
+                        method="enumerate",
+                        coupled=False,
+                    ),
+                    extra_arrays={
+                        "source_rank": np.asarray([index * 10, index * 10 + 1])
+                    },
+                )
+            )
+        return replicas
+
+    def test_assembles_2x2x1_mapping_and_provenance(self, cubic_lattice_10):
+        replicas = self._replicas(cubic_lattice_10)
+
+        result = assemble_replica_supercell(
+            replicas,
+            scaling_factors=(2, 2, 1),
+            replica_indices=[0, 1, 2, 3],
+        )
+
+        np.testing.assert_allclose(result.lattice, np.diag([20.0, 20.0, 10.0]))
+        np.testing.assert_allclose(
+            [molecule.positions[0] for molecule in result.molecules],
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 10.0, 0.0],
+                [12.0, 0.0, 0.0],
+                [13.0, 10.0, 0.0],
+            ],
+        )
+        assert [
+            (cell["translation"], cell["replica_index"])
+            for cell in result.metadata["replica_supercell"]["cells"]
+        ] == [
+            ([0, 0, 0], 0),
+            ([0, 1, 0], 1),
+            ([1, 0, 0], 2),
+            ([1, 1, 0], 3),
+        ]
+        assert result.metadata["replica_supercell"]["cells"][1]["disorder_provenance"][
+            "kept_indices"
+        ] == [1]
+        np.testing.assert_array_equal(
+            result.extra_arrays["source_rank"],
+            [0, 1, 10, 11, 20, 21, 30, 31],
+        )
+        assert result.disorder_provenance["kind"] == "replica_supercell"
+        np.testing.assert_allclose(replicas[1].molecules[0].positions[0], [1, 0, 0])
+
+    def test_repeated_indices_and_k_fastest_order(self, cubic_lattice_10):
+        replicas = self._replicas(cubic_lattice_10)
+
+        result = assemble_replica_supercell(replicas, (1, 2, 2), [0, 1, 0, 1])
+
+        cells = result.metadata["replica_supercell"]["cells"]
+        assert [cell["translation"] for cell in cells] == [
+            [0, 0, 0],
+            [0, 0, 1],
+            [0, 1, 0],
+            [0, 1, 1],
+        ]
+        assert [cell["replica_index"] for cell in cells] == [0, 1, 0, 1]
+
+    def test_boundary_spanning_molecule_uses_contiguous_image_shifts(
+        self, cubic_lattice_10
+    ):
+        molecule = Atoms(
+            "CO",
+            positions=[[9.6, 0.0, 0.0], [10.8, 0.0, 0.0]],
+        )
+        molecule.set_array(
+            "image_shift",
+            np.asarray([[0, 0, 0], [1, 0, 0]], dtype=int),
+        )
+        replica = MolecularCrystal(cubic_lattice_10, [molecule])
+
+        result = assemble_replica_supercell([replica], (2, 1, 1), [0, 0])
+
+        assert {site.image_shift for site in result.get_site_records()} == {(0, 0, 0)}
+        assert {bond.right_image_shift for bond in result.get_bond_records()} == {
+            (0, 0, 0)
+        }
+        np.testing.assert_allclose(
+            [bond.vector_A for bond in result.get_bond_records()],
+            [[1.2, 0.0, 0.0], [1.2, 0.0, 0.0]],
+        )
+
+    def test_rejects_invalid_mapping_length_and_index(self, cubic_lattice_10):
+        replicas = self._replicas(cubic_lattice_10)
+
+        with pytest.raises(ValueError, match="has length 1; expected 2"):
+            assemble_replica_supercell(replicas, (2, 1, 1), [0])
+        with pytest.raises(ValueError, match="index 4.*out of range"):
+            assemble_replica_supercell(replicas, (1, 1, 1), [4])
+
+    def test_rejects_incompatible_replicas(self, cubic_lattice_10):
+        replicas = self._replicas(cubic_lattice_10)
+        incompatible_lattice = self._replicas(np.diag([11.0, 10.0, 10.0]))[0]
+
+        with pytest.raises(ValueError, match="lattice incompatible"):
+            assemble_replica_supercell(
+                [replicas[0], incompatible_lattice], (2, 1, 1), [0, 1]
+            )
+
+        incompatible_schema = MolecularCrystal(
+            cubic_lattice_10,
+            [Atoms("NO", positions=[[0, 0, 0], [1.2, 0, 0]])],
+            extra_arrays={"source_rank": np.asarray([0, 1])},
+        )
+        with pytest.raises(ValueError, match="atom/molecule schema incompatible"):
+            assemble_replica_supercell(
+                [replicas[0], incompatible_schema], (2, 1, 1), [0, 1]
+            )

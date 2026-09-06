@@ -32,6 +32,14 @@ from .symmetry_path import (
     RIGID_MAX_BOND_RELATIVE_ERROR,
 )
 
+from .config import (
+    BOND_ROTATION_AXIS_TOLERANCE,
+    BFDH_GEOMETRY_TOLERANCE,
+    PERIODIC_NEIGHBOR_TOLERANCE_A,
+    PARTIAL_OCCUPANCY_TOLERANCE,
+    MIN_PERIODIC_CELL_VOLUME_A3,
+)
+
 # Get the directory where this module is located
 _CONSTANTS_DIR = os.path.dirname(__file__)
 
@@ -327,3 +335,23 @@ def is_metal_element(symbol: str) -> bool:
         True if the element is a metal, False otherwise.
     """
     return symbol in METAL_ELEMENTS
+
+
+__all__ = [
+    # Data
+    "ATOMIC_MASSES",
+    "ATOMIC_RADII",
+    "VDW_RADII",
+    "METAL_ELEMENTS",
+    # Thresholds
+    "METAL_THRESHOLD_FACTOR",
+    "NON_METAL_THRESHOLD_FACTOR",
+    "METAL_NON_METAL_THRESHOLD_FACTOR",
+    "DEFAULT_NEIGHBOR_CUTOFF",
+    # Config
+    "BOND_ROTATION_AXIS_TOLERANCE",
+    "BFDH_GEOMETRY_TOLERANCE",
+    "PERIODIC_NEIGHBOR_TOLERANCE_A",
+    "PARTIAL_OCCUPANCY_TOLERANCE",
+    "MIN_PERIODIC_CELL_VOLUME_A3",
+]

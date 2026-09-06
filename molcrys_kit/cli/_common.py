@@ -4,22 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
-import ase.io
 import click
-import numpy as np
 
-from molcrys_kit.io import (
-    read_extxyz,
-    read_mol_crystal,
-    read_poscar,
-    write_cif,
-    write_extxyz,
-    write_poscar,
-    write_xyz,
-)
-from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
+if TYPE_CHECKING:
+    from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
 
 CRYSTAL_INPUT_EXTENSIONS = {".cif", ".vasp", ".poscar", ".contcar", ".extxyz"}
@@ -32,6 +22,8 @@ def load_crystal(
     bond_scale: float = 1.0,
 ) -> MolecularCrystal:
     """Load a MolecularCrystal from a supported structure file."""
+    from molcrys_kit.io import read_extxyz, read_mol_crystal, read_poscar
+
     file_path = Path(path)
     suffix = file_path.suffix.lower()
     name = file_path.name.lower()
@@ -55,6 +47,12 @@ def load_crystal(
 
 def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[MolecularCrystal], path: str | Path) -> None:
     """Write a crystal, molecule, or frame sequence using the output suffix."""
+    import ase.io
+    import numpy as np
+
+    from molcrys_kit.io import write_cif, write_extxyz, write_poscar, write_xyz
+    from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
+
     file_path = Path(path)
     suffix = file_path.suffix.lower()
     name = file_path.name.lower()

@@ -21,11 +21,21 @@
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
+| Attach chemistry-domain records | `annotate_chemistry` | `MolecularCrystal` | `CrystalChemistry` | source docstring |
+| Infer bond orders and formal charges | `infer_chemistry` | `MolecularCrystal` | `CrystalChemistry` with alternatives/warnings | source docstring |
+| Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
+| Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
+| Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
+| Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / notation | `LineNotation` / chemical entity | source docstring |
+| Compare notation equivalence | `notations_equivalent` | two notation strings | `True` / `False` / `None` | source docstring |
+| Name an entity or crystal | `name_entity`, `name_crystal` | chemical entity / crystal | `NamingResult` | source docstring |
 | Select one compact formula unit | `StoichiometryAnalyzer.select_formula_unit` | `MolecularCrystal` | `FormulaUnitSelection` | source docstring |
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
+| Summarize structure | `mck analyze summary --json` | structure file | JSON composition, cell, symmetry, and disorder report | `mck analyze summary --help` |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
+| Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
 | Add hydrogens | `add_hydrogens` | `MolecularCrystal` | `MolecularCrystal` | [Tutorials](tutorials.md) |
 | Generate slabs | `generate_topological_slab`, `generate_slabs_with_terminations` | crystal + Miller plane | slab(s) | [Tutorials](tutorials.md) |
 | Reorient crystal | `reorient_crystal`, `get_surface_basis` | crystal + Miller direction | reoriented crystal + info | source docstring |
@@ -62,12 +72,30 @@ Core crystal data model.
 - Polyhedra reference data: `all_ideal_polyhedra`, `ideal_polyhedra_for_cn`, `convex_hull_payload`
 - Periodic geometry: `BoundaryPort`, `ChainSpec`, `ConnectionRule`, `FragmentInstance`, `FragmentTemplate`, `PeriodicBundle`, `PeriodicEdge`, `PeriodicGraph`, `ScrewSpec`
 
+### `mck.chemistry`
+Independent immutable chemistry records and crystal-to-chemistry mapping.
+Implemented rule families and strict refusal boundaries are tracked in
+[Chemistry coverage and release gates](chemistry_coverage.md).
+
+- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`
+- Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
+- Analysis: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`
+
 ### `mck.io`
 Read/write interfaces.
 
 - Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
+<<<<<<< HEAD
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
+=======
+  `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for
+  coordinates and disorder metadata. It preserves CIF chemical names,
+  published bond rows, isotopes/site charges, and absolute-structure values
+  with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`,
+  then attaches a provisional chemistry snapshot automatically. Geometry-only
+  callers can pass `attach_chemistry=False` to skip the perception pass.
+>>>>>>> origin/main
 - Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
 
@@ -76,7 +104,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 
 - Bond fragments: `BondPartition`, `BondRotationError`, `BondNotFoundError`, `BondRotationSelectionError`, `RingBondRotationError`, `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal`
 - Perturb/rotate: `apply_gaussian_displacement_molecule`, `apply_gaussian_displacement_crystal`, `apply_directional_displacement`, `apply_random_rotation`, `rotate_molecule_at_center`, `rotate_molecule_at_com`
-- Build/edit: `create_supercell`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
+- Build/edit: `assemble_replica_supercell`, `create_supercell`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
 - Surface: `generate_topological_slab`, `TopologicalSlabGenerator`, `TerminationInfo`, `enumerate_terminations`, `generate_slabs_with_terminations`, `get_surface_basis`
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
@@ -100,6 +128,7 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `RingCycleLimitError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`
+- Structure summary: `summarize_structure`
 
 ### `mck.analysis.volume`
 Van der Waals volume estimation and solvent-accessible boundary computation.
@@ -130,6 +159,7 @@ Element data and bond-detection thresholds.
 
 - Data: `ATOMIC_MASSES`, `ATOMIC_RADII`, `VDW_RADII`, `METAL_ELEMENTS`
 - Thresholds: `METAL_THRESHOLD_FACTOR`, `NON_METAL_THRESHOLD_FACTOR`, `METAL_NON_METAL_THRESHOLD_FACTOR`, `DEFAULT_NEIGHBOR_CUTOFF`
+- Config: `BOND_ROTATION_AXIS_TOLERANCE`, `BFDH_GEOMETRY_TOLERANCE`, `PERIODIC_NEIGHBOR_TOLERANCE_A`, `PARTIAL_OCCUPANCY_TOLERANCE`, `MIN_PERIODIC_CELL_VOLUME_A3`
 
 ### `mck.utils`
 Geometry, rigid-body math helpers, and graph utilities.
