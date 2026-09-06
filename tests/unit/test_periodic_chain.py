@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from molcrys_kit.analysis.periodic_validation import validate_periodic_bundle
-from molcrys_kit.cli.periodic_chain_cmd import _rule as load_rule
-from molcrys_kit.cli.periodic_chain_cmd import _template as load_template
+from molcrys_kit.cli.periodic_chain_cmd import load_chain_request
 from molcrys_kit.io.periodic_bundle import read_periodic_bundle, write_periodic_bundle
 from molcrys_kit.operations.periodic_chain import build_periodic_chains
-from molcrys_kit.structures.periodic_geometry import BoundaryPort, ChainSpec, ConnectionRule, FragmentTemplate, ScrewSpec
+from molcrys_kit.structures.periodic_geometry import (
+    BoundaryPort,
+    ChainSpec,
+    ConnectionRule,
+    FragmentTemplate,
+    PeriodicEdge,
+    PeriodicGraph,
+    ScrewSpec,
+)
 
 
 def _template() -> FragmentTemplate:
@@ -68,6 +76,20 @@ def test_zero_and_nonzero_winding_from_graph():
     assert zero.graph.cycle_rank == nonzero.graph.cycle_rank == 1
 
 
+def test_heterogeneous_winding_is_not_reported_as_zero():
+    graph = PeriodicGraph(
+        ("a0", "a1", "b0", "b1"),
+        (
+            PeriodicEdge("a0", "a1", (0, 0, 0)),
+            PeriodicEdge("a1", "a0", (1, 0, 0), closure=True),
+            PeriodicEdge("b0", "b1", (0, 0, 0)),
+            PeriodicEdge("b1", "b0", (0, 1, 0), closure=True),
+        ),
+    )
+    assert graph.winding_cycles() == ((1, 0, 0), (0, 1, 0))
+    assert graph.winding is None
+
+
 def test_triclinic_partial_pbc_and_round_trip(tmp_path):
     cell = np.array([[8.0, 0.0, 0.0], [1.2, 7.5, 0.0], [0.1, 0.3, 9.0]])
     template, rule = _valid_repeat()
@@ -110,6 +132,18 @@ def test_sidecar_rejects_reordered_symbols_and_metadata_mismatch(tmp_path):
     sidecar.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="array 'chain_id'"):
         read_periodic_bundle(structure, sidecar)
+
+
+def test_bundle_validation_rechecks_periodic_min_distance():
+    cell = np.diag([10.0, 10.0, 10.0])
+    template, rule = _valid_repeat()
+    bundle = build_periodic_chains(
+        {"repeat": template}, (rule,), cell, (True, True, True),
+        ChainSpec(("repeat",), instance_centers=((0.3, 0.4, 0.5),), min_distance=0.5),
+    )
+    bundle.atoms.positions[1] = bundle.atoms.positions[0] + np.array([0.1, 0.0, 0.0])
+    with pytest.raises(ValueError, match="closer than min_distance"):
+        validate_periodic_bundle(bundle)
 
 
 def test_zero_winding_same_port_self_loop_is_rejected():
@@ -192,17 +226,8 @@ def test_skew_cell_collision_is_not_hidden_by_fractional_binning():
 def test_periodic_fixture_requests_are_non_degenerate_and_round_trip(
     fixture, formula, atom_count, winding, tmp_path
 ):
-    request = json.loads((Path("examples/periodic_chains") / f"{fixture}.json").read_text())
-    templates = {item["template_id"]: load_template(item) for item in request["templates"]}
-    rules = tuple(load_rule(item) for item in request.get("rules", ()))
-    raw = request["spec"]
-    screw = ScrewSpec(**raw["screw"]) if raw.get("screw") else None
-    spec = ChainSpec(
-        tuple(raw["sequence"]), raw.get("chain_count", 1), raw.get("closure", "translation"),
-        tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,
-        tuple(tuple(item) for item in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,
-        screw, raw.get("seed", 0), raw.get("max_backtracks", 64), raw.get("min_distance", 0.8), raw.get("tolerance", 1e-6),
-        tuple(tuple(item) for item in raw["chain_centers"]) if raw.get("chain_centers") is not None else None,
+    request, templates, rules, spec = load_chain_request(
+        Path("examples/periodic_chains") / f"{fixture}.json"
     )
     bundle = build_periodic_chains(templates, rules, request["cell"], request.get("pbc", (True, True, True)), spec)
     report = validate_periodic_bundle(bundle)
@@ -217,17 +242,8 @@ def test_periodic_fixture_requests_are_non_degenerate_and_round_trip(
 
 
 def _build_fixture(fixture: str):
-    request = json.loads((Path("examples/periodic_chains") / f"{fixture}.json").read_text(encoding="utf-8"))
-    templates = {item["template_id"]: load_template(item) for item in request["templates"]}
-    rules = tuple(load_rule(item) for item in request.get("rules", ()))
-    raw = request["spec"]
-    screw = ScrewSpec(**raw["screw"]) if raw.get("screw") else None
-    spec = ChainSpec(
-        tuple(raw["sequence"]), raw.get("chain_count", 1), raw.get("closure", "translation"),
-        tuple(raw["target_winding"]) if raw.get("target_winding") is not None else None,
-        tuple(tuple(item) for item in raw["instance_centers"]) if raw.get("instance_centers") is not None else None,
-        screw, raw.get("seed", 0), raw.get("max_backtracks", 64), raw.get("min_distance", 0.8), raw.get("tolerance", 1e-6),
-        tuple(tuple(item) for item in raw["chain_centers"]) if raw.get("chain_centers") is not None else None,
+    request, templates, rules, spec = load_chain_request(
+        Path("examples/periodic_chains") / f"{fixture}.json"
     )
     return request, build_periodic_chains(templates, rules, request["cell"], request.get("pbc", (True, True, True)), spec).atoms
 
@@ -292,16 +308,10 @@ def test_trigonal_selenium_fixture_keeps_independent_chains_separated():
 
 
 def test_trigonal_selenium_fixture_rejects_the_old_close_packing():
-    request = json.loads((Path("examples/periodic_chains") / "trigonal_se_chain.json").read_text(encoding="utf-8"))
-    templates = {item["template_id"]: load_template(item) for item in request["templates"]}
-    rules = tuple(load_rule(item) for item in request.get("rules", ()))
-    raw = request["spec"]
-    screw = ScrewSpec(**raw["screw"])
-    spec = ChainSpec(
-        tuple(raw["sequence"]), raw["chain_count"], raw["closure"], tuple(raw["target_winding"]),
-        screw=screw, min_distance=raw["min_distance"],
-        chain_centers=((0.0, 0.0, 0.0), (0.25, 0.25, 0.0)),
+    request, templates, rules, spec = load_chain_request(
+        Path("examples/periodic_chains") / "trigonal_se_chain.json"
     )
+    spec = replace(spec, chain_centers=((0.0, 0.0, 0.0), (0.25, 0.25, 0.0)))
     with pytest.raises(ValueError, match="periodic collision"):
         build_periodic_chains(templates, rules, request["cell"], request["pbc"], spec)
 

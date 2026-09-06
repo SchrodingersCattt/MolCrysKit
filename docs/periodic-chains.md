@@ -7,8 +7,12 @@ The builder preserves fragment geometry and returns a `PeriodicBundle`.
 
 `PeriodicGraph.winding_cycles()` computes winding from integer edge image shifts;
 it is never copied from a requested answer. Ordinary translation closure supports
-zero, non-zero, and mixed-direction winding. `ScrewSpec` checks finite order and
-cell compatibility and fails instead of expanding the cell implicitly.
+zero, non-zero, and mixed-direction winding. Use `winding_cycles()` for a graph
+with multiple cycles; the scalar `winding` is `None` when those cycles disagree.
+`ScrewSpec.order` is the explicit closure exponent, not necessarily the minimal
+rotational order. It checks finite order and cell compatibility and fails
+instead of expanding the cell implicitly. Its Cartesian `center` is a global
+frame shared by all chains; `chain_centers` are post-transform translations.
 
 The builder uses explicit port rules followed by distance checks. A closed
 one-instance chain must expose distinct endpoint ports or a non-zero image
@@ -37,12 +41,15 @@ default structure format is CIF. The bundle also supports POSCAR, XYZ, and
 ExtXYZ via `--format` or a known output suffix. CIF/POSCAR/XYZ do not carry all
 geometry-native arrays, so the sidecar remains authoritative for cell/PBC, atom,
 chain, fragment, repeat, graph, hash, transform, closure/winding, tolerance, and
-provenance metadata; bundle reads restore these fields before validation. It does
-not store an atom edge table, model/type map, force-field data, or trajectories.
+provenance metadata; bundle reads restore these fields before validation. The
+per-atom records and per-instance transforms make this sidecar O(n) in atom and
+fragment count; this is intentional for CIF/POSCAR/XYZ round-trips and can be
+tens of MB at 100k atoms. It does not store an atom edge table, model/type map,
+force-field data, or trajectories.
 
 ## Verification snapshot
 
-The focused periodic-chain test set passes 16 tests. A source-checkout run of
+All focused periodic-chain tests pass. A source-checkout run of
 `benchmarks/periodic_chain_benchmark.py` constructed 1,000, 10,000, and 100,000
 atoms in 0.08, 0.88, and 8.70 seconds respectively on the reference local CPU;
 these timings are a regression indicator, not a hardware guarantee. The
