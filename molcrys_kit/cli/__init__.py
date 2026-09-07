@@ -43,10 +43,12 @@ def analyze_group() -> None:
 from .io_cmd import register_io_commands  # noqa: E402
 from .operate_cmd import register_operate_commands  # noqa: E402
 from .analyze_cmd import register_analyze_commands  # noqa: E402
+from .periodic_chain_cmd import register_periodic_chain_commands  # noqa: E402
 
 register_io_commands(io_group)
 register_operate_commands(operate_group)
 register_analyze_commands(analyze_group)
+register_periodic_chain_commands(main)
 
 
 __all__ = ["main"]

@@ -102,6 +102,7 @@ from .reactive_path import (
     RigidGroup,
     interpolate_reactive_path,
 )
+from .periodic_chain import build_periodic_chains
 
 __all__ = [
     "apply_gaussian_displacement_molecule",
@@ -179,4 +180,5 @@ __all__ = [
     "ReactivePathResult",
     "RigidGroup",
     "interpolate_reactive_path",
+    "build_periodic_chains",
 ]

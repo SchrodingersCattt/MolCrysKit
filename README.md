@@ -137,6 +137,8 @@ mck analyze --help
 mck operate cluster --help
 mck operate nanocluster --help
 mck operate void --help
+mck build chain --help
+mck validate-periodic-bundle --help
 ```
 
 The command groups roughly mirror the Python package layout:
@@ -144,12 +146,14 @@ The command groups roughly mirror the Python package layout:
 - `mck io ...` — inspect molecular-crystal contents, extract molecules, and convert structures (`info`, `molecules`, `extract-molecule`, `convert`).
 - `mck operate ...` — generate modified structures (`disorder`, `disorder-supercell`, `add-h`, `slab`, `cluster`, `nanocluster`, `void`, `supercell`, `vacancy`, `desolvate`, `interpolate`, `reorient`).
 - `mck analyze ...` — print analysis reports (`summary`, `bfdh`, `interactions`, `polyhedra`, `sanity-check`).
+- `mck build chain ...` — construct a geometry-native periodic chain bundle.
+- `mck validate-periodic-bundle ...` — validate a periodic bundle and its sidecar.
 
 ## Documentation
 
 | You are… | Start here |
 |---|---|
-| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) |
+| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) · [Periodic chains](docs/periodic-chains.md) |
 | **AI agent (using the library)** | [API & Capabilities](docs/api.md) — read "Capability Map" then "Module Index" |
 | **AI agent (modifying code)** | [AGENTS.md](AGENTS.md) · [Architecture](docs/architecture.md) |
 | **Docker / cloud** | [Docker Guide](docs/docker.md) |

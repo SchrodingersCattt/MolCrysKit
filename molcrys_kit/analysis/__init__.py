@@ -49,6 +49,7 @@ from .packing_shell import (
     hull_encloses_center,
     planarity_analysis,
 )
+from .periodic_validation import validate_periodic_bundle
 from .ring_conformation import (
     DegenerateRingGeometryError,
     InvalidRingOrderError,
@@ -170,4 +171,5 @@ __all__ = [
     "sanity_check",
     "summarize_structure",
     "topology_signature",
+    "validate_periodic_bundle",
 ]

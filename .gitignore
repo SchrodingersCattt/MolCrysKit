@@ -215,3 +215,6 @@ plans/
 
 # Local temporary folder for scripting and testing
 _tmp/
+
+# Generated periodic-chain structure bundles (local artifacts)
+examples/periodic_chains/bundles/
