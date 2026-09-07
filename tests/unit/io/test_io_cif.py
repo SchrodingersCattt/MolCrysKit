@@ -15,6 +15,7 @@ from molcrys_kit.constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 from molcrys_kit.io.cif import (
     SymmetryAutoExpandedWarning,
     _parse_symmetry_operations,
+    _sanitize_cif_text_for_pymatgen,
     identify_molecules,
     parse_cif_advanced,
     read_mol_crystal,
@@ -145,6 +146,30 @@ C1 C 0 0 0 1 ?
         info = scan_cif_disorder(str(cif))
         assert info.labels == ["C1"]
         assert info.occupancies == [1.0]
+
+    def test_olex2_embedded_fcf_data_block_is_tolerated(self):
+        # Keep the structure minimal: this test isolates CIF block splitting,
+        # while the disorder regression below exercises ordered reconstruction.
+        cif = (
+            Path(__file__).resolve().parents[2]
+            / "data"
+            / "cif"
+            / "olex2_embedded_fcf.cif"
+        )
+
+        info = scan_cif_disorder(str(cif), expand_symmetry=False)
+
+        assert info.labels == ["Cl1", "Cl1A"]
+        assert info.occupancies == [0.6, 0.4]
+        assert info.disorder_groups == [1, 2]
+
+    def test_real_second_data_block_is_not_sanitized(self):
+        text = "data_first\n_tag 1\ndata_second\n_tag 2\n"
+
+        sanitized, changed = _sanitize_cif_text_for_pymatgen(text)
+
+        assert not changed
+        assert sanitized == text
 
     def test_molecules_have_graph_and_ase_api(self, test_cif_path):
         crystal = read_mol_crystal(test_cif_path)

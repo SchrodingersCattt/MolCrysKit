@@ -103,26 +103,43 @@ _PYMATGEN_NUMERIC_MISSING_TAGS = {
 
 
 def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
-    """Return CIF text with pymatgen-hostile ``?`` numeric sentinels fixed.
+    """Return CIF text with known pymatgen-hostile constructs fixed.
 
     SHELX-derived CIFs sometimes use ``?`` for numeric loop fields such as
     ``_atom_site_attached_hydrogens``. The CIF convention allows this as an
     unknown value, but pymatgen's numeric conversion raises before MolCrysKit
     can apply its own tolerant parsers. We only rewrite known numeric tags and
     leave coordinates / disorder labels untouched.
+
+    Olex2 can also store an FCF data block inside a semicolon-delimited text
+    field such as ``_iucr_refine_fcf_details``. Pymatgen splits CIF blocks on
+    every line-initial lowercase ``data_`` before tokenising text fields, so an
+    embedded header is incorrectly parsed as a real block. Uppercasing that
+    keyword only in multiline text prevents the premature split; CIF text is
+    case-insensitive and MolCrysKit retains the original text for metadata.
     """
     lines = text.splitlines(keepends=True)
     out = list(lines)
     changed = False
+    in_multiline_text = False
+    for line_index, line in enumerate(lines):
+        # CIF multiline fields end at the next line-starting ';'; no escaping exists.
+        if line.startswith(";"):
+            in_multiline_text = not in_multiline_text
+            continue
+        if in_multiline_text and line.startswith("data_"):
+            out[line_index] = "DATA_" + line[len("data_") :]
+            changed = True
+
     i = 0
-    while i < len(lines):
-        if lines[i].strip().lower() != "loop_":
+    while i < len(out):
+        if out[i].strip().lower() != "loop_":
             i += 1
             continue
         j = i + 1
         tags: list[str] = []
-        while j < len(lines) and lines[j].lstrip().startswith("_"):
-            tags.append(lines[j].strip().split()[0])
+        while j < len(out) and out[j].lstrip().startswith("_"):
+            tags.append(out[j].strip().split()[0])
             j += 1
         if not tags:
             i = j
@@ -134,8 +151,8 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
             i = j
             continue
         k = j
-        while k < len(lines):
-            stripped = lines[k].strip()
+        while k < len(out):
+            stripped = out[k].strip()
             if not stripped:
                 k += 1
                 continue
@@ -154,7 +171,7 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
                         changed = True
                         row_changed = True
                 if row_changed:
-                    newline = "\n" if lines[k].endswith("\n") else ""
+                    newline = "\n" if out[k].endswith("\n") else ""
                     out[k] = " ".join(tokens) + newline
             k += 1
         i = k
@@ -235,7 +252,7 @@ def _pymatgen_cif_parser(
     cif_text: Optional[str] = None,
     **kwargs,
 ) -> CifParser:
-    """Create a CifParser, sanitising known numeric ``?`` fields if needed.
+    """Create a CifParser after sanitising known incompatible CIF constructs.
 
     Either *filepath* (path to a CIF file) or *cif_text* (raw CIF string)
     must be provided.  When *cif_text* is given no file I/O occurs.
