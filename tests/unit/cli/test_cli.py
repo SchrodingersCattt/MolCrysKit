@@ -39,15 +39,31 @@ def test_cli_root_help() -> None:
     assert "analyze" in result.output
 
 
-def test_periodic_chain_cli_build_then_validate(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("format_name", "structure_name"),
+    ((None, "structure.cif"), ("extxyz", "structure.extxyz")),
+)
+def test_periodic_chain_cli_build_then_validate(
+    tmp_path: Path, format_name: str | None, structure_name: str
+) -> None:
     output_dir = tmp_path / "periodic-bundle"
     runner = CliRunner()
+    format_args = ["--format", format_name] if format_name is not None else []
     built = runner.invoke(
-        main, ["build", "chain", str(PERIODIC_REQUEST), "-o", str(output_dir)]
+        main,
+        [
+            "build",
+            "chain",
+            str(PERIODIC_REQUEST),
+            "-o",
+            str(output_dir),
+            *format_args,
+        ],
     )
     assert built.exit_code == 0, built.output
-    structure = output_dir / "structure.cif"
+    structure = output_dir / structure_name
     assert structure.is_file()
+    assert structure.with_suffix(".json").is_file()
     validated = runner.invoke(
         main, ["validate-periodic-bundle", str(structure), "--json"]
     )
