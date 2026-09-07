@@ -1,0 +1,56 @@
+data_olex2_embedded_fcf
+_chemical_formula_moiety          'Cl'
+_cell_formula_units_Z             1
+_space_group_IT_number            1
+_space_group_name_H-M_alt         'P 1'
+_cell_length_a                    10
+_cell_length_b                    10
+_cell_length_c                    10
+_cell_angle_alpha                 90
+_cell_angle_beta                  90
+_cell_angle_gamma                 90
+
+loop_
+  _space_group_symop_id
+  _space_group_symop_operation_xyz
+  1 x,y,z
+
+loop_
+  _atom_site_label
+  _atom_site_type_symbol
+  _atom_site_fract_x
+  _atom_site_fract_y
+  _atom_site_fract_z
+  _atom_site_U_iso_or_equiv
+  _atom_site_adp_type
+  _atom_site_occupancy
+  _atom_site_refinement_flags_posn
+  _atom_site_refinement_flags_adp
+  _atom_site_refinement_flags_occupancy
+  _atom_site_disorder_group
+  Cl1  Cl  0.500 0.500 0.500 0.02 Uiso 0.6 . . P 1
+  Cl1A Cl  0.510 0.500 0.500 0.02 Uiso 0.4 . . P 2
+
+loop_
+  _diffrn_refln_index_h
+  _diffrn_refln_index_k
+  _diffrn_refln_index_l
+  _diffrn_refln_intensity_net
+  _diffrn_refln_intensity_u
+  0 0 1 100.0 1.0
+
+_iucr_refine_fcf_details
+;
+data_olex2_embedded_fcf
+_shelx_refln_list_code            4
+loop_
+  _refln_index_h
+  _refln_index_k
+  _refln_index_l
+  _refln_F_squared_calc
+  _refln_F_squared_meas
+  _refln_F_squared_sigma
+  _refln_F_squared_weight
+  _refln_observed_status
+  0 0 1 99.0 100.0 1.0 1.0 o
+;

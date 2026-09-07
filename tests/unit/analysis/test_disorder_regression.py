@@ -125,6 +125,10 @@ class CifCase:
 CASES: list[CifCase] = [
     # --- locked baseline (currently green on main) ---
     CifCase(
+        "olex2-embedded-fcf", "olex2_embedded_fcf.cif", 1,
+        expected_element_totals={"Cl": 1},
+    ),
+    CifCase(
         "NatComm-1", "NatComm-1.cif", 60,
         expected_element_totals={"C": 16, "Cd": 2, "H": 28, "N": 8, "S": 6},
     ),
@@ -613,6 +617,16 @@ def _assert_matches_optimal(case: CifCase, crystal, context: str) -> None:
 # ---------------------------------------------------------------------------
 # Targeted formula assertions (catch silent topology drift)
 # ---------------------------------------------------------------------------
+
+
+def test_olex2_embedded_fcf_topology(cif_data_dir: str):
+    """An embedded FCF data block must not hide the structural CIF block."""
+    cif = os.path.join(cif_data_dir, "olex2_embedded_fcf.cif")
+    assert os.path.exists(cif), "olex2_embedded_fcf.cif fixture not found"
+
+    _, n_atoms, _, formulas = _resolve(cif)
+    assert n_atoms == 1
+    assert formulas == Counter({"Cl1": 1})
 
 
 def test_natcomm1_topology(cif_data_dir: str):
