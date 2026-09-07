@@ -123,6 +123,7 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
     changed = False
     in_multiline_text = False
     for line_index, line in enumerate(lines):
+        # CIF multiline fields end at the next line-starting ';'; no escaping exists.
         if line.startswith(";"):
             in_multiline_text = not in_multiline_text
             continue
@@ -130,16 +131,15 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
             out[line_index] = "DATA_" + line[len("data_") :]
             changed = True
 
-    lines = out
     i = 0
-    while i < len(lines):
-        if lines[i].strip().lower() != "loop_":
+    while i < len(out):
+        if out[i].strip().lower() != "loop_":
             i += 1
             continue
         j = i + 1
         tags: list[str] = []
-        while j < len(lines) and lines[j].lstrip().startswith("_"):
-            tags.append(lines[j].strip().split()[0])
+        while j < len(out) and out[j].lstrip().startswith("_"):
+            tags.append(out[j].strip().split()[0])
             j += 1
         if not tags:
             i = j
@@ -151,8 +151,8 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
             i = j
             continue
         k = j
-        while k < len(lines):
-            stripped = lines[k].strip()
+        while k < len(out):
+            stripped = out[k].strip()
             if not stripped:
                 k += 1
                 continue
@@ -171,7 +171,7 @@ def _sanitize_cif_text_for_pymatgen(text: str) -> Tuple[str, bool]:
                         changed = True
                         row_changed = True
                 if row_changed:
-                    newline = "\n" if lines[k].endswith("\n") else ""
+                    newline = "\n" if out[k].endswith("\n") else ""
                     out[k] = " ".join(tokens) + newline
             k += 1
         i = k

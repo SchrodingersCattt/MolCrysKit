@@ -148,6 +148,8 @@ C1 C 0 0 0 1 ?
         assert info.occupancies == [1.0]
 
     def test_olex2_embedded_fcf_data_block_is_tolerated(self):
+        # Keep the structure minimal: this test isolates CIF block splitting,
+        # while the disorder regression below exercises ordered reconstruction.
         cif = (
             Path(__file__).resolve().parents[2]
             / "data"
