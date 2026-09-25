@@ -29,7 +29,7 @@ jobs:
         run: python -m pip install pytest ruff==0.15.14
 
       - name: Test post-commit formatting and installation
-        run: pytest tests/dev/test_style_followup_commit.py -q
+        run: pytest --confcutdir=tests/dev tests/dev/test_style_followup_commit.py -q
 
   docs-as-code:
     name: Docs and skill contracts
