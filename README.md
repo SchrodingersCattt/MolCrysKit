@@ -72,10 +72,30 @@ All dependencies are declared in `pyproject.toml` (there is no separate
 |---|---|
 | `[test]` | `pytest`, `pytest-cov` |
 | `[vis]` | `nglview`, `py3Dmol` for 3-D visualisation in notebooks |
-| `[dev]` | `[test]` + `[vis]` + `build`, `ruff>=0.15`, `pre-commit`, `nbstripout`, `twine` |
+| `[dev]` | `[test]` + `[vis]` + `build`, `ruff==0.15.14`, `pre-commit`, `nbstripout`, `twine` |
 
 So a contributor environment is `pip install -e ".[dev]"` and a CI / minimal
 test environment is `pip install -e ".[test]"`.
+
+### Optional separate formatting commit
+
+In an activated `[dev]` environment, run `pre-commit install --hook-type
+pre-commit` and `python scripts/install_style_hook.py` from the repository
+root. The first command installs the existing lint and file checks. The
+second installs an optional Git post-commit hook (and refuses to overwrite an
+existing one). After a commit, this hook runs Ruff format on Python files in
+that commit. If formatting changes them, it creates a separate `style:
+format Python from previous commit` commit. It skips formatting when tracked
+files have uncommitted changes, so it never incorporates unrelated work.
+Git worktrees of the same clone share the hooks directory; install this hook
+only if you want it available to that clone's worktrees. The usual Ruff
+format hook remains available manually with
+`pre-commit run ruff-format --hook-stage manual --all-files`.
+
+Ruff formats whitespace and layout, but it does not rewrite dense logic into
+more readable steps. The follow-up commit only happens when formatting
+actually changes a file; a commit that is already formatted gets no extra
+commit.
 
 ## Quick Start
 

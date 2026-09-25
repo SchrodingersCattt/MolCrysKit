@@ -11,6 +11,26 @@ permissions:
   contents: read
 
 jobs:
+  style-hook:
+    name: Ruff follow-up commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install hook test dependencies
+        run: python -m pip install pytest ruff==0.15.14
+
+      - name: Test post-commit formatting and installation
+        run: pytest tests/dev/test_style_followup_commit.py -q
+
   docs-as-code:
     name: Docs and skill contracts
     runs-on: ubuntu-latest
