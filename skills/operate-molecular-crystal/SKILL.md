@@ -8,6 +8,9 @@ description: "Use before editing or converting molecular, ionic, or framework st
 Use MolCrysKit for structure edits where molecular identity, periodic topology,
 or crystallographic metadata matters.
 
+For explicit install or source-change requests, read
+[installation](./references/installation.md); PyPI is the default.
+
 ## Direct path
 
 1. Start from the caller's structure. Do not install packages, read repository

@@ -7,6 +7,9 @@ description: 'Query and export crystal structures from the Cambridge Structural 
 
 Retrieve licensed CSD data reproducibly and export analysis-ready CIF files without silently losing disorder metadata.
 
+MolCrysKit is needed only for the optional handoff below. If it is not installed,
+see [installation](./references/installation.md); PyPI is the default.
+
 ## Core workflow
 
 1. Read [CSD environment](./references/csd-environment.md) and verify the licensed CCDC Python interpreter.
