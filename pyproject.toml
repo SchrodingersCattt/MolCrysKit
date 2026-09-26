@@ -47,7 +47,7 @@ test = [
 dev = [
     "molcrys-kit[test,vis]",
     "build",
-    "ruff>=0.15",
+    "ruff==0.15.14",
     "pre-commit",
     "nbstripout",
     "twine",

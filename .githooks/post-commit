@@ -1,0 +1,4 @@
+#!/bin/sh
+# Unlike pre-commit's post-commit stage, a native hook does not hide unstaged edits.
+test -f scripts/style_followup_commit.py || exit 0
+python scripts/style_followup_commit.py
