@@ -6,7 +6,8 @@ description: "Use only for non-visual crystal analysis: readiness, components, d
 # Analyze Molecular Crystals
 
 Answer the stated structural-chemistry question with MolCrysKit. Do not turn a
-focused question into a full audit.
+focused question into a full audit. For explicit install or source-change
+requests, read [installation](./references/installation.md); PyPI is the default.
 
 ## Direct path
 
