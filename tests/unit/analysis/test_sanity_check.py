@@ -107,6 +107,17 @@ class TestCheckResult:
         r2 = CheckResult(name="test", passed=False, message="bad")
         assert "FAIL" in repr(r2)
 
+    def test_skipped_status_is_machine_readable(self):
+        result = CheckResult(
+            name="hydrogen_presence",
+            passed=True,
+            message="Skipped: fragment.",
+            status="skipped",
+        )
+        assert result.status == "skipped"
+        assert result.passed is True
+        assert "SKIP" in repr(result)
+
 
 class TestSanityReport:
     def test_empty_report_passes(self):
@@ -156,6 +167,16 @@ class TestSanityReport:
         assert "1/2 passed" in s
         assert "✓" in s
         assert "✗" in s
+
+    def test_skipped_checks_do_not_fail_report(self):
+        report = SanityReport([
+            CheckResult("a", True, "ok"),
+            CheckResult("b", True, "Skipped", status="skipped"),
+        ])
+        assert report.passed is True
+        assert report.failed() == []
+        assert [r.name for r in report.skipped()] == ["b"]
+        assert "1/1 passed, 1 skipped" in report.summary()
 
 
 # ─── Individual Check Tests ───────────────────────────────────────────────────
@@ -221,6 +242,28 @@ class TestCheckHydrogenPresence:
     def test_no_hydrogen(self, no_hydrogen_crystal):
         result = check_hydrogen_presence(no_hydrogen_crystal)
         assert result.passed is False
+
+
+class TestSanityProfiles:
+    def test_fragment_profile_skips_completeness_heuristics(self, no_hydrogen_crystal):
+        report = sanity_check(no_hydrogen_crystal, profile="fragment")
+        assert report.passed is True
+        assert {r.name for r in report.skipped()} == {
+            "hydrogen_presence",
+            "formula_consistency",
+        }
+        assert report["hydrogen_presence"].details["reason"]
+
+    def test_structure_scope_metadata_selects_fragment_profile(self, no_hydrogen_crystal):
+        no_hydrogen_crystal.metadata["structure_scope"] = "fragment"
+        report = sanity_check(no_hydrogen_crystal)
+        assert report.passed is True
+        assert report["hydrogen_presence"].status == "skipped"
+
+    def test_skip_checks_keeps_result_entry(self, simple_crystal):
+        report = sanity_check(simple_crystal, skip_checks=["hydrogen_presence"])
+        assert report["hydrogen_presence"].status == "skipped"
+        assert report.passed is True
 
 
 class TestCheckBondDistances:
