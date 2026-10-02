@@ -1,5 +1,6 @@
 from .bfdh import BFDHFacetInfo, enumerate_bfdh_facets, enumerate_low_index_millers
 from .charge import MolChargeResult, assign_mol_formal_charges, compute_topo_signature
+from .cell_integrity import CellIntegrityReport, check_cell_integrity
 from .chemical_env import ChemicalEnvironment
 from .formula_moiety import (
     Fragment,
@@ -105,6 +106,7 @@ __all__ = [
     "ChemicalEnvironment",
     "ChemicalIdentity",
     "ChemicalIdentityCache",
+    "CellIntegrityReport",
     "DegenerateRingGeometryError",
     "Fragment",
     "HHContact",
@@ -136,6 +138,7 @@ __all__ = [
     "calculate_atomic_volumes",
     "calculate_total_volume",
     "check_bond_distances",
+    "check_cell_integrity",
     "check_formula_consistency",
     "check_hard_clash",
     "check_hydrogen_presence",
