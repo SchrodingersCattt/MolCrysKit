@@ -34,6 +34,8 @@
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
 | Summarize structure | `mck analyze summary --json` | structure file | JSON composition, cell, symmetry, and disorder report | `mck analyze summary --help` |
+| Transform periodic cell | `MolecularCrystal.transform_cell` | target lattice or row-basis matrix | molecule-safe `MolecularCrystal` copy | source docstring |
+| Audit periodic cell | `check_cell_integrity` | `MolecularCrystal` (+ optional reference) | integrity report with hashes and seam contacts | source docstring |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
 | Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
@@ -62,6 +64,7 @@
 Core crystal data model.
 
 - Core: `MolAtom`, `CrystalMolecule`, `MolecularCrystal`, `CrystalTrajectory`, `Molecule`
+- Cell transforms: `MolecularCrystal.transform_cell`
 - Bonds: `BondPairs`, `BondCandidates`, `VerletBondTracker`, `build_bond_candidates`, `candidate_list_needs_rebuild`, `evaluate_bond_candidates`, `infer_bond_pairs`; see [Bond inference](bonds.md)
 - Renderer contracts: `SiteRecord`, `BondRecord`; use `MolecularCrystal.get_site_records()` and `MolecularCrystal.get_bond_records()` instead of private ASE metadata.
   - `SiteRecord` identifies one atom by global, molecule-local, and ASU-source indices and carries label/symmetry provenance, Cartesian and fractional coordinates, occupancy/disorder metadata, lattice image shift, uiso_A2, and Cartesian u_cart_A2.
@@ -123,6 +126,7 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `RingCycleLimitError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`
+- Cell integrity: `CellIntegrityReport`, `check_cell_integrity`
 - Periodic bundle validation: `validate_periodic_bundle`
 - Structure summary: `summarize_structure`
 

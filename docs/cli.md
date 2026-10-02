@@ -59,6 +59,7 @@ mck validate-periodic-bundle structure.cif --json
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
 | `mck operate interpolate START END` | Interpolate between structures | `-o/--output OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
+| `mck operate transform-cell INPUT` | Change the periodic cell while keeping molecules intact | `-o/--output OUTPUT`, `--lattice` (9 values) or `--matrix` (9 values), `--position-mode {rigid_molecule,affine}`, `--wrap-mode {centroid,atom,none}`, `--json` |
 | `mck operate reorient INPUT` | Reorient crystal for axis-aligned simulations | `-o/--output OUTPUT`, `--direction H K L`, `--target-axis {x,y,z}` (default: z), `--no-reduce` |
 
 ### `mck analyze` — Analyze crystals and print reports
@@ -68,6 +69,7 @@ mck validate-periodic-bundle structure.cif --json
 | `mck analyze summary INPUT` | Summarize composition, cell, symmetry, Wyckoff sites, and disorder | `--symprec FLOAT`, `--json` |
 | `mck analyze bfdh INPUT` | Rank low-index facets by BFDH morphology | `--max-index INT`, `--top-n INT`, `--json` |
 | `mck analyze interactions INPUT` | Summarize weak interactions | `--json` |
+| `mck analyze cell-integrity INPUT` | Audit lattice, molecule images, and transform provenance | `--json` |
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
 | `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |
 
