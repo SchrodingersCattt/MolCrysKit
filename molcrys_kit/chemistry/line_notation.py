@@ -130,8 +130,8 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
         unsupported.append("explicit radical-electron counts")
     if any(atom.explicit_hydrogens is not None for atom in entity.atoms):
         unsupported.append("explicit/implicit hydrogen distinction")
-    if any(atom.stereochemistry is not None for atom in entity.atoms):
-        unsupported.append("stored atom stereo tokens")
+    # OpenSMILES carries tetrahedral ``@``/``@@`` tokens directly on a
+    # bracket atom.  Keep explicitly supplied tokens in the generated text.
     if any(
         bond.kind not in {BondKind.COVALENT, BondKind.UNKNOWN}
         for bond in entity.bonds
@@ -139,8 +139,8 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
         unsupported.append("non-covalent bond semantics")
     if any(bond.atom2_image_shift != (0, 0, 0) for bond in entity.bonds):
         unsupported.append("periodic image shifts")
-    if any(bond.stereochemistry is not None for bond in entity.bonds):
-        unsupported.append("stored bond stereo tokens")
+    # Slash and backslash directional single-bond tokens are also representable
+    # in OpenSMILES and are emitted by ``_smiles_bond`` below.
     if any(
         bond.order is None or bond.order not in {1.0, 1.5, 2.0, 3.0}
         for bond in entity.bonds
@@ -310,12 +310,14 @@ def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
         and atom.isotope is None
         and atom.formal_charge in {None, 0}
         and atom.implicit_hydrogens is None
+        and atom.stereochemistry is None
     )
     if simple:
         if aromatic and atom.element.lower() in _AROMATIC:
             return atom.element.lower()
         return atom.element
     isotope = "" if atom.isotope is None else str(atom.isotope)
+    stereo = atom.stereochemistry or ""
     hydrogens = ""
     if atom.implicit_hydrogens:
         hydrogens = "H" if atom.implicit_hydrogens == 1 else f"H{atom.implicit_hydrogens}"
@@ -324,12 +326,14 @@ def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
         sign = "+" if atom.formal_charge > 0 else "-"
         magnitude = abs(atom.formal_charge)
         charge = sign if magnitude == 1 else f"{sign}{magnitude}"
-    return f"[{isotope}{atom.element}{hydrogens}{charge}]"
+    return f"[{isotope}{atom.element}{stereo}{hydrogens}{charge}]"
 
 
 def _smiles_bond(bond: ChemicalBond, *, explicit_single: bool = False) -> str:
     if bond.aromatic:
         return ":"
+    if bond.order == 1.0 and bond.stereochemistry in {"/", "\\"}:
+        return bond.stereochemistry
     if explicit_single and bond.order == 1.0:
         return "-"
     try:
