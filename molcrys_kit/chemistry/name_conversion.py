@@ -408,6 +408,30 @@ def _parse_decorated(name: str):
 
 
 def _parse_functional_acyclic(name: str):
+    match = re.fullmatch(r"(?P<stem>[a-z]+)-(?P<locant>\d+)-one", name)
+    if match:
+        count = _stem_count(match.group("stem"))
+        locant = int(match.group("locant"))
+        if count is None or not 1 < locant < count:
+            return None
+        atoms, bonds = _carbon_chain(count, name=name)
+        carbon_id = f"C{locant}"
+        carbon = next(atom for atom in atoms if atom.atom_id == carbon_id)
+        atoms[atoms.index(carbon)] = _atom(carbon_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 2))
+        atoms.append(_atom("O1", "O"))
+        bonds.append(_bond(carbon_id, "O1", 2.0))
+        return _entity(name, atoms, bonds)
+    match = re.fullmatch(r"(?P<stem>[a-z]+)anal", name)
+    if match:
+        count = _stem_count(match.group("stem"))
+        if count is None:
+            return None
+        atoms, bonds = _carbon_chain(count, name=name, terminal_group="carbonyl")
+        carbonyl = next(atom for atom in atoms if atom.atom_id == "C1")
+        atoms[atoms.index(carbonyl)] = _atom("C1", "C", 1)
+        atoms.append(_atom("O1", "O"))
+        bonds.append(_bond("C1", "O1", 2.0))
+        return _entity(name, atoms, bonds)
     match = re.fullmatch(r"(?P<stem>[a-z]+)anoyl (?P<halide>fluoride|chloride|bromide|iodide)", name)
     if match:
         count = _stem_count(match.group("stem"))

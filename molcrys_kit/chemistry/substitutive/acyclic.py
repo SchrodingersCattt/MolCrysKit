@@ -388,6 +388,46 @@ def _name_carbonyl_derivative(entity):
     return None
 
 
+def _name_ketone(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [n for n, b in adjacency[carbon] if atoms[n].element == "O" and _is_double(b)]
+        carbons = [n for n, b in adjacency[carbon] if atoms[n].element == "C" and _is_single(b)]
+        if len(oxygens) != 1 or len(carbons) != 2:
+            continue
+        parent = _carbon_parent(entity, required=carbon)
+        if parent is None:
+            continue
+        ordered, numbering = parent[1], parent[2]
+        stem = alkane_stem(len(ordered))
+        if stem is None:
+            continue
+        return _result(f"{stem}-{numbering[carbon]}-one", "Select the longest chain containing the ketone carbonyl.")
+    return None
+
+
+def _name_aldehyde(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [n for n, b in adjacency[carbon] if atoms[n].element == "O" and _is_double(b)]
+        carbons = [n for n, b in adjacency[carbon] if atoms[n].element == "C" and _is_single(b)]
+        if len(oxygens) != 1 or len(carbons) != 1 or _hcount(entity, carbon) < 1:
+            continue
+        parent = _carbon_parent(entity, required=carbon)
+        if parent is None or parent[1][0] != carbon:
+            continue
+        stem = alkane_stem(len(parent[1]))
+        if stem is not None:
+            return _result(f"{stem}anal", "Select the longest chain containing the aldehyde carbonyl.")
+    return None
+
+
 def _name_alkene(entity):
     """Name a simple unbranched mono-alkene (for example but-2-ene)."""
     atoms = _atom_map(entity)
@@ -498,6 +538,8 @@ def name_acyclic(entity: FiniteChemicalEntity):
         _name_carbonyl_derivative,
         _name_amino_acid,
         _name_acid,
+        _name_ketone,
+        _name_aldehyde,
         _name_alcohol,
         _name_alkene,
         _name_hydrocarbon,
