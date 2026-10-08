@@ -132,13 +132,6 @@ _PREFERRED_NAMES = {
     "N-(4-hydroxyphenyl)acetamide",
 }
 
-# Public-domain structural snapshot used for the large taxane example.  The
-# name is a readable von Baeyer substitutive construction; it deliberately
-# avoids the retained natural-product name.
-_TAXOL_SMILES = "CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)[C@@H]2OC(=O)C)C)O)OC(=O)C)OC(=O)c5ccccc5)(C[C@@H]1OC(=O)[C@H](O)[C@@H](NC(=O)c6ccccc6)c7ccccc7)O)(C)C"
-_TAXOL_SYSTEMATIC_NAME = "(1S,2S,4S,7R,9S,10S,12R,15S)-4,12-bis(acetyloxy)-1,9-dihydroxy-15-{[(2R,3S)-2-hydroxy-3-phenyl-3-(phenylformamido)propanoyl]oxy}-10,14,17,17-tetramethyl-11-oxo-6-oxatetracyclo[11.3.1.0^3,10.0^4,7]heptadec-13-en-2-yl benzoate"
-
-
 def name_entity(entity: ChemicalEntity, *, strict: bool = False) -> NamingResult:
     """Name an entity within the explicitly implemented IUPAC rule scope.
 
@@ -265,9 +258,6 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
         value = recognizer(entity)
         if value is not None:
             return _organic_result(entity, *value)
-    taxol = _name_taxol(entity)
-    if taxol is not None:
-        return _organic_result(entity, *taxol)
     # Every finite covalent graph receives a deterministic, reversible general
     # name.  The payload is a URL-safe encoding of MCK-LN, so structures whose
     # detailed substitutive rules are still being extended do not fall back to
@@ -292,22 +282,6 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
         False,
         "Encode the finite covalent graph as a deterministic general substitutive name.",
     )
-
-
-def _name_taxol(entity: FiniteChemicalEntity):
-    counts = Counter(atom.element for atom in entity.atoms if atom.element != "H")
-    if (
-        len(entity.atoms) == 62
-        and len(entity.bonds) == 68
-        and counts == Counter({"C": 47, "O": 14, "N": 1})
-        and sum(atom.stereochemistry is not None for atom in entity.atoms) >= 10
-    ):
-        return (
-            _TAXOL_SYSTEMATIC_NAME,
-            False,
-            "Select the tetracyclic von Baeyer parent and name all substituents systematically.",
-        )
-    return None
 
 
 def _name_disconnected(entity: FiniteChemicalEntity):
@@ -407,8 +381,6 @@ def _organic_result(entity, name, preferred, *trace):
     # retains its historical string-only public shape.  This gives reverse
     # conversion one canonical representation for every generated name.
     name = SystematicName.parse(name).serialize()
-    if name.lower() == _TAXOL_SYSTEMATIC_NAME.lower():
-        name = _TAXOL_SYSTEMATIC_NAME
     name = _decorate_stage6_name(entity, name)
     # Isotopic and explicitly stereochemical variants are general systematic
     # names; the preferred flag is reserved for the existing retained/golden

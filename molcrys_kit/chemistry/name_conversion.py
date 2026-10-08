@@ -34,8 +34,6 @@ from .naming import (
     NamingIndeterminateError,
     NamingResult,
     name_entity,
-    _TAXOL_SMILES,
-    _TAXOL_SYSTEMATIC_NAME,
 )
 from .stereo import assign_stereochemistry
 from .systematic_name import NamingParseError, SystematicName
@@ -602,7 +600,6 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
     if decorated is not None:
         return decorated
     for parser in (
-        _parse_taxol,
         _parse_generic_graph,
         _parse_counted_components,
         _parse_special_acyclic,
@@ -627,14 +624,6 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
             return result
     raise NamingParseError(
         f"IUPAC name {name!r} is outside the reversible MolCrysKit subset"
-    )
-
-
-def _parse_taxol(name: str):
-    if name != _TAXOL_SYSTEMATIC_NAME.lower():
-        return None
-    return complete_open_smiles_hydrogens(
-        from_line_notation(_TAXOL_SMILES, dialect="opensmiles")
     )
 
 
@@ -730,11 +719,6 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
 def iupac_to_smiles(name: str) -> LineNotation:
     """Convert a supported IUPAC name to a lossless OpenSMILES result."""
     entity = from_iupac_name(name)
-    if name.lower() == _TAXOL_SYSTEMATIC_NAME.lower():
-        notation = to_line_notation(entity, dialect="mck-ln")
-        if not notation.lossless:
-            raise NamingParseError("MCK-LN conversion was not lossless")
-        return notation
     if "-molecule-" in name.lower():
         # General graph names carry full MCK-LN semantics (including any
         # stereo/isotope fields that OpenSMILES cannot serialize losslessly).

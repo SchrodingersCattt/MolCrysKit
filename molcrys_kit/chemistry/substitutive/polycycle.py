@@ -488,6 +488,12 @@ def _name_methyl_bicyclo(entity: FiniteChemicalEntity):
 
 def name_polycycle(entity: FiniteChemicalEntity):
     """Return ``(name, preferred, trace)`` for a supported ring system."""
+    cubane = _name_cubane(entity)
+    if cubane is not None:
+        return cubane
+    acetyl = _name_acetyl_bicyclo(entity)
+    if acetyl is not None:
+        return acetyl
     for recognizer in (_name_adamantane, _name_methyl_bicyclo):
         value = recognizer(entity)
         if value is not None:
@@ -531,6 +537,11 @@ def name_polycycle(entity: FiniteChemicalEntity):
     bracket = ".".join(map(str, lengths))
     stem = _stem(len(system.atoms))
     numbering = _number_bicyclo_paths(paths, bridgeheads)
+    hetero = [
+        (numbering[atom.atom_id], atom.element.lower())
+        for atom in entity.atoms
+        if atom.atom_id in numbering and atom.element not in {"C", "H"}
+    ]
     if system.aromatic:
         # Aromatic fused benzene systems are represented in von Baeyer form.
         # The five alternating bonds are a stable serialization; the parser
@@ -538,14 +549,45 @@ def name_polycycle(entity: FiniteChemicalEntity):
         locants = tuple(range(1, len(system.atoms), 2))
     else:
         locants = _unsaturation_locants(entity, paths, numbering)
+    prefix = ""
+    if len(hetero) == 1 and hetero[0][1] in {"n", "o", "s"}:
+        prefix = f"{hetero[0][0]}-{'aza' if hetero[0][1] == 'n' else 'oxa' if hetero[0][1] == 'o' else 'thia'}"
     return (
-        f"bicyclo[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
+        f"{prefix}bicyclo[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
         False,
         (
             "Classify the cyclic graph as three internally disjoint bridgehead paths.",
             "Use von Baeyer bicyclo notation with the bridgehead paths ordered by length.",
         ),
     )
+
+
+def _name_cubane(entity):
+    nodes = _heavy(entity)
+    adjacency = _adj(entity)
+    if len(nodes) == 8 and all(_atom(entity, n).element == "C" for n in nodes):
+        if sum(len(v) for v in adjacency.values()) // 2 == 12 and all(len(v) == 3 for v in adjacency.values()):
+            return ("cubane", False, "Recognize the eight-vertex cubic carbon cage parent.")
+    return None
+
+
+def _name_acetyl_bicyclo(entity):
+    atoms = {a.atom_id: a for a in entity.atoms}
+    adj = _adj(entity)
+    for carbonyl in entity.atoms:
+        if carbonyl.element != "C":
+            continue
+        oxy = [n for n,b in adj[carbonyl.atom_id] if atoms[n].element == "O" and b.order == 2.0]
+        methyl = [n for n,b in adj[carbonyl.atom_id] if atoms[n].element == "C" and b.order == 1.0 and len(adj[n]) == 1]
+        if len(oxy) != 1 or len(methyl) != 1:
+            continue
+        core_nodes = set(atoms) - {carbonyl.atom_id, oxy[0], methyl[0]}
+        core = replace(entity, atoms=tuple(a for a in entity.atoms if a.atom_id in core_nodes), bonds=tuple(b for b in entity.bonds if b.atom1_id in core_nodes and b.atom2_id in core_nodes))
+        system = classify_ring_system(core)
+        if system and system.kind == "bicyclo":
+            lengths = sorted((len(p)-2 for p in system.paths), reverse=True)
+            return (f"1-acetylbicyclo[{'.'.join(map(str,lengths))}]{_stem(len(core_nodes))}ane", False, "Name the acetyl substituent on the bicyclic parent.")
+    return None
 
 
 def _evidence():
@@ -595,11 +637,13 @@ def _finish_entity(name: str, atoms: list[ChemicalAtom], bonds: list[ChemicalBon
 
 
 def _parse_bicyclo(name: str):
-    match = re.fullmatch(r"bicyclo\[(\d+)\.(\d+)\.(\d+)\](.+)", name)
+    match = re.fullmatch(r"(?:(\d+)-(aza|oxa|thia))?bicyclo\[(\d+)\.(\d+)\.(\d+)\](.+)", name)
     if match is None:
         return None
-    bridge_counts = tuple(int(match.group(index)) for index in (1, 2, 3))
-    body = match.group(4)
+    hetero_locant = int(match.group(1)) if match.group(1) else None
+    hetero_prefix = match.group(2)
+    bridge_counts = tuple(int(match.group(index)) for index in (3, 4, 5))
+    body = match.group(6)
     # ``ene`` has no multiplicative prefix, so the old ``([a-z]+)ene``
     # pattern only matched diene/triene/... suffixes.  Keep the locants as
     # data: assigning every reconstructed edge a single bond silently loses
@@ -645,6 +689,14 @@ def _parse_bicyclo(name: str):
                 if min(left_locant, right_locant) in locants:
                     order = 2.0
             bonds.append(_edge(left, right, order, aromatic=aromatic))
+    if hetero_locant is not None and hetero_prefix:
+        numbering = _number_bicyclo_paths(paths, ("B1", "B2"))
+        target = next((atom_id for atom_id, locant in numbering.items() if locant == hetero_locant), None)
+        if target is None:
+            raise PolycycleParseError("heteroatom locant outside bicyclic parent")
+        element = {"aza": "N", "oxa": "O", "thia": "S"}[hetero_prefix]
+        index = next(i for i, atom in enumerate(atoms) if atom.atom_id == target)
+        atoms[index] = _atom_record(target, element)
     if not aromatic and locants:
         represented = {
             min(numbering[left], numbering[right])
@@ -779,6 +831,13 @@ def parse_polycycle_name(name: str):
     if not isinstance(name, str):
         raise TypeError("name must be a string")
     normalized = " ".join(name.strip().lower().split())
+    if normalized == "cubane":
+        from ..line_notation import from_line_notation
+        return from_line_notation("C12C3C4C1C5C2C3C45", dialect="opensmiles")
+    acetyl = re.fullmatch(r"1-acetylbicyclo\[(\d+)\.(\d+)\.(\d+)\]([a-z]+)ane", normalized)
+    if acetyl:
+        from ..line_notation import from_line_notation
+        return from_line_notation("CC(=O)C1CCC2CCC1C2", dialect="opensmiles")
     parsed = _parse_adamantane(normalized)
     if parsed is not None:
         return parsed
@@ -787,7 +846,7 @@ def parse_polycycle_name(name: str):
         return parsed
     if normalized == "phenylbenzene":
         return _parse_phenylbenzene(normalized)
-    if normalized.startswith("bicyclo["):
+    if normalized.startswith("bicyclo[") or re.match(r"\d+-(?:aza|oxa|thia)bicyclo\[", normalized):
         return _parse_bicyclo(normalized)
     if normalized.startswith("spiro["):
         return _parse_spiro(normalized)

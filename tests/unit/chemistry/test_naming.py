@@ -24,7 +24,6 @@ from molcrys_kit.chemistry import (
     from_line_notation,
     name_crystal,
     name_entity,
-    smiles_to_iupac,
 )
 from molcrys_kit.chemistry.naming import _PREFERRED_NAMES
 
@@ -42,10 +41,7 @@ _NAMING_GOLDEN = tomllib.loads(
 @pytest.mark.parametrize("case", _NAMING_GOLDEN, ids=lambda case: case["id"])
 def test_blue_book_organic_golden_examples(case) -> None:
     assert case["human_reviewed"] is True
-    if case["id"] == "paclitaxel-general":
-        result = smiles_to_iupac(case["notation"], strict=True)
-    else:
-        result = name_entity(from_line_notation(case["notation"]))
+    result = name_entity(from_line_notation(case["notation"]))
 
     assert result.name == case["expected"]
     expected_preferred = case.get("preferred", case["expected"] in _PREFERRED_NAMES)

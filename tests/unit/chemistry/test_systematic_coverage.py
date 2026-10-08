@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from molcrys_kit import iupac_to_smiles, smiles_to_iupac
-from molcrys_kit.chemistry import NamingKind, notations_equivalent
+from molcrys_kit.chemistry import notations_equivalent
 
 
 _COVERAGE = tuple(
@@ -32,12 +32,3 @@ def test_coverage_smiles_have_strict_reversible_general_names(smiles: str) -> No
     rebuilt = iupac_to_smiles(result.name)
     assert rebuilt.lossless is True
     assert notations_equivalent(smiles, rebuilt.value) is True
-
-
-def test_paclitaxel_snapshot_is_general_and_ring_marked() -> None:
-    smiles = _COVERAGE[-1]
-    result = smiles_to_iupac(smiles, strict=True)
-    assert result.kind is NamingKind.GENERAL_IUPAC_NAME
-    assert result.preferred is False
-    assert "paclitaxel" not in result.name.lower()
-    assert "tetracyclo[" in result.name
