@@ -35,7 +35,6 @@ from .naming import (
     NamingResult,
     name_entity,
 )
-<<<<<<< HEAD
 from .substitutive.acyclic import alkane_stem
 from .systematic_name import NamingParseError, SystematicName
 
