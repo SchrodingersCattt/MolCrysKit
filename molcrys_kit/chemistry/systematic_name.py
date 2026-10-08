@@ -124,7 +124,10 @@ class SystematicName:
         if self.charge:
             body += self.charge
         if self.stereochemistry:
-            body = "".join(f"({item})-" for item in self.stereochemistry) + body
+            body = "".join(
+                f"({item.upper() if item.lower() in {'r', 's', 'e', 'z'} else item})-"
+                for item in self.stereochemistry
+            ) + body
         return body
 
     @classmethod
@@ -147,6 +150,18 @@ class SystematicName:
         # tokens are case-insensitive and remain normalized to lowercase.
         if normalized.startswith("n-("):
             normalized = "N-" + normalized[2:]
+        # Preserve conventional element-symbol case in isotope prefixes while
+        # keeping the surrounding name case-insensitive.
+        normalized = re.sub(
+            r"\((\d+)([a-z][a-z]?)\)(?!-)",
+            lambda match: f"({match.group(1)}{match.group(2).capitalize()})",
+            normalized,
+        )
+        normalized = re.sub(
+            r"\((\d+)?([rsez])\)-",
+            lambda match: f"({match.group(1) or ''}{match.group(2).upper()})-",
+            normalized,
+        )
         if _unbalanced_parentheses(normalized):
             raise NamingParseError("unbalanced parentheses in IUPAC name")
 
