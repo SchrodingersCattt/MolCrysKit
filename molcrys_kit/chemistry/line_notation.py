@@ -142,6 +142,18 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
     # Slash and backslash directional single-bond tokens are also representable
     # in OpenSMILES and are emitted by ``_smiles_bond`` below.
     if any(
+        atom.stereochemistry is not None
+        and atom.stereochemistry not in {"@", "@@", "@TH1", "@TH2", "@AL1", "@AL2", "@SP1", "@SP2", "@SP3"}
+        for atom in entity.atoms
+    ):
+        unsupported.append("non-OpenSMILES atom stereo tokens")
+    if any(
+        bond.stereochemistry is not None
+        and bond.stereochemistry not in {"/", "\\"}
+        for bond in entity.bonds
+    ):
+        unsupported.append("non-OpenSMILES bond stereo tokens")
+    if any(
         bond.order is None or bond.order not in {1.0, 1.5, 2.0, 3.0}
         for bond in entity.bonds
     ):
