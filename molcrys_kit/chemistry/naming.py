@@ -382,6 +382,13 @@ def _organic_result(entity, name, preferred, *trace):
     # conversion one canonical representation for every generated name.
     name = SystematicName.parse(name).serialize()
     name = _decorate_stage6_name(entity, name)
+    # Isotopic and explicitly stereochemical variants are general systematic
+    # names; the preferred flag is reserved for the existing retained/golden
+    # names.
+    if any(atom.isotope is not None for atom in entity.atoms) or any(
+        atom.stereochemistry in {"@", "@@"} for atom in entity.atoms
+    ) or any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds):
+        preferred = False
     source_status = entity.status
     status = (
         source_status
@@ -438,7 +445,7 @@ def _name_hydride(entity):
     ):
         return (
             "azanium",
-            True,
+            False,
             "Recognize the charged parent-hydride name for NH4+.",
         )
     return None
