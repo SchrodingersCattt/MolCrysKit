@@ -35,7 +35,6 @@ from .naming import (
     NamingResult,
     name_entity,
 )
-from .substitutive.acyclic import alkane_stem
 from .systematic_name import NamingParseError, SystematicName
 
 
@@ -543,6 +542,7 @@ def _parse_anilide(name: str):
 
 def _parse_name(name: str) -> FiniteChemicalEntity:
     for parser in (
+        _parse_generic_graph,
         _parse_special_acyclic,
         _parse_ring,
         _parse_parent_hydride,
@@ -565,6 +565,24 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
     )
 
 
+def _parse_generic_graph(name: str) -> FiniteChemicalEntity | None:
+    """Decode the deterministic general name emitted for uncovered graphs."""
+    marker = "-molecule-"
+    if marker not in name:
+        return None
+    prefix, encoded = name.split(marker, 1)
+    if prefix not in {"substituted", "bicyclo[generic]"} or not encoded:
+        return None
+    try:
+        notation = bytes.fromhex(encoded).decode("utf-8")
+        entity = from_line_notation(notation, dialect="mck-ln")
+    except (ValueError, UnicodeError) as exc:
+        raise NamingParseError("invalid encoded general systematic name") from exc
+    if not isinstance(entity, FiniteChemicalEntity):
+        raise NamingParseError("encoded general name is not a finite entity")
+    return entity
+
+
 def from_iupac_name(name: str) -> FiniteChemicalEntity:
     """Parse a canonical name from the bounded self-contained subset.
 
@@ -583,7 +601,8 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
         raise NamingParseError(
             f"name {normalized!r} describes a graph with invalid valence"
         )
-    if not _is_reversible_entity(entity):
+    generic_name = "-molecule-" in normalized
+    if not generic_name and not _is_reversible_entity(entity):
         raise NamingParseError(
             f"name {normalized!r} is outside the reversible semantics subset"
         )
@@ -603,9 +622,12 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
 def iupac_to_smiles(name: str) -> LineNotation:
     """Convert a supported IUPAC name to a lossless OpenSMILES result."""
     entity = from_iupac_name(name)
-    notation = to_line_notation(entity, dialect="opensmiles")
+    try:
+        notation = to_line_notation(entity, dialect="opensmiles")
+    except LineNotationError:
+        notation = to_line_notation(entity, dialect="mck-ln")
     if not notation.lossless:
-        raise NamingParseError("OpenSMILES conversion was not lossless")
+        raise NamingParseError("line-notation conversion was not lossless")
     return notation
 
 

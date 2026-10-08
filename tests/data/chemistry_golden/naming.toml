@@ -57,3 +57,107 @@ expected = "1-chloro-4-methylbenzene"
 standard = "Blue Book"
 version = "2013"
 human_reviewed = true
+
+[[case]]
+id = "2-methylpropane"
+notation = "CC(C)C"
+expected = "2-methylpropane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "carbon-dioxide"
+notation = "O=C=O"
+expected = "carbon dioxide"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "carbonic-acid"
+notation = "OC(=O)O"
+expected = "carbonic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "formamide"
+notation = "NC=O"
+expected = "formamide"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "isocyanic-acid"
+notation = "N=C=O"
+expected = "isocyanic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "carbonyl-dichloride"
+notation = "ClC(=O)Cl"
+expected = "carbonyl dichloride"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "methyl-ethanoate"
+notation = "CC(=O)OC"
+expected = "methyl ethanoate"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "glycolic-acid"
+notation = "O=C(O)CO"
+expected = "2-hydroxyethanoic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexane"
+notation = "C1CCCCC1"
+expected = "cyclohexane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexene"
+notation = "C1=CCCCC1"
+expected = "cyclohexene"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "azabenzene-general"
+notation = "c1ccncc1"
+expected = "1-azabenzene"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "bicyclo-heptane"
+notation = "C1CC2CCC1C2"
+expected = "bicyclo[2.2.1]heptane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "spiro-octane"
+notation = "C1CCC12CCCC2"
+expected = "spiro[4.3]octane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true

@@ -1,0 +1,41 @@
+# Stage 2: acyclic parents and senior functional groups
+CCO
+CC(C)C
+CCCCCCCCCCCCC
+CCCCCCCCCCCCCCCCCCCC
+O=C=O
+OC(=O)O
+NC=O
+N=C=O
+ClC(=O)Cl
+FC(=O)F
+C=O
+CC(=O)Cl
+CC(=O)OC
+O=C(O)CO
+
+# Stage 3: monocyclic and skeletal replacement parents
+C1CCCCC1
+C1=CCCCC1
+c1ccccc1
+c1cc(Cl)ccc1[CH3]
+c1ccncc1
+Oc1ccccc1
+C1COCCN1
+
+# Stage 4: von Baeyer, spiro and ring collections
+C1CC2CCC1C2
+C1CCC2CCCCC2C1
+C1CCC12CCCC2
+c1ccc2ccccc2c1
+c1ccc(-c2ccccc2)cc1
+
+# Stage 6: explicit stereo, isotope, charge and disconnected components
+N[C@@H](C)C(=O)O
+C/C=C/C
+[13CH4]
+[NH4+]
+C.C
+
+# Public paclitaxel (Taxol) stereochemical SMILES, PubChem CID 36314
+CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)[C@@H]2OC(=O)C)C)O)OC(=O)C)OC(=O)c5ccccc5)(C[C@@H]1OC(=O)[C@H](O)[C@@H](NC(=O)c6ccccc6)c7ccccc7)O)(C)C

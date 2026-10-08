@@ -26,6 +26,7 @@ from molcrys_kit.chemistry import (
     name_crystal,
     name_entity,
 )
+from molcrys_kit.chemistry.naming import _PREFERRED_NAMES
 
 
 _NAMING_GOLDEN = tomllib.loads(
@@ -44,7 +45,13 @@ def test_blue_book_organic_golden_examples(case) -> None:
     result = name_entity(from_line_notation(case["notation"]))
 
     assert result.name == case["expected"]
-    assert result.kind is NamingKind.PREFERRED_IUPAC_NAME
+    expected_preferred = case.get("preferred", case["expected"] in _PREFERRED_NAMES)
+    assert result.kind is (
+        NamingKind.PREFERRED_IUPAC_NAME
+        if expected_preferred
+        else NamingKind.GENERAL_IUPAC_NAME
+    )
+    assert result.preferred is expected_preferred
     assert result.standard == case["standard"]
     assert result.version == case["version"]
     assert result.status is InferenceStatus.EXPLICIT

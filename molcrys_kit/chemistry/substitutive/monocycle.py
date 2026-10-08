@@ -8,9 +8,7 @@ skeletal replacement names.
 
 from __future__ import annotations
 
-from collections import Counter
-
-from ..models import BondKind, FiniteChemicalEntity
+from ..models import FiniteChemicalEntity
 from .acyclic import alkane_stem
 
 

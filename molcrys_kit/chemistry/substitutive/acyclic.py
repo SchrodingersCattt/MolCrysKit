@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter, deque
 
-from ..models import BondKind, DEFAULT_VALENCE, FiniteChemicalEntity
+from ..models import BondKind, FiniteChemicalEntity
 
 
 HALOGENS = {"F": "fluoride", "Cl": "chloride", "Br": "bromide", "I": "iodide"}
@@ -230,7 +230,7 @@ def _name_acid(entity):
         parent = _carbon_parent(entity, required=carbon)
         if parent is None or parent[1][0] != carbon:
             continue
-        ordered, numbering, carbon_graph = parent[1], parent[2], parent[3]
+        ordered, numbering = parent[1], parent[2]
         # Every non-parent heavy atom must be the acid OH or a substituent OH.
         prefixes = []
         valid = True
@@ -264,7 +264,7 @@ def _name_alcohol(entity):
     parent = _carbon_parent(entity, required=hydroxys[0][1])
     if parent is None:
         return None
-    ordered, numbering, carbon_graph = parent[1], parent[2], parent[3]
+    ordered, numbering = parent[1], parent[2]
     # Keep this stage's parent handling deliberately conservative for oxygen
     # and halogen substituents; the existing benzene rules cover aromatic cases.
     if any(atoms[a].element not in {"C", "O"} for a in atoms):

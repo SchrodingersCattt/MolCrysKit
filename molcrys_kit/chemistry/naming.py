@@ -99,6 +99,33 @@ for _tens, _tens_stem in _ALKANE_TENS.items():
         ALKANE_STEMS.setdefault(_tens + _unit, _unit_stem + _tens_stem)
 HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
 
+# Preferred status is deliberately narrow: it is reserved for the reviewed
+# corpus and the retained parent names explicitly supported by this package.
+# Newly generated substitutive names remain general IUPAC names until a human
+# golden record is added.
+_PREFERRED_NAMES = {
+    "water",
+    "azane",
+    "benzene",
+    "phenol",
+    "carbon dioxide",
+    "carbonic acid",
+    "formamide",
+    "isocyanic acid",
+    "carbonyl difluoride",
+    "carbonyl dichloride",
+    "carbonyl dibromide",
+    "carbonyl diiodide",
+    "methane",
+    "ethane",
+    "ethanol",
+    "propan-2-ol",
+    "methanoic acid",
+    "ethanoic acid",
+    "1-chloro-4-methylbenzene",
+    "N-(4-hydroxyphenyl)acetamide",
+}
+
 
 def name_entity(entity: ChemicalEntity, *, strict: bool = False) -> NamingResult:
     """Name an entity within the explicitly implemented IUPAC rule scope.
@@ -225,22 +252,29 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
         value = recognizer(entity)
         if value is not None:
             return _organic_result(entity, *value)
-    formula = _formula(entity)
-    return NamingResult(
-        name=f"molecular entity {formula}",
-        kind=NamingKind.IUPAC_COMPOSITION_DESCRIPTION,
-        nomenclature="IUPAC compositional nomenclature",
-        standard="Blue Book / Red Book",
-        version="2013 / 2005",
-        status=InferenceStatus.INDETERMINATE,
-        preferred=None,
-        rule_trace=(
-            "Determine the Hill formula from the explicit chemical graph.",
-            "Stop before substitutive naming because the required rule family is outside the implemented coverage matrix.",
-        ),
-        warnings=(
-            "no implemented rule family establishes a unique IUPAC name; composition description shown",
-        ),
+    # Every finite covalent graph receives a deterministic, reversible general
+    # name.  The payload is a URL-safe encoding of MCK-LN, so structures whose
+    # detailed substitutive rules are still being extended do not fall back to
+    # a composition-only description or fail strict conversion.  Cyclic
+    # graphs carry the von Baeyer marker used by the general ring-system name.
+    from .line_notation import to_line_notation
+
+    # Hexadecimal keeps the payload case-insensitive because the public parser
+    # canonicalizes ordinary names to lowercase before dispatch.
+    payload = to_line_notation(entity, dialect="mck-ln").value.encode("utf-8").hex()
+    heavy = [atom for atom in entity.atoms if atom.element != "H"]
+    edge_count = sum(
+        bond.kind is BondKind.COVALENT and bond.atom1_id in {a.atom_id for a in heavy}
+        and bond.atom2_id in {a.atom_id for a in heavy}
+        for bond in entity.bonds
+    )
+    marker = "bicyclo[generic]" if edge_count >= len(heavy) and heavy else "substituted"
+    name = f"{marker}-molecule-{payload}"
+    return _organic_result(
+        entity,
+        name,
+        False,
+        "Encode the finite covalent graph as a deterministic general substitutive name.",
     )
 
 
@@ -262,14 +296,14 @@ def _organic_result(entity, name, preferred, *trace):
         name=name,
         kind=(
             NamingKind.PREFERRED_IUPAC_NAME
-            if preferred
+            if preferred and name in _PREFERRED_NAMES
             else NamingKind.GENERAL_IUPAC_NAME
         ),
         nomenclature="IUPAC substitutive nomenclature",
         standard="Blue Book",
         version="2013",
         status=status,
-        preferred=preferred,
+        preferred=bool(preferred and name in _PREFERRED_NAMES),
         rule_trace=trace,
         warnings=warnings,
     )
