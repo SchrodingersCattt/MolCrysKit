@@ -11,13 +11,13 @@ from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 
+from . import models as _models
 from .substitutive.polycycle import name_polycycle
 
 from .models import (
     BondKind,
     ChemicalEntity,
     CrystalChemistry,
-    DEFAULT_VALENCE,
     FiniteChemicalEntity,
     InferenceStatus,
     MulticomponentEntity,
@@ -26,6 +26,11 @@ from .models import (
 )
 from .systematic_name import SystematicName
 from .stereo import StereoKind, assign_stereochemistry
+
+
+# Retain the module-level alias used by callers that compare the chemistry
+# modules' shared valence table.  The legacy valence checker itself is gone.
+DEFAULT_VALENCE = _models.DEFAULT_VALENCE
 
 
 class NamingKind(str, Enum):
@@ -238,8 +243,8 @@ def name_crystal(structure_or_chemistry, *, strict: bool = False) -> NamingResul
 
 
 def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
-    # The substitutive modules are imported lazily so the legacy helper
-    # functions below remain available to callers and to older worktrees.
+    # The substitutive modules are imported lazily to keep naming imports
+    # lightweight and to avoid circular imports through the parser.
     from .substitutive.acyclic import name_acyclic
     from .substitutive.monocycle import name_monocycle
 
@@ -253,9 +258,6 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
     for recognizer in (
         _name_hydride,
         _name_polycycle,
-        _name_hydrocarbon,
-        _name_alcohol,
-        _name_carboxylic_acid,
         _name_anilide,
         _name_benzene_family,
     ):
@@ -340,8 +342,6 @@ def _name_disconnected(entity: FiniteChemicalEntity):
             evidence=entity.evidence,
         )
         result = name_entity(component)
-        if result.name.startswith("molecular entity "):
-            return None
         values.append(result.name)
     counts = Counter(values)
     description = " · ".join(
@@ -476,108 +476,6 @@ def _name_hydride(entity):
             "Recognize the charged parent-hydride name for NH4+.",
         )
     return None
-
-
-def _name_hydrocarbon(entity):
-    if set(_element_counts(entity)) - {"C", "H"}:
-        return None
-    carbons = [atom.atom_id for atom in entity.atoms if atom.element == "C"]
-    chain = _unbranched_carbon_chain(entity, carbons)
-    if chain is None or not _all_bonds(entity, {1.0}):
-        return None
-    if not _normal_valence(entity):
-        return None
-    stem = ALKANE_STEMS.get(len(chain))
-    if stem is None:
-        return None
-    return (
-        stem + "ane",
-        True,
-        "Select the longest unbranched saturated carbon parent.",
-        "Apply the acyclic hydrocarbon suffix -ane.",
-    )
-
-
-def _name_alcohol(entity):
-    heavy = [atom for atom in entity.atoms if atom.element != "H"]
-    oxygens = [atom for atom in heavy if atom.element == "O"]
-    if len(oxygens) != 1 or any(atom.element not in {"C", "O"} for atom in heavy):
-        return None
-    oxygen = oxygens[0]
-    adjacency = _adjacency(entity)
-    carbon_neighbors = [
-        neighbor
-        for neighbor, bond in adjacency[oxygen.atom_id]
-        if _atom(entity, neighbor).element == "C" and bond.order == 1.0
-    ]
-    if len(carbon_neighbors) != 1 or _hydrogen_count(entity, oxygen.atom_id) != 1:
-        return None
-    carbons = [atom.atom_id for atom in heavy if atom.element == "C"]
-    chain = _unbranched_carbon_chain(entity, carbons)
-    if chain is None or not _all_bonds(entity, {1.0}) or not _normal_valence(entity):
-        return None
-    stem = ALKANE_STEMS.get(len(chain))
-    if stem is None:
-        return None
-    positions = [
-        chain.index(carbon_neighbors[0]) + 1,
-        tuple(reversed(chain)).index(carbon_neighbors[0]) + 1,
-    ]
-    locant = min(positions)
-    if len(chain) == 1:
-        name = "methanol"
-    elif len(chain) == 2:
-        name = "ethanol"
-    else:
-        name = f"{stem}an-{locant}-ol"
-    return (
-        name,
-        True,
-        "Select the longest carbon chain containing the hydroxy-bearing carbon.",
-        "Number the chain to give the hydroxy suffix the lowest locant.",
-        "Apply the suffix -ol.",
-    )
-
-
-def _name_carboxylic_acid(entity):
-    adjacency = _adjacency(entity)
-    carboxyl = None
-    for atom in entity.atoms:
-        if atom.element != "C":
-            continue
-        oxygens = [
-            (neighbor, bond)
-            for neighbor, bond in adjacency[atom.atom_id]
-            if _atom(entity, neighbor).element == "O"
-        ]
-        double = [neighbor for neighbor, bond in oxygens if bond.order == 2.0]
-        hydroxy = [
-            neighbor
-            for neighbor, bond in oxygens
-            if bond.order == 1.0 and _hydrogen_count(entity, neighbor) == 1
-        ]
-        if len(double) == 1 and len(hydroxy) == 1:
-            carboxyl = atom.atom_id
-            break
-    if carboxyl is None:
-        return None
-    if any(atom.element not in {"C", "H", "O"} for atom in entity.atoms):
-        return None
-    carbons = [atom.atom_id for atom in entity.atoms if atom.element == "C"]
-    chain = _unbranched_carbon_chain(entity, carbons)
-    if chain is None or carboxyl not in {chain[0], chain[-1]}:
-        return None
-    if sum(atom.element == "O" for atom in entity.atoms) != 2:
-        return None
-    stem = ALKANE_STEMS.get(len(chain))
-    if stem is None:
-        return None
-    return (
-        stem + "anoic acid",
-        True,
-        "Select the chain containing the carboxylic acid characteristic atom.",
-        "Assign the carboxyl carbon locant one and apply the suffix -oic acid.",
-    )
 
 
 def _name_anilide(entity):
@@ -821,52 +719,6 @@ def _hydrogen_count(entity, atom_id):
         for neighbor, _ in _adjacency(entity)[atom_id]
     )
     return explicit_neighbors + (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
-
-
-def _normal_valence(entity):
-    adjacency = _adjacency(entity)
-    for atom in entity.atoms:
-        if atom.element not in DEFAULT_VALENCE:
-            continue
-        bond_sum = sum(bond.order or 0.0 for _, bond in adjacency[atom.atom_id])
-        bond_sum += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
-        if abs(bond_sum - DEFAULT_VALENCE[atom.element]) > 1e-8:
-            return False
-    return True
-
-
-def _all_bonds(entity, orders):
-    return all(
-        bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN}
-        and bond.order in orders
-        for bond in entity.bonds
-    )
-
-
-def _unbranched_carbon_chain(entity, carbon_ids):
-    if not carbon_ids:
-        return None
-    carbon_set = set(carbon_ids)
-    adjacency = _adjacency(entity)
-    carbon_neighbors = {
-        atom_id: [neighbor for neighbor, _ in adjacency[atom_id] if neighbor in carbon_set]
-        for atom_id in carbon_ids
-    }
-    if any(len(values) > 2 for values in carbon_neighbors.values()):
-        return None
-    if len(carbon_ids) == 1:
-        return tuple(carbon_ids)
-    endpoints = [atom_id for atom_id, values in carbon_neighbors.items() if len(values) == 1]
-    if len(endpoints) != 2:
-        return None
-    chain = []
-    previous = None
-    current = min(endpoints)
-    while current is not None:
-        chain.append(current)
-        candidates = [value for value in carbon_neighbors[current] if value != previous]
-        previous, current = current, (candidates[0] if candidates else None)
-    return tuple(chain) if len(chain) == len(carbon_ids) else None
 
 
 def _six_carbon_ring(entity):
