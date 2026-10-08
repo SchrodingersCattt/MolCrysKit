@@ -24,6 +24,11 @@ _COVERAGE = tuple(
 def test_coverage_smiles_have_strict_reversible_general_names(smiles: str) -> None:
     result = smiles_to_iupac(smiles, strict=True)
     assert not result.name.startswith("molecular entity ")
+    # A von Baeyer marker must describe a named ring system.  The former
+    # generic fallback used ``bicyclo[generic]-molecule-<hex MCK-LN>``; that
+    # payload is an internal serialization, not a systematic name.
+    assert not result.name.startswith("bicyclo[generic]-molecule-")
+    assert "MCK-LN" not in result.name
     rebuilt = iupac_to_smiles(result.name)
     assert rebuilt.lossless is True
     assert notations_equivalent(smiles, rebuilt.value) is True
