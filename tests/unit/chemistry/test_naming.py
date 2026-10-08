@@ -18,7 +18,6 @@ from molcrys_kit.chemistry import (
     CrystalChemistry,
     InferenceStatus,
     MulticomponentEntity,
-    NamingIndeterminateError,
     NamingKind,
     PeriodicChemicalEntity,
     PolymerChemicalEntity,
@@ -71,17 +70,15 @@ def test_acetaminophen_is_named_from_graph_not_cif_name() -> None:
     assert "wrong source name" not in result.name
 
 
-def test_unsupported_finite_entity_returns_honest_composition_description() -> None:
+def test_uncovered_finite_entity_gets_a_reversible_general_name() -> None:
     entity = from_line_notation("C#N")
 
     result = name_entity(entity)
 
-    assert result.name == "molecular entity CN"
-    assert result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
-    assert result.status is InferenceStatus.INDETERMINATE
-    assert "unique IUPAC name" in result.warnings[0]
-    with pytest.raises(NamingIndeterminateError):
-        name_entity(entity, strict=True)
+    assert not result.name.startswith("molecular entity ")
+    assert result.kind is NamingKind.GENERAL_IUPAC_NAME
+    assert result.preferred is False
+    assert result.status is InferenceStatus.EXPLICIT
 
 
 def test_periodic_entity_reports_dimension_without_inventing_network_name() -> None:

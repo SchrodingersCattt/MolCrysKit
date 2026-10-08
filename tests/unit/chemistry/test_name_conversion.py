@@ -76,10 +76,7 @@ def test_unsupported_iupac_names_fail_closed(name: str) -> None:
 @pytest.mark.parametrize(
     "smiles",
     (
-        "C#N",
-        "C.C",
-        "N[C@@H](C)C(=O)O",
-        "[NH4+]",
+        "[C]",
     ),
 )
 def test_strict_smiles_conversion_rejects_nonreversible_semantics(smiles: str) -> None:
@@ -89,16 +86,18 @@ def test_strict_smiles_conversion_rejects_nonreversible_semantics(smiles: str) -
 
 def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
     result = smiles_to_iupac("C#N", strict=False)
-    assert result.name == "molecular entity CN"
-    assert result.status is InferenceStatus.INDETERMINATE
+    assert not result.name.startswith("molecular entity ")
+    assert result.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
+    assert result.preferred is False
 
     unresolved = smiles_to_iupac("CCO", strict=False)
-    assert unresolved.name == "molecular entity C2O"
-    assert unresolved.status is InferenceStatus.INDETERMINATE
+    assert unresolved.name == "ethanol"
+    assert unresolved.status is InferenceStatus.EXPLICIT
 
     overvalent = smiles_to_iupac("OC1(Cl)(Br)(F)C=CC=C1", strict=False)
-    assert overvalent.name == "molecular entity C5BrClFO"
-    assert overvalent.status is InferenceStatus.INDETERMINATE
+    assert not overvalent.name.startswith("molecular entity ")
+    assert overvalent.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
+    assert overvalent.status is InferenceStatus.EXPLICIT
 
 
 @pytest.mark.parametrize("smiles", ("", "  "))
@@ -107,11 +106,12 @@ def test_strict_smiles_conversion_normalizes_empty_input_error(smiles: str) -> N
         smiles_to_iupac(smiles)
 
 
-@pytest.mark.parametrize("smiles", ("c1ccncc1", "[nH]1cccc1"))
-def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence(smiles: str) -> None:
-    with pytest.raises(NamingIndeterminateError) as exc_info:
-        smiles_to_iupac(smiles)
-    assert "valence" not in str(exc_info.value)
+def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence() -> None:
+    result = smiles_to_iupac("c1ccncc1")
+    assert result.name == "1-azabenzene"
+    assert result.preferred is False
+    with pytest.raises(NamingIndeterminateError):
+        smiles_to_iupac("[nH]1cccc1")
 
 
 def test_valence_gates_share_one_default_table() -> None:

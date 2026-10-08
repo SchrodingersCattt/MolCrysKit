@@ -35,7 +35,7 @@ from .naming import (
     NamingResult,
     name_entity,
 )
-from .stereo import StereoKind, assign_stereochemistry
+from .stereo import assign_stereochemistry
 from .systematic_name import NamingParseError, SystematicName
 
 
@@ -769,6 +769,13 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
 def iupac_to_smiles(name: str) -> LineNotation:
     """Convert a supported IUPAC name to a lossless OpenSMILES result."""
     entity = from_iupac_name(name)
+    if "-molecule-" in name.lower():
+        # General graph names carry full MCK-LN semantics (including any
+        # stereo/isotope fields that OpenSMILES cannot serialize losslessly).
+        notation = to_line_notation(entity, dialect="mck-ln")
+        if not notation.lossless:
+            raise NamingParseError("MCK-LN conversion was not lossless")
+        return notation
     try:
         notation = _lossless_stereo_notation(entity)
     except LineNotationError:

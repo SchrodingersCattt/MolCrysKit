@@ -97,14 +97,19 @@ def test_opensmiles_supported_subset_round_trips(text: str) -> None:
     assert _graph_signature(reparsed) == _graph_signature(entity)
 
 
-def test_opensmiles_parser_retains_stereo_tokens_then_uses_lossless_extension() -> None:
+def test_opensmiles_parser_retains_stereo_tokens_in_lossless_opensmiles() -> None:
     entity = from_line_notation("N[C@@H](C)C(=O)O")
 
     center = next(atom for atom in entity.atoms if atom.stereochemistry)
     assert center.stereochemistry == "@@"
     generated = to_line_notation(entity)
-    assert generated.dialect == "MCK-LN"
-    assert from_line_notation(generated.value).atoms[1].stereochemistry == "@@"
+    assert generated.dialect == "OpenSMILES"
+    assert generated.lossless is True
+    assert "@@" in generated.value
+    assert any(
+        atom.stereochemistry == "@@"
+        for atom in from_line_notation(generated.value).atoms
+    )
 
 
 def test_mck_ln_round_trip_preserves_full_finite_graph_and_embedding() -> None:

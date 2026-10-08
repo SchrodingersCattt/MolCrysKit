@@ -76,7 +76,7 @@ human_reviewed = true
 
 [[case]]
 id = "carbonic-acid"
-notation = "OC(=O)O"
+notation = "[OH][C](=[O])[OH]"
 expected = "carbonic acid"
 standard = "Blue Book"
 version = "2013"
@@ -116,7 +116,7 @@ human_reviewed = true
 
 [[case]]
 id = "glycolic-acid"
-notation = "O=C(O)CO"
+notation = "[O]=[C]([OH])[CH2][OH]"
 expected = "2-hydroxyethanoic acid"
 standard = "Blue Book"
 version = "2013"
