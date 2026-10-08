@@ -34,6 +34,8 @@ from .naming import (
     NamingResult,
     name_entity,
 )
+<<<<<<< HEAD
+from .substitutive.acyclic import alkane_stem
 from .systematic_name import NamingParseError, SystematicName
 
 
@@ -54,6 +56,14 @@ _ALCOHOL_PATTERN = re.compile(r"^(?P<stem>[a-z]+)an-(?P<locant>\d+)-ol$")
 _ANILIDE_PATTERN = re.compile(
     r"^n-\((?P<phenyl>[^()]+)phenyl\)(?P<parent>[a-z]+amide)$"
 )
+
+
+def _stem_count(stem: str) -> int | None:
+    """Resolve a generated alkane stem, including C13 and longer chains."""
+    for count, value in sorted(ALKANE_STEMS.items(), key=lambda item: len(item[1]), reverse=True):
+        if value == stem:
+            return count
+    return None
 
 
 def _normalize_name(name: str) -> str:
@@ -155,8 +165,36 @@ def _parse_alkane(name: str):
     if not name.endswith("ane"):
         return None
     stem = name[:-3]
-    count = _STEM_TO_CARBON_COUNT.get(stem)
+    count = _stem_count(stem)
     if count is None:
+        # Detachable alkyl prefixes on the parent alkane (currently methyl and
+        # the halogens emitted by the acyclic rules).  Parse the parent stem
+        # from the end so e.g. ``2-methylpropane`` remains unambiguous.
+        for candidate in sorted(ALKANE_STEMS.values(), key=len, reverse=True):
+            suffix = candidate + "ane"
+            if not name.endswith(suffix):
+                continue
+            prefix_text = name[: -len(suffix)].rstrip("-")
+            if not prefix_text:
+                continue
+            parent_count = _stem_count(candidate)
+            try:
+                prefixes = _parse_prefixes(prefix_text)
+            except NamingParseError:
+                continue
+            if any(prefix != "methyl" for _, prefix in prefixes):
+                continue
+            atoms, bonds = _carbon_chain(parent_count, name=name)
+            carbon_by_locant = {index + 1: atom for index, atom in enumerate(atoms)}
+            for locant, _ in prefixes:
+                if locant not in carbon_by_locant:
+                    raise NamingParseError("alkane locant is outside the parent chain")
+                carbon = carbon_by_locant[locant]
+                atoms[atoms.index(carbon)] = _atom(carbon.atom_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 1))
+                branch_id = f"M{locant}"
+                atoms.append(_atom(branch_id, "C", 3))
+                bonds.append(_bond(carbon.atom_id, branch_id, 1.0))
+            return _entity(name, atoms, bonds)
         return None
     atoms, bonds = _carbon_chain(count, name=name)
     return _entity(name, atoms, bonds)
@@ -190,8 +228,20 @@ def _parse_alcohol(name: str):
 def _parse_acid(name: str):
     if not name.endswith("anoic acid"):
         return None
-    stem = name[: -len("anoic acid")]
-    count = _STEM_TO_CARBON_COUNT.get(stem)
+    body = name[: -len("anoic acid")]
+    prefixes = []
+    stem = None
+    for candidate in sorted(ALKANE_STEMS.values(), key=len, reverse=True):
+        if body.endswith(candidate):
+            stem = candidate
+            prefix_text = body[: -len(candidate)].rstrip("-")
+            if prefix_text:
+                try:
+                    prefixes = _parse_prefixes(prefix_text)
+                except NamingParseError:
+                    continue
+            break
+    count = _stem_count(stem) if stem is not None else None
     if count is None:
         return None
     atoms, bonds = _carbon_chain(count, name=name, terminal_group="acid")
@@ -203,7 +253,145 @@ def _parse_acid(name: str):
             _bond(carbonyl_id, "O2", 1.0),
         )
     )
+    for locant, prefix in prefixes:
+        if prefix != "hydroxy" or not 1 <= locant <= count:
+            raise NamingParseError("acid prefix must be a hydroxy group on the parent chain")
+        carbon_id = f"C{locant}"
+        carbon = next(atom for atom in atoms if atom.atom_id == carbon_id)
+        atoms[atoms.index(carbon)] = _atom(carbon_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 1))
+        oxygen_id = f"OH{locant}"
+        atoms.append(_atom(oxygen_id, "O", 1))
+        bonds.append(_bond(carbon_id, oxygen_id, 1.0))
     return _entity(name, atoms, bonds)
+
+
+def _parse_functional_acyclic(name: str):
+    match = re.fullmatch(r"(?P<stem>[a-z]+)anoyl (?P<halide>fluoride|chloride|bromide|iodide)", name)
+    if match:
+        count = _stem_count(match.group("stem"))
+        if count is None:
+            return None
+        element = {"fluoride": "F", "chloride": "Cl", "bromide": "Br", "iodide": "I"}[match.group("halide")]
+        atoms, bonds = _carbon_chain(count, name=name, terminal_group="carbonyl")
+        atoms.extend((_atom("O1", "O"), _atom("X1", element)))
+        bonds.extend((_bond("C1", "O1", 2.0), _bond("C1", "X1", 1.0)))
+        return _entity(name, atoms, bonds)
+    match = re.fullmatch(r"(?P<stem>[a-z]+)an?amide", name)
+    if match:
+        stem = match.group("stem")
+        count = _stem_count(stem)
+        if count is None or count < 3:
+            return None
+        atoms, bonds = _carbon_chain(count, name=name, terminal_group="carbonyl")
+        atoms.extend((_atom("O1", "O"), _atom("N1", "N", 2)))
+        bonds.extend((_bond("C1", "O1", 2.0), _bond("C1", "N1", 1.0)))
+        return _entity(name, atoms, bonds)
+    match = re.fullmatch(r"(?P<alkyl>[a-z]+) (?P<acid>[a-z]+)anoate", name)
+    if match:
+        side_count = _stem_count(match.group("alkyl").removesuffix("yl"))
+        acid_count = _stem_count(match.group("acid"))
+        if side_count is None or acid_count is None:
+            return None
+        acid_atoms, acid_bonds = _carbon_chain(acid_count, name=name, terminal_group="carbonyl")
+        # The oxygen is attached to the acid carbonyl and to a separate alkyl
+        # chain; keep stable IDs to make round-trip graph comparisons simple.
+        atoms = [*acid_atoms, _atom("O1", "O")]
+        bonds = [*acid_bonds, _bond("C1", "O1", 1.0)]
+        side_atoms, side_bonds = _carbon_chain(side_count, name=name)
+        remapped = []
+        for atom in side_atoms:
+            hydrogens = atom.implicit_hydrogens
+            if atom.atom_id == "C1":
+                hydrogens = max(0, (hydrogens or 0) - 1)
+            remapped.append(_atom(f"A{atom.atom_id[1:]}", "C", hydrogens))
+        atoms.extend(remapped)
+        for bond in side_bonds:
+            remapped_bond = _bond(f"A{bond.atom1_id[1:]}", f"A{bond.atom2_id[1:]}", bond.order)
+            bonds.append(remapped_bond)
+        bonds.append(_bond("O1", "A1", 1.0))
+        atoms.append(_atom("O2", "O"))
+        bonds.append(_bond("C1", "O2", 2.0))
+        return _entity(name, atoms, bonds)
+    return None
+
+
+def _parse_special_acyclic(name: str):
+    if name == "carbon dioxide":
+        atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("O2", "O")]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "O2", 2.0)])
+    if name == "carbonic acid":
+        atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("O2", "O", 1), _atom("O3", "O", 1)]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "O2", 1.0), _bond("C1", "O3", 1.0)])
+    if name == "formamide":
+        atoms = [_atom("C1", "C", 1), _atom("O1", "O"), _atom("N1", "N", 2)]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "N1", 1.0)])
+    if name == "isocyanic acid":
+        atoms = [_atom("C1", "C"), _atom("N1", "N", 1), _atom("O1", "O")]
+        return _entity(name, atoms, [_bond("C1", "N1", 2.0), _bond("C1", "O1", 2.0)])
+    match = re.fullmatch(r"carbonyl (di(?:fluoride|chloride|bromide|iodide))", name)
+    if match:
+        suffix = match.group(1)
+        element = {"difluoride": "F", "dichloride": "Cl", "dibromide": "Br", "diiodide": "I"}[suffix]
+        atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("X1", element), _atom("X2", element)]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "X1", 1.0), _bond("C1", "X2", 1.0)])
+    if name == "methanal":
+        return _entity(name, [_atom("C1", "C", 2), _atom("O1", "O")], [_bond("C1", "O1", 2.0)])
+    return None
+
+
+def _parse_ring(name: str):
+    match = re.fullmatch(r"cyclo(?P<stem>[a-z]+)(?P<unsat>ane|ene)", name)
+    if match:
+        count = _stem_count(match.group("stem"))
+        if count is None or count < 3:
+            return None
+        atoms = [_atom(f"C{i}", "C") for i in range(1, count + 1)]
+        bonds = []
+        unsat = match.group("unsat") == "ene"
+        for i in range(1, count + 1):
+            order = 2.0 if unsat and i == 1 else 1.0
+            bonds.append(_bond(f"C{i}", f"C{i % count + 1}", order))
+        # Complete the standard valences for the parent ring explicitly.
+        for i, atom in enumerate(atoms, 1):
+            bond_sum = sum(b.order for b in bonds if atom.atom_id in {b.atom1_id, b.atom2_id})
+            atoms[i - 1] = _atom(atom.atom_id, "C", int(4 - bond_sum))
+        return _entity(name, atoms, bonds)
+    match = re.fullmatch(r"(?P<prefixes>(?:(?:\d+-(?:aza|oxa|thia)-)*\d+-(?:aza|oxa|thia)))cyclo(?P<stem>[a-z]+)ane", name)
+    if match:
+        count = _stem_count(match.group("stem"))
+        if count is None:
+            return None
+        values = re.findall(r"(\d+)-(aza|oxa|thia)", match.group("prefixes"))
+        if not values:
+            return None
+        elements = ["C"] * count
+        for locant, prefix in values:
+            loc = int(locant)
+            if not 1 <= loc <= count:
+                raise NamingParseError("ring locant outside parent")
+            elements[loc - 1] = {"aza": "N", "oxa": "O", "thia": "S"}[prefix]
+        atoms = [_atom(f"A{i}", element) for i, element in enumerate(elements, 1)]
+        bonds = [_bond(f"A{i}", f"A{i % count + 1}", 1.0) for i in range(1, count + 1)]
+        for i, atom in enumerate(atoms, 1):
+            target = {"C": 4.0, "N": 3.0, "O": 2.0, "S": 2.0}[atom.element]
+            bond_sum = sum(b.order for b in bonds if atom.atom_id in {b.atom1_id, b.atom2_id})
+            atoms[i - 1] = _atom(atom.atom_id, atom.element, int(target - bond_sum))
+        return _entity(name, atoms, bonds)
+    match = re.fullmatch(r"(?P<prefixes>(?:(?:\d+-(?:aza|oxa|thia)-)*\d+-(?:aza|oxa|thia)))benzene", name)
+    if match:
+        values = re.findall(r"(\d+)-(aza|oxa|thia)", match.group("prefixes"))
+        if not values:
+            return None
+        elements = ["C"] * 6
+        for locant, prefix in values:
+            loc = int(locant)
+            if not 1 <= loc <= 6:
+                raise NamingParseError("benzene locant outside parent")
+            elements[loc - 1] = {"aza": "N", "oxa": "O", "thia": "S"}[prefix]
+        atoms = [_atom(f"A{i}", element, 0) for i, element in enumerate(elements, 1)]
+        bonds = [_bond(f"A{i}", f"A{i % 6 + 1}", 1.5, aromatic=True) for i in range(1, 7)]
+        return _entity(name, atoms, bonds)
+    return None
 
 
 def _parse_prefixes(text: str):
@@ -355,10 +543,13 @@ def _parse_anilide(name: str):
 
 def _parse_name(name: str) -> FiniteChemicalEntity:
     for parser in (
+        _parse_special_acyclic,
+        _parse_ring,
         _parse_parent_hydride,
         _parse_alkane,
         _parse_alcohol,
         _parse_acid,
+        _parse_functional_acyclic,
         _parse_anilide,
         _parse_benzene,
     ):
@@ -548,6 +739,11 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
                 "SMILES is empty or invalid OpenSMILES notation"
             ) from exc
         raise
+    # OpenSMILES default hydrogens are part of the input notation semantics in
+    # both modes.  Completing before dispatch keeps ``CCO`` deterministic in
+    # non-strict mode as well as in the reversible strict path.
+    if isinstance(entity, FiniteChemicalEntity):
+        entity = complete_open_smiles_hydrogens(entity)
     if not isinstance(entity, FiniteChemicalEntity) or not _is_reversible_entity(entity):
         if strict:
             if isinstance(entity, FiniteChemicalEntity) and not _valence_not_exceeded(entity):
@@ -558,7 +754,7 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
                 "SMILES contains semantics outside the reversible naming subset"
             )
         return name_entity(entity)
-    naming_entity = complete_open_smiles_hydrogens(entity) if strict else entity
+    naming_entity = entity
     if strict and not _is_reversible_entity(naming_entity):
         raise NamingIndeterminateError(
             "SMILES exceeds the default valence of one or more atoms"
