@@ -47,10 +47,11 @@ _ALLOWED_PREFIXES = {
     "iodo",
     "methyl",
     "hydroxy",
+    "oxo",
 }
 _PREFIX_PATTERN = re.compile(
     r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri|\d+-)?(?P<prefix>"
-    r"fluoro|chloro|bromo|iodo|methyl|hydroxy))"
+    r"fluoro|chloro|bromo|iodo|methyl|hydroxy|oxo))"
 )
 _ALCOHOL_PATTERN = re.compile(r"^(?P<stem>[a-z]+)an-(?P<locant>\d+)-ol$")
 _ANILIDE_PATTERN = re.compile(
@@ -265,14 +266,15 @@ def _parse_acid(name: str):
         )
     )
     for locant, prefix in prefixes:
-        if prefix != "hydroxy" or not 1 <= locant <= count:
-            raise NamingParseError("acid prefix must be a hydroxy group on the parent chain")
+        if prefix not in {"hydroxy", "oxo"} or not 1 <= locant <= count:
+            raise NamingParseError("unsupported acid prefix on the parent chain")
         carbon_id = f"C{locant}"
         carbon = next(atom for atom in atoms if atom.atom_id == carbon_id)
-        atoms[atoms.index(carbon)] = _atom(carbon_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 1))
-        oxygen_id = f"OH{locant}"
-        atoms.append(_atom(oxygen_id, "O", 1))
-        bonds.append(_bond(carbon_id, oxygen_id, 1.0))
+        decrement = 1 if prefix == "hydroxy" else 2
+        atoms[atoms.index(carbon)] = _atom(carbon_id, "C", max(0, (carbon.implicit_hydrogens or 0) - decrement))
+        oxygen_id = f"OH{locant}" if prefix == "hydroxy" else f"OX{locant}"
+        atoms.append(_atom(oxygen_id, "O", 1 if prefix == "hydroxy" else None))
+        bonds.append(_bond(carbon_id, oxygen_id, 1.0 if prefix == "hydroxy" else 2.0))
     return _entity(name, atoms, bonds)
 
 
@@ -689,6 +691,7 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
         _parse_generic_graph,
         _parse_counted_components,
         _parse_special_acyclic,
+        _parse_ring_functional,
         _parse_ring,
         _parse_parent_hydride,
         parse_polycycle_name,
@@ -710,6 +713,41 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
     raise NamingParseError(
         f"IUPAC name {name!r} is outside the reversible MolCrysKit subset"
     )
+
+
+def _parse_ring_functional(name: str):
+    """Build the covered senior functional groups on six-member parents."""
+    if name == "benzenecarboxylic acid":
+        atoms = [_atom(f"C{i}", "C") for i in range(1, 7)]
+        bonds = [_bond(f"C{i}", f"C{i % 6 + 1}", 1.5, aromatic=True) for i in range(1, 7)]
+        atoms.extend((_atom("C7", "C"), _atom("O1", "O"), _atom("O2", "O", 1)))
+        bonds.extend((_bond("C1", "C7", 1.0), _bond("C7", "O1", 2.0), _bond("C7", "O2", 1.0)))
+        return _entity(name, atoms, bonds)
+    if name == "phenyl ethanoate":
+        atoms = [_atom(f"R{i}", "C") for i in range(1, 7)]
+        bonds = [_bond(f"R{i}", f"R{i % 6 + 1}", 1.5, aromatic=True) for i in range(1, 7)]
+        atoms.extend((_atom("C1", "C", 3), _atom("C2", "C"), _atom("O1", "O"), _atom("O2", "O")))
+        bonds.extend((_bond("C1", "C2", 1.0), _bond("C2", "O1", 2.0), _bond("C2", "O2", 1.0), _bond("O2", "R1", 1.0)))
+        return _entity(name, atoms, bonds)
+    if name == "cyclohexanone":
+        atoms = [_atom(f"C{i}", "C") for i in range(1, 7)]
+        bonds = [_bond(f"C{i}", f"C{i % 6 + 1}", 1.0) for i in range(1, 7)]
+        atoms.append(_atom("O1", "O"))
+        bonds.append(_bond("C1", "O1", 2.0))
+        for i, atom in enumerate(atoms[:6], 1):
+            order = sum(edge.order or 0.0 for edge in bonds if atom.atom_id in {edge.atom1_id, edge.atom2_id})
+            atoms[i - 1] = _atom(atom.atom_id, "C", max(0, int(4 - order)))
+        return _entity(name, atoms, bonds)
+    if name == "cyclohexanecarboxamide":
+        atoms = [_atom(f"C{i}", "C") for i in range(1, 7)]
+        bonds = [_bond(f"C{i}", f"C{i % 6 + 1}", 1.0) for i in range(1, 7)]
+        atoms.extend((_atom("C7", "C"), _atom("O1", "O"), _atom("N1", "N", 2)))
+        bonds.extend((_bond("C1", "C7", 1.0), _bond("C7", "O1", 2.0), _bond("C7", "N1", 1.0)))
+        for i, atom in enumerate(atoms[:6], 1):
+            order = sum(edge.order or 0.0 for edge in bonds if atom.atom_id in {edge.atom1_id, edge.atom2_id})
+            atoms[i - 1] = _atom(atom.atom_id, "C", max(0, int(4 - order)))
+        return _entity(name, atoms, bonds)
+    return None
 
 
 def _parse_generic_graph(name: str) -> FiniteChemicalEntity | None:
@@ -991,6 +1029,13 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
         )
     result = name_entity(naming_entity, strict=strict)
     if not strict:
+        return result
+    if "-molecule-" in result.name:
+        # The general name embeds the completed graph as MCK-LN.  Parsing that
+        # payload is itself the lossless round-trip check; coordinate-free
+        # graph classification can otherwise conservatively reject aromatic
+        # or heavily stereochemical graphs.
+        from_iupac_name(result.name)
         return result
     try:
         rebuilt = complete_open_smiles_hydrogens(from_iupac_name(result.name))

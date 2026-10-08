@@ -30,6 +30,13 @@ C1CCC12CCCC2
 c1ccc2ccccc2c1
 c1ccc(-c2ccccc2)cc1
 
+# Stage 5: senior functional groups on ring systems and mixed acyclic parents
+O=C(O)c1ccccc1
+CC(=O)Oc1ccccc1
+NC(=O)C1CCCCC1
+O=C1CCCCC1
+CC(=O)CC(=O)O
+
 # Stage 6: explicit stereo, isotope, charge and disconnected components
 N[C@@H](C)C(=O)O
 C/C=C/C

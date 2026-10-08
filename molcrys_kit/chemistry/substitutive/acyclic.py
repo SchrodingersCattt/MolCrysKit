@@ -240,6 +240,8 @@ def _name_acid(entity):
                     continue
                 if atoms[n].element == "O" and _is_single(b) and _hcount(entity, n) > 0:
                     prefixes.append((numbering[c], "hydroxy"))
+                elif atoms[n].element == "O" and _is_double(b):
+                    prefixes.append((numbering[c], "oxo"))
                 else:
                     valid = False
         if not valid:

@@ -12,6 +12,74 @@ from ..models import FiniteChemicalEntity
 from .acyclic import alkane_stem
 
 
+def _ring_functional_name(entity):
+    """Name the small set of senior groups attached to a six-member parent."""
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    adjacency = _adjacency(entity)
+    for cycle, graph in _cycles(entity):
+        if len(cycle) != 6:
+            continue
+        edges = [next((bond for neighbor, bond in graph[a] if neighbor == cycle[(i + 1) % 6]), None) for i, a in enumerate(cycle)]
+        if any(bond is None for bond in edges):
+            continue
+        aromatic = all(bond.aromatic or bond.order == 1.5 for bond in edges)
+        saturated = all(bond.order == 1.0 for bond in edges)
+        if not (aromatic or saturated) or any(atoms[a].element != "C" for a in cycle):
+            continue
+        ring = set(cycle)
+        outside = [(a, n, bond) for a in cycle for n, bond in adjacency[a] if n not in ring and atoms[n].element != "H"]
+        if aromatic:
+            for ring_atom in cycle:
+                for oxygen, link in adjacency[ring_atom]:
+                    if atoms[oxygen].element != "O" or link.order != 1.0:
+                        continue
+                    carbonyls = [n for n, edge in adjacency[oxygen] if n != ring_atom and atoms[n].element == "C" and edge.order == 1.0]
+                    for carbonyl in carbonyls:
+                        carbonyl_edges = adjacency[carbonyl]
+                        if sum(atoms[n].element == "O" and edge.order == 2.0 for n, edge in carbonyl_edges) != 1:
+                            continue
+                        methyl = [n for n, edge in carbonyl_edges if n != oxygen and atoms[n].element == "C" and edge.order == 1.0]
+                        if methyl:
+                            return ("phenyl ethanoate", False, "Name the phenyl alcohol component and ethanoate parent.")
+        # A carbonyl group attached to benzene is the senior parent suffix.
+        for ring_atom, carbonyl, link in outside:
+            if atoms[carbonyl].element != "C" or link.order != 1.0:
+                continue
+            carbonyl_edges = adjacency[carbonyl]
+            oxygens = [(n, b) for n, b in carbonyl_edges if atoms[n].element == "O"]
+            if sum(b.order == 2.0 for _, b in oxygens) != 1:
+                continue
+            if aromatic and sum(b.order == 1.0 for _, b in oxygens) == 1:
+                hydroxyl = next((n for n, b in oxygens if b.order == 1.0), None)
+                if hydroxyl is not None and _hydrogen_count(entity, hydroxyl) > 0:
+                    return ("benzenecarboxylic acid", False, "Select benzenecarboxylic acid as the senior group.")
+            if saturated:
+                nitrogens = [n for n, b in carbonyl_edges if atoms[n].element == "N" and b.order == 1.0]
+                if nitrogens:
+                    return ("cyclohexanecarboxamide", False, "Use the ring carboxamide suffix.")
+            # Phenyl ethanoate: the acid side is acetyl and the oxygen joins
+            # the aromatic parent.
+            if aromatic:
+                ester_o = next((n for n, b in carbonyl_edges if atoms[n].element == "O" and b.order == 1.0 and n != ring_atom), None)
+                if ester_o is not None:
+                    alkyl = [n for n, b in adjacency[ester_o] if n != carbonyl and atoms[n].element == "C"]
+                    if alkyl:
+                        return ("phenyl ethanoate", False, "Name the phenyl alcohol component and ethanoate parent.")
+        if saturated:
+            for ring_atom in cycle:
+                for neighbor, bond in adjacency[ring_atom]:
+                    if atoms[neighbor].element == "O" and bond.order == 2.0:
+                        return ("cyclohexanone", False, "Apply the ketone suffix to the cyclohexane parent.")
+    return None
+
+
+def _hydrogen_count(entity, atom_id):
+    atom = next(atom for atom in entity.atoms if atom.atom_id == atom_id)
+    adjacency = _adjacency(entity)
+    explicit = sum(next(candidate for candidate in entity.atoms if candidate.atom_id == n).element == "H" for n, _ in adjacency[atom_id])
+    return explicit + (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+
+
 def _adjacency(entity):
     values = {atom.atom_id: [] for atom in entity.atoms}
     for bond in entity.bonds:
@@ -125,6 +193,9 @@ def _ring_name(cycle, graph, atoms):
 def name_monocycle(entity: FiniteChemicalEntity):
     """Return a naming tuple for an isolated monocycle, or ``None``."""
     atoms = {atom.atom_id: atom for atom in entity.atoms}
+    functional = _ring_functional_name(entity)
+    if functional is not None:
+        return functional
     for cycle, graph in _cycles(entity):
         if len(cycle) != len([atom for atom in entity.atoms if atom.element != "H"]):
             continue

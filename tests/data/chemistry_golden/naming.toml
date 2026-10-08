@@ -161,3 +161,43 @@ expected = "spiro[4.3]octane"
 standard = "Blue Book"
 version = "2013"
 human_reviewed = true
+
+[[case]]
+id = "benzenecarboxylic-acid"
+notation = "[O]=[C]([OH])c1ccccc1"
+expected = "benzenecarboxylic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "phenyl-ethanoate"
+notation = "CC(=O)Oc1ccccc1"
+expected = "phenyl ethanoate"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexanecarboxamide"
+notation = "NC(=O)C1CCCCC1"
+expected = "cyclohexanecarboxamide"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexanone"
+notation = "O=C1CCCCC1"
+expected = "cyclohexanone"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "3-oxobutanoic-acid"
+notation = "[CH3][C](=[O])[CH2][C](=[O])[OH]"
+expected = "3-oxobutanoic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
