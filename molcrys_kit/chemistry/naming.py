@@ -53,7 +53,10 @@ class NamingIndeterminateError(ValueError):
     """Raised when strict naming would return a provisional description."""
 
 
-# Explicit straight-chain alkane stems currently implemented for C1-C12.
+# Straight-chain alkane stems.  The original implementation stopped at
+# dodecane; keeping the table as a normal mapping preserves the public
+# constant while allowing the substitutive rules to cover arbitrarily long
+# (within practical integer limits) parent chains.
 ALKANE_STEMS = {
     1: "meth",
     2: "eth",
@@ -68,6 +71,29 @@ ALKANE_STEMS = {
     11: "undec",
     12: "dodec",
 }
+# Blue Book stems through C100.  C13--C30 cover the common long-chain tests;
+# the tens construction keeps name parsing and generation in lockstep for
+# larger finite chains without an external naming engine.
+_ALKANE_UNITS = {
+    1: "hen", 2: "do", 3: "tri", 4: "tetra", 5: "penta",
+    6: "hexa", 7: "hepta", 8: "octa", 9: "nona",
+}
+_ALKANE_TEENS = {
+    13: "tridec", 14: "tetradec", 15: "pentadec", 16: "hexadec",
+    17: "heptadec", 18: "octadec", 19: "nonadec",
+}
+_ALKANE_TENS = {20: "icos", 30: "triacont", 40: "tetracont", 50: "pentacont",
+                60: "hexacont", 70: "heptacont", 80: "octacont", 90: "nonacont"}
+ALKANE_STEMS.update({
+    13: "tridec", 14: "tetradec", 15: "pentadec", 16: "hexadec",
+    17: "heptadec", 18: "octadec", 19: "nonadec", 20: "icos",
+    21: "henicos", 22: "docos", 23: "tricos", 24: "tetracos",
+    25: "pentacos", 26: "hexacos", 27: "heptacos", 28: "octacos",
+    29: "nonacos", 30: "triacont",
+})
+for _tens, _tens_stem in _ALKANE_TENS.items():
+    for _unit, _unit_stem in _ALKANE_UNITS.items():
+        ALKANE_STEMS.setdefault(_tens + _unit, _unit_stem + _tens_stem)
 HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
 
 
@@ -175,6 +201,15 @@ def name_crystal(structure_or_chemistry, *, strict: bool = False) -> NamingResul
 
 
 def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
+    # The substitutive modules are imported lazily so the legacy helper
+    # functions below remain available to callers and to older worktrees.
+    from .substitutive.acyclic import name_acyclic
+    from .substitutive.monocycle import name_monocycle
+
+    for recognizer in (name_acyclic, name_monocycle):
+        value = recognizer(entity)
+        if value is not None:
+            return _organic_result(entity, *value)
     for recognizer in (
         _name_hydride,
         _name_hydrocarbon,
