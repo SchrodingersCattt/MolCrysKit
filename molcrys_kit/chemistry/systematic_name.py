@@ -89,6 +89,24 @@ class SystematicName:
 
         return self.suffix
 
+    @property
+    def locanted_prefixes(self) -> tuple[NamePrefix, ...]:
+        """Descriptive alias for :attr:`prefixes`."""
+
+        return self.prefixes
+
+    @property
+    def stereo_descriptors(self) -> tuple[str, ...]:
+        """Descriptive alias for :attr:`stereochemistry`."""
+
+        return self.stereochemistry
+
+    @property
+    def charge_suffix(self) -> str | None:
+        """Descriptive alias for :attr:`charge`."""
+
+        return self.charge
+
     def serialize(self) -> str:
         """Return the canonical string represented by this value object."""
 
