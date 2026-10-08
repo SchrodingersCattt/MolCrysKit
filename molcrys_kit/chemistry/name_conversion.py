@@ -18,6 +18,7 @@ from .line_notation import (
 )
 from .equivalence import constitution_equivalent
 from .substitutive.polycycle import PolycycleParseError, parse_polycycle_name
+from .substitutive.retained import parse_parent_hydride, parse_benzene, parse_anilide
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -30,7 +31,6 @@ from .models import (
 )
 from .naming import (
     ALKANE_STEMS,
-    HALOGEN_PREFIX,
     NamingIndeterminateError,
     NamingResult,
     name_entity,
@@ -163,16 +163,6 @@ def _carbon_chain(count: int, *, name: str, terminal_group: str | None = None):
         if index:
             bonds.append(_bond(f"C{index}", atom_id, 1.0))
     return atoms, bonds
-
-
-def _parse_parent_hydride(name: str):
-    if name == "water":
-        return _entity(name, [_atom("O1", "O", 2)], [])
-    if name == "azane":
-        return _entity(name, [_atom("N1", "N", 3)], [])
-    if name == "azanium":
-        return _entity(name, [_atom("N1", "N", 4, formal_charge=1)], [])
-    return None
 
 
 def _parse_alkane(name: str):
@@ -607,108 +597,6 @@ def _parse_prefixes(text: str):
     return values
 
 
-def _parse_benzene(name: str):
-    base = None
-    if name.endswith("phenol"):
-        base = "phenol"
-        prefix_text = name[: -len("phenol")].rstrip("-")
-    elif name.endswith("benzene"):
-        base = "benzene"
-        prefix_text = name[: -len("benzene")].rstrip("-")
-    else:
-        return None
-
-    prefixes = _parse_prefixes(prefix_text)
-    hydroxy_count = sum(prefix == "hydroxy" for _, prefix in prefixes)
-    if base == "phenol":
-        if hydroxy_count:
-            raise NamingParseError("phenol already supplies the position-one hydroxy group")
-        substituents = [(1, "hydroxy"), *prefixes]
-    else:
-        if hydroxy_count == 1:
-            raise NamingParseError("one hydroxy substituent must be named as phenol")
-        substituents = prefixes
-
-    atoms = [_atom(f"C{index}", "C") for index in range(1, 7)]
-    bonds = [
-        _bond(
-            f"C{index}",
-            f"C{index % 6 + 1}",
-            1.5,
-            aromatic=True,
-        )
-        for index in range(1, 7)
-    ]
-    for locant, prefix in substituents:
-        ring_id = f"C{locant}"
-        ring_atom = next(atom for atom in atoms if atom.atom_id == ring_id)
-        atoms[atoms.index(ring_atom)] = _atom(ring_id, "C", 0)
-        if prefix == "hydroxy":
-            atoms.append(_atom(f"O{locant}", "O", 1))
-            bonds.append(_bond(ring_id, f"O{locant}", 1.0))
-        elif prefix == "methyl":
-            atoms.append(_atom(f"M{locant}", "C", 3))
-            bonds.append(_bond(ring_id, f"M{locant}", 1.0))
-        else:
-            element = next(
-                element for element, value in HALOGEN_PREFIX.items() if value == prefix
-            )
-            atoms.append(_atom(f"X{locant}", element))
-            bonds.append(_bond(ring_id, f"X{locant}", 1.0))
-    return _entity(name, atoms, bonds)
-
-
-def _parse_anilide(name: str):
-    match = _ANILIDE_PATTERN.fullmatch(name)
-    if match is None:
-        return None
-    phenyl = match.group("phenyl")
-    parent = match.group("parent")
-    if parent == "formamide":
-        acyl_count = 1
-    elif parent == "acetamide":
-        acyl_count = 2
-    elif parent.endswith("anamide"):
-        stem = parent[: -len("anamide")]
-        acyl_count = _STEM_TO_CARBON_COUNT.get(stem)
-        if acyl_count is None or acyl_count < 3:
-            return None
-    else:
-        return None
-
-    prefixes = _parse_prefixes(phenyl)
-    if not prefixes or any(prefix != "hydroxy" for _, prefix in prefixes):
-        raise NamingParseError("anilide phenyl groups require hydroxy substituents")
-
-    acyl_atoms, acyl_bonds = _carbon_chain(
-        acyl_count,
-        name=name,
-        terminal_group="carbonyl",
-    )
-    ring_atoms = [_atom(f"R{index}", "C") for index in range(1, 7)]
-    ring_bonds = [
-        _bond(
-            f"R{index}",
-            f"R{index % 6 + 1}",
-            1.5,
-            aromatic=True,
-        )
-        for index in range(1, 7)
-    ]
-    ring_atoms[0] = _atom("R1", "C", 0)
-    atoms = [*acyl_atoms, *ring_atoms, _atom("O1", "O"), _atom("N1", "N", 1)]
-    bonds = [*acyl_bonds, *ring_bonds]
-    bonds.extend((_bond("C1", "O1", 2.0), _bond("C1", "N1", 1.0), _bond("N1", "R1", 1.0)))
-    for locant, _ in prefixes:
-        ring_id = f"R{locant}"
-        ring_atom = next(atom for atom in atoms if atom.atom_id == ring_id)
-        atoms[atoms.index(ring_atom)] = _atom(ring_id, "C", 0)
-        oxygen_id = f"OH{locant}"
-        atoms.append(_atom(oxygen_id, "O", 1))
-        bonds.append(_bond(ring_id, oxygen_id, 1.0))
-    return _entity(name, atoms, bonds)
-
-
 def _parse_name(name: str) -> FiniteChemicalEntity:
     decorated = _parse_decorated(name)
     if decorated is not None:
@@ -720,7 +608,7 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
         _parse_special_acyclic,
         _parse_ring_functional,
         _parse_ring,
-        _parse_parent_hydride,
+        parse_parent_hydride,
         parse_polycycle_name,
         _parse_alkane,
         _parse_alkene,
@@ -728,8 +616,8 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
         _parse_amino_acid,
         _parse_acid,
         _parse_functional_acyclic,
-        _parse_anilide,
-        _parse_benzene,
+        parse_anilide,
+        parse_benzene,
     ):
         try:
             result = parser(name)
