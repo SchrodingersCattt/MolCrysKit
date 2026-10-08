@@ -11,6 +11,8 @@ from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 
+from .substitutive.polycycle import name_polycycle
+
 from .models import (
     BondKind,
     ChemicalEntity,
@@ -213,6 +215,7 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
             return _organic_result(entity, *value)
     for recognizer in (
         _name_hydride,
+        _name_polycycle,
         _name_hydrocarbon,
         _name_alcohol,
         _name_carboxylic_acid,
@@ -270,6 +273,15 @@ def _organic_result(entity, name, preferred, *trace):
         rule_trace=trace,
         warnings=warnings,
     )
+
+
+def _name_polycycle(entity):
+    value = name_polycycle(entity)
+    if value is None:
+        return None
+    name, preferred, *rest = value
+    trace = rest[0] if rest else ()
+    return (name, preferred, *trace)
 
 
 def _name_hydride(entity):
