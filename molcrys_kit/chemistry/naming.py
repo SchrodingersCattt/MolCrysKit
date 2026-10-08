@@ -22,6 +22,7 @@ from .models import (
     PeriodicChemicalEntity,
     PolymerChemicalEntity,
 )
+from .systematic_name import SystematicName
 
 
 class NamingKind(str, Enum):
@@ -206,6 +207,10 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
 
 
 def _organic_result(entity, name, preferred, *trace):
+    # Keep a structured intermediate even though NamingResult intentionally
+    # retains its historical string-only public shape.  This gives reverse
+    # conversion one canonical representation for every generated name.
+    name = SystematicName.parse(name).serialize()
     source_status = entity.status
     status = (
         source_status
