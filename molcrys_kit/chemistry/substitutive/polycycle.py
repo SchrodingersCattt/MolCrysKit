@@ -487,15 +487,23 @@ def _parse_bicyclo(name: str):
         return None
     bridge_counts = tuple(int(match.group(index)) for index in (1, 2, 3))
     body = match.group(4)
-    unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]+)ene", body)
+    # ``ene`` has no multiplicative prefix, so the old ``([a-z]+)ene``
+    # pattern only matched diene/triene/... suffixes.  Keep the locants as
+    # data: assigning every reconstructed edge a single bond silently loses
+    # the information that made the generated name an alkene.
+    unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]*ene)", body)
     if unsaturated:
-        stem, _raw_locants, multiplicative = unsaturated.groups()
-        aromatic = multiplicative == "penta" and bridge_counts == (4, 4, 0)
+        stem, raw_locants, multiplicative = unsaturated.groups()
+        locants = tuple(int(value) for value in raw_locants.split(","))
+        if len(locants) != len(set(locants)) or any(value < 1 for value in locants):
+            raise PolycycleParseError("invalid bicyclo unsaturation locants")
+        aromatic = multiplicative == "pentaene" and bridge_counts == (4, 4, 0)
     else:
         stem_match = re.fullmatch(r"([a-z]+)ane", body)
         if stem_match is None:
             raise PolycycleParseError(f"unsupported bicyclo suffix: {body}")
         stem = stem_match.group(1)
+        locants = ()
         aromatic = False
     count = next((number for number, candidate in _STEMS.items() if candidate == stem), None)
     if count is None or count != sum(bridge_counts) + 2:
@@ -511,9 +519,28 @@ def _parse_bicyclo(name: str):
             values.append(atom_id)
         values.append("B2")
         paths.append(values)
+    numbering = _number_bicyclo_paths(paths, ("B1", "B2"))
     for path in paths:
         for left, right in zip(path, path[1:]):
-            bonds.append(_edge(left, right, 1.5 if aromatic else 1.0, aromatic=aromatic))
+            # Blue Book locants identify the lower-numbered atom of each
+            # multiple bond.  Numbering follows the same three-path order as
+            # :func:`name_polycycle`, making this assignment reversible.
+            order = 1.5 if aromatic else 1.0
+            if not aromatic and locants:
+                left_locant = numbering[left]
+                right_locant = numbering[right]
+                if min(left_locant, right_locant) in locants:
+                    order = 2.0
+            bonds.append(_edge(left, right, order, aromatic=aromatic))
+    if not aromatic and locants:
+        represented = {
+            min(numbering[left], numbering[right])
+            for path in paths
+            for left, right in zip(path, path[1:])
+            if min(numbering[left], numbering[right]) in locants
+        }
+        if represented != set(locants):
+            raise PolycycleParseError("bicyclo unsaturation locant outside parent")
     return _finish_entity(name, atoms, bonds)
 
 
@@ -523,21 +550,27 @@ def _parse_spiro(name: str):
         return None
     ring_counts = tuple(int(match.group(index)) for index in (1, 2))
     body = match.group(3)
-    unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]+)ene", body)
+    unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]*ene)", body)
     if unsaturated:
         stem, raw_locants, multiplicative = unsaturated.groups()
-        aromatic = multiplicative == "penta"
+        locants = tuple(int(value) for value in raw_locants.split(","))
+        if len(locants) != len(set(locants)) or any(value < 1 for value in locants):
+            raise PolycycleParseError("invalid spiro unsaturation locants")
+        aromatic = multiplicative == "pentaene"
     else:
         stem_match = re.fullmatch(r"([a-z]+)ane", body)
         if stem_match is None:
             raise PolycycleParseError(f"unsupported spiro suffix: {body}")
         stem = stem_match.group(1)
+        locants = ()
         aromatic = False
     count = next((number for number, candidate in _STEMS.items() if candidate == stem), None)
     if count is None or count != sum(ring_counts) + 1:
         raise PolycycleParseError("spiro stem does not match ring counts")
     atoms = [_atom_record("S")]
     bonds: list[ChemicalBond] = []
+    numbering: dict[str, int] = {}
+    next_number = 1
     for ring_index, internal_count in enumerate(ring_counts):
         values = ["S"]
         for atom_index in range(internal_count):
@@ -545,8 +578,29 @@ def _parse_spiro(name: str):
             atoms.append(_atom_record(atom_id))
             values.append(atom_id)
         values.append("S")
+        # Number each ring path from the spiro atom.  The second path starts
+        # after the first ring, while the shared atom keeps locant 1.
+        if ring_index == 0:
+            numbering["S"] = 1
+            next_number = 2
+        for atom_id in values[1:-1]:
+            numbering[atom_id] = next_number
+            next_number += 1
         for left, right in zip(values, values[1:]):
-            bonds.append(_edge(left, right, 1.5 if aromatic else 1.0, aromatic=aromatic))
+            order = 1.5 if aromatic else 1.0
+            if not aromatic and locants:
+                if min(numbering[left], numbering[right]) in locants:
+                    order = 2.0
+            bonds.append(_edge(left, right, order, aromatic=aromatic))
+    if not aromatic and locants:
+        represented = {
+            min(numbering[left], numbering[right])
+            for bond in bonds
+            for left, right in ((bond.atom1_id, bond.atom2_id),)
+            if min(numbering[left], numbering[right]) in locants
+        }
+        if represented != set(locants):
+            raise PolycycleParseError("spiro unsaturation locant outside parent")
     return _finish_entity(name, atoms, bonds)
 
 
