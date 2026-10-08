@@ -40,4 +40,4 @@ def test_paclitaxel_snapshot_is_general_and_ring_marked() -> None:
     assert result.kind is NamingKind.GENERAL_IUPAC_NAME
     assert result.preferred is False
     assert "paclitaxel" not in result.name.lower()
-    assert "bicyclo" in result.name
+    assert "tetracyclo[" in result.name

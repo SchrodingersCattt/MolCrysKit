@@ -801,4 +801,3 @@ __all__ = [
     "name_polycycle",
     "parse_polycycle_name",
 ]
-
