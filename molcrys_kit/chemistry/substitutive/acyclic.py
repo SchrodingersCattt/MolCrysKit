@@ -428,8 +428,9 @@ def _name_alkene(entity):
     stem = alkane_stem(len(path))
     if stem is None or len(path) < 2:
         return None
-    return _result(
+    return (
         f"{stem}-{min(left, right)}-ene",
+        False,
         "Select the unbranched carbon chain containing the double bond.",
     )
 
@@ -475,8 +476,9 @@ def _name_amino_acid(entity):
     ]
     if len(n_edges) != 1 or len(methyl_edges) != 1 or _hcount(entity, alpha) != 1:
         return None
-    return _result(
+    return (
         "2-aminopropanoic acid",
+        False,
         "Select the carboxylic-acid parent and the 2-amino substituent.",
     )
 

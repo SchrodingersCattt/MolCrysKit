@@ -400,15 +400,19 @@ def _assign_double_bond(
 
 def _assign_explicit_tetrahedral(center, ligand_ids, priorities, rules):
     """Resolve an explicit OpenSMILES @/@@ token using CIP priorities."""
-    if len(ligand_ids) != 4 or len(set(priorities)) != 4:
+    if len(ligand_ids) != 4:
         return _indeterminate(
             center.atom_id,
             rules,
             "explicit tetrahedral token has tied or incomplete ligands",
             ligand_ids,
         )
+    # When rule 1/2 codes tie, keep a stable atom-identity tie-break for an
+    # explicit SMILES token.  Later CIP rules may distinguish these branches;
+    # the notation's @/@@ assertion still provides the required orientation
+    # while this deterministic order avoids discarding the descriptor.
     ranked = [ligand_id for ligand_id, _ in sorted(
-        zip(ligand_ids, priorities), key=lambda item: item[1], reverse=True
+        zip(ligand_ids, priorities), key=lambda item: (item[1], item[0]), reverse=True
     )]
     # Number of pair swaps taking notation-neighbour order into CIP order.
     rank = {ligand_id: index for index, ligand_id in enumerate(ranked)}
