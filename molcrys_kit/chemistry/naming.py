@@ -25,6 +25,7 @@ from .models import (
     PolymerChemicalEntity,
 )
 from .systematic_name import SystematicName
+from .stereo import StereoKind, assign_stereochemistry
 
 
 class NamingKind(str, Enum):
@@ -236,6 +237,9 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
     from .substitutive.acyclic import name_acyclic
     from .substitutive.monocycle import name_monocycle
 
+    disconnected = _name_disconnected(entity)
+    if disconnected is not None:
+        return _organic_result(entity, *disconnected)
     for recognizer in (name_acyclic, name_monocycle):
         value = recognizer(entity)
         if value is not None:
@@ -278,11 +282,106 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
     )
 
 
+def _name_disconnected(entity: FiniteChemicalEntity):
+    """Name disconnected finite components with the existing count grammar."""
+    adjacency = _adjacency(entity)
+    pending = set(adjacency)
+    components = []
+    while pending:
+        start = min(pending)
+        seen = {start}
+        stack = [start]
+        while stack:
+            atom_id = stack.pop()
+            stack.extend(neighbor for neighbor, _ in adjacency[atom_id] if neighbor not in seen)
+            seen.update(neighbor for neighbor, _ in adjacency[atom_id])
+        pending.difference_update(seen)
+        components.append(seen)
+    if len(components) < 2:
+        return None
+    values = []
+    for index, atom_ids in enumerate(components, 1):
+        atoms = tuple(atom for atom in entity.atoms if atom.atom_id in atom_ids)
+        bonds = tuple(
+            bond for bond in entity.bonds
+            if bond.atom1_id in atom_ids and bond.atom2_id in atom_ids
+        )
+        component = FiniteChemicalEntity(
+            entity_id=f"{entity.entity_id}:component-{index}",
+            atoms=atoms,
+            bonds=bonds,
+            net_charge=sum(atom.formal_charge or 0 for atom in atoms),
+            status=entity.status,
+            evidence=entity.evidence,
+        )
+        result = name_entity(component)
+        if result.name.startswith("molecular entity "):
+            return None
+        values.append(result.name)
+    counts = Counter(values)
+    description = " · ".join(
+        value if count == 1 else f"{count}({value})"
+        for value, count in sorted(counts.items())
+    )
+    return (
+        description,
+        False,
+        "Name each disconnected component independently.",
+        "Combine identical components using the MolCrysKit count grammar.",
+    )
+
+
+def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
+    """Add explicitly specified isotope and stereochemical descriptors."""
+    isotope_prefixes = [
+        f"({atom.isotope}{atom.element})"
+        for atom in entity.atoms
+        if atom.isotope is not None
+    ]
+    has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
+    has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
+    stereo_prefixes = []
+    if has_atom_tokens or has_bond_tokens:
+        report = assign_stereochemistry(entity)
+        for descriptor in report.descriptors:
+            if descriptor.descriptor is None:
+                continue
+            if descriptor.kind is StereoKind.TETRAHEDRAL:
+                center = next((atom for atom in entity.atoms if atom.atom_id == descriptor.center_atom_id), None)
+                locant = 2 if center is not None and _is_alpha_amino_center(entity, center.atom_id) else None
+                stereo_prefixes.append(
+                    f"({locant}{descriptor.descriptor})-" if locant is not None else f"({descriptor.descriptor})-"
+                )
+            else:
+                stereo_prefixes.append(f"({descriptor.descriptor})-")
+    # Preserve descriptor ordering before isotopic prefixes.  This is the
+    # stable spelling used by the reverse parser and the stage-6 snapshots.
+    return "".join(stereo_prefixes) + "".join(isotope_prefixes) + name
+
+
+def _is_alpha_amino_center(entity: FiniteChemicalEntity, center_id: str) -> bool:
+    adjacency = _adjacency(entity)
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    center = atoms[center_id]
+    if center.element != "C":
+        return False
+    has_n = any(atoms[neighbor].element == "N" and bond.order == 1.0 for neighbor, bond in adjacency[center_id])
+    has_carboxyl = False
+    for neighbor, bond in adjacency[center_id]:
+        if atoms[neighbor].element != "C" or bond.order != 1.0:
+            continue
+        oxygens = [(n, edge) for n, edge in adjacency[neighbor] if atoms[n].element == "O"]
+        if sum(edge.order == 2.0 for _, edge in oxygens) == 1 and sum(edge.order == 1.0 for _, edge in oxygens) == 1:
+            has_carboxyl = True
+    return has_n and has_carboxyl
+
+
 def _organic_result(entity, name, preferred, *trace):
     # Keep a structured intermediate even though NamingResult intentionally
     # retains its historical string-only public shape.  This gives reverse
     # conversion one canonical representation for every generated name.
     name = SystematicName.parse(name).serialize()
+    name = _decorate_stage6_name(entity, name)
     source_status = entity.status
     status = (
         source_status
@@ -331,6 +430,16 @@ def _name_hydride(entity):
             "azane",
             True,
             "Select the parent-hydride name for the nitrogen hydride NH3.",
+        )
+    if (
+        counts == Counter({"N": 1, "H": 4})
+        and _single_heavy_center(entity, "N")
+        and (entity.net_charge or 0) == 1
+    ):
+        return (
+            "azanium",
+            True,
+            "Recognize the charged parent-hydride name for NH4+.",
         )
     return None
 
