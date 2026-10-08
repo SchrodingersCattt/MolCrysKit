@@ -270,21 +270,35 @@ def _render_component(entity, adjacency, colors, root: str) -> str:
             )
         )
 
-    def render(atom_id: str) -> str:
-        text = _smiles_atom(
-            atom_by_id[atom_id],
-            aromatic=any(bond.aromatic for _, bond in adjacency[atom_id]),
+    def aromatic_atom(atom_id: str) -> bool:
+        return any(bond.aromatic for _, bond in adjacency[atom_id])
+
+    def bond_token(left: str, right: str, bond: ChemicalBond) -> str:
+        # OpenSMILES defaults an omitted bond between two aromatic atoms to an
+        # aromatic edge.  Emit an explicit '-' for a genuine single bond that
+        # joins two aromatic rings (for example biphenyl), preserving the
+        # ring-collection topology on a text round trip.
+        explicit_single = (
+            not bond.aromatic
+            and bond.order == 1.0
+            and aromatic_atom(left)
+            and aromatic_atom(right)
         )
+        return _smiles_bond(bond, explicit_single=explicit_single)
+
+    def render(atom_id: str) -> str:
+        text = _smiles_atom(atom_by_id[atom_id], aromatic=aromatic_atom(atom_id))
         for number, bond, first in sorted(ring_marks[atom_id]):
             if first:
-                text += _smiles_bond(bond)
+                other = bond.atom2_id if bond.atom1_id == atom_id else bond.atom1_id
+                text += bond_token(atom_id, other, bond)
             text += str(number) if number < 10 else f"%{number}"
         atom_children = children[atom_id]
         for child in atom_children[1:]:
-            text += f"({_smiles_bond(parent_bond[child])}{render(child)})"
+            text += f"({bond_token(atom_id, child, parent_bond[child])}{render(child)})"
         if atom_children:
             child = atom_children[0]
-            text += _smiles_bond(parent_bond[child]) + render(child)
+            text += bond_token(atom_id, child, parent_bond[child]) + render(child)
         return text
 
     return render(root)
@@ -313,9 +327,11 @@ def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
     return f"[{isotope}{atom.element}{hydrogens}{charge}]"
 
 
-def _smiles_bond(bond: ChemicalBond) -> str:
+def _smiles_bond(bond: ChemicalBond, *, explicit_single: bool = False) -> str:
     if bond.aromatic:
         return ":"
+    if explicit_single and bond.order == 1.0:
+        return "-"
     try:
         return _BOND_TO_TOKEN[float(bond.order)]
     except (KeyError, TypeError) as exc:

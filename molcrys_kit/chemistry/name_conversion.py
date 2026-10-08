@@ -17,6 +17,7 @@ from .line_notation import (
     to_line_notation,
 )
 from .equivalence import constitution_equivalent
+from .substitutive.polycycle import PolycycleParseError, parse_polycycle_name
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -359,13 +360,17 @@ def _parse_anilide(name: str):
 def _parse_name(name: str) -> FiniteChemicalEntity:
     for parser in (
         _parse_parent_hydride,
+        parse_polycycle_name,
         _parse_alkane,
         _parse_alcohol,
         _parse_acid,
         _parse_anilide,
         _parse_benzene,
     ):
-        result = parser(name)
+        try:
+            result = parser(name)
+        except PolycycleParseError as exc:
+            raise NamingParseError(str(exc)) from exc
         if result is not None:
             return result
     raise NamingParseError(
@@ -443,10 +448,22 @@ def _valence_not_exceeded(entity: FiniteChemicalEntity) -> bool:
         target = DEFAULT_VALENCE.get(atom.element)
         if target is None:
             continue
-        valence = sum(
-            1.0 if atom.element == "N" and bond.aromatic else bond.order or 0.0
-            for bond in adjacency[atom.atom_id]
-        )
+        aromatic_neighbors = [bond for bond in adjacency[atom.atom_id] if bond.aromatic]
+        # Fused aromatic bridgeheads have three aromatic edges in this graph
+        # representation.  Treat that exceptional all-aromatic carbon as a
+        # three-valent centre; substituted two-edge aromatic carbons retain
+        # the 1.5 order check so impossible double substitution is rejected.
+        if (
+            atom.element == "C"
+            and len(adjacency[atom.atom_id]) == 3
+            and len(aromatic_neighbors) == 3
+        ):
+            valence = 3.0
+        else:
+            valence = sum(
+                1.0 if atom.element == "N" and bond.aromatic else bond.order or 0.0
+                for bond in adjacency[atom.atom_id]
+            )
         valence += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
         if valence > target + 1e-8:
             return False
