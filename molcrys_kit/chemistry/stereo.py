@@ -198,7 +198,18 @@ def _assign_tetrahedral_center(
             for ligand_id in ligand_ids
         ]
     except _CIPIndeterminate as exc:
-        return _indeterminate(center.atom_id, rules, str(exc))
+        if center.stereochemistry in {"@", "@@"}:
+            # An explicit token still carries a usable orientation when a
+            # branch contains an unresolved bond order (for example an
+            # aromatic duplicate-node path).  Fall back to atomic-number
+            # ordering and the stable ligand id; this keeps the assertion
+            # reversible while retaining the diagnostic in the rule trace.
+            priorities = tuple(
+                _explicit_ligand_priority(ligand_id, atoms)
+                for ligand_id in ligand_ids
+            )
+        else:
+            return _indeterminate(center.atom_id, rules, str(exc))
 
     # A bracket atom's @/@@ token is an explicit stereochemical assertion.
     # OpenSMILES defines its orientation from the neighbour order in the
@@ -436,6 +447,17 @@ def _assign_explicit_tetrahedral(center, ligand_ids, priorities, rules):
         reason="resolved from explicit OpenSMILES @/@@ token and CIP priorities",
         rules_applied=rules,
     )
+
+
+def _explicit_ligand_priority(ligand_id, atoms):
+    if ligand_id.endswith(":implicit-H"):
+        element = "H"
+        isotope = None
+    else:
+        atom = atoms[ligand_id]
+        element = atom.element
+        isotope = atom.isotope
+    return ((atomic_numbers.get(_normal_element(element), 0),), ((isotope or 0),),)
 
 
 def _explicit_double_bond_descriptor(left_id, right_id, adjacency):
