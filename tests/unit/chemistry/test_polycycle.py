@@ -13,6 +13,8 @@ from molcrys_kit.chemistry.name_conversion import iupac_to_smiles, smiles_to_iup
         ("C1=CC2CCC1C2", "bicyclo[2.2.1]hept-2-ene"),
         ("C1=CC2C=CC1C2", "bicyclo[2.2.1]hept-2,5-diene"),
         ("C1CCC2CCCCC2C1", "bicyclo[4.4.0]decane"),
+        ("C1C2CC3CC1CC(C2)C3", "tricyclo[3.3.1.1^3,7]decane"),
+        ("CC1CCC2CCC1C2", "2-methylbicyclo[3.2.1]octane"),
         # This input has four- and five-member rings sharing one atom.
         ("C1CCC12CCCC2", "spiro[4.3]octane"),
         ("c1ccc2ccccc2c1", "bicyclo[4.4.0]dec-1,3,5,7,9-pentaene"),

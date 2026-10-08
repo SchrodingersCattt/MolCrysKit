@@ -7,7 +7,7 @@ small immutable chemistry records rather than on an external toolkit.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 import re
 from typing import Iterable
@@ -377,8 +377,121 @@ def _suffix(stem: str, locants: tuple[int, ...], *, aromatic: bool = False) -> s
     return f"{stem}-" + ",".join(map(str, locants)) + "-" + names.get(len(locants), "ene")
 
 
+def _all_single_carbon(entity: FiniteChemicalEntity) -> bool:
+    """Whether *entity* is a neutral, saturated carbon skeleton.
+
+    The cage parents handled below are graph parents, so checking the element
+    and bond order here keeps a substituted cage from being mistaken for a
+    similarly sized heterocycle or unsaturated system.
+    """
+    return (
+        all(atom.element == "C" for atom in entity.atoms if atom.element != "H")
+        and all(
+            bond.kind is BondKind.COVALENT
+            and abs((bond.order or 0.0) - 1.0) < 1e-8
+            for bond in entity.bonds
+        )
+        and (entity.net_charge or 0) == 0
+    )
+
+
+def _name_adamantane(entity: FiniteChemicalEntity):
+    """Recognize the diamondoid C10 cage as a von Baeyer tricyclic parent.
+
+    Adamantane is the only connected C10H16 graph with four degree-three and
+    six degree-two carbon vertices in this rule set.  The explicit degree
+    signature avoids using the retained trivial name while still producing a
+    readable, reversible systematic parent.
+    """
+    if not _all_single_carbon(entity):
+        return None
+    nodes = _heavy(entity)
+    if len(nodes) != 10 or sum(len(values) for values in _adj(entity).values()) // 2 != 12:
+        return None
+    degrees = sorted(len(values) for values in _adj(entity).values())
+    if degrees != [2, 2, 2, 2, 2, 2, 3, 3, 3, 3]:
+        return None
+    # The degree-three vertices form an independent set in adamantane; this
+    # excludes the common C10 fused-ring alternatives with the same degree
+    # histogram.
+    adjacency = _adj(entity)
+    branch = {node for node in nodes if len(adjacency[node]) == 3}
+    if any(neighbor in branch for node in branch for neighbor, _ in adjacency[node]):
+        return None
+    return (
+        "tricyclo[3.3.1.1^3,7]decane",
+        False,
+        (
+            "Recognize the adamantane diamondoid graph as a tricyclic von Baeyer parent.",
+            "Use the systematic tricyclo[3.3.1.1^3,7]decane cage descriptor.",
+        ),
+    )
+
+
+def _name_methyl_bicyclo(entity: FiniteChemicalEntity):
+    """Name a saturated bicyclic carbon parent bearing one methyl group.
+
+    A terminal carbon attached to a supported bicyclo core is a detachable
+    methyl prefix.  Numbering is selected from the generated bridge numbering
+    and its reverse so that the prefix receives the lowest available locant.
+    """
+    if not _all_single_carbon(entity):
+        return None
+    nodes = _heavy(entity)
+    adjacency = _adj(entity)
+    leaves = [node for node in nodes if len(adjacency[node]) == 1]
+    if len(leaves) != 1:
+        return None
+    methyl = leaves[0]
+    attachment = adjacency[methyl][0][0]
+    core_nodes = nodes - {methyl}
+    core_atoms = tuple(atom for atom in entity.atoms if atom.atom_id in core_nodes)
+    core_bonds = tuple(
+        bond
+        for bond in entity.bonds
+        if bond.atom1_id in core_nodes and bond.atom2_id in core_nodes
+    )
+    core = replace(entity, atoms=core_atoms, bonds=core_bonds)
+    system = classify_ring_system(core)
+    if system is None or system.kind != "bicyclo":
+        return None
+    lengths = tuple(sorted((len(path) - 2 for path in system.paths), reverse=True))
+    if len(lengths) != 3:
+        return None
+    numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
+    locant = numbering.get(attachment)
+    if locant is None:
+        return None
+    # Reverse the orientation of the bridge carrying the substituent and
+    # choose the lower locant.  The numbering map already tells us the
+    # contiguous locants occupied by each path, so this works for both the
+    # long and short bridges without assuming a particular cage size.
+    for path in system.paths:
+        internals = path[1:-1]
+        if attachment not in internals:
+            continue
+        path_locants = [numbering[node] for node in internals]
+        reflected = path_locants[0] + path_locants[-1] - locant
+        locant = min(locant, reflected)
+        break
+    stem = _stem(len(core_nodes))
+    bracket = ".".join(map(str, lengths))
+    return (
+        f"{locant}-methylbicyclo[{bracket}]{stem}ane",
+        False,
+        (
+            "Identify one detachable methyl group on a saturated bicyclic parent.",
+            "Apply von Baeyer numbering and choose the lower methyl locant.",
+        ),
+    )
+
+
 def name_polycycle(entity: FiniteChemicalEntity):
     """Return ``(name, preferred, trace)`` for a supported ring system."""
+    for recognizer in (_name_adamantane, _name_methyl_bicyclo):
+        value = recognizer(entity)
+        if value is not None:
+            return value
     system = classify_ring_system(entity)
     if system is None:
         return None
@@ -617,11 +730,61 @@ def _parse_phenylbenzene(name: str):
     return _finish_entity(name, atoms, bonds)
 
 
+def _parse_adamantane(name: str):
+    if name != "tricyclo[3.3.1.1^3,7]decane":
+        return None
+    # Keep the graph construction in the line-notation parser so this cage
+    # uses exactly the same valence and hydrogen semantics as an OpenSMILES
+    # input.  The import is local to avoid a module-import cycle.
+    from ..line_notation import from_line_notation
+
+    entity = from_line_notation("C1C2CC3CC1CC(C2)C3", dialect="opensmiles")
+    if not isinstance(entity, FiniteChemicalEntity):
+        raise PolycycleParseError("adamantane parent did not produce a finite graph")
+    return replace(entity, entity_id=f"iupac:{name}", evidence=_evidence())
+
+
+def _parse_methyl_bicyclo(name: str):
+    match = re.fullmatch(
+        r"(\d+)-methylbicyclo\[(\d+)\.(\d+)\.(\d+)\]([a-z]+)ane",
+        name,
+    )
+    if match is None:
+        return None
+    locant = int(match.group(1))
+    bridge_counts = tuple(int(match.group(index)) for index in (2, 3, 4))
+    stem = match.group(5)
+    core_name = f"bicyclo[{bridge_counts[0]}.{bridge_counts[1]}.{bridge_counts[2]}]{stem}ane"
+    core = _parse_bicyclo(core_name)
+    if core is None:
+        raise PolycycleParseError("unsupported methyl bicyclo parent")
+    system = classify_ring_system(core)
+    if system is None or system.kind != "bicyclo":
+        raise PolycycleParseError("methyl parent is not a bicyclic system")
+    numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
+    target = next((atom_id for atom_id, value in numbering.items() if value == locant), None)
+    if target is None:
+        raise PolycycleParseError("methyl locant is outside the bicyclic parent")
+    atoms = list(core.atoms)
+    parent = next(atom for atom in atoms if atom.atom_id == target)
+    hydrogen = max(0, (parent.implicit_hydrogens or 0) - 1) or None
+    atoms[atoms.index(parent)] = replace(parent, implicit_hydrogens=hydrogen)
+    atoms.append(_atom_record(f"M{locant}", "C", hydrogens=3))
+    bonds = [*core.bonds, _edge(target, f"M{locant}")]
+    return _finish_entity(name, atoms, bonds)
+
+
 def parse_polycycle_name(name: str):
     """Parse a canonical name emitted by :func:`name_polycycle`."""
     if not isinstance(name, str):
         raise TypeError("name must be a string")
     normalized = " ".join(name.strip().lower().split())
+    parsed = _parse_adamantane(normalized)
+    if parsed is not None:
+        return parsed
+    parsed = _parse_methyl_bicyclo(normalized)
+    if parsed is not None:
+        return parsed
     if normalized == "phenylbenzene":
         return _parse_phenylbenzene(normalized)
     if normalized.startswith("bicyclo["):
@@ -638,3 +801,4 @@ __all__ = [
     "name_polycycle",
     "parse_polycycle_name",
 ]
+
