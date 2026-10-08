@@ -35,6 +35,7 @@ from .naming import (
     NamingResult,
     name_entity,
 )
+from .stereo import StereoKind, assign_stereochemistry
 from .substitutive.acyclic import alkane_stem
 from .systematic_name import NamingParseError, SystematicName
 
@@ -89,10 +90,19 @@ def _optional_hydrogens(hydrogens: int | None) -> int | None:
     return hydrogens if hydrogens else None
 
 
-def _atom(atom_id: str, element: str, hydrogens: int | None = None) -> ChemicalAtom:
+def _atom(
+    atom_id: str,
+    element: str,
+    hydrogens: int | None = None,
+    *,
+    isotope: int | None = None,
+    formal_charge: int | None = None,
+) -> ChemicalAtom:
     return ChemicalAtom(
         atom_id=atom_id,
         element=element,
+        isotope=isotope,
+        formal_charge=formal_charge,
         # OpenSMILES leaves aromatic and fully substituted atoms without an
         # explicit hydrogen field.  Treat zero as the same absent value so
         # graph equivalence does not depend on how the name was parsed.
@@ -123,7 +133,7 @@ def _entity(name: str, atoms: list[ChemicalAtom], bonds: list[ChemicalBond]) -> 
         entity_id=f"iupac:{name}",
         atoms=tuple(atoms),
         bonds=tuple(bonds),
-        net_charge=0,
+        net_charge=sum(atom.formal_charge or 0 for atom in atoms),
         status=InferenceStatus.EXPLICIT,
         evidence=_evidence(),
     )
@@ -158,6 +168,8 @@ def _parse_parent_hydride(name: str):
         return _entity(name, [_atom("O1", "O", 2)], [])
     if name == "azane":
         return _entity(name, [_atom("N1", "N", 3)], [])
+    if name == "azanium":
+        return _entity(name, [_atom("N1", "N", 4, formal_charge=1)], [])
     return None
 
 
@@ -263,6 +275,135 @@ def _parse_acid(name: str):
         atoms.append(_atom(oxygen_id, "O", 1))
         bonds.append(_bond(carbon_id, oxygen_id, 1.0))
     return _entity(name, atoms, bonds)
+
+
+def _parse_amino_acid(name: str):
+    if name != "2-aminopropanoic acid":
+        return None
+    atoms, bonds = _carbon_chain(3, name=name, terminal_group="acid")
+    # The alpha carbon (C2) carries amino and methyl substituents and one H.
+    alpha = next(atom for atom in atoms if atom.atom_id == "C2")
+    atoms[atoms.index(alpha)] = _atom("C2", "C", 1)
+    atoms.extend((_atom("O1", "O"), _atom("O2", "O", 1), _atom("N1", "N", 2)))
+    bonds.extend(
+        (
+            _bond("C1", "O1", 2.0),
+            _bond("C1", "O2", 1.0),
+            _bond("C2", "N1", 1.0),
+        )
+    )
+    return _entity(name, atoms, bonds)
+
+
+def _parse_alkene(name: str):
+    match = re.fullmatch(r"(?P<stem>[a-z]+)-(?P<locant>\d+)-ene", name)
+    if match is None:
+        return None
+    count = _stem_count(match.group("stem"))
+    locant = int(match.group("locant"))
+    if count is None or count < 2 or not 1 <= locant < count:
+        return None
+    atoms, bonds = _carbon_chain(count, name=name)
+    for bond_index, bond in enumerate(bonds, 1):
+        if bond_index == locant:
+            bonds[bond_index - 1] = _bond(bond.atom1_id, bond.atom2_id, 2.0)
+    # Recompute carbon default hydrogens from the chain bond orders.
+    for index, atom in enumerate(atoms, 1):
+        order_sum = sum(
+            edge.order or 0.0
+            for edge in bonds
+            if atom.atom_id in {edge.atom1_id, edge.atom2_id}
+        )
+        atoms[index - 1] = _atom(atom.atom_id, "C", max(0, int(round(4 - order_sum))))
+    return _entity(name, atoms, bonds)
+
+
+def _parse_counted_components(name: str):
+    match = re.fullmatch(r"(?P<count>\d+)\((?P<component>.+)\)", name)
+    if match is None:
+        return None
+    count = int(match.group("count"))
+    if count < 2:
+        return None
+    component = _parse_name(match.group("component"))
+    atoms = []
+    bonds = []
+    for index in range(count):
+        prefix = f"M{index + 1}_"
+        remap = {atom.atom_id: f"{prefix}{atom.atom_id}" for atom in component.atoms}
+        atoms.extend(replace(atom, atom_id=remap[atom.atom_id]) for atom in component.atoms)
+        bonds.extend(replace(bond, atom1_id=remap[bond.atom1_id], atom2_id=remap[bond.atom2_id]) for bond in component.bonds)
+    return _entity(name, atoms, bonds)
+
+
+def _parse_decorated(name: str):
+    """Parse stage-6 isotope and stereo prefixes around a supported name."""
+    isotopes = []
+    body = name
+    while True:
+        match = re.match(r"^\((\d+)([A-Za-z][a-z]?)\)(?!-)(.+)$", body)
+        if match is None:
+            break
+        isotopes.append((int(match.group(1)), match.group(2).capitalize()))
+        body = match.group(3)
+    stereo = []
+    while True:
+        match = re.match(r"^\((?:(\d+))?([RSEZrsez])\)-(.+)$", body)
+        if match is None:
+            break
+        stereo.append((int(match.group(1)) if match.group(1) else None, match.group(2).upper()))
+        body = match.group(3)
+    if not isotopes and not stereo:
+        return None
+    entity = _parse_name(body)
+    if isotopes:
+        atoms = list(entity.atoms)
+        for isotope, element in isotopes:
+            candidates = [index for index, atom in enumerate(atoms) if atom.element == element]
+            if len(candidates) != 1:
+                raise NamingParseError("isotope prefix must identify one parent atom")
+            index = candidates[0]
+            atoms[index] = replace(atoms[index], isotope=isotope)
+        entity = replace(entity, atoms=tuple(atoms))
+    if stereo:
+        for locant, descriptor in stereo:
+            if descriptor in {"R", "S"}:
+                atoms = list(entity.atoms)
+                centers = [
+                    index for index, atom in enumerate(atoms)
+                    if atom.element == "C" and (locant is None or atom.atom_id == f"C{locant}")
+                ]
+                if locant is None and len(centers) != 1:
+                    centers = [index for index, atom in enumerate(atoms) if atom.element == "C"]
+                if not centers:
+                    raise NamingParseError("stereo descriptor has no matching center")
+                center_index = centers[0]
+                for token in ("@", "@@"):
+                    trial = replace(atoms[center_index], stereochemistry=token)
+                    candidate = replace(entity, atoms=tuple(atoms[:center_index] + [trial] + atoms[center_index + 1:]))
+                    report = assign_stereochemistry(candidate)
+                    found = next((item for item in report.descriptors if item.center_atom_id == trial.atom_id), None)
+                    if found is not None and found.descriptor == descriptor:
+                        atoms[center_index] = trial
+                        entity = candidate
+                        break
+                else:
+                    raise NamingParseError("stereo descriptor could not be encoded")
+            elif descriptor in {"E", "Z"}:
+                bonds = list(entity.bonds)
+                for double in bonds:
+                    if double.order != 2.0:
+                        continue
+                    left = [index for index, bond in enumerate(bonds) if double.atom1_id in {bond.atom1_id, bond.atom2_id} and bond.order == 1.0 and double.atom2_id not in {bond.atom1_id, bond.atom2_id}]
+                    right = [index for index, bond in enumerate(bonds) if double.atom2_id in {bond.atom1_id, bond.atom2_id} and bond.order == 1.0 and double.atom1_id not in {bond.atom1_id, bond.atom2_id}]
+                    if not left or not right:
+                        continue
+                    marker = "\\" if descriptor == "Z" else "/"
+                    bonds[left[0]] = replace(bonds[left[0]], stereochemistry="/")
+                    bonds[right[0]] = replace(bonds[right[0]], stereochemistry=marker)
+                    entity = replace(entity, bonds=tuple(bonds))
+                    break
+    return entity
 
 
 def _parse_functional_acyclic(name: str):
@@ -542,13 +683,19 @@ def _parse_anilide(name: str):
 
 
 def _parse_name(name: str) -> FiniteChemicalEntity:
+    decorated = _parse_decorated(name)
+    if decorated is not None:
+        return decorated
     for parser in (
+        _parse_counted_components,
         _parse_special_acyclic,
         _parse_ring,
         _parse_parent_hydride,
         parse_polycycle_name,
         _parse_alkane,
+        _parse_alkene,
         _parse_alcohol,
+        _parse_amino_acid,
         _parse_acid,
         _parse_functional_acyclic,
         _parse_anilide,
@@ -603,27 +750,63 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
 def iupac_to_smiles(name: str) -> LineNotation:
     """Convert a supported IUPAC name to a lossless OpenSMILES result."""
     entity = from_iupac_name(name)
-    notation = to_line_notation(entity, dialect="opensmiles")
+    notation = _lossless_stereo_notation(entity)
     if not notation.lossless:
         raise NamingParseError("OpenSMILES conversion was not lossless")
     return notation
 
 
+def _lossless_stereo_notation(entity: FiniteChemicalEntity) -> LineNotation:
+    """Generate OpenSMILES while preserving descriptor orientation.
+
+    Canonical graph traversal may reverse the neighbour order around a chiral
+    atom.  In that case the stored @/@@ token must be toggled for the emitted
+    traversal even though the molecular descriptor is unchanged.
+    """
+    target = tuple(
+        sorted(
+            (item.kind.value, item.descriptor)
+            for item in assign_stereochemistry(entity).descriptors
+            if item.descriptor is not None
+        )
+    )
+    candidate = entity
+    for _ in range(3):
+        notation = to_line_notation(candidate, dialect="opensmiles")
+        rebuilt = from_line_notation(notation.value, dialect="opensmiles")
+        observed = tuple(
+            sorted(
+                (item.kind.value, item.descriptor)
+                for item in assign_stereochemistry(rebuilt).descriptors
+                if item.descriptor is not None
+            )
+        )
+        if observed == target:
+            return notation
+        atoms = [
+            replace(
+                atom,
+                stereochemistry=("@@" if atom.stereochemistry == "@" else "@")
+                if atom.stereochemistry in {"@", "@@"}
+                else atom.stereochemistry,
+            )
+            for atom in candidate.atoms
+        ]
+        if not any(atom.stereochemistry in {"@", "@@"} for atom in candidate.atoms):
+            return notation
+        candidate = replace(candidate, atoms=tuple(atoms))
+    return to_line_notation(candidate, dialect="opensmiles")
+
+
 def _is_reversible_entity(entity: FiniteChemicalEntity) -> bool:
-    if entity.net_charge != 0:
-        return False
     if any(
-        atom.isotope is not None
-        or atom.formal_charge not in {None, 0}
-        or atom.radical_electrons
-        or atom.stereochemistry is not None
+        atom.radical_electrons
         for atom in entity.atoms
     ):
         return False
     if not all(
         bond.kind is BondKind.COVALENT
         and bond.atom2_image_shift == (0, 0, 0)
-        and bond.stereochemistry is None
         and bond.order in {1.0, 1.5, 2.0, 3.0}
         for bond in entity.bonds
     ):
@@ -641,6 +824,8 @@ def _valence_not_exceeded(entity: FiniteChemicalEntity) -> bool:
         target = DEFAULT_VALENCE.get(atom.element)
         if target is None:
             continue
+        if atom.element == "N" and (atom.formal_charge or 0) > 0:
+            target = 4.0
         aromatic_neighbors = [bond for bond in adjacency[atom.atom_id] if bond.aromatic]
         # Fused aromatic bridgeheads have three aromatic edges in this graph
         # representation.  Treat that exceptional all-aromatic carbon as a

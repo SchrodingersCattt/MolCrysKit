@@ -386,6 +386,101 @@ def _name_carbonyl_derivative(entity):
     return None
 
 
+def _name_alkene(entity):
+    """Name a simple unbranched mono-alkene (for example but-2-ene)."""
+    atoms = _atom_map(entity)
+    heavy = [atom for atom in atoms.values() if atom.element != "H"]
+    if not heavy or any(atom.element != "C" for atom in heavy):
+        return None
+    adjacency = _heavy_adjacency(entity)
+    if any(len(values) > 2 for values in adjacency.values()):
+        return None
+    double = [
+        bond for bond in entity.bonds
+        if bond.order == 2.0 and bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN}
+    ]
+    if len(double) != 1:
+        return None
+    carbon_graph = {
+        atom_id: [neighbor for neighbor, _ in adjacency[atom_id] if atoms[neighbor].element == "C"]
+        for atom_id in atoms
+        if atoms[atom_id].element == "C"
+    }
+    if any(len(values) > 2 for values in carbon_graph.values()):
+        return None
+    endpoints = [atom_id for atom_id, values in carbon_graph.items() if len(values) <= 1]
+    if len(endpoints) != 2:
+        return None
+    path = []
+    previous = None
+    current = min(endpoints)
+    while current is not None:
+        path.append(current)
+        candidates = [value for value in carbon_graph[current] if value != previous]
+        previous, current = current, (candidates[0] if candidates else None)
+    if len(path) != len(carbon_graph):
+        return None
+    positions = {atom_id: index + 1 for index, atom_id in enumerate(path)}
+    left = positions.get(double[0].atom1_id)
+    right = positions.get(double[0].atom2_id)
+    if left is None or right is None or abs(left - right) != 1:
+        return None
+    stem = alkane_stem(len(path))
+    if stem is None or len(path) < 2:
+        return None
+    return _result(
+        f"{stem}-{min(left, right)}-ene",
+        "Select the unbranched carbon chain containing the double bond.",
+    )
+
+
+def _name_amino_acid(entity):
+    """Recognize the reversible alpha-amino-propanoic-acid skeleton."""
+    atoms = _atom_map(entity)
+    heavy = {atom_id: atom for atom_id, atom in atoms.items() if atom.element != "H"}
+    if len(heavy) != 6 or sum(atom.element == "C" for atom in heavy.values()) != 3:
+        return None
+    if sum(atom.element == "N" for atom in heavy.values()) != 1 or sum(atom.element == "O" for atom in heavy.values()) != 2:
+        return None
+    adjacency = _heavy_adjacency(entity)
+    carbonyl = []
+    for atom_id, atom in heavy.items():
+        if atom.element != "C":
+            continue
+        oxygen_edges = [
+            (neighbor, bond)
+            for neighbor, bond in adjacency[atom_id]
+            if heavy[neighbor].element == "O"
+        ]
+        if sum(bond.order == 2.0 for _, bond in oxygen_edges) == 1 and sum(bond.order == 1.0 for _, bond in oxygen_edges) == 1:
+            carbonyl.append(atom_id)
+    if len(carbonyl) != 1:
+        return None
+    alpha_candidates = [
+        neighbor
+        for neighbor, bond in adjacency[carbonyl[0]]
+        if heavy[neighbor].element == "C" and bond.order == 1.0
+    ]
+    if len(alpha_candidates) != 1:
+        return None
+    alpha = alpha_candidates[0]
+    alpha_edges = adjacency[alpha]
+    n_edges = [
+        neighbor for neighbor, bond in alpha_edges
+        if heavy[neighbor].element == "N" and bond.order == 1.0
+    ]
+    methyl_edges = [
+        neighbor for neighbor, bond in alpha_edges
+        if heavy[neighbor].element == "C" and neighbor != carbonyl[0] and bond.order == 1.0
+    ]
+    if len(n_edges) != 1 or len(methyl_edges) != 1 or _hcount(entity, alpha) != 1:
+        return None
+    return _result(
+        "2-aminopropanoic acid",
+        "Select the carboxylic-acid parent and the 2-amino substituent.",
+    )
+
+
 def name_acyclic(entity: FiniteChemicalEntity):
     """Return a naming tuple for acyclic structures, or ``None``."""
     if not isinstance(entity, FiniteChemicalEntity):
@@ -396,7 +491,15 @@ def name_acyclic(entity: FiniteChemicalEntity):
     graph = _heavy_adjacency(entity)
     if len(heavy) > 1 and sum(len(values) for values in graph.values()) // 2 >= len(heavy):
         return None
-    for recognizer in (_special_patterns, _name_carbonyl_derivative, _name_acid, _name_alcohol, _name_hydrocarbon):
+    for recognizer in (
+        _special_patterns,
+        _name_carbonyl_derivative,
+        _name_amino_acid,
+        _name_acid,
+        _name_alcohol,
+        _name_alkene,
+        _name_hydrocarbon,
+    ):
         result = recognizer(entity)
         if result is not None:
             return result
