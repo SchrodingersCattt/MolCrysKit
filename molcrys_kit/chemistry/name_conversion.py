@@ -34,10 +34,7 @@ from .naming import (
     NamingResult,
     name_entity,
 )
-
-
-class NamingParseError(ValueError):
-    """Raised when a name is malformed or outside the reversible subset."""
+from .systematic_name import NamingParseError, SystematicName
 
 
 _STEM_TO_CARBON_COUNT = {stem: count for count, stem in ALKANE_STEMS.items()}
@@ -379,8 +376,14 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
     The parser accepts the exact normalized names emitted by
     :func:`name_entity`; synonyms and general IUPAC names are rejected.
     """
-    normalized = _normalize_name(name)
-    entity = _parse_name(normalized)
+    # Parse into the shared structured representation before dispatching to
+    # the existing graph builders.  The builders retain their narrow grammar
+    # and diagnostics; SystematicName supplies one canonical serialization.
+    normalized = SystematicName.parse(name).serialize()
+    # The legacy graph builders intentionally accept a lowercase grammar;
+    # retain the structured spelling (including capital ``N-``) for the
+    # canonical check and feed a case-folded form to those builders.
+    entity = _parse_name(normalized.lower())
     if not _valence_not_exceeded(entity):
         raise NamingParseError(
             f"name {normalized!r} describes a graph with invalid valence"
@@ -395,7 +398,7 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
         raise NamingParseError(
             f"name {normalized!r} could not be validated by the naming rules"
         ) from exc
-    if _normalize_name(canonical) != normalized:
+    if _normalize_name(canonical) != _normalize_name(normalized):
         raise NamingParseError(
             f"name {normalized!r} is not canonical; expected {canonical!r}"
         )
