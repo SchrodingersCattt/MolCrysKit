@@ -202,7 +202,18 @@ def _is_methyl(entity, atom_id, parent_id):
 
 def _locanted_prefix(locants, prefix):
     locant_text = ",".join(map(str, locants))
-    multiplier = {1: "", 2: "di", 3: "tri"}.get(len(locants), f"{len(locants)}-")
+    multiplier = {
+        1: "",
+        2: "di",
+        3: "tri",
+        4: "tetra",
+        5: "penta",
+        6: "hexa",
+        7: "hepta",
+        8: "octa",
+        9: "nona",
+        10: "deca",
+    }.get(len(locants), f"{len(locants)}-")
     return f"{locant_text}-{multiplier}{prefix}"
 
 def _prefix_string(prefixes):
@@ -390,7 +401,11 @@ def _p_carbon_chain(count: int, *, name: str, terminal_group: str | None = None)
     return atoms, bonds
 
 
-_PREFIX_PATTERN = re.compile(r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri|\d+-)?(?P<prefix>fluoro|chloro|bromo|iodo|methyl|hydroxy))")
+_PREFIX_PATTERN = re.compile(
+    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>"
+    r"di|tri|tetra|penta|hexa|hepta|octa|nona|deca|\d+-)?"
+    r"(?P<prefix>fluoro|chloro|bromo|iodo|methyl|hydroxy))"
+)
 
 
 def parse_prefixes(text: str):
@@ -405,7 +420,18 @@ def parse_prefixes(text: str):
         locants = tuple(int(value) for value in match.group("locants").split(","))
         prefix, multiplier = match.group("prefix"), match.group("multiplier")
         numeric = multiplier[:-1] if multiplier and multiplier.endswith("-") else multiplier
-        expected = {None: 1, "di": 2, "tri": 3}.get(multiplier)
+        expected = {
+            None: 1,
+            "di": 2,
+            "tri": 3,
+            "tetra": 4,
+            "penta": 5,
+            "hexa": 6,
+            "hepta": 7,
+            "octa": 8,
+            "nona": 9,
+            "deca": 10,
+        }.get(multiplier)
         if expected is None:
             try:
                 expected = int(numeric)

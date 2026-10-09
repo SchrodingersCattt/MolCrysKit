@@ -173,7 +173,7 @@ human_reviewed = true
 [[case]]
 id = "spiro-octane"
 notation = "C1CCC12CCCC2"
-expected = "spiro[4.3]octane"
+expected = "spiro[3.4]octane"
 standard = "Blue Book"
 version = "2013"
 human_reviewed = true

@@ -63,7 +63,7 @@ def test_name_parser_is_case_insensitive_but_returns_canonical_graph() -> None:
     (
         "propan-3-ol",
         "isopropyl alcohol",
-        "(2r)-butan-2-ol",
+        "(r)-butan-2-ol",
         "molecular entity CN",
         "2(poly(ethane)) · water",
     ),
@@ -110,8 +110,9 @@ def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence() -> None:
     result = smiles_to_iupac("c1ccncc1")
     assert result.name == "1-azabenzene"
     assert result.preferred is False
-    with pytest.raises(NamingIndeterminateError):
-        smiles_to_iupac("[nH]1cccc1")
+    pyrrole = smiles_to_iupac("[nH]1cccc1", strict=False)
+    assert pyrrole.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
+    assert notations_equivalent("[nH]1cccc1", iupac_to_smiles(pyrrole.name).value) is True
 
 
 def test_valence_gates_share_one_default_table() -> None:
@@ -140,6 +141,38 @@ def test_bracket_atom_without_hydrogen_does_not_gain_default_hydrogens() -> None
         smiles_to_iupac("[C]")
 
 
+@pytest.mark.parametrize("smiles", ("CCC=CC", "CC=CCC"))
+def test_alkene_numbering_uses_lowest_double_bond_locant(smiles: str) -> None:
+    assert smiles_to_iupac(smiles).name == "pent-2-ene"
+
+
+@pytest.mark.parametrize(
+    ("smiles", "name"),
+    (("CC(C)(C)C", "2,2-dimethylpropane"), ("CC(C)(C)CC(C)C", "2,2,4-trimethylpentane")),
+)
+def test_geminal_methyl_locants_round_trip(smiles: str, name: str) -> None:
+    result = smiles_to_iupac(smiles, strict=True)
+    assert result.name == name
+    assert notations_equivalent(smiles, iupac_to_smiles(name).value) is True
+
+
+@pytest.mark.parametrize(
+    ("smiles", "incorrect"),
+    (
+        ("CC(C)CO", "propan-1-ol"),
+        ("COCCO", "ethanol"),
+        ("CC(=O)CC(=O)C", "pent-2-one"),
+        ("NC(=O)[O-]", "carbamic acid"),
+        ("ClCC(=O)Cl", "ethanoyl chloride"),
+        ("CC(=O)OCCO", "ethyl ethanoate"),
+    ),
+)
+def test_acyclic_recognizers_do_not_drop_unrepresented_atoms(smiles: str, incorrect: str) -> None:
+    result = smiles_to_iupac(smiles, strict=True)
+    assert result.name != incorrect
+    assert result.name.startswith("substituted-molecule-")
+
+
 def test_bracket_bridgehead_hydrogen_is_retained_and_rejected_if_uncovered() -> None:
     entity = from_line_notation("[CH]1CCCCC1")
     assert entity.atoms[0].implicit_hydrogens == 1
@@ -165,7 +198,7 @@ def test_impossible_anilide_smiles_valence_fails_closed() -> None:
 def test_numeric_substituent_multiplier_is_reversible() -> None:
     smiles = "Clc1cc(Cl)c(Cl)c(Cl)c1Cl"
     result = smiles_to_iupac(smiles)
-    assert result.name == "1,2,3,4,5-5-chlorobenzene"
+    assert result.name == "1,2,3,4,5-pentachlorobenzene"
     assert iupac_to_smiles(result.name).lossless is True
 
 

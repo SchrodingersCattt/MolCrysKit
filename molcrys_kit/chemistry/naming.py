@@ -333,11 +333,21 @@ def _name_disconnected(entity: FiniteChemicalEntity):
 
 def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
     """Add explicitly specified isotope and stereochemical descriptors."""
-    isotope_prefixes = [
-        f"({atom.isotope}{atom.element})"
-        for atom in entity.atoms
-        if atom.isotope is not None
-    ]
+    element_indices = {}
+    element_counts = {}
+    isotope_prefixes = []
+    for atom in entity.atoms:
+        if atom.element == "H":
+            continue
+        element_counts[atom.element] = element_counts.get(atom.element, 0) + 1
+        element_indices[atom.atom_id] = element_counts[atom.element]
+        if atom.isotope is not None:
+            # The occurrence locant disambiguates isotopes on multi-atom
+            # parents while preserving the compact legacy spelling for the
+            # element and mass number.
+            isotope_prefixes.append(
+                f"({atom.isotope}{atom.element}{element_indices[atom.atom_id]})"
+            )
     has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
     has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
     stereo_prefixes = []
@@ -348,9 +358,15 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
                 continue
             if descriptor.kind is StereoKind.TETRAHEDRAL:
                 center = next((atom for atom in entity.atoms if atom.atom_id == descriptor.center_atom_id), None)
-                locant = 2 if center is not None and _is_alpha_amino_center(entity, center.atom_id) else None
+                locant = (
+                    2
+                    if center is not None and _is_alpha_amino_center(entity, center.atom_id)
+                    else (element_indices.get(center.atom_id) if center is not None else None)
+                )
                 stereo_prefixes.append(
-                    f"({locant}{descriptor.descriptor})-" if locant is not None else f"({descriptor.descriptor})-"
+                    f"({locant}{descriptor.descriptor})-"
+                    if locant is not None
+                    else f"({descriptor.descriptor})-"
                 )
             else:
                 stereo_prefixes.append(f"({descriptor.descriptor})-")

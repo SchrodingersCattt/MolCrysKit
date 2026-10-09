@@ -377,15 +377,75 @@ def _suffix(stem: str, locants: tuple[int, ...], *, aromatic: bool = False) -> s
     return f"{stem}-" + ",".join(map(str, locants)) + "-" + names.get(len(locants), "ene")
 
 
-def _number_spiro_paths(paths):
-    """Number a spiro parent in the same order used by ``_parse_spiro``."""
-    numbering: dict[str, int] = {paths[0][0]: 1}
-    cursor = 2
-    for path in paths:
-        for atom_id in path[1:-1]:
+def _number_spiro_paths(paths, orientations=None):
+    """Return Blue-Book numbering for a monospiro parent.
+
+    ``paths`` are the two cycles emitted by :func:`classify_ring_system`,
+    with the shared atom at both ends.  Spiro descriptors cite the number of
+    *non-spiro* atoms in ascending ring-size order.  Numbering starts at the
+    atom next to the spiro atom in the smaller ring, runs around that ring to
+    the spiro atom, and then continues around the larger ring.  The shared
+    atom therefore receives ``small_ring_size + 1`` rather than locant 1.
+
+    ``orientations`` is an optional pair of booleans used by the name builder
+    to select which direction is numbered in each ring.  The parser leaves it
+    at the default (the orientation encoded by the generated name).
+    """
+    ordered = tuple(sorted(paths, key=lambda path: (len(path) - 2, path)))
+    if len(ordered) != 2:
+        raise ValueError("a monospiro parent needs exactly two ring paths")
+    if orientations is None:
+        orientations = (False, False)
+    if len(orientations) != 2:
+        raise ValueError("spiro orientations must contain two flags")
+
+    numbering: dict[str, int] = {}
+    cursor = 1
+    for index, path in enumerate(ordered):
+        internals = tuple(path[1:-1])
+        if orientations[index]:
+            internals = tuple(reversed(internals))
+        for atom_id in internals:
             numbering[atom_id] = cursor
             cursor += 1
+        if index == 0:
+            # The common atom is counted once, between the two ring walks.
+            numbering[path[0]] = cursor
+            cursor += 1
     return numbering
+
+
+def _best_spiro_numbering(entity: FiniteChemicalEntity, paths):
+    """Choose the lowest useful heteroatom/unsaturation locants for a spiro.
+
+    Each ring can be traversed in either direction.  The Blue Book priority
+    for this small supported subset is replacement heteroatoms first and
+    multiple-bond locants second; atom IDs are only a deterministic tie-break.
+    """
+    ordered = tuple(sorted(paths, key=lambda path: (len(path) - 2, path)))
+    candidates = []
+    for first_reversed in (False, True):
+        for second_reversed in (False, True):
+            orientations = (first_reversed, second_reversed)
+            numbering = _number_spiro_paths(ordered, orientations)
+            hetero = tuple(
+                sorted(
+                    numbering[atom.atom_id]
+                    for atom in entity.atoms
+                    if atom.atom_id in numbering and atom.element not in {"C", "H"}
+                )
+            )
+            unsaturation = _unsaturation_locants(entity, ordered, numbering)
+            # Prefer lower heteroatom locants when present; otherwise lower
+            # double-bond locants.  The final sequence keeps output stable for
+            # fully symmetric systems.
+            score = (
+                (0, hetero) if hetero else (1, unsaturation),
+                unsaturation,
+                tuple(numbering[atom] for path in ordered for atom in path[1:-1]),
+            )
+            candidates.append((score, numbering))
+    return min(candidates, key=lambda value: value[0])[1]
 
 
 def _hetero_prefixes_for_paths(entity: FiniteChemicalEntity, paths, numbering):
@@ -900,20 +960,23 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
             ),
         )
     if system.kind == "spiro":
-        ordered_paths = tuple(sorted(system.paths, key=lambda path: (-len(path), path)))
+        # The bracket entries are the counts of non-spiro atoms and are
+        # cited in ascending order (Blue Book SP-1.1).  Numbering follows the
+        # same small-ring-first order, with the shared atom between the two
+        # walks.
+        ordered_paths = tuple(sorted(system.paths, key=lambda path: (len(path) - 2, path)))
         sizes = [len(path) - 2 for path in ordered_paths]
         count = len(system.atoms)
         stem = _stem(count)
-        # Spiro names use one bracket entry per ring, in descending size order
-        # to keep serialization canonical.
         bracket = ".".join(map(str, sizes))
-        locants = ()
+        numbering = _best_spiro_numbering(entity, ordered_paths)
+        locants = _unsaturation_locants(entity, ordered_paths, numbering)
         if system.aromatic:
             # Aromatic spiro graphs are rare; preserving the graph still takes
             # precedence over inventing a retained parent.  Mark all edges as
             # aromatic in the parser using a pentaene suffix where applicable.
             locants = tuple(range(1, min(count, 6), 2))
-        hetero = _hetero_prefixes_for_paths(entity, ordered_paths, _number_spiro_paths(ordered_paths))
+        hetero = _hetero_prefixes_for_paths(entity, ordered_paths, numbering)
         if hetero is None:
             return None
         hetero_text = _serialize_hetero_prefixes(hetero)
@@ -1169,6 +1232,10 @@ def _parse_spiro(name: str):
         raise PolycycleParseError("spiro stem does not match ring counts")
     atoms = [_atom_record("S")]
     bonds: list[ChemicalBond] = []
+    # The descriptor is already in ascending ring-size order.  Number the
+    # smaller ring first, then the shared spiro atom, then the larger ring.
+    # This mirrors :func:`_number_spiro_paths` and makes heteroatom and ene
+    # locants independently reversible.
     numbering: dict[str, int] = {}
     next_number = 1
     for ring_index, internal_count in enumerate(ring_counts):
@@ -1178,13 +1245,11 @@ def _parse_spiro(name: str):
             atoms.append(_atom_record(atom_id))
             values.append(atom_id)
         values.append("S")
-        # Number each ring path from the spiro atom.  The second path starts
-        # after the first ring, while the shared atom keeps locant 1.
-        if ring_index == 0:
-            numbering["S"] = 1
-            next_number = 2
         for atom_id in values[1:-1]:
             numbering[atom_id] = next_number
+            next_number += 1
+        if ring_index == 0:
+            numbering["S"] = next_number
             next_number += 1
         for left, right in zip(values, values[1:]):
             order = 1.5 if aromatic else 1.0

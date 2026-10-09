@@ -39,7 +39,7 @@ LocantedPrefix = NamePrefix
 _STEREO_PREFIX = re.compile(r"^(?P<descriptors>(?:\([^()]+\)-)+)(?P<body>.+)$")
 _STEREO_ITEM = re.compile(r"\(([^()]+)\)-")
 _PREFIX = re.compile(
-    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri|\d+-)?"
+    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri|tetra|penta|hexa|hepta|octa|nona|deca|\d+-)?"
     r"(?P<name>fluoro|chloro|bromo|iodo|methyl|hydroxy|oxo|amino|nitro))"
 )
 _SUFFIXES = (
@@ -208,7 +208,18 @@ class SystematicName:
 def _serialize_prefix(prefix: NamePrefix) -> str:
     locants = ",".join(str(locant) for locant in prefix.locants)
     count = len(prefix.locants)
-    multiplier = {1: "", 2: "di", 3: "tri"}.get(count, f"{count}-")
+    multiplier = {
+        1: "",
+        2: "di",
+        3: "tri",
+        4: "tetra",
+        5: "penta",
+        6: "hexa",
+        7: "hepta",
+        8: "octa",
+        9: "nona",
+        10: "deca",
+    }.get(count, f"{count}-")
     return f"{locants}-{multiplier}{prefix.name}"
 
 
@@ -221,7 +232,18 @@ def _extract_prefixes(body: str) -> tuple[list[NamePrefix], str]:
             break
         locants = tuple(int(item) for item in match.group("locants").split(","))
         multiplier = match.group("multiplier")
-        expected = {None: 1, "di": 2, "tri": 3}.get(multiplier)
+        expected = {
+            None: 1,
+            "di": 2,
+            "tri": 3,
+            "tetra": 4,
+            "penta": 5,
+            "hexa": 6,
+            "hepta": 7,
+            "octa": 8,
+            "nona": 9,
+            "deca": 10,
+        }.get(multiplier)
         if expected is None:
             try:
                 expected = int(multiplier[:-1])

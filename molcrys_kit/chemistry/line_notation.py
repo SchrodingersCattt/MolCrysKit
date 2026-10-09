@@ -257,6 +257,11 @@ def _render_component(entity, adjacency, colors, root: str) -> str:
     }
     extra_edges = []
     for bond in entity.bonds:
+        # `_render_component` receives the full entity while rendering one
+        # disconnected component.  Bonds belonging to another component are
+        # outside this traversal and therefore have no position entry.
+        if bond.atom1_id not in parent or bond.atom2_id not in parent:
+            continue
         edge = frozenset((bond.atom1_id, bond.atom2_id))
         if edge not in tree_edges:
             endpoints = tuple(sorted(edge, key=position.__getitem__))

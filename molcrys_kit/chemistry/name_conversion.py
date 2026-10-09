@@ -50,9 +50,22 @@ _ALLOWED_PREFIXES = {
     "oxo",
 }
 _PREFIX_PATTERN = re.compile(
-    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>di|tri|\d+-)?(?P<prefix>"
+    r"(?P<locants>\d+(?:,\d+)*)-(?:(?P<multiplier>"
+    r"di|tri|tetra|penta|hexa|hepta|octa|nona|deca|\d+-)?(?P<prefix>"
     r"fluoro|chloro|bromo|iodo|methyl|hydroxy|oxo))"
 )
+_PREFIX_MULTIPLIERS = {
+    None: 1,
+    "di": 2,
+    "tri": 3,
+    "tetra": 4,
+    "penta": 5,
+    "hexa": 6,
+    "hepta": 7,
+    "octa": 8,
+    "nona": 9,
+    "deca": 10,
+}
 _ALCOHOL_PATTERN = re.compile(r"^(?P<stem>[a-z]+)an-(?P<locant>\d+)-ol$")
 _ANILIDE_PATTERN = re.compile(
     r"^n-\((?P<phenyl>[^()]+)phenyl\)(?P<parent>[a-z]+amide)$"
@@ -191,9 +204,19 @@ def _parse_alkane(name: str):
             for locant, _ in prefixes:
                 if locant not in carbon_by_locant:
                     raise NamingParseError("alkane locant is outside the parent chain")
-                carbon = carbon_by_locant[locant]
-                atoms[atoms.index(carbon)] = _atom(carbon.atom_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 1))
+                carbon_id = carbon_by_locant[locant].atom_id
+                carbon_index = next(index for index, atom in enumerate(atoms) if atom.atom_id == carbon_id)
+                carbon = atoms[carbon_index]
+                atoms[carbon_index] = _atom(carbon.atom_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 1))
+                # Repeated locants are valid for geminal substituents (for
+                # example 2,2-dimethylpropane).  Keep every reconstructed
+                # branch atom id unique instead of overwriting the prior one.
                 branch_id = f"M{locant}"
+                if any(atom.atom_id == branch_id for atom in atoms):
+                    suffix = 2
+                    while any(atom.atom_id == f"{branch_id}_{suffix}" for atom in atoms):
+                        suffix += 1
+                    branch_id = f"{branch_id}_{suffix}"
                 atoms.append(_atom(branch_id, "C", 3))
                 bonds.append(_bond(carbon.atom_id, branch_id, 1.0))
             return _entity(name, atoms, bonds)
@@ -330,16 +353,47 @@ def _parse_counted_components(name: str):
     return _entity(name, atoms, bonds)
 
 
+def _parse_distinct_components(name: str):
+    """Parse the middle-dot spelling emitted for unlike fragments."""
+    if " · " not in name:
+        return None
+    parts = [part.strip() for part in name.split(" · ")]
+    if len(parts) < 2 or any(not part for part in parts):
+        raise NamingParseError("invalid disconnected-component separator")
+    atoms = []
+    bonds = []
+    for index, part in enumerate(parts, 1):
+        component = _parse_name(part)
+        prefix = f"M{index}_"
+        remap = {atom.atom_id: f"{prefix}{atom.atom_id}" for atom in component.atoms}
+        atoms.extend(replace(atom, atom_id=remap[atom.atom_id]) for atom in component.atoms)
+        bonds.extend(
+            replace(
+                bond,
+                atom1_id=remap[bond.atom1_id],
+                atom2_id=remap[bond.atom2_id],
+            )
+            for bond in component.bonds
+        )
+    return _entity(name, atoms, bonds)
+
+
 def _parse_decorated(name: str):
     """Parse stage-6 isotope and stereo prefixes around a supported name."""
     isotopes = []
     body = name
     while True:
-        match = re.match(r"^\((\d+)([A-Za-z][a-z]?)\)(?!-)(.+)$", body)
+        match = re.match(r"^\((\d+)([A-Za-z](?:[a-z]?))(\d*)\)(?!-)(.+)$", body)
         if match is None:
             break
-        isotopes.append((int(match.group(1)), match.group(2).capitalize()))
-        body = match.group(3)
+        isotopes.append(
+            (
+                int(match.group(1)),
+                match.group(2).capitalize(),
+                int(match.group(3)) if match.group(3) else None,
+            )
+        )
+        body = match.group(4)
     stereo = []
     while True:
         match = re.match(r"^\((?:(\d+))?([RSEZrsez])\)-(.+)$", body)
@@ -352,11 +406,16 @@ def _parse_decorated(name: str):
     entity = _parse_name(body)
     if isotopes:
         atoms = list(entity.atoms)
-        for isotope, element in isotopes:
+        for isotope, element, locant in isotopes:
             candidates = [index for index, atom in enumerate(atoms) if atom.element == element]
-            if len(candidates) != 1:
-                raise NamingParseError("isotope prefix must identify one parent atom")
-            index = candidates[0]
+            if locant is None:
+                if len(candidates) != 1:
+                    raise NamingParseError("isotope prefix needs an atom locant")
+                index = candidates[0]
+            else:
+                if not 1 <= locant <= len(candidates):
+                    raise NamingParseError("isotope atom locant is outside the parent")
+                index = candidates[locant - 1]
             atoms[index] = replace(atoms[index], isotope=isotope)
         entity = replace(entity, atoms=tuple(atoms))
     if stereo:
@@ -368,7 +427,7 @@ def _parse_decorated(name: str):
                     if atom.element == "C" and (locant is None or atom.atom_id == f"C{locant}")
                 ]
                 if locant is None and len(centers) != 1:
-                    centers = [index for index, atom in enumerate(atoms) if atom.element == "C"]
+                    raise NamingParseError("stereo descriptor needs an atom locant")
                 if not centers:
                     raise NamingParseError("stereo descriptor has no matching center")
                 center_index = centers[0]
@@ -576,7 +635,7 @@ def _parse_prefixes(text: str):
         prefix = match.group("prefix")
         multiplier = match.group("multiplier")
         numeric_multiplier = multiplier[:-1] if multiplier and multiplier.endswith("-") else multiplier
-        expected = {None: 1, "di": 2, "tri": 3}.get(multiplier)
+        expected = _PREFIX_MULTIPLIERS.get(multiplier)
         if expected is None:
             try:
                 expected = int(numeric_multiplier)
@@ -600,8 +659,6 @@ def _parse_prefixes(text: str):
             position += 1
     if any(prefix not in _ALLOWED_PREFIXES for _, prefix in values):
         raise NamingParseError(f"unsupported prefix in {text!r}")
-    if len({locant for locant, _ in values}) != len(values):
-        raise NamingParseError("a ring locant may occur only once")
     if any(not 1 <= locant <= 6 for locant, _ in values):
         raise NamingParseError("benzene locants must be between 1 and 6")
     return values
@@ -613,6 +670,7 @@ def _parse_name(name: str) -> FiniteChemicalEntity:
         return decorated
     for parser in (
         _parse_generic_graph,
+        _parse_distinct_components,
         _parse_counted_components,
         _parse_special_acyclic,
         _parse_ring_functional,

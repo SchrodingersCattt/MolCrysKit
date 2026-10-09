@@ -78,6 +78,20 @@ def _hcount(entity, atom_id):
     ) + (atoms[atom_id].explicit_hydrogens or 0) + (atoms[atom_id].implicit_hydrogens or 0)
 
 
+def _heavy_ids(entity):
+    """Return the ids of atoms that must be represented by a name."""
+    return {
+        atom.atom_id
+        for atom in entity.atoms
+        if atom.element != "H"
+    }
+
+
+def _covers_heavy_atoms(entity, represented):
+    """Whether a recognizer accounts for every non-hydrogen atom."""
+    return _heavy_ids(entity) == set(represented)
+
+
 def _bond_between(adjacency, left, right):
     return next((bond for neighbor, bond in adjacency[left] if neighbor == right), None)
 
@@ -175,7 +189,18 @@ def _prefix_string(prefixes):
     words = []
     for prefix in sorted(grouped):
         locants = sorted(grouped[prefix])
-        multiplier = {1: "", 2: "di", 3: "tri"}.get(len(locants), f"{len(locants)}-")
+        multiplier = {
+            1: "",
+            2: "di",
+            3: "tri",
+            4: "tetra",
+            5: "penta",
+            6: "hexa",
+            7: "hepta",
+            8: "octa",
+            9: "nona",
+            10: "deca",
+        }.get(len(locants), f"{len(locants)}-")
         words.append(f"{','.join(map(str, locants))}-{multiplier}{prefix}")
     return "-".join(words)
 
@@ -189,6 +214,11 @@ def _special_patterns(entity):
     adjacency = _heavy_adjacency(entity)
     counts = Counter(atom.element for atom in atoms.values() if atom.element != "H")
     heavy = set(atoms) - {a for a, atom in atoms.items() if atom.element == "H"}
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in atoms.values())
+    )
     if counts == Counter({"C": 1, "O": 2}):
         carbon = next(a for a in heavy if atoms[a].element == "C")
         if all(_is_double(_bond_between(adjacency, carbon, n)) for n, _ in adjacency[carbon]):
@@ -217,9 +247,20 @@ def _special_patterns(entity):
     if counts == Counter({"C": 1, "N": 1, "O": 2}):
         carbon = next(a for a in heavy if atoms[a].element == "C")
         neighbours = adjacency[carbon]
-        if any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours) and sum(
-            atoms[n].element == "O" and _is_double(b) for n, b in neighbours
-        ) == 1:
+        single_oxygen = [
+            n for n, b in neighbours
+            if atoms[n].element == "O" and _is_single(b)
+        ]
+        # ``carbamic acid`` requires a protonated hydroxyl and a neutral
+        # molecule.  A carbamate anion has the same heavy-atom formula but
+        # must not lose its charge by being named as the neutral acid.
+        if (
+            any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours)
+            and sum(atoms[n].element == "O" and _is_double(b) for n, b in neighbours) == 1
+            and len(single_oxygen) == 1
+            and _hcount(entity, single_oxygen[0]) > 0
+            and net_charge == 0
+        ):
             return _result("carbamic acid", "Name the mixed carbonyl acid as carbamic acid.")
     if counts == Counter({"C": 1, "O": 2, "Cl": 1}):
         carbon = next(a for a in heavy if atoms[a].element == "C")
@@ -293,6 +334,12 @@ def _name_alcohol(entity):
     # Keep this stage's parent handling deliberately conservative for oxygen
     # and halogen substituents; the existing benzene rules cover aromatic cases.
     if any(atoms[a].element not in {"C", "O"} for a in atoms):
+        return None
+    # The parent chain and the hydroxyl oxygen must account for the complete
+    # heavy-atom graph.  In particular, this rejects a branched chain such as
+    # ``CC(C)CO`` and an ether-bearing chain such as ``COCCO`` instead of
+    # silently shortening either structure to an alcohol parent.
+    if not _covers_heavy_atoms(entity, {*ordered, hydroxys[0][0]}):
         return None
     locant = numbering[hydroxys[0][1]]
     stem = alkane_stem(len(ordered))
@@ -370,6 +417,13 @@ def _name_carbonyl_derivative(entity):
             chain = _acyl_parent(entity, carbonyl, set())
             if chain is None:
                 continue
+            # The compact acyl-halide grammar has no detachable-prefix
+            # handling.  Refuse to name an alpha-substituted chain until all
+            # remaining heavy atoms can be represented (e.g. the chlorine in
+            # ``ClCC(=O)Cl``).
+            represented = {*chain, oxygens[0][0], halides[0]}
+            if not _covers_heavy_atoms(entity, represented):
+                continue
             stem = alkane_stem(len(chain))
             if stem is not None:
                 return _result(f"{stem}anoyl {HALOGENS[atoms[halides[0]].element]}", "Select the acyl chain and name the acid halide.")
@@ -406,6 +460,13 @@ def _name_carbonyl_derivative(entity):
             side_stem = alkane_stem(len(side[1]))
             acid_stem = alkane_stem(len(chain))
             if side_stem and acid_stem:
+                # Only a plain alkyl side chain is supported here.  Check the
+                # full heavy-atom coverage so a terminal OH or another branch
+                # cannot be discarded while still being called an ethyl
+                # ester.
+                represented = {*chain, oxygen, oxygens[0][0], *side[1]}
+                if not _covers_heavy_atoms(entity, represented):
+                    continue
                 alkyl_name = side_stem + ("yl" if len(side_stem) > 1 else "yl")
                 return _result(f"{alkyl_name} {acid_stem}anoate", "Name the alcohol-derived alkyl group.", "Name the acid-derived ester parent.")
     return None
@@ -414,6 +475,20 @@ def _name_carbonyl_derivative(entity):
 def _name_ketone(entity):
     atoms = _atom_map(entity)
     adjacency = _heavy_adjacency(entity)
+    # This recognizer emits a mono-ketone suffix.  A second carbonyl must be
+    # named as a dione (outside this narrow grammar) or left to the reversible
+    # general-name fallback; it must never disappear from a monoketone name.
+    carbonyls = [
+        carbon
+        for carbon, atom in atoms.items()
+        if atom.element == "C"
+        and sum(
+            atoms[n].element == "O" and _is_double(bond)
+            for n, bond in adjacency[carbon]
+        ) == 1
+    ]
+    if len(carbonyls) != 1:
+        return None
     for carbon, atom in atoms.items():
         if atom.element != "C":
             continue
@@ -425,6 +500,8 @@ def _name_ketone(entity):
         if parent is None:
             continue
         ordered, numbering = parent[1], parent[2]
+        if not _covers_heavy_atoms(entity, {*ordered, oxygens[0]}):
+            continue
         stem = alkane_stem(len(ordered))
         if stem is None:
             continue
@@ -476,20 +553,36 @@ def _name_alkene(entity):
     endpoints = [atom_id for atom_id, values in carbon_graph.items() if len(values) <= 1]
     if len(endpoints) != 2:
         return None
-    path = []
-    previous = None
-    current = min(endpoints)
-    while current is not None:
-        path.append(current)
-        candidates = [value for value in carbon_graph[current] if value != previous]
-        previous, current = current, (candidates[0] if candidates else None)
-    if len(path) != len(carbon_graph):
+    # Both endpoint orientations describe the same chain.  Numbering must be
+    # selected by the double-bond locant first; atom ids are parser details and
+    # can otherwise make equivalent SMILES spellings produce pent-2-ene and
+    # pent-3-ene respectively.
+    paths = []
+    for start in endpoints:
+        path = []
+        previous = None
+        current = start
+        while current is not None:
+            path.append(current)
+            candidates = [value for value in carbon_graph[current] if value != previous]
+            previous, current = current, (candidates[0] if candidates else None)
+        if len(path) == len(carbon_graph):
+            paths.append(path)
+    if not paths:
         return None
-    positions = {atom_id: index + 1 for index, atom_id in enumerate(path)}
-    left = positions.get(double[0].atom1_id)
-    right = positions.get(double[0].atom2_id)
-    if left is None or right is None or abs(left - right) != 1:
+    scored = []
+    for path in paths:
+        positions = {atom_id: index + 1 for index, atom_id in enumerate(path)}
+        left = positions.get(double[0].atom1_id)
+        right = positions.get(double[0].atom2_id)
+        if left is None or right is None or abs(left - right) != 1:
+            continue
+        scored.append((min(left, right), tuple(path), positions))
+    if not scored:
         return None
+    _, path, positions = min(scored, key=lambda item: (item[0], item[1]))
+    left = positions[double[0].atom1_id]
+    right = positions[double[0].atom2_id]
     stem = alkane_stem(len(path))
     if stem is None or len(path) < 2:
         return None

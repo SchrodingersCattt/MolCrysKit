@@ -38,9 +38,24 @@ def _ring_functional_name(entity):
                         carbonyl_edges = adjacency[carbonyl]
                         if sum(atoms[n].element == "O" and edge.order == 2.0 for n, edge in carbonyl_edges) != 1:
                             continue
-                        methyl = [n for n, edge in carbonyl_edges if n != oxygen and atoms[n].element == "C" and edge.order == 1.0]
-                        if methyl:
-                            return ("phenyl ethanoate", False, "Name the phenyl alcohol component and ethanoate parent.")
+                        if any(
+                            n != oxygen
+                            and atoms[n].element != "C"
+                            and not (atoms[n].element == "O" and edge.order == 2.0)
+                            for n, edge in carbonyl_edges
+                        ):
+                            continue
+                        chain = _acyl_chain(entity, carbonyl)
+                        if chain is None:
+                            continue
+                        stem = alkane_stem(len(chain))
+                        if stem is None:
+                            continue
+                        # A phenyl ester recognizer must account for the entire
+                        # aromatic substituent set before returning its name.
+                        if any(n != oxygen for _, n, _ in outside):
+                            continue
+                        return (f"phenyl {stem}anoate", False, "Name the phenyl alcohol component and the acid-derived ester parent.")
         # A carbonyl group attached to benzene is the senior parent suffix.
         for ring_atom, carbonyl, link in outside:
             if atoms[carbonyl].element != "C" or link.order != 1.0:
@@ -51,7 +66,12 @@ def _ring_functional_name(entity):
                 continue
             if aromatic and sum(b.order == 1.0 for _, b in oxygens) == 1:
                 hydroxyl = next((n for n, b in oxygens if b.order == 1.0), None)
-                if hydroxyl is not None and _hydrogen_count(entity, hydroxyl) > 0:
+                if (
+                    hydroxyl is not None
+                    and _hydrogen_count(entity, hydroxyl) > 0
+                    and len(outside) == 1
+                    and outside[0][1] == carbonyl
+                ):
                     return ("benzenecarboxylic acid", False, "Select benzenecarboxylic acid as the senior group.")
             if saturated:
                 nitrogens = [n for n, b in carbonyl_edges if atoms[n].element == "N" and b.order == 1.0]
@@ -61,16 +81,56 @@ def _ring_functional_name(entity):
             # the aromatic parent.
             if aromatic:
                 ester_o = next((n for n, b in carbonyl_edges if atoms[n].element == "O" and b.order == 1.0 and n != ring_atom), None)
-                if ester_o is not None:
+                if ester_o is not None and len(outside) == 1 and outside[0][1] == carbonyl:
                     alkyl = [n for n, b in adjacency[ester_o] if n != carbonyl and atoms[n].element == "C"]
                     if alkyl:
-                        return ("phenyl ethanoate", False, "Name the phenyl alcohol component and ethanoate parent.")
+                        chain = _acyl_chain(entity, carbonyl)
+                        if chain is not None:
+                            stem = alkane_stem(len(chain))
+                            if stem is not None:
+                                return (f"phenyl {stem}anoate", False, "Name the phenyl alcohol component and the acid-derived ester parent.")
         if saturated:
             for ring_atom in cycle:
                 for neighbor, bond in adjacency[ring_atom]:
                     if atoms[neighbor].element == "O" and bond.order == 2.0:
                         return ("cyclohexanone", False, "Apply the ketone suffix to the cyclohexane parent.")
     return None
+
+
+def _acyl_chain(entity, carbonyl):
+    """Return a fully accounted-for unbranched acyl carbon chain."""
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    adjacency = _adjacency(entity)
+    chain = [carbonyl]
+    previous = None
+    current = carbonyl
+    while True:
+        candidates = [
+            neighbor
+            for neighbor, bond in adjacency[current]
+            if neighbor != previous
+            and atoms[neighbor].element == "C"
+            and bond.order == 1.0
+        ]
+        if len(candidates) > 1:
+            return None
+        if not candidates:
+            break
+        previous, current = current, candidates[0]
+        if current in chain:
+            return None
+        chain.append(current)
+    chain_set = set(chain)
+    for atom_id in chain:
+        for neighbor, bond in adjacency[atom_id]:
+            if atoms[neighbor].element == "H" or neighbor in chain_set:
+                continue
+            # The carbonyl oxygen(s) and ester oxygen are functional-group
+            # attachments; the carbon chain itself must have no hidden branch.
+            if atom_id == carbonyl and atoms[neighbor].element == "O":
+                continue
+            return None
+    return tuple(chain)
 
 
 def _hydrogen_count(entity, atom_id):
@@ -155,6 +215,11 @@ def _ring_name(cycle, graph, atoms):
             return "-".join(f"{loc}-{prefix}" for loc, prefix in prefixes) + "benzene", False
     if any(element not in {"C"} for element in elements):
         if any(element not in {"C", "N", "O", "S"} for element in elements):
+            return None
+        # Skeletal-replacement saturated parents cannot describe a ring
+        # that contains ordinary C=C bonds.  Fail closed until the
+        # unsaturated heterocycle grammar is implemented.
+        if not all(b.order == 1.0 for b in edges):
             return None
         # Saturated skeletal replacement, with oxa/aza locants.  Prefer an
         # oxygen start when present (the conventional C1COCCN1 spelling is
