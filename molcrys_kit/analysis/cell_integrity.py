@@ -128,6 +128,8 @@ def check_cell_integrity(crystal, reference=None, *, centroid_tolerance: float =
     if isinstance(transform, dict):
         expected_hash = transform.get("output_hash")
         checks["transform_provenance"] = expected_hash in {None, details["output_hash"]}
+        if reference is not None and transform.get("source_hash") is not None:
+            checks["input_provenance"] = transform["source_hash"] == _structure_hash(reference)
         details["cell_transform"] = transform
 
     if reference is not None:
