@@ -10,6 +10,9 @@ from ase.neighborlist import neighbor_list
 
 from ..structures.crystal import _structure_hash
 from ..utils.graph import graph_invariant
+from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
+
+_DERIVED_FRACTIONAL_KEYS = {KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z}
 
 __all__ = ["CellIntegrityReport", "check_cell_integrity"]
 
@@ -24,8 +27,8 @@ class CellIntegrityReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "passed": self.passed,
-            "checks": dict(self.checks),
+            "passed": bool(self.passed),
+            "checks": {key: bool(value) for key, value in self.checks.items()},
             "details": self.details,
         }
 
@@ -45,8 +48,9 @@ def _metadata_arrays_match(before, after) -> bool:
     if len(before.molecules) != len(after.molecules):
         return False
     for old, new in zip(before.molecules, after.molecules):
-        old_keys = set(old.arrays) - {"positions", "numbers", "image_shift"}
-        new_keys = set(new.arrays) - {"positions", "numbers", "image_shift"}
+        ignored = {"positions", "numbers", "image_shift"} | _DERIVED_FRACTIONAL_KEYS
+        old_keys = set(old.arrays) - ignored
+        new_keys = set(new.arrays) - ignored
         if old_keys != new_keys:
             return False
         for key in old_keys:
