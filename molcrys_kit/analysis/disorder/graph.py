@@ -213,7 +213,7 @@ class DisorderGraphBuilder:
         if not atom_indices:
             return np.array([0.0, 0.0, 0.0])
 
-        cache_key = tuple(sorted(int(index) for index in atom_indices))
+        cache_key = tuple(int(index) for index in atom_indices)
         cached = self._centroid_cache.get(cache_key)
         if cached is not None:
             return cached
