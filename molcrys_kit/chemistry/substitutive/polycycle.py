@@ -377,6 +377,40 @@ def _suffix(stem: str, locants: tuple[int, ...], *, aromatic: bool = False) -> s
     return f"{stem}-" + ",".join(map(str, locants)) + "-" + names.get(len(locants), "ene")
 
 
+def _number_spiro_paths(paths):
+    """Number a spiro parent in the same order used by ``_parse_spiro``."""
+    numbering: dict[str, int] = {paths[0][0]: 1}
+    cursor = 2
+    for path in paths:
+        for atom_id in path[1:-1]:
+            numbering[atom_id] = cursor
+            cursor += 1
+    return numbering
+
+
+def _hetero_prefixes_for_paths(entity: FiniteChemicalEntity, paths, numbering):
+    """Return locanted skeletal-replacement prefixes, or ``None`` if unsupported."""
+    prefixes = []
+    for atom in entity.atoms:
+        if atom.atom_id not in numbering or atom.element in {"C", "H"}:
+            continue
+        base = {"N": "aza", "O": "oxa", "S": "thia"}.get(atom.element)
+        if base is None:
+            return None
+        charge = atom.formal_charge or 0
+        if charge:
+            if atom.element != "N" or charge != 1:
+                return None
+            hydrogens = (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+            base = "azanium" if hydrogens else "azonia"
+        prefixes.append((numbering[atom.atom_id], base))
+    return tuple(sorted(prefixes))
+
+
+def _serialize_hetero_prefixes(prefixes) -> str:
+    return "-".join(f"{locant}-{prefix}" for locant, prefix in prefixes)
+
+
 _RING_WORDS = {
     2: "bi", 3: "tri", 4: "tetra", 5: "penta", 6: "hexa",
     7: "hepta", 8: "octa", 9: "nona", 10: "deca", 11: "undeca", 12: "dodeca",
@@ -775,10 +809,23 @@ def _select_von_baeyer(entity: FiniteChemicalEntity, attachments: tuple[str, ...
 
 
 def _von_baeyer_result(entity: FiniteChemicalEntity, attachments: tuple[str, ...] = ()):
+    # Substituent locants depend on the selected parent orientation.  Until
+    # that orientation is carried through the reverse parser, fail closed for
+    # substituted rank-3 systems rather than emitting a mismatched name.
+    if attachments:
+        return None
     selected = _select_von_baeyer(entity, attachments)
     if selected is None:
         return None
     name, _numbering = selected
+    # The selector works on graph candidates, while the reverse parser uses a
+    # fixed von Baeyer numbering.  Normalize the selected spelling through the
+    # parser once so a generated rank-3 name is canonical and self-reversible.
+    parsed = _parse_von_baeyer(name)
+    if parsed is not None:
+        canonical_selected = _select_von_baeyer(parsed, attachments=())
+        if canonical_selected is not None and canonical_selected[0] != name:
+            name = canonical_selected[0]
     return (
         name,
         False,
@@ -809,7 +856,7 @@ def _with_substituent_prefix(core: FiniteChemicalEntity, named, specs, attachmen
     locants.sort()
     prefix = "-".join(f"{locant}-{word}" for locant, word in locants)
     return (
-        prefix + named[0],
+        prefix + ("-" if named[0][:1].isdigit() else "") + named[0],
         False,
         (
             "Detach acyclic substituents from the ring core.",
@@ -853,7 +900,8 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
             ),
         )
     if system.kind == "spiro":
-        sizes = sorted((len(path) - 2 for path in system.paths), reverse=True)
+        ordered_paths = tuple(sorted(system.paths, key=lambda path: (-len(path), path)))
+        sizes = [len(path) - 2 for path in ordered_paths]
         count = len(system.atoms)
         stem = _stem(count)
         # Spiro names use one bracket entry per ring, in descending size order
@@ -865,8 +913,12 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
             # precedence over inventing a retained parent.  Mark all edges as
             # aromatic in the parser using a pentaene suffix where applicable.
             locants = tuple(range(1, min(count, 6), 2))
+        hetero = _hetero_prefixes_for_paths(entity, ordered_paths, _number_spiro_paths(ordered_paths))
+        if hetero is None:
+            return None
+        hetero_text = _serialize_hetero_prefixes(hetero)
         return (
-            f"spiro[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
+            f"{hetero_text}spiro[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
             False,
             (
                 "Classify the two cyclic components as sharing exactly one atom.",
@@ -879,11 +931,9 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
     bracket = ".".join(map(str, lengths))
     stem = _stem(len(system.atoms))
     numbering = _number_bicyclo_paths(paths, bridgeheads)
-    hetero = [
-        (numbering[atom.atom_id], atom.element.lower())
-        for atom in entity.atoms
-        if atom.atom_id in numbering and atom.element not in {"C", "H"}
-    ]
+    hetero = _hetero_prefixes_for_paths(entity, paths, numbering)
+    if hetero is None:
+        return None
     if system.aromatic:
         # Aromatic fused benzene systems are represented in von Baeyer form.
         # The five alternating bonds are a stable serialization; the parser
@@ -891,9 +941,7 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
         locants = tuple(range(1, len(system.atoms), 2))
     else:
         locants = _unsaturation_locants(entity, paths, numbering)
-    prefix = ""
-    if len(hetero) == 1 and hetero[0][1] in {"n", "o", "s"}:
-        prefix = f"{hetero[0][0]}-{'aza' if hetero[0][1] == 'n' else 'oxa' if hetero[0][1] == 'o' else 'thia'}"
+    prefix = _serialize_hetero_prefixes(hetero)
     return (
         f"{prefix}bicyclo[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
         False,
@@ -918,8 +966,20 @@ def _evidence():
     return (Evidence(EvidenceSource.IUPAC_NAME, "self_contained_polycycle_parser"),)
 
 
-def _atom_record(atom_id: str, element: str = "C", hydrogens: int | None = None):
-    return ChemicalAtom(atom_id=atom_id, element=element, implicit_hydrogens=hydrogens, evidence=_evidence())
+def _atom_record(
+    atom_id: str,
+    element: str = "C",
+    hydrogens: int | None = None,
+    *,
+    formal_charge: int | None = None,
+):
+    return ChemicalAtom(
+        atom_id=atom_id,
+        element=element,
+        implicit_hydrogens=hydrogens,
+        formal_charge=formal_charge,
+        evidence=_evidence(),
+    )
 
 
 def _edge(left: str, right: str, order: float = 1.0, *, aromatic: bool = False):
@@ -954,20 +1014,68 @@ def _finish_entity(name: str, atoms: list[ChemicalAtom], bonds: list[ChemicalBon
         entity_id=f"iupac:{name}",
         atoms=tuple(completed),
         bonds=tuple(bonds),
-        net_charge=0,
+        net_charge=sum(atom.formal_charge or 0 for atom in completed),
         status=InferenceStatus.EXPLICIT,
         evidence=_evidence(),
     )
 
 
+_HETERO_PREFIXES = ("aza", "oxa", "thia", "azonia", "azanium")
+_HETERO_PATTERN = r"azanium|azonia|thia|oxa|aza"
+_HETERO_TEXT = rf"(?:(?:\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*)?)"
+_HETERO_TEXT_PATTERN = rf"(?P<hetero>(?:\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*)?)"
+
+
+def _hetero_spec(prefix: str):
+    if prefix == "aza":
+        return "N", None, None
+    if prefix == "oxa":
+        return "O", None, None
+    if prefix == "thia":
+        return "S", None, None
+    if prefix == "azonia":
+        return "N", 1, None
+    if prefix == "azanium":
+        return "N", 1, 1
+    raise PolycycleParseError(f"unsupported skeletal-replacement prefix: {prefix}")
+
+
+def _parse_hetero_text(text: str):
+    if not text:
+        return ()
+    pattern = rf"(?:(\d+)-({_HETERO_PATTERN})-)*(\d+)-({_HETERO_PATTERN})"
+    match = re.fullmatch(pattern, text)
+    if match is None:
+        raise PolycycleParseError("malformed skeletal-replacement prefix")
+    values = []
+    for locant, prefix in re.findall(rf"(\d+)-({_HETERO_PATTERN})", text):
+        values.append((int(locant), prefix))
+    return tuple(values)
+
+
+def _apply_hetero_specs(atoms, hetero_text: str, numbering: dict[str, int], total: int):
+    for locant, prefix in _parse_hetero_text(hetero_text):
+        if not 1 <= locant <= total:
+            raise PolycycleParseError("heteroatom locant outside polycyclic parent")
+        target = next((atom_id for atom_id, value in numbering.items() if value == locant), None)
+        if target is None:
+            raise PolycycleParseError("heteroatom locant outside polycyclic parent")
+        element, charge, hydrogens = _hetero_spec(prefix)
+        index = next(i for i, atom in enumerate(atoms) if atom.atom_id == target)
+        atoms[index] = _atom_record(target, element, hydrogens, formal_charge=charge)
+
+
 def _parse_bicyclo(name: str):
-    match = re.fullmatch(r"(?:(\d+)-(aza|oxa|thia))?bicyclo\[(\d+)\.(\d+)\.(\d+)\](.+)", name)
+    match = re.fullmatch(
+        _HETERO_TEXT_PATTERN + r"bicyclo"
+        r"\[(\d+)\.(\d+)\.(\d+)\](.+)",
+        name,
+    )
     if match is None:
         return None
-    hetero_locant = int(match.group(1)) if match.group(1) else None
-    hetero_prefix = match.group(2)
-    bridge_counts = tuple(int(match.group(index)) for index in (3, 4, 5))
-    body = match.group(6)
+    hetero_text = match.group("hetero") or ""
+    bridge_counts = tuple(int(match.group(index)) for index in (2, 3, 4))
+    body = match.group(5)
     # ``ene`` has no multiplicative prefix, so the old ``([a-z]+)ene``
     # pattern only matched diene/triene/... suffixes.  Keep the locants as
     # data: assigning every reconstructed edge a single bond silently loses
@@ -1013,14 +1121,12 @@ def _parse_bicyclo(name: str):
                 if min(left_locant, right_locant) in locants:
                     order = 2.0
             bonds.append(_edge(left, right, order, aromatic=aromatic))
-    if hetero_locant is not None and hetero_prefix:
-        numbering = _number_bicyclo_paths(paths, ("B1", "B2"))
-        target = next((atom_id for atom_id, locant in numbering.items() if locant == hetero_locant), None)
-        if target is None:
-            raise PolycycleParseError("heteroatom locant outside bicyclic parent")
-        element = {"aza": "N", "oxa": "O", "thia": "S"}[hetero_prefix]
-        index = next(i for i, atom in enumerate(atoms) if atom.atom_id == target)
-        atoms[index] = _atom_record(target, element)
+    _apply_hetero_specs(
+        atoms,
+        hetero_text,
+        _number_bicyclo_paths(paths, ("B1", "B2")),
+        count,
+    )
     if not aromatic and locants:
         represented = {
             min(numbering[left], numbering[right])
@@ -1034,11 +1140,16 @@ def _parse_bicyclo(name: str):
 
 
 def _parse_spiro(name: str):
-    match = re.fullmatch(r"spiro\[(\d+)\.(\d+)\](.+)", name)
+    match = re.fullmatch(
+        _HETERO_TEXT_PATTERN + r"spiro"
+        r"\[(\d+)\.(\d+)\](.+)",
+        name,
+    )
     if match is None:
         return None
-    ring_counts = tuple(int(match.group(index)) for index in (1, 2))
-    body = match.group(3)
+    hetero_text = match.group("hetero") or ""
+    ring_counts = tuple(int(match.group(index)) for index in (2, 3))
+    body = match.group(4)
     unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]*ene)", body)
     if unsaturated:
         stem, raw_locants, multiplicative = unsaturated.groups()
@@ -1090,6 +1201,7 @@ def _parse_spiro(name: str):
         }
         if represented != set(locants):
             raise PolycycleParseError("spiro unsaturation locant outside parent")
+    _apply_hetero_specs(atoms, hetero_text, numbering, count)
     return _finish_entity(name, atoms, bonds)
 
 
@@ -1115,7 +1227,8 @@ def _stem_number(stem: str) -> int | None:
 
 def _split_ring_prefixes(name: str):
     match = re.search(
-        r"(?:(?:\d+-(?:aza|oxa|thia))*)?(?:bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo\[|spiro\[|phenylbenzene",
+        rf"{_HETERO_TEXT}(?:bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo\[|"
+        rf"{_HETERO_TEXT}spiro\[|phenylbenzene",
         name,
     )
     if match is None:
@@ -1154,7 +1267,22 @@ def _parent_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
     if system is None or system.kind != "bicyclo":
         return None
     numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
-    return {locant: atom_id for atom_id, locant in numbering.items()}
+    locants = {locant: atom_id for atom_id, locant in numbering.items()}
+    # ``name_polycycle`` uses the lowest locant on a symmetric bridge.  When
+    # reversing that convention, choose the reflected (higher numbered) atom;
+    # it is the canonical representative and remains constitutionally
+    # equivalent under the bridge symmetry.
+    for path in system.paths:
+        internals = path[1:-1]
+        if not internals:
+            continue
+        values = [numbering[node] for node in internals]
+        for node, value in zip(internals, values):
+            reflected = values[0] + values[-1] - value
+            low = min(value, reflected)
+            candidate = node if value >= reflected else internals[values.index(reflected)]
+            locants[low] = candidate
+    return locants
 
 
 def _attach_substituents(entity: FiniteChemicalEntity, prefixes, name: str):
@@ -1196,7 +1324,7 @@ def _attach_substituents(entity: FiniteChemicalEntity, prefixes, name: str):
 
 def _parse_von_baeyer(name: str):
     match = re.fullmatch(
-        r"(?:((?:\d+-(?:aza|oxa|thia)-)*\d+-(?:aza|oxa|thia)))?"
+        rf"(?:((?:\d+-(?:{_HETERO_PATTERN})-)*\d+-(?:{_HETERO_PATTERN})))?"
         r"(bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo"
         r"\[([0-9^.,]+)\]"
         r"([a-z]+?)"
@@ -1265,13 +1393,8 @@ def _parse_von_baeyer(name: str):
             link(locant, locant + 1)
         link(cursor + length - 1, low)
         cursor += length
-    if hetero_text:
-        for locant_text, prefix in re.findall(r"(\d+)-(aza|oxa|thia)", hetero_text):
-            locant = int(locant_text)
-            if not 1 <= locant <= total:
-                raise PolycycleParseError("heteroatom locant outside von Baeyer parent")
-            index = locant - 1
-            atoms[index] = _atom_record(f"N{locant}", _PREFIX_ELEMENT[prefix])
+    numbering = {f"N{index}": index for index in range(1, total + 1)}
+    _apply_hetero_specs(atoms, hetero_text or "", numbering, total)
     unsaturated = ()
     if suffix != "ane":
         raw = re.fullmatch(r"-(\d+(?:,\d+)*)-(?:di|tri|tetra|penta)?ene", suffix)
@@ -1295,9 +1418,15 @@ def _parse_von_baeyer(name: str):
 def _parse_ring_parent(name: str):
     if name == "phenylbenzene":
         return _parse_phenylbenzene(name)
-    if name.startswith("spiro["):
+    if name.startswith("spiro[") or re.match(
+        rf"\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*spiro\[",
+        name,
+    ):
         return _parse_spiro(name)
-    if name.startswith("bicyclo[") or re.match(r"(?:\d+-(?:aza|oxa|thia))+bicyclo\[", name):
+    if name.startswith("bicyclo[") or re.match(
+        rf"\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*bicyclo\[",
+        name,
+    ):
         return _parse_bicyclo(name)
     return _parse_von_baeyer(name)
 
