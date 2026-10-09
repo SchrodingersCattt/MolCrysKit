@@ -269,12 +269,15 @@ def _parse_acid(name: str):
 
 
 def _parse_amino_acid(name: str):
-    if name != "2-aminopropanoic acid":
+    match = re.fullmatch(r"2-amino([a-z]+)anoic acid", name)
+    if match is None:
         return None
-    atoms, bonds = _carbon_chain(3, name=name, terminal_group="acid")
-    # The alpha carbon (C2) carries amino and methyl substituents and one H.
+    count = _stem_count(match.group(1))
+    if count is None or count < 2:
+        return None
+    atoms, bonds = _carbon_chain(count, name=name, terminal_group="acid")
     alpha = next(atom for atom in atoms if atom.atom_id == "C2")
-    atoms[atoms.index(alpha)] = _atom("C2", "C", 1)
+    atoms[atoms.index(alpha)] = _atom("C2", "C", max(0, (alpha.implicit_hydrogens or 0) - 1))
     atoms.extend((_atom("O1", "O"), _atom("O2", "O", 1), _atom("N1", "N", 2)))
     bonds.extend(
         (
@@ -472,6 +475,15 @@ def _parse_functional_acyclic(name: str):
 
 
 def _parse_special_acyclic(name: str):
+    if name == "carbamoyl chloride":
+        atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("N1", "N", 2), _atom("Cl1", "Cl")]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "N1", 1.0), _bond("C1", "Cl1", 1.0)])
+    if name == "carbamic acid":
+        atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("O2", "O", 1), _atom("N1", "N", 2)]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "O2", 1.0), _bond("C1", "N1", 1.0)])
+    if name == "carbonochloridic acid":
+        atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("O2", "O", 1), _atom("Cl1", "Cl")]
+        return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "O2", 1.0), _bond("C1", "Cl1", 1.0)])
     if name == "carbon dioxide":
         atoms = [_atom("C1", "C"), _atom("O1", "O"), _atom("O2", "O")]
         return _entity(name, atoms, [_bond("C1", "O1", 2.0), _bond("C1", "O2", 2.0)])
@@ -635,29 +647,78 @@ def _parse_ring_functional(name: str):
         atoms.extend((_atom("C7", "C"), _atom("O1", "O"), _atom("O2", "O", 1)))
         bonds.extend((_bond("C1", "C7", 1.0), _bond("C7", "O1", 2.0), _bond("C7", "O2", 1.0)))
         return _entity(name, atoms, bonds)
-    if name == "phenyl ethanoate":
+    benzoate = re.fullmatch(r"([a-z]+) benzenecarboxylate", name)
+    if benzoate:
+        prefix = benzoate.group(1)
+        if prefix == "methyl":
+            alkyl_count = 1
+        elif prefix == "ethyl":
+            alkyl_count = 2
+        elif prefix == "propyl":
+            alkyl_count = 3
+        elif prefix == "butyl":
+            alkyl_count = 4
+        elif prefix.endswith("yl"):
+            alkyl_count = _stem_count(prefix[:-2])
+        else:
+            alkyl_count = None
+        if alkyl_count is None or alkyl_count < 1:
+            return None
         atoms = [_atom(f"R{i}", "C") for i in range(1, 7)]
         bonds = [_bond(f"R{i}", f"R{i % 6 + 1}", 1.5, aromatic=True) for i in range(1, 7)]
-        atoms.extend((_atom("C1", "C", 3), _atom("C2", "C"), _atom("O1", "O"), _atom("O2", "O")))
-        bonds.extend((_bond("C1", "C2", 1.0), _bond("C2", "O1", 2.0), _bond("C2", "O2", 1.0), _bond("O2", "R1", 1.0)))
+        atoms.extend((_atom("C0", "C"), _atom("O1", "O"), _atom("O2", "O")))
+        bonds.extend((_bond("R1", "C0", 1.0), _bond("C0", "O1", 2.0), _bond("C0", "O2", 1.0)))
+        previous = "O2"
+        for index in range(alkyl_count):
+            atom_id = f"A{index + 1}"
+            hydrogens = 3 if index == alkyl_count - 1 else 2
+            atoms.append(_atom(atom_id, "C", hydrogens))
+            bonds.append(_bond(previous, atom_id, 1.0))
+            previous = atom_id
         return _entity(name, atoms, bonds)
-    if name == "cyclohexanone":
-        atoms = [_atom(f"C{i}", "C") for i in range(1, 7)]
-        bonds = [_bond(f"C{i}", f"C{i % 6 + 1}", 1.0) for i in range(1, 7)]
-        atoms.append(_atom("O1", "O"))
-        bonds.append(_bond("C1", "O1", 2.0))
-        for i, atom in enumerate(atoms[:6], 1):
-            order = sum(edge.order or 0.0 for edge in bonds if atom.atom_id in {edge.atom1_id, edge.atom2_id})
-            atoms[i - 1] = _atom(atom.atom_id, "C", max(0, int(4 - order)))
+    phenyl = re.fullmatch(r"phenyl ([a-z]+)anoate", name)
+    if phenyl:
+        count = _stem_count(phenyl.group(1))
+        if count is None or count < 1:
+            return None
+        atoms = [_atom(f"R{i}", "C") for i in range(1, 7)]
+        bonds = [_bond(f"R{i}", f"R{i % 6 + 1}", 1.5, aromatic=True) for i in range(1, 7)]
+        alkyl_count = count - 1
+        for index in range(alkyl_count):
+            hydrogens = 3 if index == 0 else 2
+            atoms.append(_atom(f"C{index + 1}", "C", hydrogens))
+            if index:
+                bonds.append(_bond(f"C{index}", f"C{index + 1}", 1.0))
+        carbonyl = f"C{count}"
+        atoms.extend((_atom(carbonyl, "C", 1 if count == 1 else None), _atom("O1", "O"), _atom("O2", "O")))
+        bonds.extend((_bond(carbonyl, "O1", 2.0), _bond(carbonyl, "O2", 1.0), _bond("O2", "R1", 1.0)))
+        if alkyl_count:
+            bonds.append(_bond(f"C{alkyl_count}", carbonyl, 1.0))
         return _entity(name, atoms, bonds)
-    if name == "cyclohexanecarboxamide":
-        atoms = [_atom(f"C{i}", "C") for i in range(1, 7)]
-        bonds = [_bond(f"C{i}", f"C{i % 6 + 1}", 1.0) for i in range(1, 7)]
-        atoms.extend((_atom("C7", "C"), _atom("O1", "O"), _atom("N1", "N", 2)))
-        bonds.extend((_bond("C1", "C7", 1.0), _bond("C7", "O1", 2.0), _bond("C7", "N1", 1.0)))
-        for i, atom in enumerate(atoms[:6], 1):
+    ketone = re.fullmatch(r"cyclo([a-z]+)anone", name)
+    amide = re.fullmatch(r"cyclo([a-z]+)anecarboxamide", name)
+    if ketone or amide:
+        stem = ketone.group(1) if ketone else amide.group(1)
+        count = _stem_count(stem)
+        if count is None or count < 3:
+            return None
+        atoms = [_atom(f"C{i}", "C") for i in range(1, count + 1)]
+        bonds = [_bond(f"C{i}", f"C{i % count + 1}", 1.0) for i in range(1, count + 1)]
+        if ketone:
+            atoms.append(_atom("O1", "O"))
+            bonds.append(_bond("C1", "O1", 2.0))
+        else:
+            atoms.extend((_atom(f"C{count + 1}", "C"), _atom("O1", "O"), _atom("N1", "N", 2)))
+            bonds.extend(
+                (
+                    _bond("C1", f"C{count + 1}", 1.0),
+                    _bond(f"C{count + 1}", "O1", 2.0),
+                    _bond(f"C{count + 1}", "N1", 1.0),
+                )
+            )
+        for index, atom in enumerate(atoms[:count], 1):
             order = sum(edge.order or 0.0 for edge in bonds if atom.atom_id in {edge.atom1_id, edge.atom2_id})
-            atoms[i - 1] = _atom(atom.atom_id, "C", max(0, int(4 - order)))
+            atoms[index - 1] = _atom(atom.atom_id, "C", max(0, int(4 - order)))
         return _entity(name, atoms, bonds)
     return None
 

@@ -377,130 +377,472 @@ def _suffix(stem: str, locants: tuple[int, ...], *, aromatic: bool = False) -> s
     return f"{stem}-" + ",".join(map(str, locants)) + "-" + names.get(len(locants), "ene")
 
 
-def _all_single_carbon(entity: FiniteChemicalEntity) -> bool:
-    """Whether *entity* is a neutral, saturated carbon skeleton.
+_RING_WORDS = {
+    2: "bi", 3: "tri", 4: "tetra", 5: "penta", 6: "hexa",
+    7: "hepta", 8: "octa", 9: "nona", 10: "deca", 11: "undeca", 12: "dodeca",
+}
+_WORD_RINGS = {word: count for count, word in _RING_WORDS.items()}
+_HETERO_PREFIX = {"N": "aza", "O": "oxa", "S": "thia"}
+_PREFIX_ELEMENT = {"aza": "N", "oxa": "O", "thia": "S"}
 
-    The cage parents handled below are graph parents, so checking the element
-    and bond order here keeps a substituted cage from being mistaken for a
-    similarly sized heterocycle or unsaturated system.
-    """
-    return (
-        all(atom.element == "C" for atom in entity.atoms if atom.element != "H")
-        and all(
-            bond.kind is BondKind.COVALENT
-            and abs((bond.order or 0.0) - 1.0) < 1e-8
+
+def _edge_key(left: str, right: str) -> frozenset[str]:
+    return frozenset((left, right))
+
+
+def _two_core_nodes(entity: FiniteChemicalEntity) -> set[str]:
+    """Return atoms that survive deletion of every acyclic pendant."""
+    nodes = set(_heavy(entity))
+    adjacency = _adj(entity, nodes)
+    core = set(nodes)
+    changed = True
+    while changed:
+        changed = False
+        for node in list(core):
+            degree = sum(other in core for other, _ in adjacency[node])
+            if degree < 2:
+                core.remove(node)
+                changed = True
+    return core
+
+
+def _induced_entity(entity: FiniteChemicalEntity, nodes: set[str]) -> FiniteChemicalEntity:
+    return replace(
+        entity,
+        atoms=tuple(atom for atom in entity.atoms if atom.atom_id in nodes),
+        bonds=tuple(
+            bond
             for bond in entity.bonds
-        )
-        and (entity.net_charge or 0) == 0
-    )
-
-
-def _name_adamantane(entity: FiniteChemicalEntity):
-    """Recognize the diamondoid C10 cage as a von Baeyer tricyclic parent.
-
-    Adamantane is the only connected C10H16 graph with four degree-three and
-    six degree-two carbon vertices in this rule set.  The explicit degree
-    signature avoids using the retained trivial name while still producing a
-    readable, reversible systematic parent.
-    """
-    if not _all_single_carbon(entity):
-        return None
-    nodes = _heavy(entity)
-    if len(nodes) != 10 or sum(len(values) for values in _adj(entity).values()) // 2 != 12:
-        return None
-    degrees = sorted(len(values) for values in _adj(entity).values())
-    if degrees != [2, 2, 2, 2, 2, 2, 3, 3, 3, 3]:
-        return None
-    # The degree-three vertices form an independent set in adamantane; this
-    # excludes the common C10 fused-ring alternatives with the same degree
-    # histogram.
-    adjacency = _adj(entity)
-    branch = {node for node in nodes if len(adjacency[node]) == 3}
-    if any(neighbor in branch for node in branch for neighbor, _ in adjacency[node]):
-        return None
-    return (
-        "tricyclo[3.3.1.1^3,7]decane",
-        False,
-        (
-            "Recognize the adamantane diamondoid graph as a tricyclic von Baeyer parent.",
-            "Use the systematic tricyclo[3.3.1.1^3,7]decane cage descriptor.",
+            if bond.atom1_id in nodes and bond.atom2_id in nodes
         ),
     )
 
 
-def _name_methyl_bicyclo(entity: FiniteChemicalEntity):
-    """Name a saturated bicyclic carbon parent bearing one methyl group.
+def _is_unbranched_carbon_chain(entity: FiniteChemicalEntity, nodes: set[str], root: str) -> bool:
+    if root not in nodes or any(_atom(entity, node).element != "C" for node in nodes):
+        return False
+    adjacency = _adj(entity, nodes)
+    degrees = {node: len(adjacency[node]) for node in nodes}
+    if any(degree > 2 for degree in degrees.values()):
+        return False
+    if len(nodes) == 1:
+        return degrees[root] == 0
+    if degrees[root] != 1 or sum(degree == 1 for degree in degrees.values()) != 2:
+        return False
+    for node in nodes:
+        for _, bond in adjacency[node]:
+            if bond.aromatic or abs((bond.order or 0.0) - 1.0) > 1e-8:
+                return False
+    return True
 
-    A terminal carbon attached to a supported bicyclo core is a detachable
-    methyl prefix.  Numbering is selected from the generated bridge numbering
-    and its reverse so that the prefix receives the lowest available locant.
-    """
-    if not _all_single_carbon(entity):
+
+def _alkyl_word(count: int) -> str:
+    stem = _stem(count)
+    if count == 1:
+        return "methyl"
+    if count == 2:
+        return "ethyl"
+    if count == 3:
+        return "propyl"
+    if count == 4:
+        return "butyl"
+    return f"{stem}yl"
+
+
+def _acyl_word(count: int) -> str:
+    return f"{_stem(count)}anoyl"
+
+
+def _fragment_word(entity: FiniteChemicalEntity, nodes: set[str], root: str) -> str | None:
+    """Name one pendant as an alkyl or alkanoyl prefix."""
+    if _atom(entity, root).element != "C":
         return None
-    nodes = _heavy(entity)
     adjacency = _adj(entity)
-    leaves = [node for node in nodes if len(adjacency[node]) == 1]
-    if len(leaves) != 1:
+    neighbours = [(other, bond) for other, bond in adjacency[root] if other in nodes]
+    doubles = [
+        other for other, bond in neighbours
+        if not bond.aromatic and abs((bond.order or 0.0) - 2.0) < 1e-8
+    ]
+    singles = [
+        other for other, bond in neighbours
+        if not bond.aromatic and abs((bond.order or 0.0) - 1.0) < 1e-8
+    ]
+    if len(neighbours) != len(doubles) + len(singles):
         return None
-    methyl = leaves[0]
-    attachment = adjacency[methyl][0][0]
-    core_nodes = nodes - {methyl}
-    core_atoms = tuple(atom for atom in entity.atoms if atom.atom_id in core_nodes)
-    core_bonds = tuple(
-        bond
-        for bond in entity.bonds
-        if bond.atom1_id in core_nodes and bond.atom2_id in core_nodes
-    )
-    core = replace(entity, atoms=core_atoms, bonds=core_bonds)
-    system = classify_ring_system(core)
-    if system is None or system.kind != "bicyclo":
+    if len(doubles) == 1 and _atom(entity, doubles[0]).element == "O" and len(singles) <= 1:
+        oxygen = doubles[0]
+        if any(other != root and other in nodes for other, _ in adjacency[oxygen]):
+            return None
+        chain = set(nodes) - {root, oxygen}
+        if singles:
+            if set(singles) != {next(iter(chain), None)} and not (
+                len(singles) == 1 and singles[0] in chain and _is_unbranched_carbon_chain(entity, chain, singles[0])
+            ):
+                return None
+            if not _is_unbranched_carbon_chain(entity, chain, singles[0]):
+                return None
+        elif chain:
+            return None
+        return _acyl_word(1 + len(chain))
+    if doubles or not _is_unbranched_carbon_chain(entity, nodes, root):
         return None
-    lengths = tuple(sorted((len(path) - 2 for path in system.paths), reverse=True))
-    if len(lengths) != 3:
-        return None
-    numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
-    locant = numbering.get(attachment)
-    if locant is None:
-        return None
-    # Reverse the orientation of the bridge carrying the substituent and
-    # choose the lower locant.  The numbering map already tells us the
-    # contiguous locants occupied by each path, so this works for both the
-    # long and short bridges without assuming a particular cage size.
+    return _alkyl_word(len(nodes))
+
+
+def _substituent_specs(entity: FiniteChemicalEntity, core: set[str]):
+    """Return ``(attachment, prefix)`` pairs, or ``None`` when one will not name."""
+    extra = _heavy(entity) - core
+    if not extra:
+        return []
+    adjacency = _adj(entity)
+    pendant = {
+        node: [(other, bond) for other, bond in adjacency[node] if other in extra]
+        for node in extra
+    }
+    specs = []
+    for component in _components(extra, pendant):
+        links = []
+        for node in component:
+            links.extend(other for other, _ in adjacency[node] if other in core)
+        if len(links) != 1:
+            return None
+        attachment = links[0]
+        root = next(
+            node
+            for node in component
+            if any(other == attachment for other, _ in adjacency[node])
+        )
+        word = _fragment_word(entity, set(component), root)
+        if word is None:
+            return None
+        specs.append((attachment, word))
+    return specs
+
+
+def _lowest_bicyclo_locant(system: RingSystem, numbering: dict[str, int], attachment: str) -> int:
+    locant = numbering[attachment]
     for path in system.paths:
         internals = path[1:-1]
         if attachment not in internals:
             continue
         path_locants = [numbering[node] for node in internals]
         reflected = path_locants[0] + path_locants[-1] - locant
-        locant = min(locant, reflected)
-        break
-    stem = _stem(len(core_nodes))
-    bracket = ".".join(map(str, lengths))
+        return min(locant, reflected)
+    return locant
+
+
+def _simple_cycles(nodes: set[str], adjacency) -> list[tuple[str, ...]]:
+    neighbours = {node: sorted(other for other, _ in adjacency.get(node, ())) for node in nodes}
+    cycles: list[tuple[str, ...]] = []
+
+    def walk(start: str, current: str, path: list[str], seen: set[str]):
+        if len(cycles) > 2500:
+            return
+        for nxt in neighbours[current]:
+            if nxt == start and len(path) >= 3:
+                cycles.append(tuple(path))
+                continue
+            if nxt <= start or nxt in seen:
+                continue
+            seen.add(nxt)
+            path.append(nxt)
+            walk(start, nxt, path, seen)
+            path.pop()
+            seen.remove(nxt)
+
+    for start in sorted(nodes):
+        if len(cycles) > 2500:
+            break
+        walk(start, start, [start], {start})
+    return cycles
+
+
+def _exterior_paths(start: str, goal: str, ring_nodes: set[str], ring_edges: set[frozenset[str]], adjacency):
+    paths: list[tuple[str, ...]] = []
+    if any(
+        other == goal and _edge_key(start, goal) not in ring_edges
+        for other, _ in adjacency.get(start, ())
+    ):
+        paths.append(())
+
+    def walk(node: str, seen: set[str], interior: list[str]):
+        if len(paths) > 32 or len(interior) > 8:
+            return
+        for nxt, _ in sorted(adjacency.get(node, ()), key=lambda item: item[0]):
+            if nxt == goal:
+                paths.append(tuple(interior))
+                continue
+            if nxt in ring_nodes or nxt in seen:
+                continue
+            seen.add(nxt)
+            interior.append(nxt)
+            walk(nxt, seen, interior)
+            interior.pop()
+            seen.remove(nxt)
+
+    for other, _ in adjacency.get(start, ()):
+        if other in ring_nodes:
+            continue
+        walk(other, {start, other}, [other])
+    # The length-zero chord and the positive paths are both useful; duplicate
+    # interiors are removed so each bridge is scored once.
+    unique: list[tuple[str, ...]] = []
+    seen_paths: set[tuple[str, ...]] = set()
+    for path in paths:
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        unique.append(path)
+    return unique
+
+
+def _bridge_candidates(numbering: dict[str, int], adjacency, used: set[frozenset[str]]):
+    included = set(numbering)
+    found = []
+    seen: set[tuple] = set()
+
+    def consider(path: list[str]):
+        if len(path) < 2 or path[0] not in numbering or path[-1] not in numbering:
+            return
+        forward = tuple(path)
+        reverse = tuple(reversed(path))
+        key = forward if forward <= reverse else reverse
+        if key in seen:
+            return
+        seen.add(key)
+        start, finish = path[0], path[-1]
+        high = start if numbering[start] >= numbering[finish] else finish
+        interior = path[1:-1] if high == start else list(reversed(path[1:-1]))
+        low = min(numbering[start], numbering[finish])
+        high_locant = max(numbering[start], numbering[finish])
+        found.append((low, high_locant, tuple(interior), path))
+
+    def walk(start: str, node: str, path: list[str], seen_nodes: set[str]):
+        if len(found) > 64 or len(path) > 10:
+            return
+        for nxt, _ in adjacency.get(node, ()):
+            edge = _edge_key(node, nxt)
+            if edge in used:
+                continue
+            if nxt in included:
+                if nxt != start:
+                    consider(path + [nxt])
+                continue
+            if nxt in seen_nodes:
+                continue
+            seen_nodes.add(nxt)
+            path.append(nxt)
+            walk(start, nxt, path, seen_nodes)
+            path.pop()
+            seen_nodes.remove(nxt)
+
+    for start in included:
+        walk(start, start, [start], {start})
+    found.sort(key=lambda item: (item[0], item[1], len(item[2]), tuple(item[3])))
+    return found
+
+
+def _select_von_baeyer(entity: FiniteChemicalEntity, attachments: tuple[str, ...] = ()):
+    """Choose a deterministic von Baeyer parent for a bridged core of rank >= 3."""
+    nodes = set(_heavy(entity))
+    if len(nodes) > 16 or (entity.net_charge or 0) != 0:
+        return None
+    adjacency = _adj(entity, nodes)
+    if _cycle_rank(nodes, adjacency) < 3 or len(_components(nodes, adjacency)) != 1:
+        return None
+    if any(bond.aromatic for bond in entity.bonds if bond.atom1_id in nodes and bond.atom2_id in nodes):
+        return None
+    cycles = _simple_cycles(nodes, adjacency)
+    if len(cycles) > 2500:
+        return None
+    by_length: dict[int, list[tuple[str, ...]]] = {}
+    for cycle in cycles:
+        by_length.setdefault(len(cycle), []).append(cycle)
+    best = None
+    for length in sorted(by_length, reverse=True):
+        for cycle in by_length[length]:
+            ring_nodes = set(cycle)
+            for left in range(length):
+                for right in range(left + 1, length):
+                    forward = list(cycle[left + 1:right])
+                    backward = list(cycle[right + 1:]) + list(cycle[:left])
+                    if len(forward) >= len(backward):
+                        orientations = ((cycle[left], forward, cycle[right], backward),)
+                    else:
+                        orientations = ((cycle[right], backward, cycle[left], list(reversed(forward))),)
+                    # Equal arms still need both directions; unequal arms need
+                    # the opposite bridgehead as locant 1 as well.
+                    expanded = []
+                    for h1, long_arc, h2, short_arc in orientations:
+                        expanded.append((h1, long_arc, h2, short_arc))
+                        expanded.append((h2, list(reversed(long_arc)), h1, list(reversed(short_arc))))
+                    for h1, long_arc, h2, short_arc in expanded:
+                        if len(long_arc) < len(short_arc):
+                            continue
+                        ring_seq = [h1, *long_arc, h2, *short_arc]
+                        ring_edges = {
+                            _edge_key(a, b) for a, b in zip(ring_seq, ring_seq[1:] + [h1])
+                        }
+                        for interior in _exterior_paths(h1, h2, ring_nodes, ring_edges, adjacency):
+                            bridge_seq = [h1, *interior, h2]
+                            main_edges = {
+                                _edge_key(a, b) for a, b in zip(bridge_seq, bridge_seq[1:])
+                            }
+                            if main_edges & ring_edges:
+                                continue
+                            numbering: dict[str, int] = {}
+                            cursor = 1
+                            numbering[h1] = cursor
+                            for node in long_arc:
+                                cursor += 1
+                                numbering[node] = cursor
+                            cursor += 1
+                            numbering[h2] = cursor
+                            for node in short_arc:
+                                cursor += 1
+                                numbering[node] = cursor
+                            for node in interior:
+                                cursor += 1
+                                numbering[node] = cursor
+                            used = set(ring_edges) | set(main_edges)
+                            secondaries = []
+                            covered = True
+                            while True:
+                                pending = _bridge_candidates(numbering, adjacency, used)
+                                if not pending:
+                                    break
+                                low, high, extra, path = pending[0]
+                                for node in extra:
+                                    if node in numbering:
+                                        covered = False
+                                        break
+                                    cursor += 1
+                                    numbering[node] = cursor
+                                if not covered:
+                                    break
+                                for a, b in zip(path, path[1:]):
+                                    used.add(_edge_key(a, b))
+                                secondaries.append((len(extra), low, high))
+                            edge_count = sum(len(values) for values in adjacency.values()) // 2
+                            if not covered or set(numbering) != nodes or len(used) != edge_count:
+                                continue
+                            parts = [str(len(long_arc)), str(len(short_arc)), str(len(interior))]
+                            parts.extend(f"{size}^{low},{high}" for size, low, high in secondaries)
+                            bracket = ".".join(parts)
+                            ring_count = len(secondaries) + 2
+                            if ring_count not in _RING_WORDS:
+                                continue
+                            try:
+                                stem = _stem(len(nodes))
+                            except ValueError:
+                                continue
+                            hetero = []
+                            blocked = False
+                            for atom in entity.atoms:
+                                if atom.atom_id not in numbering or atom.element in {"C", "H"}:
+                                    continue
+                                prefix = _HETERO_PREFIX.get(atom.element)
+                                if prefix is None:
+                                    blocked = True
+                                    break
+                                hetero.append((numbering[atom.atom_id], prefix))
+                            if blocked:
+                                continue
+                            hetero.sort()
+                            hetero_text = "-".join(f"{locant}-{prefix}" for locant, prefix in hetero)
+                            locants = _locants_for_edges(entity, used, numbering)
+                            suffix = _suffix(stem, locants)
+                            name = f"{_RING_WORDS[ring_count]}cyclo[{bracket}]{suffix}"
+                            if hetero_text:
+                                name = f"{hetero_text}{name}"
+                            attachment_locants = tuple(sorted(numbering[node] for node in attachments if node in numbering))
+                            score = (
+                                -length,
+                                -len(interior),
+                                abs(len(long_arc) - len(short_arc)),
+                                tuple((low, high) for _, low, high in secondaries),
+                                bracket,
+                                attachment_locants,
+                                name,
+                            )
+                            if best is None or score < best[0]:
+                                best = (score, name, dict(numbering))
+        if best is not None and -best[0][0] == length:
+            break
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
+def _von_baeyer_result(entity: FiniteChemicalEntity, attachments: tuple[str, ...] = ()):
+    selected = _select_von_baeyer(entity, attachments)
+    if selected is None:
+        return None
+    name, _numbering = selected
     return (
-        f"{locant}-methylbicyclo[{bracket}]{stem}ane",
+        name,
         False,
         (
-            "Identify one detachable methyl group on a saturated bicyclic parent.",
-            "Apply von Baeyer numbering and choose the lower methyl locant.",
+            "Select the main ring and main bridge by the von Baeyer seniority rules.",
+            "Cite the remaining bridges with the locants of their endpoints.",
+        ),
+    )
+
+
+def _with_substituent_prefix(core: FiniteChemicalEntity, named, specs, attachments: tuple[str, ...]):
+    system = classify_ring_system(core)
+    if system is not None and system.kind == "bicyclo":
+        numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
+        locants = [
+            (_lowest_bicyclo_locant(system, numbering, atom), word)
+            for atom, word in specs
+        ]
+    else:
+        selected = _select_von_baeyer(core, attachments)
+        if selected is None:
+            return None
+        numbering = selected[1]
+        try:
+            locants = [(numbering[atom], word) for atom, word in specs]
+        except KeyError:
+            return None
+    locants.sort()
+    prefix = "-".join(f"{locant}-{word}" for locant, word in locants)
+    return (
+        prefix + named[0],
+        False,
+        (
+            "Detach acyclic substituents from the ring core.",
+            "Name each substituent as an alkyl or alkanoyl prefix at its parent locant.",
         ),
     )
 
 
 def name_polycycle(entity: FiniteChemicalEntity):
     """Return ``(name, preferred, trace)`` for a supported ring system."""
-    cubane = _name_cubane(entity)
-    if cubane is not None:
-        return cubane
-    acetyl = _name_acetyl_bicyclo(entity)
-    if acetyl is not None:
-        return acetyl
-    for recognizer in (_name_adamantane, _name_methyl_bicyclo):
-        value = recognizer(entity)
-        if value is not None:
-            return value
+    core_nodes = _two_core_nodes(entity)
+    heavy = _heavy(entity)
+    specs: list[tuple[str, str]] = []
+    core = entity
+    if heavy != core_nodes:
+        if len(core_nodes) < 3:
+            return None
+        found = _substituent_specs(entity, core_nodes)
+        if found is None:
+            return None
+        specs = found
+        core = _induced_entity(entity, core_nodes)
+    attachments = tuple(atom for atom, _word in specs)
+    named = _name_bare_polycycle(core, attachments)
+    if named is None or not specs:
+        return named
+    return _with_substituent_prefix(core, named, specs, attachments)
+
+
+def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, ...] = ()):
     system = classify_ring_system(entity)
     if system is None:
-        return None
+        return _von_baeyer_result(entity, attachments)
     if system.kind == "ring_collection":
         return (
             "phenylbenzene",
@@ -562,32 +904,14 @@ def name_polycycle(entity: FiniteChemicalEntity):
     )
 
 
-def _name_cubane(entity):
-    nodes = _heavy(entity)
-    adjacency = _adj(entity)
-    if len(nodes) == 8 and all(_atom(entity, n).element == "C" for n in nodes):
-        if sum(len(v) for v in adjacency.values()) // 2 == 12 and all(len(v) == 3 for v in adjacency.values()):
-            return ("cubane", False, "Recognize the eight-vertex cubic carbon cage parent.")
-    return None
-
-
-def _name_acetyl_bicyclo(entity):
-    atoms = {a.atom_id: a for a in entity.atoms}
-    adj = _adj(entity)
-    for carbonyl in entity.atoms:
-        if carbonyl.element != "C":
-            continue
-        oxy = [n for n,b in adj[carbonyl.atom_id] if atoms[n].element == "O" and b.order == 2.0]
-        methyl = [n for n,b in adj[carbonyl.atom_id] if atoms[n].element == "C" and b.order == 1.0 and len(adj[n]) == 1]
-        if len(oxy) != 1 or len(methyl) != 1:
-            continue
-        core_nodes = set(atoms) - {carbonyl.atom_id, oxy[0], methyl[0]}
-        core = replace(entity, atoms=tuple(a for a in entity.atoms if a.atom_id in core_nodes), bonds=tuple(b for b in entity.bonds if b.atom1_id in core_nodes and b.atom2_id in core_nodes))
-        system = classify_ring_system(core)
-        if system and system.kind == "bicyclo":
-            lengths = sorted((len(p)-2 for p in system.paths), reverse=True)
-            return (f"1-acetylbicyclo[{'.'.join(map(str,lengths))}]{_stem(len(core_nodes))}ane", False, "Name the acetyl substituent on the bicyclic parent.")
-    return None
+def _locants_for_edges(entity: FiniteChemicalEntity, edges: set[frozenset[str]], numbering: dict[str, int]):
+    locants = []
+    for edge in edges:
+        left, right = tuple(edge)
+        bond = _bond_between(entity, left, right)
+        if bond is not None and not bond.aromatic and abs((bond.order or 0.0) - 2.0) < 1e-8:
+            locants.append(min(numbering[left], numbering[right]))
+    return tuple(sorted(set(locants)))
 
 
 def _evidence():
@@ -782,48 +1106,200 @@ def _parse_phenylbenzene(name: str):
     return _finish_entity(name, atoms, bonds)
 
 
-def _parse_adamantane(name: str):
-    if name != "tricyclo[3.3.1.1^3,7]decane":
+def _stem_number(stem: str) -> int | None:
+    for number, candidate in _STEMS.items():
+        if candidate == stem:
+            return number
+    return None
+
+
+def _split_ring_prefixes(name: str):
+    match = re.search(
+        r"(?:(?:\d+-(?:aza|oxa|thia))*)?(?:bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo\[|spiro\[|phenylbenzene",
+        name,
+    )
+    if match is None:
+        return [], name
+    prefix_text = name[: match.start()].strip("-")
+    if not prefix_text:
+        return [], name[match.start() :]
+    found = re.findall(r"(\d+)-([a-z]+)", prefix_text)
+    if "-".join(f"{locant}-{word}" for locant, word in found) != prefix_text:
+        return [], name
+    return [(int(locant), word) for locant, word in found], name[match.start() :]
+
+
+def _interpret_prefix(word: str):
+    if word.endswith("anoyl"):
+        stem, kind = word[: -len("anoyl")], "acyl"
+    elif word.endswith("yl"):
+        stem, kind = word[: -len("yl")], "alkyl"
+    else:
         return None
-    # Keep the graph construction in the line-notation parser so this cage
-    # uses exactly the same valence and hydrogen semantics as an OpenSMILES
-    # input.  The import is local to avoid a module-import cycle.
-    from ..line_notation import from_line_notation
-
-    entity = from_line_notation("C1C2CC3CC1CC(C2)C3", dialect="opensmiles")
-    if not isinstance(entity, FiniteChemicalEntity):
-        raise PolycycleParseError("adamantane parent did not produce a finite graph")
-    return replace(entity, entity_id=f"iupac:{name}", evidence=_evidence())
+    count = _stem_number(stem)
+    if count is None:
+        return None
+    return kind, count
 
 
-def _parse_methyl_bicyclo(name: str):
+def _parent_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
+    numbered = {
+        int(atom.atom_id[1:]): atom.atom_id
+        for atom in entity.atoms
+        if re.fullmatch(r"N\d+", atom.atom_id)
+    }
+    if numbered:
+        return numbered
+    system = classify_ring_system(entity)
+    if system is None or system.kind != "bicyclo":
+        return None
+    numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
+    return {locant: atom_id for atom_id, locant in numbering.items()}
+
+
+def _attach_substituents(entity: FiniteChemicalEntity, prefixes, name: str):
+    locants = _parent_locants(entity)
+    if locants is None:
+        raise PolycycleParseError("substituent locant is outside the ring parent")
+    atoms = list(entity.atoms)
+    bonds = list(entity.bonds)
+    for index, (locant, word) in enumerate(prefixes):
+        interpreted = _interpret_prefix(word)
+        target = locants.get(locant) if interpreted is not None else None
+        if interpreted is None or target is None:
+            raise PolycycleParseError("unsupported ring substituent prefix")
+        kind, count = interpreted
+        parent = next(atom for atom in atoms if atom.atom_id == target)
+        hydrogen = max(0, (parent.implicit_hydrogens or 0) - 1) or None
+        atoms[atoms.index(parent)] = replace(parent, implicit_hydrogens=hydrogen)
+        if kind == "alkyl":
+            previous = target
+            for offset in range(count):
+                atom_id = f"Y{index}_{offset}"
+                atoms.append(_atom_record(atom_id, "C"))
+                bonds.append(_edge(previous, atom_id))
+                previous = atom_id
+            continue
+        carbonyl = f"Y{index}_0"
+        atoms.append(_atom_record(carbonyl, "C"))
+        bonds.append(_edge(target, carbonyl))
+        atoms.append(_atom_record(f"O{index}", "O"))
+        bonds.append(_edge(carbonyl, f"O{index}", 2.0))
+        previous = carbonyl
+        for offset in range(count - 1):
+            atom_id = f"Y{index}_{offset + 1}"
+            atoms.append(_atom_record(atom_id, "C"))
+            bonds.append(_edge(previous, atom_id))
+            previous = atom_id
+    return _finish_entity(name, atoms, bonds)
+
+
+def _parse_von_baeyer(name: str):
     match = re.fullmatch(
-        r"(\d+)-methylbicyclo\[(\d+)\.(\d+)\.(\d+)\]([a-z]+)ane",
+        r"(?:((?:\d+-(?:aza|oxa|thia)-)*\d+-(?:aza|oxa|thia)))?"
+        r"(bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo"
+        r"\[([0-9^.,]+)\]"
+        r"([a-z]+?)"
+        r"(ane|-(?:\d+(?:,\d+)*)-(?:di|tri|tetra|penta)?ene)",
         name,
     )
     if match is None:
         return None
-    locant = int(match.group(1))
-    bridge_counts = tuple(int(match.group(index)) for index in (2, 3, 4))
-    stem = match.group(5)
-    core_name = f"bicyclo[{bridge_counts[0]}.{bridge_counts[1]}.{bridge_counts[2]}]{stem}ane"
-    core = _parse_bicyclo(core_name)
-    if core is None:
-        raise PolycycleParseError("unsupported methyl bicyclo parent")
-    system = classify_ring_system(core)
-    if system is None or system.kind != "bicyclo":
-        raise PolycycleParseError("methyl parent is not a bicyclic system")
-    numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
-    target = next((atom_id for atom_id, value in numbering.items() if value == locant), None)
-    if target is None:
-        raise PolycycleParseError("methyl locant is outside the bicyclic parent")
-    atoms = list(core.atoms)
-    parent = next(atom for atom in atoms if atom.atom_id == target)
-    hydrogen = max(0, (parent.implicit_hydrogens or 0) - 1) or None
-    atoms[atoms.index(parent)] = replace(parent, implicit_hydrogens=hydrogen)
-    atoms.append(_atom_record(f"M{locant}", "C", hydrogens=3))
-    bonds = [*core.bonds, _edge(target, f"M{locant}")]
+    hetero_text, ring_word, body, stem, suffix = match.groups()
+    if ring_word == "bi" and "^" not in body:
+        return None
+    parts = body.split(".")
+    if len(parts) < 3 or any(not part for part in parts[:3]) or any(not part.isdigit() for part in parts[:3]):
+        return None
+    main = tuple(int(part) for part in parts[:3])
+    secondaries = []
+    for part in parts[3:]:
+        secondary = re.fullmatch(r"(\d+)\^(\d+),(\d+)", part)
+        if secondary is None:
+            return None
+        length, low, high = (int(secondary.group(index)) for index in (1, 2, 3))
+        if low > high:
+            low, high = high, low
+        secondaries.append((length, low, high))
+    if _WORD_RINGS[ring_word] != 2 + len(secondaries):
+        raise PolycycleParseError("von Baeyer ring count does not match the bridges")
+    total = 2 + sum(main) + sum(length for length, _, _ in secondaries)
+    if _stem_number(stem) != total:
+        raise PolycycleParseError("von Baeyer stem does not match the bridge atom count")
+    atoms = [_atom_record(f"N{index}") for index in range(1, total + 1)]
+    bonds: list[ChemicalBond] = []
+    a, b, c = main
+    second = 2 + a
+    ring_end = second + b
+
+    def link(left: int, right: int, order: float = 1.0):
+        bonds.append(_edge(f"N{left}", f"N{right}", order))
+
+    for locant in range(1, second):
+        link(locant, locant + 1)
+    for locant in range(second, ring_end):
+        link(locant, locant + 1)
+    if b:
+        link(ring_end, 1)
+    elif a:
+        link(second, 1)
+    if c == 0:
+        if a and b:
+            link(1, second)
+    else:
+        first = ring_end + 1
+        last = ring_end + c
+        link(1, first)
+        for locant in range(first, last):
+            link(locant, locant + 1)
+        link(last, second)
+    cursor = ring_end + c + 1
+    for length, low, high in secondaries:
+        if not 1 <= low < high <= total:
+            raise PolycycleParseError("von Baeyer bridge locant is outside the parent")
+        if length == 0:
+            link(low, high)
+            continue
+        link(high, cursor)
+        for locant in range(cursor, cursor + length - 1):
+            link(locant, locant + 1)
+        link(cursor + length - 1, low)
+        cursor += length
+    if hetero_text:
+        for locant_text, prefix in re.findall(r"(\d+)-(aza|oxa|thia)", hetero_text):
+            locant = int(locant_text)
+            if not 1 <= locant <= total:
+                raise PolycycleParseError("heteroatom locant outside von Baeyer parent")
+            index = locant - 1
+            atoms[index] = _atom_record(f"N{locant}", _PREFIX_ELEMENT[prefix])
+    unsaturated = ()
+    if suffix != "ane":
+        raw = re.fullmatch(r"-(\d+(?:,\d+)*)-(?:di|tri|tetra|penta)?ene", suffix)
+        if raw is None:
+            raise PolycycleParseError("unsupported von Baeyer unsaturation")
+        unsaturated = tuple(int(value) for value in raw.group(1).split(","))
+        represented = set()
+        for bond in bonds:
+            left = int(bond.atom1_id[1:])
+            right = int(bond.atom2_id[1:])
+            locant = min(left, right)
+            if locant in unsaturated:
+                bond_index = bonds.index(bond)
+                bonds[bond_index] = _edge(bond.atom1_id, bond.atom2_id, 2.0)
+                represented.add(locant)
+        if represented != set(unsaturated):
+            raise PolycycleParseError("von Baeyer unsaturation locant is outside the parent")
     return _finish_entity(name, atoms, bonds)
+
+
+def _parse_ring_parent(name: str):
+    if name == "phenylbenzene":
+        return _parse_phenylbenzene(name)
+    if name.startswith("spiro["):
+        return _parse_spiro(name)
+    if name.startswith("bicyclo[") or re.match(r"(?:\d+-(?:aza|oxa|thia))+bicyclo\[", name):
+        return _parse_bicyclo(name)
+    return _parse_von_baeyer(name)
 
 
 def parse_polycycle_name(name: str):
@@ -831,26 +1307,13 @@ def parse_polycycle_name(name: str):
     if not isinstance(name, str):
         raise TypeError("name must be a string")
     normalized = " ".join(name.strip().lower().split())
-    if normalized == "cubane":
-        from ..line_notation import from_line_notation
-        return from_line_notation("C12C3C4C1C5C2C3C45", dialect="opensmiles")
-    acetyl = re.fullmatch(r"1-acetylbicyclo\[(\d+)\.(\d+)\.(\d+)\]([a-z]+)ane", normalized)
-    if acetyl:
-        from ..line_notation import from_line_notation
-        return from_line_notation("CC(=O)C1CCC2CCC1C2", dialect="opensmiles")
-    parsed = _parse_adamantane(normalized)
-    if parsed is not None:
+    prefixes, parent = _split_ring_prefixes(normalized)
+    parsed = _parse_ring_parent(parent)
+    if parsed is None:
+        return None
+    if not prefixes:
         return parsed
-    parsed = _parse_methyl_bicyclo(normalized)
-    if parsed is not None:
-        return parsed
-    if normalized == "phenylbenzene":
-        return _parse_phenylbenzene(normalized)
-    if normalized.startswith("bicyclo[") or re.match(r"\d+-(?:aza|oxa|thia)bicyclo\[", normalized):
-        return _parse_bicyclo(normalized)
-    if normalized.startswith("spiro["):
-        return _parse_spiro(normalized)
-    return None
+    return _attach_substituents(parsed, prefixes, normalized)
 
 
 __all__ = [

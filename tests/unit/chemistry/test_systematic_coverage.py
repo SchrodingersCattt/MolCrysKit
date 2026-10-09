@@ -28,6 +28,7 @@ def test_coverage_smiles_have_strict_reversible_general_names(smiles: str) -> No
     # generic fallback used ``bicyclo[generic]-molecule-<hex MCK-LN>``; that
     # payload is an internal serialization, not a systematic name.
     assert not result.name.startswith("bicyclo[generic]-molecule-")
+    assert not result.name.startswith("substituted-molecule-")
     assert "MCK-LN" not in result.name
     rebuilt = iupac_to_smiles(result.name)
     assert rebuilt.lossless is True

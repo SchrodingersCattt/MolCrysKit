@@ -205,6 +205,29 @@ def _special_patterns(entity):
             return _result("formamide", "Recognize the retained formamide pattern.")
         if len(neighbours) == 2 and any(atoms[n].element == "N" and _is_double(b) for n, b in neighbours) and any(atoms[n].element == "O" and _is_double(b) for n, b in neighbours):
             return _result("isocyanic acid", "Recognize the retained isocyanic acid pattern.")
+    if counts == Counter({"C": 1, "N": 1, "O": 1, "Cl": 1}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        if (
+            any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours)
+            and any(atoms[n].element == "Cl" and _is_single(b) for n, b in neighbours)
+            and any(atoms[n].element == "O" and _is_double(b) for n, b in neighbours)
+        ):
+            return _result("carbamoyl chloride", "Name the mixed carbonyl halide as a carbamoyl chloride.")
+    if counts == Counter({"C": 1, "N": 1, "O": 2}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        if any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours) and sum(
+            atoms[n].element == "O" and _is_double(b) for n, b in neighbours
+        ) == 1:
+            return _result("carbamic acid", "Name the mixed carbonyl acid as carbamic acid.")
+    if counts == Counter({"C": 1, "O": 2, "Cl": 1}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        if any(atoms[n].element == "Cl" and _is_single(b) for n, b in neighbours) and sum(
+            atoms[n].element == "O" and _is_double(b) for n, b in neighbours
+        ) == 1:
+            return _result("carbonochloridic acid", "Name the mixed carbonyl acid halide systematically.")
     if counts.get("C") == 1 and counts.get("O") == 1 and sum(counts.get(x, 0) for x in HALOGENS) == 2 and sum(counts.values()) == 4:
         carbon = next(a for a, atom in atoms.items() if atom.element == "C")
         neighbours = adjacency[carbon]
@@ -477,12 +500,12 @@ def _name_alkene(entity):
 
 
 def _name_amino_acid(entity):
-    """Recognize the reversible alpha-amino-propanoic-acid skeleton."""
+    """Name an unbranched 2-aminoalkanoic acid from the carbon chain length."""
     atoms = _atom_map(entity)
     heavy = {atom_id: atom for atom_id, atom in atoms.items() if atom.element != "H"}
-    if len(heavy) != 6 or sum(atom.element == "C" for atom in heavy.values()) != 3:
-        return None
     if sum(atom.element == "N" for atom in heavy.values()) != 1 or sum(atom.element == "O" for atom in heavy.values()) != 2:
+        return None
+    if any(atom.element not in {"C", "N", "O"} for atom in heavy.values()):
         return None
     adjacency = _heavy_adjacency(entity)
     carbonyl = []
@@ -506,19 +529,39 @@ def _name_amino_acid(entity):
     if len(alpha_candidates) != 1:
         return None
     alpha = alpha_candidates[0]
-    alpha_edges = adjacency[alpha]
-    n_edges = [
-        neighbor for neighbor, bond in alpha_edges
+    amino = [
+        neighbor for neighbor, bond in adjacency[alpha]
         if heavy[neighbor].element == "N" and bond.order == 1.0
     ]
-    methyl_edges = [
-        neighbor for neighbor, bond in alpha_edges
+    if len(amino) != 1 or any(neighbor != alpha for neighbor, _ in adjacency[amino[0]]):
+        return None
+    side = [
+        neighbor for neighbor, bond in adjacency[alpha]
         if heavy[neighbor].element == "C" and neighbor != carbonyl[0] and bond.order == 1.0
     ]
-    if len(n_edges) != 1 or len(methyl_edges) != 1 or _hcount(entity, alpha) != 1:
+    if len(side) > 1:
+        return None
+    chain = {carbonyl[0], alpha}
+    if side:
+        previous, current = alpha, side[0]
+        while current is not None:
+            if current in chain or heavy[current].element != "C":
+                return None
+            chain.add(current)
+            nxt = [
+                neighbor for neighbor, bond in adjacency[current]
+                if neighbor != previous and bond.order == 1.0 and heavy[neighbor].element != "H"
+            ]
+            if len(nxt) > 1 or any(heavy[neighbor].element != "C" for neighbor in nxt):
+                return None
+            previous, current = current, (nxt[0] if nxt else None)
+    if chain != {atom_id for atom_id, atom in heavy.items() if atom.element == "C"}:
+        return None
+    stem = alkane_stem(len(chain))
+    if stem is None or len(chain) < 2:
         return None
     return _result(
-        "2-aminopropanoic acid",
+        f"2-amino{stem}anoic acid",
         "Select the carboxylic-acid parent and the 2-amino substituent.",
     )
 

@@ -38,6 +38,9 @@ CC(=O)Oc1ccccc1
 NC(=O)C1CCCCC1
 O=C1CCCCC1
 CC(=O)CC(=O)O
+NC(=O)Cl
+O=C(O)N
+ClC(=O)O
 
 # Stage 6: explicit stereo, isotope, charge and disconnected components
 N[C@@H](C)C(=O)O
