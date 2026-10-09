@@ -1172,6 +1172,27 @@ def _parse_bicyclo(name: str):
         values.append("B2")
         paths.append(values)
     numbering = _number_bicyclo_paths(paths, ("B1", "B2"))
+    # A locant denotes the consecutive parent bond beginning at that atom.
+    # Bridgehead/ring-closure edges can share the same lower endpoint but are
+    # not the numbered parent edge; accepting them all would duplicate one
+    # alkene and overvalence the bridgehead.
+    edge_by_locant = {}
+    if not aromatic and locants:
+        for locant in locants:
+            candidates = []
+            for path in paths:
+                for left, right in zip(path, path[1:]):
+                    left_locant, right_locant = numbering[left], numbering[right]
+                    if (
+                        min(left_locant, right_locant) == locant
+                        and abs(left_locant - right_locant) == 1
+                    ):
+                        candidates.append((left, right))
+            if len(candidates) != 1:
+                raise PolycycleParseError(
+                    "bicyclo unsaturation locant does not identify one parent bond"
+                )
+            edge_by_locant[locant] = frozenset(candidates[0])
     for path in paths:
         for left, right in zip(path, path[1:]):
             # Blue Book locants identify the lower-numbered atom of each
@@ -1179,9 +1200,8 @@ def _parse_bicyclo(name: str):
             # :func:`name_polycycle`, making this assignment reversible.
             order = 1.5 if aromatic else 1.0
             if not aromatic and locants:
-                left_locant = numbering[left]
-                right_locant = numbering[right]
-                if min(left_locant, right_locant) in locants:
+                edge = frozenset((left, right))
+                if edge in edge_by_locant.values():
                     order = 2.0
             bonds.append(_edge(left, right, order, aromatic=aromatic))
     _apply_hetero_specs(
@@ -1238,6 +1258,7 @@ def _parse_spiro(name: str):
     # locants independently reversible.
     numbering: dict[str, int] = {}
     next_number = 1
+    ring_values = []
     for ring_index, internal_count in enumerate(ring_counts):
         values = ["S"]
         for atom_index in range(internal_count):
@@ -1245,16 +1266,35 @@ def _parse_spiro(name: str):
             atoms.append(_atom_record(atom_id))
             values.append(atom_id)
         values.append("S")
+        ring_values.append(values)
         for atom_id in values[1:-1]:
             numbering[atom_id] = next_number
             next_number += 1
         if ring_index == 0:
             numbering["S"] = next_number
             next_number += 1
+    edge_by_locant = {}
+    if not aromatic and locants:
+        for locant in locants:
+            candidates = []
+            for values in ring_values:
+                for left, right in zip(values, values[1:]):
+                    left_locant, right_locant = numbering[left], numbering[right]
+                    if (
+                        min(left_locant, right_locant) == locant
+                        and abs(left_locant - right_locant) == 1
+                    ):
+                        candidates.append((left, right))
+            if len(candidates) != 1:
+                raise PolycycleParseError(
+                    "spiro unsaturation locant does not identify one parent bond"
+                )
+            edge_by_locant[locant] = frozenset(candidates[0])
+    for values in ring_values:
         for left, right in zip(values, values[1:]):
             order = 1.5 if aromatic else 1.0
             if not aromatic and locants:
-                if min(numbering[left], numbering[right]) in locants:
+                if frozenset((left, right)) in edge_by_locant.values():
                     order = 2.0
             bonds.append(_edge(left, right, order, aromatic=aromatic))
     if not aromatic and locants:

@@ -75,7 +75,16 @@ def _ring_functional_name(entity):
                     return ("benzenecarboxylic acid", False, "Select benzenecarboxylic acid as the senior group.")
             if saturated:
                 nitrogens = [n for n, b in carbonyl_edges if atoms[n].element == "N" and b.order == 1.0]
-                if nitrogens:
+                if (
+                    nitrogens
+                    and len(outside) == 1
+                    and outside[0][1] == carbonyl
+                    and all(
+                        neighbor == carbonyl
+                        or atoms[neighbor].element == "H"
+                        for neighbor, _ in adjacency[nitrogens[0]]
+                    )
+                ):
                     return ("cyclohexanecarboxamide", False, "Use the ring carboxamide suffix.")
             # Phenyl ethanoate: the acid side is acetyl and the oxygen joins
             # the aromatic parent.
@@ -90,10 +99,16 @@ def _ring_functional_name(entity):
                             if stem is not None:
                                 return (f"phenyl {stem}anoate", False, "Name the phenyl alcohol component and the acid-derived ester parent.")
         if saturated:
-            for ring_atom in cycle:
-                for neighbor, bond in adjacency[ring_atom]:
-                    if atoms[neighbor].element == "O" and bond.order == 2.0:
-                        return ("cyclohexanone", False, "Apply the ketone suffix to the cyclohexane parent.")
+            carbonyl_attachments = [
+                (ring_atom, neighbor)
+                for ring_atom in cycle
+                for neighbor, bond in adjacency[ring_atom]
+                if neighbor not in ring
+                and atoms[neighbor].element == "O"
+                and bond.order == 2.0
+            ]
+            if len(carbonyl_attachments) == 1 and len(outside) == 1:
+                return ("cyclohexanone", False, "Apply the ketone suffix to the cyclohexane parent.")
     return None
 
 
@@ -215,6 +230,8 @@ def _ring_name(cycle, graph, atoms):
             return "-".join(f"{loc}-{prefix}" for loc, prefix in prefixes) + "benzene", False
     if any(element not in {"C"} for element in elements):
         if any(element not in {"C", "N", "O", "S"} for element in elements):
+            return None
+        if any(atoms[atom_id].formal_charge for atom_id in cycle):
             return None
         # Skeletal-replacement saturated parents cannot describe a ring
         # that contains ordinary C=C bonds.  Fail closed until the

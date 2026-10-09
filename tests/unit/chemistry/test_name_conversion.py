@@ -202,6 +202,36 @@ def test_numeric_substituent_multiplier_is_reversible() -> None:
     assert iupac_to_smiles(result.name).lossless is True
 
 
+@pytest.mark.parametrize(
+    "smiles",
+    (
+        "[NH2+]1CCCCC1",
+        "CC1CCC(=O)CC1",
+        "O=C1CCC(=O)CC1",
+        "CNC(=O)C1CCCCC1",
+        "NC(=O)CO",
+        "O=CCC=O",
+        "CC(O)CC=O",
+        "[NH3+]CC(=O)O",
+        "NCC(=O)[O-]",
+        "CC(=O)Nc1ccc(O)c(Cl)c1",
+        "OCC(=O)Nc1ccc(O)cc1",
+    ),
+)
+def test_review_counterexamples_fail_closed_without_graph_loss(smiles: str) -> None:
+    result = smiles_to_iupac(smiles, strict=False)
+    assert "-molecule-" in result.name
+    assert notations_equivalent(smiles, iupac_to_smiles(result.name).value) is True
+    assert smiles_to_iupac(smiles, strict=True).name == result.name
+
+
+def test_stage6_parent_locants_are_smiles_order_invariant() -> None:
+    left = smiles_to_iupac("[13CH3]CO", strict=True)
+    right = smiles_to_iupac("OC[13CH3]", strict=True)
+    assert left.name == right.name == "(13C2)ethanol"
+    assert smiles_to_iupac("CC[C@H](O)C", strict=True).name.startswith("(2")
+
+
 def test_multi_hydroxy_benzene_beyond_di_is_parsed() -> None:
     name = "1,2,3-trihydroxybenzene"
     entity = from_iupac_name(name)

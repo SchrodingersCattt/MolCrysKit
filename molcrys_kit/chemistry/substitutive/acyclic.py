@@ -440,6 +440,8 @@ def _name_carbonyl_derivative(entity):
             chain = _acyl_parent(entity, carbonyl, set())
             if chain is None:
                 continue
+            if not _covers_heavy_atoms(entity, {*chain, oxygens[0][0], nitrogen}):
+                continue
             stem = alkane_stem(len(chain))
             if stem is None:
                 continue
@@ -512,6 +514,14 @@ def _name_ketone(entity):
 def _name_aldehyde(entity):
     atoms = _atom_map(entity)
     adjacency = _heavy_adjacency(entity)
+    carbonyls = [
+        carbon
+        for carbon, atom in atoms.items()
+        if atom.element == "C"
+        and sum(atoms[n].element == "O" and _is_double(bond) for n, bond in adjacency[carbon]) == 1
+    ]
+    if len(carbonyls) != 1:
+        return None
     for carbon, atom in atoms.items():
         if atom.element != "C":
             continue
@@ -521,6 +531,8 @@ def _name_aldehyde(entity):
             continue
         parent = _carbon_parent(entity, required=carbon)
         if parent is None or parent[1][0] != carbon:
+            continue
+        if not _covers_heavy_atoms(entity, {*parent[1], oxygens[0]}):
             continue
         stem = alkane_stem(len(parent[1]))
         if stem is not None:
@@ -600,6 +612,8 @@ def _name_amino_acid(entity):
         return None
     if any(atom.element not in {"C", "N", "O"} for atom in heavy.values()):
         return None
+    if (entity.net_charge or 0) != 0:
+        return None
     adjacency = _heavy_adjacency(entity)
     carbonyl = []
     for atom_id, atom in heavy.items():
@@ -614,6 +628,17 @@ def _name_amino_acid(entity):
             carbonyl.append(atom_id)
     if len(carbonyl) != 1:
         return None
+    carbonyl_oxygens = [
+        (neighbor, bond)
+        for neighbor, bond in adjacency[carbonyl[0]]
+        if heavy[neighbor].element == "O"
+    ]
+    acid_oxygen = next(
+        (neighbor for neighbor, bond in carbonyl_oxygens if bond.order == 1.0),
+        None,
+    )
+    if acid_oxygen is None or _hcount(entity, acid_oxygen) <= 0:
+        return None
     alpha_candidates = [
         neighbor
         for neighbor, bond in adjacency[carbonyl[0]]
@@ -626,7 +651,11 @@ def _name_amino_acid(entity):
         neighbor for neighbor, bond in adjacency[alpha]
         if heavy[neighbor].element == "N" and bond.order == 1.0
     ]
-    if len(amino) != 1 or any(neighbor != alpha for neighbor, _ in adjacency[amino[0]]):
+    if (
+        len(amino) != 1
+        or any(neighbor != alpha for neighbor, _ in adjacency[amino[0]])
+        or (heavy[amino[0]].formal_charge or 0) != 0
+    ):
         return None
     side = [
         neighbor for neighbor, bond in adjacency[alpha]

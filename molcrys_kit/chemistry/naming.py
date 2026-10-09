@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
+import re
 
 from . import models as _models
 from .substitutive.polycycle import name_polycycle
@@ -333,6 +334,7 @@ def _name_disconnected(entity: FiniteChemicalEntity):
 
 def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
     """Add explicitly specified isotope and stereochemical descriptors."""
+    parent_locants = _parent_locants(entity, name)
     element_indices = {}
     element_counts = {}
     isotope_prefixes = []
@@ -345,9 +347,8 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
             # The occurrence locant disambiguates isotopes on multi-atom
             # parents while preserving the compact legacy spelling for the
             # element and mass number.
-            isotope_prefixes.append(
-                f"({atom.isotope}{atom.element}{element_indices[atom.atom_id]})"
-            )
+            locant = parent_locants.get(atom.atom_id, element_indices[atom.atom_id])
+            isotope_prefixes.append(f"({atom.isotope}{atom.element}{locant})")
     has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
     has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
     stereo_prefixes = []
@@ -361,7 +362,11 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
                 locant = (
                     2
                     if center is not None and _is_alpha_amino_center(entity, center.atom_id)
-                    else (element_indices.get(center.atom_id) if center is not None else None)
+                    else (
+                        parent_locants.get(center.atom_id, element_indices.get(center.atom_id))
+                        if center is not None
+                        else None
+                    )
                 )
                 stereo_prefixes.append(
                     f"({locant}{descriptor.descriptor})-"
@@ -373,6 +378,78 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
     # Preserve descriptor ordering before isotopic prefixes.  This is the
     # stable spelling used by the reverse parser and the stage-6 snapshots.
     return "".join(stereo_prefixes) + "".join(isotope_prefixes) + name
+
+
+def _parent_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:
+    """Map simple acyclic parent atoms to their nomenclature locants.
+
+    Stage-6 decorations must follow the named parent, rather than the atom
+    order chosen by an equivalent SMILES traversal.  The covered alcohol
+    grammar supplies a terminal ``...an-(locant)-ol`` suffix; selecting the
+    longest carbon path containing the hydroxy-bearing carbon reproduces the
+    same numbering used by the inverse parser.
+    """
+    match = re.search(r"an-(\d+)-ol$", name)
+    if name in {"methanol", "ethanol"}:
+        target = 1
+    elif match is not None:
+        target = int(match.group(1))
+    else:
+        return {}
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    adjacency = {atom_id: [] for atom_id in atoms}
+    for bond in entity.bonds:
+        if bond.order != 1.0:
+            continue
+        adjacency[bond.atom1_id].append(bond.atom2_id)
+        adjacency[bond.atom2_id].append(bond.atom1_id)
+    carbons = {atom_id for atom_id, atom in atoms.items() if atom.element == "C"}
+    graph = {
+        atom_id: [neighbor for neighbor in adjacency[atom_id] if neighbor in carbons]
+        for atom_id in carbons
+    }
+    if not graph:
+        return {}
+    hydroxyl = set()
+    for atom_id, atom in atoms.items():
+        if atom.element != "O":
+            continue
+        hcount = (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        if hcount <= 0:
+            continue
+        hydroxyl.update(neighbor for neighbor in adjacency[atom_id] if neighbor in carbons)
+    endpoints = [atom_id for atom_id, values in graph.items() if len(values) <= 1]
+    paths = []
+    for left in endpoints:
+        for right in endpoints:
+            if left >= right:
+                continue
+            stack = [(left, None, (left,))]
+            while stack:
+                current, previous, path = stack.pop()
+                if current == right:
+                    paths.append(path)
+                    continue
+                for neighbor in graph[current]:
+                    if neighbor != previous and neighbor not in path:
+                        stack.append((neighbor, current, (*path, neighbor)))
+    if not paths:
+        paths = [(next(iter(carbons)),)]
+    longest = max(len(path) for path in paths)
+    candidates = []
+    for path in paths:
+        if len(path) != longest:
+            continue
+        for ordered in (path, tuple(reversed(path))):
+            numbering = {atom_id: index + 1 for index, atom_id in enumerate(ordered)}
+            hydroxy_locants = tuple(sorted(numbering[atom_id] for atom_id in hydroxyl if atom_id in numbering))
+            candidates.append((
+                0 if target in hydroxy_locants else 1,
+                abs((hydroxy_locants[0] if hydroxy_locants else target) - target),
+                tuple(ordered),
+                numbering,
+            ))
+    return min(candidates, key=lambda item: item[:3])[3] if candidates else {}
 
 
 def _is_alpha_amino_center(entity: FiniteChemicalEntity, center_id: str) -> bool:

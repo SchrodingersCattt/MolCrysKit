@@ -283,7 +283,29 @@ def name_anilide(entity):
         ]
         if len(ring_attachments) != 1:
             continue
+        if any(
+            neighbor not in {carbonyl.atom_id, ring_attachments[0]}
+            and _atom(entity, neighbor).element != "H"
+            for neighbor, _ in adjacency[nitrogen]
+        ):
+            continue
         acyl_carbons = _acyclic_acyl_chain(entity, carbonyl.atom_id, set(ring))
+        if not acyl_carbons:
+            continue
+        represented = set(ring) | set(acyl_carbons) | set(double_o) | {nitrogen}
+        represented.update(
+            neighbor
+            for ring_atom in ring
+            for neighbor, bond in adjacency[ring_atom]
+            if neighbor not in ring
+            and _atom(entity, neighbor).element == "O"
+            and bond.order == 1.0
+            and _hydrogen_count(entity, neighbor) == 1
+        )
+        if {
+            atom.atom_id for atom in entity.atoms if atom.element != "H"
+        } != represented:
+            continue
         stem = alkane_stem(len(acyl_carbons))
         if stem is None:
             continue
