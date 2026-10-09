@@ -897,6 +897,11 @@ def _structure_scope(crystal) -> str | None:
         value = metadata.get("structure_scope")
         if value is not None:
             return str(value).strip().lower()
+    info = getattr(crystal, "info", None)
+    if isinstance(info, dict):
+        value = info.get("structure_scope")
+        if value is not None:
+            return str(value).strip().lower()
     try:
         atoms = crystal.to_ase()
         value = atoms.info.get("structure_scope")
