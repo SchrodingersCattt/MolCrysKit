@@ -114,6 +114,10 @@ class CheckResult:
             self.status = "passed" if self.passed else "failed"
         if self.status not in {"passed", "failed", "skipped"}:
             raise ValueError("status must be 'passed', 'failed', or 'skipped'")
+        if self.status == "passed" and not self.passed:
+            raise ValueError("status='passed' conflicts with passed=False")
+        if self.status == "failed" and self.passed:
+            raise ValueError("status='failed' conflicts with passed=True")
         if self.status == "skipped":
             self.passed = True
         elif self.status == "failed":
@@ -948,7 +952,8 @@ def sanity_check(
     crystal : MolecularCrystal or ASE Atoms
         Structure to validate.
     checks : sequence of str, optional
-        Which checks to run.  Default: all single-crystal checks.
+        Which checks to run. Default: all checks in the selected profile;
+        profile-excluded checks are returned as skipped.
         Valid names: ``"hard_clash"``, ``"intermolecular_clash"``,
         ``"isolated_atoms"``, ``"hydrogen_presence"``,
         ``"formula_consistency"``, ``"bond_distances"``.
@@ -1003,13 +1008,17 @@ def sanity_check(
         check_list = list(checks)
         skipped_names = []
     skip_set = set(skip_checks or ())
-    skipped_names.extend(name for name in check_list if name in skip_set)
+    unknown = skip_set - set(_SINGLE_CRYSTAL_CHECKS)
+    if unknown:
+        raise ValueError(f"Unknown skip_checks: {sorted(unknown)}")
+    skipped_names = [(name, "excluded by profile options") for name in skipped_names]
+    skipped_names.extend((name, "explicitly skipped") for name in check_list if name in skip_set)
     check_list = [name for name in check_list if name not in skip_set]
 
     report = SanityReport()
 
-    for check_name in skipped_names:
-        report.results.append(_skipped_result(check_name, "excluded by profile options"))
+    for check_name, reason in skipped_names:
+        report.results.append(_skipped_result(check_name, reason))
 
     for check_name in check_list:
         if check_name == "hard_clash":
