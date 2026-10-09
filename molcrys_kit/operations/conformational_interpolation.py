@@ -13,7 +13,7 @@ from ..analysis.ring_conformation import (
     puckering_coordinates,
     reconstruct_z_from_modes,
 )
-from ..structures.molecule import CrystalMolecule
+from ..structures.molecule import CrystalMolecule, _refresh_contiguous_bond_geometry
 from ..utils.geometry import dihedral_angle, kabsch_align
 from ._path_core import (
     coerce_interpolation_method,
@@ -204,5 +204,9 @@ def interpolate_molecule_with_internal_dofs(
             pose = positions_a.copy()
         frame = mol_a.copy()
         frame.set_positions(pose)
+        # ``CrystalMolecule.copy()`` also copies a materialized graph.  Updating
+        # coordinates alone therefore leaves cached edge vectors/distances at
+        # the source geometry; refresh the cache for every emitted frame.
+        _refresh_contiguous_bond_geometry(frame)
         frames.append(frame)
     return frames
