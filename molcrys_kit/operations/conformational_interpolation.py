@@ -13,7 +13,11 @@ from ..analysis.ring_conformation import (
     puckering_coordinates,
     reconstruct_z_from_modes,
 )
-from ..structures.molecule import CrystalMolecule, _refresh_contiguous_bond_geometry
+from ..structures.molecule import (
+    CrystalMolecule,
+    _refresh_contiguous_bond_geometry,
+    _strip_stale_frac_arrays,
+)
 from ..utils.geometry import dihedral_angle, kabsch_align
 from ._path_core import (
     coerce_interpolation_method,
@@ -72,6 +76,7 @@ def _auto_torsion_bonds(molecule: CrystalMolecule) -> list[tuple[int, int]]:
 
 def _interpolate_ring_positions(
     molecule_a: CrystalMolecule,
+    base_positions: np.ndarray,
     positions_b_in_a: np.ndarray,
     ring_atoms: Sequence[int],
     lam: float,
@@ -98,7 +103,7 @@ def _interpolate_ring_positions(
     ring_b_in_plane = ring_b - ((ring_b - center) @ normal)[:, None] * normal
     ring_in_plane = (1.0 - lam) * ring_a_in_plane + lam * ring_b_in_plane
     result = ring_in_plane + z[:, None] * normal
-    positions = positions_a.copy()
+    positions = np.asarray(base_positions, dtype=float).copy()
     positions[list(ring)] = result
     return positions
 
@@ -185,7 +190,7 @@ def interpolate_molecule_with_internal_dofs(
 
         if ring_atoms is not None and 0.0 < fraction < 1.0:
             internal = _interpolate_ring_positions(
-                mol_a, positions_b_in_a, ring_atoms, fraction
+                mol_a, internal, positions_b_in_a, ring_atoms, fraction
             )
 
         internal_com = np.average(internal, axis=0, weights=mol_a.get_masses())
@@ -204,6 +209,8 @@ def interpolate_molecule_with_internal_dofs(
             pose = positions_a.copy()
         frame = mol_a.copy()
         frame.set_positions(pose)
+        _strip_stale_frac_arrays(frame)
+        frame._calc_results = None
         # ``CrystalMolecule.copy()`` also copies a materialized graph.  Updating
         # coordinates alone therefore leaves cached edge vectors/distances at
         # the source geometry; refresh the cache for every emitted frame.
