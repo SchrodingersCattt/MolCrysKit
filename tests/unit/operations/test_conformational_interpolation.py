@@ -37,7 +37,10 @@ def _ring_with_bridge() -> CrystalMolecule:
             [[2.9, 0.0, 0.0], [4.0, 0.4, 1.0]],
         ]
     )
-    return CrystalMolecule(Atoms("C8", positions=positions))
+    # Distinct ring labels make the graph-aware endpoint mapping unique; an
+    # all-carbon ring could otherwise be permuted by symmetry and hide a
+    # rigid-fragment regression.
+    return CrystalMolecule(Atoms("CNOFPSCC", positions=positions))
 
 
 def test_bridge_torsion_path_preserves_bond_lengths_and_endpoints():
