@@ -201,6 +201,44 @@ def test_analyze_sanity_check_reads_all_extxyz_frames(tmp_path: Path) -> None:
     assert report["n_frames"] == 2
 
 
+def test_analyze_sanity_check_fragment_profile_skips_hydrogen(tmp_path: Path) -> None:
+    from ase import Atoms
+    from ase.io import write
+    import numpy as np
+
+    path = tmp_path / "cn.extxyz"
+    atoms = Atoms(
+        "C2N2",
+        positions=[[0, 0, 0], [1.4, 0, 0], [4, 4, 4], [5.4, 4, 4]],
+        cell=[10, 10, 10],
+        pbc=True,
+        info={"structure_scope": "fragment"},
+    )
+    atoms.set_array("molecule_index", np.array([0, 0, 1, 1]))
+    write(path, atoms, format="extxyz")
+
+    result = CliRunner().invoke(
+        main, ["analyze", "sanity-check", str(path), "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    frame = json.loads(result.output)["frames"][0]
+    by_name = {item["name"]: item for item in frame["results"]}
+    assert by_name["hydrogen_presence"]["status"] == "skipped"
+    assert by_name["formula_consistency"]["status"] == "skipped"
+    assert frame["passed"] is True
+
+
+def test_analyze_sanity_check_skip_check_option(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        main,
+        ["analyze", "sanity-check", str(PETN), "--skip-check", "hydrogen_presence", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    frame = json.loads(result.output)["frames"][0]
+    hydrogen = next(item for item in frame["results"] if item["name"] == "hydrogen_presence")
+    assert hydrogen["status"] == "skipped"
+
+
 def test_analyze_summary_json() -> None:
     result = CliRunner().invoke(main, ["analyze", "summary", str(PETN), "--json"])
     assert result.exit_code == 0, result.output

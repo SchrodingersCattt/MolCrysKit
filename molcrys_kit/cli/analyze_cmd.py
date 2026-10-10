@@ -167,6 +167,26 @@ def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float 
 @click.command("sanity-check")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--checks", type=str, default=None, help="Comma-separated list of checks to run (default: all).")
+@click.option(
+    "--profile",
+    type=click.Choice(["complete-crystal", "fragment"]),
+    default=None,
+    help="Check profile; metadata structure_scope=fragment selects fragment automatically.",
+)
+@click.option(
+    "--skip-check",
+    "skip_checks",
+    type=click.Choice([
+        "hard_clash",
+        "intermolecular_clash",
+        "isolated_atoms",
+        "hydrogen_presence",
+        "formula_consistency",
+        "bond_distances",
+    ]),
+    multiple=True,
+    help="Skip a check while retaining a machine-readable skipped result; repeatable.",
+)
 @click.option("--hard-clash-scale", type=float, default=None, help="Scale factor for hard clash detection.")
 @click.option("--hard-clash-tolerance", type=float, default=None, help="Absolute tolerance for hard clash.")
 @click.option("--intermolecular-clash-scale", type=float, default=None, help="Scale factor for intermolecular clash.")
@@ -181,6 +201,8 @@ def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float 
 def sanity_check_cmd(
     input: Path,
     checks: str | None,
+    profile: str | None,
+    skip_checks: tuple[str, ...],
     hard_clash_scale: float | None,
     hard_clash_tolerance: float | None,
     intermolecular_clash_scale: float | None,
@@ -223,6 +245,8 @@ def sanity_check_cmd(
         report = sanity_check(
             crystal,
             checks=check_list,
+            profile=profile,
+            skip_checks=skip_checks,
             hard_clash_scale=hard_clash_scale,
             hard_clash_tolerance=hard_clash_tolerance,
             intermolecular_clash_scale=intermolecular_clash_scale,

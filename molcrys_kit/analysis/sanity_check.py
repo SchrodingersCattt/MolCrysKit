@@ -61,6 +61,21 @@ _SINGLE_CRYSTAL_CHECKS = (
     "bond_distances",
 )
 
+# Profiles describe which checks are meaningful for the declared scope of an
+# input structure.  A fragment deliberately omits heuristics that assume a
+# complete experimental crystal (for example, hydrogen presence and formula
+# completeness), while retaining all geometry checks.
+_PROFILE_CHECKS = {
+    "complete-crystal": _SINGLE_CRYSTAL_CHECKS,
+    "fragment": (
+        "hard_clash",
+        "intermolecular_clash",
+        "isolated_atoms",
+        "bond_distances",
+    ),
+}
+_FRAGMENT_SCOPES = frozenset({"fragment", "partial", "subset", "atom_group", "group"})
+
 
 # ─── Data Classes ─────────────────────────────────────────────────────────────
 
@@ -85,9 +100,31 @@ class CheckResult:
     passed: bool
     message: str
     details: dict = field(default_factory=dict)
+    status: str | None = None
+
+    def __post_init__(self) -> None:
+        """Normalise the machine-readable outcome without breaking callers.
+
+        ``passed`` remains a backwards-compatible boolean.  New callers can
+        distinguish a deliberate omission from a successful check through
+        ``status == \"skipped\"``; skipped checks count as non-failing in an
+        aggregate report.
+        """
+        if self.status is None:
+            self.status = "passed" if self.passed else "failed"
+        if self.status not in {"passed", "failed", "skipped"}:
+            raise ValueError("status must be 'passed', 'failed', or 'skipped'")
+        if self.status == "passed" and not self.passed:
+            raise ValueError("status='passed' conflicts with passed=False")
+        if self.status == "failed" and self.passed:
+            raise ValueError("status='failed' conflicts with passed=True")
+        if self.status == "skipped":
+            self.passed = True
+        elif self.status == "failed":
+            self.passed = False
 
     def __repr__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
+        status = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}[self.status]
         return f"CheckResult({self.name!r}, {status}, {self.message!r})"
 
 
@@ -106,21 +143,29 @@ class SanityReport:
     @property
     def passed(self) -> bool:
         """True if all checks passed."""
-        return all(r.passed for r in self.results)
+        return all(r.status != "failed" for r in self.results)
 
     def failed(self) -> list[CheckResult]:
         """Return only the checks that did not pass."""
-        return [r for r in self.results if not r.passed]
+        return [r for r in self.results if r.status == "failed"]
+
+    def skipped(self) -> list[CheckResult]:
+        """Return checks intentionally omitted by a profile or skip list."""
+        return [r for r in self.results if r.status == "skipped"]
 
     def summary(self) -> str:
         """Return a human-readable multi-line summary."""
         lines: list[str] = []
         for r in self.results:
-            icon = "✓" if r.passed else "✗"
+            icon = {"passed": "✓", "failed": "✗", "skipped": "–"}[r.status]
             lines.append(f"  {icon} {r.name}: {r.message}")
         total = len(self.results)
         n_fail = len(self.failed())
-        header = f"Sanity check: {total - n_fail}/{total} passed"
+        n_skipped = len(self.skipped())
+        n_checked = total - n_skipped
+        header = f"Sanity check: {n_checked - n_fail}/{n_checked} passed"
+        if n_skipped:
+            header += f", {n_skipped} skipped"
         return "\n".join([header] + lines)
 
     def to_dict(self) -> dict:
@@ -131,6 +176,7 @@ class SanityReport:
                 {
                     "name": r.name,
                     "passed": r.passed,
+                    "status": r.status,
                     "message": r.message,
                     "details": r.details,
                 }
@@ -848,6 +894,37 @@ def _parse_formula(formula: str) -> dict[str, int]:
     return counts
 
 
+def _structure_scope(crystal) -> str | None:
+    """Read an optional ``structure_scope`` declaration from a crystal."""
+    metadata = getattr(crystal, "metadata", None)
+    if isinstance(metadata, dict):
+        value = metadata.get("structure_scope")
+        if value is not None:
+            return str(value).strip().lower()
+    info = getattr(crystal, "info", None)
+    if isinstance(info, dict):
+        value = info.get("structure_scope")
+        if value is not None:
+            return str(value).strip().lower()
+    try:
+        atoms = crystal.to_ase()
+        value = atoms.info.get("structure_scope")
+    except Exception:
+        value = None
+    return str(value).strip().lower() if value is not None else None
+
+
+def _skipped_result(name: str, reason: str) -> CheckResult:
+    """Build a machine-readable result for a check outside the profile."""
+    return CheckResult(
+        name=name,
+        passed=True,
+        status="skipped",
+        message=f"Skipped: {reason}.",
+        details={"reason": reason},
+    )
+
+
 # ─── Aggregated Entry Point ───────────────────────────────────────────────────
 
 
@@ -865,6 +942,8 @@ def sanity_check(
     bond_distance_max_factor: float | None = None,
     isolated_elements: set[str] | None = None,
     reference_formula: str | None = None,
+    profile: str | None = None,
+    skip_checks: Sequence[str] | None = None,
 ) -> SanityReport:
     """Run multiple sanity checks on a crystal structure.
 
@@ -873,7 +952,8 @@ def sanity_check(
     crystal : MolecularCrystal or ASE Atoms
         Structure to validate.
     checks : sequence of str, optional
-        Which checks to run.  Default: all single-crystal checks.
+        Which checks to run. Default: all checks in the selected profile;
+        profile-excluded checks are returned as skipped.
         Valid names: ``"hard_clash"``, ``"intermolecular_clash"``,
         ``"isolated_atoms"``, ``"hydrogen_presence"``,
         ``"formula_consistency"``, ``"bond_distances"``.
@@ -897,18 +977,48 @@ def sanity_check(
         Override for suspect isolated-atom element set.
     reference_formula : str, optional
         Override for formula consistency reference.
+    profile : {``"complete-crystal"``, ``"fragment"``}, optional
+        Check profile.  When omitted, ``structure_scope=fragment`` metadata
+        selects the fragment profile; otherwise the complete-crystal profile
+        is used.
+    skip_checks : sequence of str, optional
+        Checks to omit from the selected profile.  Omitted checks are returned
+        as ``status="skipped"`` results so JSON consumers can distinguish them
+        from checks that were not requested.
 
     Returns
     -------
     SanityReport
         Aggregated report with all check results.
     """
+    if profile is None:
+        profile = "fragment" if _structure_scope(crystal) in _FRAGMENT_SCOPES else "complete-crystal"
+    if profile not in _PROFILE_CHECKS:
+        raise ValueError(
+            f"Unknown sanity-check profile {profile!r}; "
+            f"choose from {', '.join(_PROFILE_CHECKS)}"
+        )
+
     if checks is None:
-        check_list = list(_SINGLE_CRYSTAL_CHECKS)
+        check_list = list(_PROFILE_CHECKS[profile])
+        # Keep omitted default checks visible in the report.  This makes a
+        # profile decision auditable instead of making the checks disappear.
+        skipped_names = [name for name in _SINGLE_CRYSTAL_CHECKS if name not in check_list]
     else:
         check_list = list(checks)
+        skipped_names = []
+    skip_set = set(skip_checks or ())
+    unknown = skip_set - set(_SINGLE_CRYSTAL_CHECKS)
+    if unknown:
+        raise ValueError(f"Unknown skip_checks: {sorted(unknown)}")
+    skipped_names = [(name, "excluded by profile options") for name in skipped_names]
+    skipped_names.extend((name, "explicitly skipped") for name in check_list if name in skip_set)
+    check_list = [name for name in check_list if name not in skip_set]
 
     report = SanityReport()
+
+    for check_name, reason in skipped_names:
+        report.results.append(_skipped_result(check_name, reason))
 
     for check_name in check_list:
         if check_name == "hard_clash":
