@@ -550,17 +550,30 @@ class MolecularCrystal:
 
         for molecule in result.molecules:
             original = np.asarray(molecule.get_positions(), dtype=float)
+            stored_image_shifts = molecule.arrays.get(KEY_IMAGE_SHIFT)
+            if stored_image_shifts is None:
+                source_fractional = original @ inverse_old
+                original_image_shifts = np.zeros((len(molecule), 3), dtype=int)
+                original_image_shifts[:, periodic] = np.floor(
+                    source_fractional[:, periodic] + 1e-12
+                ).astype(int)
+            else:
+                original_image_shifts = np.asarray(stored_image_shifts, dtype=int)
+                if original_image_shifts.shape != (len(molecule), 3):
+                    original_image_shifts = np.zeros((len(molecule), 3), dtype=int)
             if position_mode == "affine":
                 fractional = original @ inverse_old
                 transformed = fractional @ target_lattice
             else:
                 transformed = original.copy()
+            wrap_shifts = np.zeros((len(molecule), 3), dtype=int)
 
             if wrap_mode == "centroid" and len(transformed):
                 center_frac = transformed.mean(axis=0) @ inverse_new
                 shifts = np.zeros(3, dtype=int)
                 shifts[periodic] = np.floor(center_frac[periodic] + 1e-12).astype(int)
                 transformed -= shifts @ target_lattice
+                wrap_shifts[:] = shifts
             elif wrap_mode == "atom" and len(transformed):
                 fractional = transformed @ inverse_new
                 shifts = np.zeros_like(fractional, dtype=int)
@@ -568,20 +581,19 @@ class MolecularCrystal:
                     fractional[:, periodic] + 1e-12
                 ).astype(int)
                 transformed -= shifts @ target_lattice
+                wrap_shifts = shifts
 
             molecule.set_positions(transformed)
             molecule.set_cell(target_lattice)
             molecule.set_pbc(self.pbc)
             _strip_stale_frac_arrays(molecule)
 
-            # Image shifts describe the selected Cartesian image after the
-            # operation.  They are recalculated without touching arbitrary
-            # caller-provided arrays.
-            fractional = transformed @ inverse_new
-            image_shifts = np.zeros((len(molecule), 3), dtype=int)
-            image_shifts[:, periodic] = np.floor(
-                fractional[:, periodic] + 1e-12
-            ).astype(int)
+            # Preserve the source image assignment and apply only the explicit
+            # wrapping translation.  Inferring images by flooring Cartesian
+            # coordinates in a sheared target cell can assign neighbouring
+            # atoms to different images even for ``wrap_mode='none'``.
+            image_shifts = original_image_shifts - wrap_shifts
+            image_shifts[:, ~periodic] = 0
             molecule.set_array(KEY_IMAGE_SHIFT, image_shifts)
 
             # Refresh cached graph geometry while retaining graph topology;

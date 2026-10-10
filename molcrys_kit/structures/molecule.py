@@ -88,9 +88,15 @@ def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
     # payload from graph edges (which would silently drop those records).
     positions = np.asarray(molecule.get_positions(), dtype=float)
     cell = np.asarray(molecule.get_cell(), dtype=float)
-    periodic = np.asarray(molecule.get_pbc(), dtype=bool)
     has_cell = cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12
-    if has_cell and len(positions):
+    periodic = np.asarray(molecule.get_pbc(), dtype=bool)
+    stored_image_shifts = molecule.arrays.get("image_shift")
+    if stored_image_shifts is not None and np.asarray(stored_image_shifts).shape == (
+        len(molecule),
+        3,
+    ):
+        image_shifts = np.asarray(stored_image_shifts, dtype=int)
+    elif has_cell and len(positions):
         fractional = positions @ np.linalg.inv(cell)
         image_shifts = np.zeros((len(molecule), 3), dtype=int)
         image_shifts[:, periodic] = np.floor(
