@@ -29,10 +29,17 @@ _CASES: list[dict[str, Any]] = json.loads(_FIXTURE.read_text(encoding="utf-8"))[
 @pytest.mark.parametrize("case", _CASES, ids=lambda case: case["id"])
 def test_smiles_to_reference_iupac(case: dict[str, Any]) -> None:
     start = perf_counter()
-    result = smiles_to_iupac(case["smiles"], strict=True)
+    result = None
+    error: Exception | None = None
+    try:
+        result = smiles_to_iupac(case["smiles"], strict=True)
+    except Exception as exc:  # Keep the independent timing gate active.
+        error = exc
     elapsed = perf_counter() - start
 
-    assert result.name == case["expected_iupac"]
     assert elapsed <= case["max_seconds"], (
         f"{case['id']}: {elapsed:.6f}s exceeds {case['max_seconds']:.3f}s"
     )
+    assert error is None, f"{case['id']}: strict conversion raised {error!r}"
+    assert result is not None
+    assert result.name == case["expected_iupac"]
