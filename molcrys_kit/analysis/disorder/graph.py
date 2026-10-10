@@ -59,6 +59,7 @@ class DisorderGraphBuilder:
         self.conformers = []
         self.sp_completion_pairs = []
         self._sp_completion_pair_keys = set()
+        self._centroid_cache = {}
 
         # Add nodes
         for i in range(len(info.labels)):
@@ -212,9 +213,16 @@ class DisorderGraphBuilder:
         if not atom_indices:
             return np.array([0.0, 0.0, 0.0])
 
+        cache_key = tuple(int(index) for index in atom_indices)
+        cached = self._centroid_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         coords = self.info.frac_coords[list(atom_indices)]
         if len(coords) == 1:
-            return coords[0]
+            result = coords[0].copy()
+            self._centroid_cache[cache_key] = result
+            return result
 
         # Unwrap coordinates relative to the first atom
         ref = coords[0]
@@ -227,7 +235,9 @@ class DisorderGraphBuilder:
         mean_coord = np.mean(unwrapped_coords, axis=0)
 
         # Wrap back to unit cell
-        return mean_coord - np.floor(mean_coord)
+        result = mean_coord - np.floor(mean_coord)
+        self._centroid_cache[cache_key] = result
+        return result
 
     def _conformer_pair_key(self, atoms_a, atoms_b):
         return frozenset((frozenset(atoms_a), frozenset(atoms_b)))
@@ -581,11 +591,6 @@ class DisorderGraphBuilder:
         has_asym_info = hasattr(self.info, "asym_id") and self.info.asym_id
         if not has_asym_info:
             return
-
-        has_site_sym = (
-            hasattr(self.info, "site_symmetry_order")
-            and self.info.site_symmetry_order
-        )
 
         from collections import defaultdict
 
@@ -1289,12 +1294,6 @@ class DisorderGraphBuilder:
             # Fully vectorized for tetrahedral case (most common)
             # Build all combos as index arrays and score in batches
             s0, s1, s2, s3 = cluster_sizes
-            # Create index grids
-            i0 = np.arange(s0)
-            i1 = np.arange(s1)
-            i2 = np.arange(s2)
-            i3 = np.arange(s3)
-
             # Sum up 6 pairwise deviation matrices
             # For combo (a,b,c,d): score = AM01[a,b] + AM02[a,c] + AM03[a,d]
             #                              + AM12[b,c] + AM13[b,d] + AM23[c,d]

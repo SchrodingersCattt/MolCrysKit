@@ -1,5 +1,7 @@
 """Bonding-distance utilities shared by topology and interaction analysis."""
 
+from functools import lru_cache
+
 import numpy as np
 
 from ...constants import (
@@ -30,6 +32,7 @@ def get_bonding_thresholds(
     return (np.asarray(radius_i) + np.asarray(radius_j)) * factors
 
 
+@lru_cache(maxsize=512)
 def get_bonding_threshold(
     radius_i: float, radius_j: float, is_metal_i: bool, is_metal_j: bool
 ) -> float:
