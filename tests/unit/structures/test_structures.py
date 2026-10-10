@@ -327,3 +327,21 @@ class TestMolecularCrystal:
             pytest.approx((-1.0, 0.0, 0.0)),
             pytest.approx((1.0, 0.0, 0.0)),
         ]
+
+    def test_transform_cell_shear_none_does_not_reassign_atom_images(self):
+        atoms = Atoms(
+            "CC",
+            positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            cell=np.diag([10.0, 10.0, 10.0]),
+            pbc=True,
+        )
+        crystal = MolecularCrystal.from_ase(atoms)
+        transformed = crystal.transform_cell(
+            matrix=np.array([[1.0, 0.2, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+            position_mode="rigid_molecule",
+            wrap_mode="none",
+        )
+
+        records = transformed.molecules[0].info["bond_records"]
+        zero_shift = next(record for record in records if record["right_image_shift"] == [0, 0, 0])
+        assert zero_shift["vector"] == pytest.approx([1.0, 0.0, 0.0])
