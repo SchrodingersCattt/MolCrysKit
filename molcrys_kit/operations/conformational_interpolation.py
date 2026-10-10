@@ -113,10 +113,37 @@ def _interpolate_ring_positions(
     ring_atoms: Sequence[int],
     lam: float,
 ) -> np.ndarray:
-    """Interpolate in-plane coordinates and CP modes for one explicit ring."""
+    """Interpolate ring shape in a local frame and carry it with ``base``.
+
+    ``base_positions`` already contains any bridge-bond fragment rotations.  A
+    ring attached to that fragment therefore has a different rigid pose at
+    every image.  Replacing its coordinates with an interpolation of the
+    absolute A/B ring coordinates would discard that pose (and can severely
+    distort an otherwise rigid ring).  We remove the endpoint rigid pose,
+    interpolate the CP shape in A's local frame, then transport that shape
+    onto the current ``base`` ring with a rigid Kabsch transform.
+    """
     ring = tuple(int(index) for index in ring_atoms)
+    positions_a = np.asarray(molecule_a.get_positions(), dtype=float)
+    positions_b = np.asarray(positions_b_in_a, dtype=float)
+    base = np.asarray(base_positions, dtype=float)
+
+    ring_a = positions_a[list(ring)]
+    ring_b = positions_b[list(ring)]
+    center_a = ring_a.mean(axis=0)
+    center_b = ring_b.mean(axis=0)
+
+    # ``kabsch_align`` returns R such that mobile @ R.T ~= target.  Applying
+    # its transpose here maps the endpoint B ring back into A's local frame.
+    endpoint_rotation, _ = kabsch_align(
+        ring_a - center_a,
+        ring_b - center_b,
+    )
+    ring_b_local = (ring_b - center_b) @ endpoint_rotation + center_a
+    b_local_positions = positions_b.copy()
+    b_local_positions[list(ring)] = ring_b_local
     b_molecule = molecule_a.copy()
-    b_molecule.set_positions(positions_b_in_a)
+    b_molecule.set_positions(b_local_positions)
     cp_a = puckering_coordinates(molecule_a, ring)
     cp_b = puckering_coordinates(b_molecule, ring)
     amplitudes = (1.0 - lam) * cp_a.amplitudes + lam * cp_b.amplitudes
@@ -126,16 +153,26 @@ def _interpolate_ring_positions(
         [_wrap_angle(b - a) for a, b in zip(cp_a.phases[paired], cp_b.phases[paired])]
     )
     z = reconstruct_z_from_modes(len(ring), amplitudes, phases)
-    positions_a = np.asarray(molecule_a.get_positions(), dtype=float)
-    ring_a = positions_a[list(ring)]
-    ring_b = np.asarray(positions_b_in_a, dtype=float)[list(ring)]
     normal = cp_a.mean_plane_normal
     center = cp_a.mean_plane_center
     ring_a_in_plane = ring_a - ((ring_a - center) @ normal)[:, None] * normal
-    ring_b_in_plane = ring_b - ((ring_b - center) @ normal)[:, None] * normal
+    ring_b_in_plane = ring_b_local - (
+        (ring_b_local - center) @ normal
+    )[:, None] * normal
     ring_in_plane = (1.0 - lam) * ring_a_in_plane + lam * ring_b_in_plane
-    result = ring_in_plane + z[:, None] * normal
-    positions = np.asarray(base_positions, dtype=float).copy()
+    local_result = ring_in_plane + z[:, None] * normal
+
+    # Carry the interpolated local shape with the already rotated/deformed
+    # ring in ``base``.  For a pure bridge torsion, this is an exact rigid
+    # transport and all ring distances remain unchanged at every lambda.
+    base_ring = base[list(ring)]
+    base_center = base_ring.mean(axis=0)
+    base_rotation, _ = kabsch_align(
+        ring_a - center_a,
+        base_ring - base_center,
+    )
+    result = (local_result - center_a) @ base_rotation.T + base_center
+    positions = base.copy()
     positions[list(ring)] = result
     return positions
 
