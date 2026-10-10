@@ -73,6 +73,28 @@ def _topology_matches(before, after) -> bool:
     return not remaining
 
 
+def _metadata_array_equal(before, after) -> bool:
+    """Compare metadata arrays, preserving NaN missing-value semantics.
+
+    CIF readers use NaN for missing numeric values (for example, an absent
+    atomic displacement parameter).  ``np.array_equal`` treats NaNs at the
+    same position as different by default, which would make an identity cell
+    transform look like it changed metadata.  Limit ``equal_nan`` to arrays
+    with numeric dtypes; string and object metadata must retain ordinary
+    equality semantics.
+    """
+    left = np.asarray(before)
+    right = np.asarray(after)
+    if left.shape != right.shape:
+        return False
+    numeric = np.issubdtype(left.dtype, np.number) and np.issubdtype(
+        right.dtype, np.number
+    )
+    if numeric:
+        return bool(np.array_equal(left, right, equal_nan=True))
+    return bool(np.array_equal(left, right))
+
+
 def _metadata_arrays_match(before, after) -> bool:
     if len(before.molecules) != len(after.molecules):
         return False
@@ -85,12 +107,12 @@ def _metadata_arrays_match(before, after) -> bool:
         for key in old_keys:
             if key in {"positions", "numbers", "image_shift"}:
                 continue
-            if not np.array_equal(old.arrays[key], new.arrays[key]):
+            if not _metadata_array_equal(old.arrays[key], new.arrays[key]):
                 return False
     if set(before.extra_arrays) != set(after.extra_arrays):
         return False
     return all(
-        np.array_equal(before.extra_arrays[key], after.extra_arrays[key])
+        _metadata_array_equal(before.extra_arrays[key], after.extra_arrays[key])
         for key in before.extra_arrays
     )
 

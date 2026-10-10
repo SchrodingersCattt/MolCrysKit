@@ -39,3 +39,25 @@ def test_cell_integrity_accepts_unwrapped_transform_output():
     assert report.passed is True, report.to_dict()
     assert report.checks["molecule_centroids_in_cell"] is True
     assert report.details["centroids_wrapping_required"] is False
+
+
+def test_cell_integrity_identity_preserves_nan_metadata(simple_crystal):
+    """Missing numeric metadata remains equal across an identity transform."""
+    for molecule in simple_crystal.molecules:
+        molecule.set_array(
+            "thermal_u",
+            np.array([np.nan, 0.02], dtype=float),
+        )
+    simple_crystal.extra_arrays["thermal_scale"] = np.array(
+        [np.nan, 1.0], dtype=float
+    )
+
+    transformed = simple_crystal.transform_cell(
+        matrix=np.eye(3),
+        position_mode="rigid_molecule",
+        wrap_mode="none",
+    )
+    report = check_cell_integrity(transformed, reference=simple_crystal)
+
+    assert report.passed is True, report.to_dict()
+    assert report.checks["per_atom_metadata"] is True
