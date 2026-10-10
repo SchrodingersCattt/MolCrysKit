@@ -18,6 +18,7 @@ from molcrys_kit.chemistry import (
     CrystalChemistry,
     InferenceStatus,
     MulticomponentEntity,
+    NamingIndeterminateError,
     NamingKind,
     PeriodicChemicalEntity,
     PolymerChemicalEntity,
@@ -70,15 +71,53 @@ def test_acetaminophen_is_named_from_graph_not_cif_name() -> None:
     assert "wrong source name" not in result.name
 
 
-def test_uncovered_finite_entity_gets_a_reversible_general_name() -> None:
+def test_unsupported_finite_entity_returns_honest_composition_description() -> None:
     entity = from_line_notation("C#N")
 
     result = name_entity(entity)
 
-    assert not result.name.startswith("molecular entity ")
-    assert result.kind is NamingKind.GENERAL_IUPAC_NAME
-    assert result.preferred is False
-    assert result.status is InferenceStatus.EXPLICIT
+    assert result.name == "molecular entity CN"
+    assert result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert "unique IUPAC name" in result.warnings[0]
+    with pytest.raises(NamingIndeterminateError):
+        name_entity(entity, strict=True)
+
+
+def test_unsupported_bicyclic_graph_is_not_labelled_as_general_iupac() -> None:
+    # The bicyclo[2.2.1] graph is covered by the released recognizer.  Add a
+    # substituent outside that rule family to exercise the honest fallback.
+    entity = from_line_notation("C1CC2CCC1C2Cl")
+
+    result = name_entity(entity)
+
+    assert result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.name.startswith("molecular entity ")
+    assert "bicyclo[generic]" not in result.name
+
+
+def test_disconnected_unsupported_components_stay_composition_description() -> None:
+    result = name_entity(from_line_notation("C#N.C#N"))
+
+    assert result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.name == "2(molecular entity CN)"
+
+
+def test_polymer_does_not_promote_unsupported_repeat_to_general_iupac() -> None:
+    repeat = replace(from_line_notation("C#N"), entity_id="unsupported-repeat")
+    polymer = PolymerChemicalEntity(
+        entity_id="poly-unsupported",
+        repeat_units=(repeat,),
+    )
+
+    result = name_entity(polymer)
+
+    assert result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.name == "polymer containing molecular entity CN"
+    assert "name withheld" in result.warnings[0]
 
 
 def test_periodic_entity_reports_dimension_without_inventing_network_name() -> None:

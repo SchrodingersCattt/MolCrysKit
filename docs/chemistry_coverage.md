@@ -50,20 +50,29 @@ MolCrysKit-specific chemical semantics would be discarded.
 
 | Standard family | State | Current behavior |
 | --- | --- | --- |
-| Blue Book 2013 | implemented | Self-contained acyclic, monocyclic, von Baeyer/spiro and ring-collection substitutive naming, including long-chain parents and the covered functional-group suffixes. Any finite covalent graph receives a deterministic general name that round-trips through MCK-LN. |
+| Blue Book 2013 | partial | Parent hydrides, straight-chain alkanes/alcohols/carboxylic acids, benzene/phenol with simple substituents, and N-(hydroxyphenyl)alkanamides. |
 | Red Book 2005 | partial | Deterministic composition/dimensionality descriptions; general additive coordination naming is not released. |
 | Purple Book 2008 | partial | Single named repeat-unit `poly(...)` result is provisional; end groups and typed connections remain required. |
-| Full PIN selection | deliberately narrow | `preferred=True` is reserved for the reviewed golden corpus and the retained names explicitly listed by the API; new systematic names use `GENERAL_IUPAC_NAME`. |
-| Name → structure | implemented | Canonical names emitted by the self-contained parser, explicit stereochemical forms, and deterministic general graph names are accepted and reconstructed without an external naming engine. |
+| Full PIN selection | indeterminate outside rows above | `preferred` is never asserted for fallback composition descriptions. |
+| Name → structure | partial | Exact canonical forms emitted by the self-contained reversible subset parser are accepted; general IUPAC names, synonyms, stereochemical names, and unsupported entity classes fail closed. |
 
-The reversible conversion API covers finite covalent entities.  OpenSMILES
-default valences are completed in both strict and non-strict conversion
-(`CCO` is therefore accepted), while bracket atoms such as `[C]` retain their
-explicit hydrogen semantics.  Explicit isotope, charge, tetrahedral and
-double-bond stereo fields are retained in the generated name and in the
-round-trip notation.  Empty or malformed OpenSMILES is a syntax error; strict
-conversion reports it as `NamingIndeterminateError` while non-strict
-conversion retains `LineNotationError`.
+The reversible conversion API covers neutral finite covalent entities only:
+water, azane, C1–C12 straight-chain hydrocarbons, corresponding alcohols and
+carboxylic acids, benzene/phenol with simple halogen, methyl, and hydroxy
+substituents, and the supported `N-(hydroxyphenyl)alkanamide` forms.  Use
+`name_entity()` when a one-way composition description is acceptable; use
+`smiles_to_iupac(strict=True)` when a name must round-trip through
+`iupac_to_smiles()`.  Strict conversion applies OpenSMILES default valences to
+unbracketed organic-subset atoms (`CCO` is therefore accepted); bracket atoms
+such as `[C]` retain their explicitly requested hydrogen semantics.
+The `strict=False` compatibility path deliberately preserves the lower-level
+parser's unresolved hydrogen fields before one-way naming, so the same
+unbracketed input may remain a composition description there.  Empty or
+malformed OpenSMILES is a syntax error; strict conversion reports it as
+`NamingIndeterminateError` while non-strict conversion retains
+`LineNotationError`.  Non-strict conversion also intentionally does not enforce
+the strict valence gate; an over-valent input can therefore remain a
+composition description rather than being rejected.
 
 Every `NamingResult` carries the result kind, standard/version, status, rule
 trace, warnings, and alternatives. `strict=True` rejects provisional or

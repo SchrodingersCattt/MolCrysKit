@@ -63,7 +63,6 @@ def test_name_parser_is_case_insensitive_but_returns_canonical_graph() -> None:
     (
         "propan-3-ol",
         "isopropyl alcohol",
-        "(r)-butan-2-ol",
         "molecular entity CN",
         "2(poly(ethane)) · water",
     ),
@@ -86,18 +85,16 @@ def test_strict_smiles_conversion_rejects_nonreversible_semantics(smiles: str) -
 
 def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
     result = smiles_to_iupac("C#N", strict=False)
-    assert not result.name.startswith("molecular entity ")
-    assert result.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
-    assert result.preferred is False
+    assert result.name == "molecular entity CHN"
+    assert result.status is InferenceStatus.INDETERMINATE
 
-    unresolved = smiles_to_iupac("CCO", strict=False)
-    assert unresolved.name == "ethanol"
-    assert unresolved.status is InferenceStatus.EXPLICIT
+    resolved = smiles_to_iupac("CCO", strict=False)
+    assert resolved.name == "ethanol"
+    assert resolved.status is InferenceStatus.EXPLICIT
 
     overvalent = smiles_to_iupac("OC1(Cl)(Br)(F)C=CC=C1", strict=False)
-    assert not overvalent.name.startswith("molecular entity ")
-    assert overvalent.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
-    assert overvalent.status is InferenceStatus.EXPLICIT
+    assert overvalent.name.startswith("molecular entity ")
+    assert overvalent.status is InferenceStatus.INDETERMINATE
 
 
 @pytest.mark.parametrize("smiles", ("", "  "))
@@ -111,8 +108,8 @@ def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence() -> None:
     assert result.name == "1-azabenzene"
     assert result.preferred is False
     pyrrole = smiles_to_iupac("[nH]1cccc1", strict=False)
-    assert pyrrole.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
-    assert notations_equivalent("[nH]1cccc1", iupac_to_smiles(pyrrole.name).value) is True
+    assert pyrrole.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert pyrrole.status is InferenceStatus.INDETERMINATE
 
 
 def test_valence_gates_share_one_default_table() -> None:
@@ -139,38 +136,6 @@ def test_bracket_hydrogen_and_unbracketed_open_smiles_are_equivalent() -> None:
 def test_bracket_atom_without_hydrogen_does_not_gain_default_hydrogens() -> None:
     with pytest.raises(NamingIndeterminateError):
         smiles_to_iupac("[C]")
-
-
-@pytest.mark.parametrize("smiles", ("CCC=CC", "CC=CCC"))
-def test_alkene_numbering_uses_lowest_double_bond_locant(smiles: str) -> None:
-    assert smiles_to_iupac(smiles).name == "pent-2-ene"
-
-
-@pytest.mark.parametrize(
-    ("smiles", "name"),
-    (("CC(C)(C)C", "2,2-dimethylpropane"), ("CC(C)(C)CC(C)C", "2,2,4-trimethylpentane")),
-)
-def test_geminal_methyl_locants_round_trip(smiles: str, name: str) -> None:
-    result = smiles_to_iupac(smiles, strict=True)
-    assert result.name == name
-    assert notations_equivalent(smiles, iupac_to_smiles(name).value) is True
-
-
-@pytest.mark.parametrize(
-    ("smiles", "incorrect"),
-    (
-        ("CC(C)CO", "propan-1-ol"),
-        ("COCCO", "ethanol"),
-        ("CC(=O)CC(=O)C", "pent-2-one"),
-        ("NC(=O)[O-]", "carbamic acid"),
-        ("ClCC(=O)Cl", "ethanoyl chloride"),
-        ("CC(=O)OCCO", "ethyl ethanoate"),
-    ),
-)
-def test_acyclic_recognizers_do_not_drop_unrepresented_atoms(smiles: str, incorrect: str) -> None:
-    result = smiles_to_iupac(smiles, strict=True)
-    assert result.name != incorrect
-    assert result.name.startswith("substituted-molecule-")
 
 
 def test_bracket_bridgehead_hydrogen_is_retained_and_rejected_if_uncovered() -> None:
@@ -202,34 +167,10 @@ def test_numeric_substituent_multiplier_is_reversible() -> None:
     assert iupac_to_smiles(result.name).lossless is True
 
 
-@pytest.mark.parametrize(
-    "smiles",
-    (
-        "[NH2+]1CCCCC1",
-        "CC1CCC(=O)CC1",
-        "O=C1CCC(=O)CC1",
-        "CNC(=O)C1CCCCC1",
-        "NC(=O)CO",
-        "O=CCC=O",
-        "CC(O)CC=O",
-        "[NH3+]CC(=O)O",
-        "NCC(=O)[O-]",
-        "CC(=O)Nc1ccc(O)c(Cl)c1",
-        "OCC(=O)Nc1ccc(O)cc1",
-    ),
-)
-def test_review_counterexamples_fail_closed_without_graph_loss(smiles: str) -> None:
-    result = smiles_to_iupac(smiles, strict=False)
-    assert "-molecule-" in result.name
-    assert notations_equivalent(smiles, iupac_to_smiles(result.name).value) is True
-    assert smiles_to_iupac(smiles, strict=True).name == result.name
-
-
-def test_stage6_parent_locants_are_smiles_order_invariant() -> None:
-    left = smiles_to_iupac("[13CH3]CO", strict=True)
-    right = smiles_to_iupac("OC[13CH3]", strict=True)
-    assert left.name == right.name == "(13C2)ethanol"
-    assert smiles_to_iupac("CC[C@H](O)C", strict=True).name.startswith("(2")
+def test_stereochemical_systematic_name_uses_lossless_extension() -> None:
+    result = iupac_to_smiles("(2R)-butan-2-ol")
+    assert result.lossless is True
+    assert result.dialect == "MCK-LN"
 
 
 def test_multi_hydroxy_benzene_beyond_di_is_parsed() -> None:

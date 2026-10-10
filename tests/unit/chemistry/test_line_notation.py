@@ -97,19 +97,30 @@ def test_opensmiles_supported_subset_round_trips(text: str) -> None:
     assert _graph_signature(reparsed) == _graph_signature(entity)
 
 
-def test_opensmiles_parser_retains_stereo_tokens_in_lossless_opensmiles() -> None:
+def test_opensmiles_parser_retains_stereo_tokens_in_lossless_extension() -> None:
     entity = from_line_notation("N[C@@H](C)C(=O)O")
 
     center = next(atom for atom in entity.atoms if atom.stereochemistry)
     assert center.stereochemistry == "@@"
     generated = to_line_notation(entity)
-    assert generated.dialect == "OpenSMILES"
+    assert generated.dialect == "MCK-LN"
     assert generated.lossless is True
-    assert "@@" in generated.value
-    assert any(
-        atom.stereochemistry == "@@"
-        for atom in from_line_notation(generated.value).atoms
-    )
+    assert from_line_notation(generated.value).atoms[1].stereochemistry == "@@"
+
+
+def test_opensmiles_writer_refuses_stereo_after_canonical_reordering() -> None:
+    """A canonical traversal must not copy ``@``/``@@`` without adjustment."""
+    entity = from_line_notation("F[C@](Cl)(Br)I")
+
+    with pytest.raises(LineNotationError, match="stored atom stereo tokens"):
+        to_line_notation(entity, dialect="opensmiles")
+
+    generated = to_line_notation(entity)
+    assert generated.dialect == "MCK-LN"
+    assert generated.lossless
+    rebuilt = from_line_notation(generated.value)
+    center = next(atom for atom in rebuilt.atoms if atom.stereochemistry)
+    assert center.stereochemistry == "@"
 
 
 def test_mck_ln_round_trip_preserves_full_finite_graph_and_embedding() -> None:

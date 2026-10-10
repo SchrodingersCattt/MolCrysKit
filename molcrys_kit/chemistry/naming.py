@@ -16,7 +16,6 @@ from . import models as _models
 from .substitutive.polycycle import name_polycycle
 
 from .models import (
-    BondKind,
     ChemicalEntity,
     CrystalChemistry,
     FiniteChemicalEntity,
@@ -245,6 +244,8 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
 
     disconnected = _name_disconnected(entity)
     if disconnected is not None:
+        if isinstance(disconnected, NamingResult):
+            return disconnected
         return _organic_result(entity, *disconnected)
     for recognizer in (name_acyclic, name_monocycle):
         value = recognizer(entity)
@@ -259,29 +260,26 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
         value = recognizer(entity)
         if value is not None:
             return _organic_result(entity, *value)
-    # Every finite covalent graph receives a deterministic, reversible general
-    # name.  The payload is a URL-safe encoding of MCK-LN, so structures whose
-    # detailed substitutive rules are still being extended do not fall back to
-    # a composition-only description or fail strict conversion.  Cyclic
-    # graphs carry the von Baeyer marker used by the general ring-system name.
-    from .line_notation import to_line_notation
-
-    # Hexadecimal keeps the payload case-insensitive because the public parser
-    # canonicalizes ordinary names to lowercase before dispatch.
-    payload = to_line_notation(entity, dialect="mck-ln").value.encode("utf-8").hex()
-    heavy = [atom for atom in entity.atoms if atom.element != "H"]
-    edge_count = sum(
-        bond.kind is BondKind.COVALENT and bond.atom1_id in {a.atom_id for a in heavy}
-        and bond.atom2_id in {a.atom_id for a in heavy}
-        for bond in entity.bonds
-    )
-    marker = "bicyclo[generic]" if edge_count >= len(heavy) and heavy else "substituted"
-    name = f"{marker}-molecule-{payload}"
-    return _organic_result(
-        entity,
-        name,
-        False,
-        "Encode the finite covalent graph as a deterministic general substitutive name.",
+    # Keep uncovered structures as an explicit composition description.  A
+    # reversible MCK-LN payload may be useful as an internal implementation
+    # detail, but exposing it as a ``GENERAL_IUPAC_NAME`` falsely claims that
+    # a Blue Book rule family established the returned string.
+    formula = _formula(entity)
+    return NamingResult(
+        name=f"molecular entity {formula}",
+        kind=NamingKind.IUPAC_COMPOSITION_DESCRIPTION,
+        nomenclature="IUPAC compositional nomenclature",
+        standard="Blue Book / Red Book",
+        version="2013 / 2005",
+        status=InferenceStatus.INDETERMINATE,
+        preferred=None,
+        rule_trace=(
+            "Determine the Hill formula from the explicit chemical graph.",
+            "Stop before substitutive naming because the required rule family is outside the implemented coverage matrix.",
+        ),
+        warnings=(
+            "no implemented rule family establishes a unique IUPAC name; composition description shown",
+        ),
     )
 
 
@@ -302,7 +300,7 @@ def _name_disconnected(entity: FiniteChemicalEntity):
         components.append(seen)
     if len(components) < 2:
         return None
-    values = []
+    results = []
     for index, atom_ids in enumerate(components, 1):
         atoms = tuple(atom for atom in entity.atoms if atom.atom_id in atom_ids)
         bonds = tuple(
@@ -318,18 +316,36 @@ def _name_disconnected(entity: FiniteChemicalEntity):
             evidence=entity.evidence,
         )
         result = name_entity(component)
-        values.append(result.name)
+        results.append(result)
+    values = [result.name for result in results]
     counts = Counter(values)
     description = " · ".join(
         value if count == 1 else f"{count}({value})"
         for value, count in sorted(counts.items())
     )
-    return (
-        description,
-        False,
+    trace = (
         "Name each disconnected component independently.",
         "Combine identical components using the MolCrysKit count grammar.",
     )
+    if any(
+        result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+        or result.status is InferenceStatus.INDETERMINATE
+        for result in results
+    ):
+        return NamingResult(
+            name=description,
+            kind=NamingKind.IUPAC_COMPOSITION_DESCRIPTION,
+            nomenclature="IUPAC compositional nomenclature",
+            standard="Blue Book / Red Book",
+            version="2013 / 2005",
+            status=InferenceStatus.INDETERMINATE,
+            preferred=None,
+            rule_trace=trace,
+            warnings=(
+                "one or more disconnected components has no established IUPAC name; composition description shown",
+            ),
+        )
+    return (description, False, *trace)
 
 
 def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
@@ -535,6 +551,29 @@ def _periodic_description(entity):
 def _name_polymer(entity):
     if len(entity.repeat_units) == 1:
         repeat = name_entity(entity.repeat_units[0])
+        if (
+            repeat.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+            or repeat.status is InferenceStatus.INDETERMINATE
+        ):
+            # Do not promote an unsupported repeat-unit description to a
+            # structure-based ``poly(...)`` name.
+            return NamingResult(
+                name=f"polymer containing {repeat.name}",
+                kind=NamingKind.IUPAC_COMPOSITION_DESCRIPTION,
+                nomenclature="IUPAC polymer compositional nomenclature",
+                standard="Purple Book",
+                version="2008",
+                status=InferenceStatus.INDETERMINATE,
+                preferred=None,
+                rule_trace=(
+                    "Retain the single constitutional repeating-unit record.",
+                    "Do not promote an unsupported repeat-unit description to a structure-based polymer name.",
+                ),
+                warnings=(
+                    "the repeat-unit structure is outside the implemented naming scope; polymer name withheld",
+                    *repeat.warnings,
+                ),
+            )
         return NamingResult(
             name=f"poly({repeat.name})",
             kind=NamingKind.GENERAL_IUPAC_NAME,
