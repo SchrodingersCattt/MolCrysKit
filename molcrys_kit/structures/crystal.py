@@ -46,36 +46,57 @@ def _refresh_legacy_bond_records(
     image_shifts: np.ndarray,
     positions: np.ndarray,
 ) -> None:
-    """Update legacy bond-record vectors after a coordinate transform."""
+    """Update legacy bond vectors while retaining each contact's image.
+
+    ``bond_records`` is intentionally richer than the molecule graph: a
+    simple graph can contain only one edge per atom pair, while a periodic
+    pair may have several contacts to different images.  The image stored on
+    each record is therefore authoritative and must not be replaced by the
+    per-atom image difference of the transformed coordinates.
+    """
     records = molecule.info.get("bond_records")
     if not records:
         return
     global_indices = molecule.info.get("atom_indices")
+    if global_indices is None:
+        global_indices = list(range(len(molecule)))
     global_to_local = {
         int(global_index): local_index
-          for local_index, global_index in enumerate(
-              global_indices if global_indices is not None else range(len(molecule))
-          )
+        for local_index, global_index in enumerate(np.asarray(global_indices).tolist())
     }
+
+    coordinates = np.asarray(positions, dtype=float)
+    shifts_by_atom = np.asarray(image_shifts, dtype=int)
+    cell = np.asarray(molecule.get_cell(), dtype=float)
+    has_cell = cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12
+    if shifts_by_atom.shape != (len(molecule), 3):
+        raise ValueError("image_shifts must have shape (n_atoms, 3)")
+
     refreshed = []
     for raw in records:
         try:
             left = int(raw["left"])
             right = int(raw["right"])
+            record_shift = np.asarray(raw["right_image_shift"], dtype=int)
+            if record_shift.shape != (3,):
+                continue
             left_local = global_to_local[left]
             right_local = global_to_local[right]
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, IndexError):
             continue
-        vector = positions[right_local] - positions[left_local]
-        shift = image_shifts[right_local] - image_shifts[left_local]
-        refreshed.append(
-            {
-                "left": left,
-                "right": right,
-                "right_image_shift": [int(value) for value in shift],
-                "vector": [float(value) for value in vector],
-            }
-        )
+        vector = coordinates[right_local] - coordinates[left_local]
+        if has_cell:
+            current_shift = shifts_by_atom[right_local] - shifts_by_atom[left_local]
+            # Coordinates may be in arbitrary contiguous images.  Rebase the
+            # right endpoint to the image carried by this individual record;
+            # this keeps parallel periodic contacts distinct after an identity
+            # or affine cell transform.
+            vector = vector + (record_shift - current_shift) @ cell
+
+        refreshed_record = dict(raw)
+        refreshed_record["right_image_shift"] = [int(value) for value in record_shift]
+        refreshed_record["vector"] = [float(value) for value in vector]
+        refreshed.append(refreshed_record)
     molecule.info["bond_records"] = refreshed
 
 
@@ -480,7 +501,7 @@ class MolecularCrystal:
         if position_mode not in {"rigid_molecule", "affine"}:
             raise ValueError("position_mode must be 'rigid_molecule' or 'affine'.")
         if wrap_mode not in {"centroid", "atom", "none"}:
-              raise ValueError("wrap_mode must be 'centroid', 'atom', or 'none'.")
+            raise ValueError("wrap_mode must be 'centroid', 'atom', or 'none'.")
         if wrap_mode == "atom" and any(
             molecule.graph.number_of_edges() for molecule in self.molecules
         ):

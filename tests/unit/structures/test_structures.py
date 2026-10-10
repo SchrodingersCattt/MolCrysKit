@@ -7,7 +7,10 @@ import pytest
 from ase import Atoms
 
 from molcrys_kit.structures import MolAtom, MolecularCrystal
-from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.structures.molecule import (
+    CrystalMolecule,
+    _refresh_contiguous_bond_geometry,
+)
 
 
 class TestMolAtom:
@@ -150,6 +153,28 @@ class TestCrystalMolecule:
         g2 = mol.build_graph()
         assert g1.number_of_nodes() == g2.number_of_nodes() == 3
 
+    def test_refresh_geometry_keeps_parallel_periodic_records(self):
+        crystal = MolecularCrystal.from_ase(
+            Atoms(
+                "CC",
+                positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+                cell=np.diag([2.0, 8.0, 8.0]),
+                pbc=True,
+            )
+        )
+        molecule = crystal.molecules[0]
+        molecule.positions[1] += [0.2, 0.0, 0.0]
+        _refresh_contiguous_bond_geometry(molecule)
+
+        records = molecule.info["bond_records"]
+        assert [record["right_image_shift"] for record in records] == [
+            [-1, 0, 0],
+            [0, 0, 0],
+        ]
+        assert [record["vector"][0] for record in records] == pytest.approx(
+            [-0.8, 1.2]
+        )
+
 
 class TestMolecularCrystal:
     """MolecularCrystal container."""
@@ -283,3 +308,22 @@ class TestMolecularCrystal:
             crystal.transform_cell(matrix=np.eye(3), new_lattice=np.eye(3))
         with pytest.raises(ValueError, match="right-handed"):
             crystal.transform_cell(new_lattice=np.diag([-10.0, 10.0, 10.0]))
+
+    def test_transform_cell_identity_preserves_parallel_periodic_bond_records(self):
+        atoms = Atoms(
+            "CC",
+            positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            cell=np.diag([2.0, 8.0, 8.0]),
+            pbc=True,
+        )
+        crystal = MolecularCrystal.from_ase(atoms)
+        transformed = crystal.transform_cell(matrix=np.eye(3), wrap_mode="centroid")
+
+        assert [record.right_image_shift for record in transformed.get_bond_records()] == [
+            (-1, 0, 0),
+            (0, 0, 0),
+        ]
+        assert [record.vector_A for record in transformed.get_bond_records()] == [
+            pytest.approx((-1.0, 0.0, 0.0)),
+            pytest.approx((1.0, 0.0, 0.0)),
+        ]
