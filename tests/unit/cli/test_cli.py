@@ -233,6 +233,56 @@ def test_analyze_summary_text() -> None:
     assert "Wyckoff:" in result.output
 
 
+def test_operate_transform_cell_and_integrity(tmp_path: Path) -> None:
+    import numpy as np
+    from ase import Atoms
+    from molcrys_kit.io import write_extxyz
+    from molcrys_kit.structures.crystal import MolecularCrystal
+
+    source = tmp_path / "source.extxyz"
+    output = tmp_path / "transformed.extxyz"
+    atoms = Atoms(
+        "CO",
+        positions=[[7.7, 5.0, 5.0], [8.9, 5.0, 5.0]],
+        cell=np.diag([8.0, 8.0, 8.0]),
+        pbc=True,
+    )
+    atoms.set_array("molecule_index", np.array([0, 0]))
+    write_extxyz(MolecularCrystal.from_ase_atoms(atoms), str(source))
+
+    transformed = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "transform-cell",
+            str(source),
+            "-o",
+            str(output),
+            "--lattice",
+            "6",
+            "0",
+            "0",
+            "0",
+            "8",
+            "0",
+            "0",
+            "0",
+            "8",
+            "--json",
+        ],
+    )
+    assert transformed.exit_code == 0, transformed.output
+    assert output.is_file()
+    report = json.loads(transformed.output)
+    assert report["passed"] is True
+
+    audited = CliRunner().invoke(
+        main, ["analyze", "cell-integrity", str(output), "--json"]
+    )
+    assert audited.exit_code == 0, audited.output
+    assert json.loads(audited.output)["frames"][0]["passed"] is True
+
+
 def test_analyze_summary_rejects_non_positive_symprec() -> None:
     result = CliRunner().invoke(
         main, ["analyze", "summary", str(PETN), "--symprec", "0"]

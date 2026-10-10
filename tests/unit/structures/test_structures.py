@@ -7,7 +7,10 @@ import pytest
 from ase import Atoms
 
 from molcrys_kit.structures import MolAtom, MolecularCrystal
-from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.structures.molecule import (
+    CrystalMolecule,
+    _refresh_contiguous_bond_geometry,
+)
 
 
 class TestMolAtom:
@@ -150,6 +153,28 @@ class TestCrystalMolecule:
         g2 = mol.build_graph()
         assert g1.number_of_nodes() == g2.number_of_nodes() == 3
 
+    def test_refresh_geometry_keeps_parallel_periodic_records(self):
+        crystal = MolecularCrystal.from_ase(
+            Atoms(
+                "CC",
+                positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+                cell=np.diag([2.0, 8.0, 8.0]),
+                pbc=True,
+            )
+        )
+        molecule = crystal.molecules[0]
+        molecule.positions[1] += [0.2, 0.0, 0.0]
+        _refresh_contiguous_bond_geometry(molecule)
+
+        records = molecule.info["bond_records"]
+        assert [record["right_image_shift"] for record in records] == [
+            [-1, 0, 0],
+            [0, 0, 0],
+        ]
+        assert [record["vector"][0] for record in records] == pytest.approx(
+            [-0.8, 1.2]
+        )
+
 
 class TestMolecularCrystal:
     """MolecularCrystal container."""
@@ -244,3 +269,79 @@ class TestMolecularCrystal:
     def test_pbc_default(self, cubic_lattice_10):
         crystal = MolecularCrystal(cubic_lattice_10, [])
         assert crystal.pbc == (True, True, True)
+
+    def test_transform_cell_rigid_wrap_preserves_molecule_and_arrays(self):
+        from molcrys_kit.structures.molecule import CrystalMolecule
+
+        molecule = CrystalMolecule(
+            Atoms("CO", positions=[[7.7, 5.0, 5.0], [8.9, 5.0, 5.0]]),
+            check_pbc=False,
+        )
+        molecule.set_array("phase", np.array([1, 2], dtype=int))
+        crystal = MolecularCrystal(np.eye(3) * 8.0, [molecule])
+        before_distance = crystal.molecules[0].get_distance(0, 1)
+
+        transformed = crystal.transform_cell(
+            new_lattice=np.diag([6.0, 8.0, 8.0]),
+            position_mode="rigid_molecule",
+            wrap_mode="centroid",
+        )
+        result = transformed.molecules[0]
+        assert np.allclose(transformed.lattice, np.diag([6.0, 8.0, 8.0]))
+        assert result.get_distance(0, 1) == pytest.approx(before_distance)
+        np.testing.assert_array_equal(result.arrays["phase"], [1, 2])
+        assert 0 <= result.get_centroid_frac()[0] < 1
+        assert transformed.metadata["cell_transform"]["source_hash"]
+        assert transformed.metadata["cell_transform"]["output_hash"]
+        assert np.allclose(crystal.lattice, np.eye(3) * 8.0)
+
+    def test_transform_cell_affine_matrix_and_validation(self, cubic_lattice_10, co_molecule):
+        crystal = MolecularCrystal(cubic_lattice_10, [co_molecule])
+        transformed = crystal.transform_cell(
+            matrix=np.diag([2.0, 1.0, 1.0]),
+            position_mode="affine",
+            wrap_mode="none",
+        )
+        assert transformed.lattice[0, 0] == pytest.approx(20.0)
+        assert transformed.molecules[0].get_distance(0, 1) == pytest.approx(2.4)
+        with pytest.raises(ValueError, match="exactly one"):
+            crystal.transform_cell(matrix=np.eye(3), new_lattice=np.eye(3))
+        with pytest.raises(ValueError, match="right-handed"):
+            crystal.transform_cell(new_lattice=np.diag([-10.0, 10.0, 10.0]))
+
+    def test_transform_cell_identity_preserves_parallel_periodic_bond_records(self):
+        atoms = Atoms(
+            "CC",
+            positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            cell=np.diag([2.0, 8.0, 8.0]),
+            pbc=True,
+        )
+        crystal = MolecularCrystal.from_ase(atoms)
+        transformed = crystal.transform_cell(matrix=np.eye(3), wrap_mode="centroid")
+
+        assert [record.right_image_shift for record in transformed.get_bond_records()] == [
+            (-1, 0, 0),
+            (0, 0, 0),
+        ]
+        assert [record.vector_A for record in transformed.get_bond_records()] == [
+            pytest.approx((-1.0, 0.0, 0.0)),
+            pytest.approx((1.0, 0.0, 0.0)),
+        ]
+
+    def test_transform_cell_shear_none_does_not_reassign_atom_images(self):
+        atoms = Atoms(
+            "CC",
+            positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            cell=np.diag([10.0, 10.0, 10.0]),
+            pbc=True,
+        )
+        crystal = MolecularCrystal.from_ase(atoms)
+        transformed = crystal.transform_cell(
+            matrix=np.array([[1.0, 0.2, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+            position_mode="rigid_molecule",
+            wrap_mode="none",
+        )
+
+        records = transformed.molecules[0].info["bond_records"]
+        zero_shift = next(record for record in records if record["right_image_shift"] == [0, 0, 0])
+        assert zero_shift["vector"] == pytest.approx([1.0, 0.0, 0.0])

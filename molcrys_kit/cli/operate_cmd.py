@@ -828,6 +828,62 @@ def interpolate(start: Path, end: Path, output: Path, method: str, n_images: int
     echo_paths(write_crystal_sequence(frames, output))
 
 
+@click.command("transform-cell")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--lattice", nargs=9, type=float, default=None, metavar="A11 A12 A13 A21 A22 A23 A31 A32 A33")
+@click.option("--matrix", nargs=9, type=float, default=None, metavar="M11 M12 M13 M21 M22 M23 M31 M32 M33")
+@click.option(
+    "--position-mode",
+    type=click.Choice(["rigid_molecule", "affine"]),
+    default="rigid_molecule",
+    show_default=True,
+)
+@click.option(
+    "--wrap-mode",
+    type=click.Choice(["centroid", "atom", "none"]),
+    default="centroid",
+    show_default=True,
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the integrity report as JSON.")
+def transform_cell(
+    input: Path,
+    output: Path,
+    lattice: tuple[float, ...] | None,
+    matrix: tuple[float, ...] | None,
+    position_mode: str,
+    wrap_mode: str,
+    as_json: bool,
+) -> None:
+    """Transform a periodic cell while preserving molecular units."""
+    import json as json_mod
+
+    if (lattice is None) == (matrix is None):
+        raise click.UsageError("Provide exactly one of --lattice or --matrix (9 values each).")
+    source = load_crystal(input)
+    lattice_matrix = None if lattice is None else tuple(lattice)
+    basis_matrix = None if matrix is None else tuple(matrix)
+    import numpy as np
+
+    target = source.transform_cell(
+        new_lattice=None if lattice_matrix is None else np.asarray(lattice_matrix).reshape(3, 3),
+        matrix=None if basis_matrix is None else np.asarray(basis_matrix).reshape(3, 3),
+        position_mode=position_mode,
+        wrap_mode=wrap_mode,
+    )
+    from molcrys_kit.analysis import check_cell_integrity
+
+    report = check_cell_integrity(target, reference=source)
+    if not report.passed:
+        failed = ", ".join(name for name, passed in report.checks.items() if not passed)
+        raise click.ClickException(f"Cell transform failed integrity checks: {failed}")
+    write_structure(target, output)
+    if as_json:
+        click.echo(json_mod.dumps(report.to_dict(), indent=2, default=str))
+    else:
+        click.echo(f"Wrote {output}  |  cell integrity: PASS")
+
+
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output file path.")
@@ -866,4 +922,5 @@ def register_operate_commands(group: click.Group) -> None:
     group.add_command(vacancy)
     group.add_command(desolvate)
     group.add_command(interpolate)
+    group.add_command(transform_cell)
     group.add_command(reorient)

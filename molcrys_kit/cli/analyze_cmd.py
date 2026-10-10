@@ -138,6 +138,38 @@ def interactions(input: Path, as_json: bool) -> None:
             click.echo(f"  {key}: {value}")
 
 
+@click.command("cell-integrity")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a summary.")
+def cell_integrity(input: Path, as_json: bool) -> None:
+    """Audit lattice handedness, molecule images, and transform provenance."""
+    import json as json_mod
+
+    from molcrys_kit.analysis import check_cell_integrity
+
+    if input.suffix.lower() == ".extxyz":
+        from molcrys_kit.io.extxyz import read_extxyz
+
+        loaded = read_extxyz(str(input), index=":")
+        frames = loaded if isinstance(loaded, list) else [loaded]
+    else:
+        frames = [load_crystal(input)]
+    reports = [
+        {"frame": index, **check_cell_integrity(crystal).to_dict()}
+        for index, crystal in enumerate(frames)
+    ]
+    payload = {"file": str(input), "n_frames": len(reports), "frames": reports}
+    if as_json:
+        click.echo(json_mod.dumps(payload, indent=2, default=str))
+        return
+    n_passed = sum(bool(item["passed"]) for item in reports)
+    click.echo(f"Cell integrity: {n_passed}/{len(reports)} frames passed.")
+    for item in reports:
+        if not item["passed"]:
+            failed = [name for name, passed in item["checks"].items() if not passed]
+            click.echo(f"  ✗ frame {item['frame']}: {', '.join(failed)}")
+
+
 @click.command()
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--central", required=True, help="Central atom symbol or moiety string.")
@@ -274,5 +306,6 @@ def register_analyze_commands(group: click.Group) -> None:
     group.add_command(summary)
     group.add_command(bfdh)
     group.add_command(interactions)
+    group.add_command(cell_integrity)
     group.add_command(polyhedra)
     group.add_command(sanity_check_cmd)

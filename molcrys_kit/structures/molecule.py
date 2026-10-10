@@ -74,10 +74,74 @@ def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
                 "vector": [float(value) for value in vector],
             }
         )
-    molecule.info["bond_records"] = sorted(
-        records,
-        key=lambda record: (record["left"], record["right"]),
-    )
+    legacy_records = molecule.info.get("bond_records")
+    if not legacy_records:
+        molecule.info["bond_records"] = sorted(
+            records,
+            key=lambda record: (record["left"], record["right"]),
+        )
+        return
+
+    # ``graph`` is a simple graph and cannot carry parallel periodic contacts
+    # or self-image edges.  Preserve the complete legacy payload and refresh
+    # each vector against its own stored image shift instead of rebuilding the
+    # payload from graph edges (which would silently drop those records).
+    positions = np.asarray(molecule.get_positions(), dtype=float)
+    cell = np.asarray(molecule.get_cell(), dtype=float)
+    has_cell = cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12
+    periodic = np.asarray(molecule.get_pbc(), dtype=bool)
+    stored_image_shifts = molecule.arrays.get("image_shift")
+    if stored_image_shifts is not None and np.asarray(stored_image_shifts).shape == (
+        len(molecule),
+        3,
+    ):
+        image_shifts = np.asarray(stored_image_shifts, dtype=int)
+    elif has_cell and len(positions):
+        fractional = positions @ np.linalg.inv(cell)
+        image_shifts = np.zeros((len(molecule), 3), dtype=int)
+        image_shifts[:, periodic] = np.floor(
+            fractional[:, periodic] + 1e-12
+        ).astype(int)
+    else:
+        image_shifts = np.zeros((len(molecule), 3), dtype=int)
+
+    global_indices = molecule.info.get("atom_indices")
+    if global_indices is None:
+        global_indices = list(range(len(molecule)))
+    global_to_local = {
+        int(global_index): local_index
+        for local_index, global_index in enumerate(np.asarray(global_indices).tolist())
+    }
+
+    refreshed = []
+    for raw in legacy_records:
+        try:
+            left = int(raw["left"])
+            right = int(raw["right"])
+            record_shift = np.asarray(raw["right_image_shift"], dtype=int)
+            if record_shift.shape != (3,):
+                continue
+            left_local = global_to_local[left]
+            right_local = global_to_local[right]
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if not (0 <= left_local < len(molecule) and 0 <= right_local < len(molecule)):
+            continue
+        vector = positions[right_local] - positions[left_local]
+        if has_cell:
+            current_shift = image_shifts[right_local] - image_shifts[left_local]
+            vector = vector + (record_shift - current_shift) @ cell
+        refreshed_record = dict(raw)
+        # ``bond_records`` on a CrystalMolecule is the local legacy view;
+        # ``MolecularCrystal.get_bond_records`` maps it back to global indices
+        # through ``atom_indices``.  Keep that established local-index
+        # contract while preserving every record's image metadata.
+        refreshed_record["left"] = left_local
+        refreshed_record["right"] = right_local
+        refreshed_record["right_image_shift"] = [int(value) for value in record_shift]
+        refreshed_record["vector"] = [float(value) for value in vector]
+        refreshed.append(refreshed_record)
+    molecule.info["bond_records"] = refreshed
 
 
 class CrystalMolecule(Atoms):

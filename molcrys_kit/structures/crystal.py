@@ -7,6 +7,7 @@ for molecular crystals.
 
 import numpy as np
 import networkx as nx
+import hashlib
 
 from typing import List, Optional, Tuple
 
@@ -27,6 +28,76 @@ import itertools
 
 
 _BOND_RECORDS_INFO_KEY = "_molcrys_bond_records"
+
+
+def _structure_hash(crystal: "MolecularCrystal") -> str:
+    """Return a stable hash of lattice, symbols, molecule boundaries, and positions."""
+    digest = hashlib.sha256()
+    digest.update(np.asarray(crystal.lattice, dtype=np.float64).tobytes())
+    digest.update(np.asarray(crystal.pbc, dtype=np.uint8).tobytes())
+    for molecule in crystal.molecules:
+        digest.update("|".join(molecule.get_chemical_symbols()).encode("utf-8"))
+        digest.update(np.asarray(molecule.get_positions(), dtype=np.float64).round(12).tobytes())
+    return digest.hexdigest()
+
+
+def _refresh_legacy_bond_records(
+    molecule: "CrystalMolecule",
+    image_shifts: np.ndarray,
+    positions: np.ndarray,
+) -> None:
+    """Update legacy bond vectors while retaining each contact's image.
+
+    ``bond_records`` is intentionally richer than the molecule graph: a
+    simple graph can contain only one edge per atom pair, while a periodic
+    pair may have several contacts to different images.  The image stored on
+    each record is therefore authoritative and must not be replaced by the
+    per-atom image difference of the transformed coordinates.
+    """
+    records = molecule.info.get("bond_records")
+    if not records:
+        return
+    global_indices = molecule.info.get("atom_indices")
+    if global_indices is None:
+        global_indices = list(range(len(molecule)))
+    global_to_local = {
+        int(global_index): local_index
+        for local_index, global_index in enumerate(np.asarray(global_indices).tolist())
+    }
+
+    coordinates = np.asarray(positions, dtype=float)
+    shifts_by_atom = np.asarray(image_shifts, dtype=int)
+    cell = np.asarray(molecule.get_cell(), dtype=float)
+    has_cell = cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12
+    if shifts_by_atom.shape != (len(molecule), 3):
+        raise ValueError("image_shifts must have shape (n_atoms, 3)")
+
+    refreshed = []
+    for raw in records:
+        try:
+            left = int(raw["left"])
+            right = int(raw["right"])
+            record_shift = np.asarray(raw["right_image_shift"], dtype=int)
+            if record_shift.shape != (3,):
+                continue
+            left_local = global_to_local[left]
+            right_local = global_to_local[right]
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        vector = coordinates[right_local] - coordinates[left_local]
+        if has_cell:
+            current_shift = shifts_by_atom[right_local] - shifts_by_atom[left_local]
+            # Coordinates may be in arbitrary contiguous images.  Rebase the
+            # right endpoint to the image carried by this individual record;
+            # this keeps parallel periodic contacts distinct after an identity
+            # or affine cell transform.
+            vector = vector + (record_shift - current_shift) @ cell
+
+        refreshed_record = dict(raw)
+        refreshed_record["right_image_shift"] = [int(value) for value in record_shift]
+        refreshed_record["vector"] = [float(value) for value in vector]
+        refreshed.append(refreshed_record)
+    molecule.info["bond_records"] = refreshed
 
 
 class MolecularCrystal:
@@ -393,6 +464,156 @@ class MolecularCrystal:
             Fractional coordinates.
         """
         return np.dot(coords, np.linalg.inv(self.lattice))
+
+    def transform_cell(
+        self,
+        new_lattice: np.ndarray | None = None,
+        *,
+        matrix: np.ndarray | None = None,
+        position_mode: str = "rigid_molecule",
+        wrap_mode: str = "centroid",
+    ) -> "MolecularCrystal":
+        """Return a copy with a transformed periodic cell.
+
+        Parameters
+        ----------
+        new_lattice:
+            Target lattice vectors as a ``(3, 3)`` row-vector matrix.
+        matrix:
+            Optional row-basis transform.  ``new_lattice = matrix @ lattice``;
+            pass either this or ``new_lattice``, but not both.
+        position_mode:
+            ``"rigid_molecule"`` keeps each molecule's Cartesian geometry and
+            translates it as one unit.  ``"affine"`` maps every atom through
+            the new lattice and is an explicit homogeneous-strain mode.
+        wrap_mode:
+            ``"centroid"`` (the safe default) wraps a whole molecule by one
+            lattice translation, ``"atom"`` wraps atoms independently, and
+            ``"none"`` leaves the chosen coordinates unwrapped.
+
+        The source crystal is never mutated.  Molecule partitioning, graph
+        topology, and all per-atom arrays are copied.  A serialisable
+        ``metadata["cell_transform"]`` record stores the input/output hashes
+        and the requested transform for reproducibility.
+        """
+        if (new_lattice is None) == (matrix is None):
+            raise ValueError("Provide exactly one of new_lattice or matrix.")
+        if position_mode not in {"rigid_molecule", "affine"}:
+            raise ValueError("position_mode must be 'rigid_molecule' or 'affine'.")
+        if wrap_mode not in {"centroid", "atom", "none"}:
+            raise ValueError("wrap_mode must be 'centroid', 'atom', or 'none'.")
+        if wrap_mode == "atom" and any(
+            molecule.graph.number_of_edges() for molecule in self.molecules
+        ):
+            raise ValueError(
+                "wrap_mode='atom' is unsafe for bonded molecules; use 'centroid' or 'none'."
+            )
+
+        old_lattice = np.asarray(self.lattice, dtype=float)
+        if old_lattice.shape != (3, 3) or not np.all(np.isfinite(old_lattice)):
+            raise ValueError("The source lattice must be a finite 3x3 matrix.")
+        old_det = float(np.linalg.det(old_lattice))
+        if abs(old_det) <= 1e-10:
+            raise ValueError("The source lattice is singular.")
+
+        if matrix is not None:
+            basis_matrix = np.asarray(matrix, dtype=float)
+            if basis_matrix.shape != (3, 3) or not np.all(np.isfinite(basis_matrix)):
+                raise ValueError("matrix must be a finite 3x3 matrix.")
+            if abs(float(np.linalg.det(basis_matrix))) <= 1e-10:
+                raise ValueError("matrix must be non-singular.")
+            target_lattice = basis_matrix @ old_lattice
+        else:
+            target_lattice = np.asarray(new_lattice, dtype=float)
+            if target_lattice.shape != (3, 3) or not np.all(np.isfinite(target_lattice)):
+                raise ValueError("new_lattice must be a finite 3x3 matrix.")
+            if abs(float(np.linalg.det(target_lattice))) <= 1e-10:
+                raise ValueError("new_lattice must be non-singular.")
+            basis_matrix = target_lattice @ np.linalg.inv(old_lattice)
+
+        target_det = float(np.linalg.det(target_lattice))
+        if target_det <= 0:
+            raise ValueError("The target lattice must be right-handed (positive determinant).")
+
+        from ..constants.config import KEY_IMAGE_SHIFT
+        from .molecule import _strip_stale_frac_arrays
+
+        source_hash = _structure_hash(self)
+        inverse_old = np.linalg.inv(old_lattice)
+        inverse_new = np.linalg.inv(target_lattice)
+        periodic = np.asarray(self.pbc, dtype=bool)
+        result = self.copy()
+        # Positions and cell change, so cached energies/forces/stress no
+        # longer describe the returned structure.
+        result._calc_results = None
+        result.lattice = target_lattice.copy()
+
+        for molecule in result.molecules:
+            original = np.asarray(molecule.get_positions(), dtype=float)
+            stored_image_shifts = molecule.arrays.get(KEY_IMAGE_SHIFT)
+            if stored_image_shifts is None:
+                source_fractional = original @ inverse_old
+                original_image_shifts = np.zeros((len(molecule), 3), dtype=int)
+                original_image_shifts[:, periodic] = np.floor(
+                    source_fractional[:, periodic] + 1e-12
+                ).astype(int)
+            else:
+                original_image_shifts = np.asarray(stored_image_shifts, dtype=int)
+                if original_image_shifts.shape != (len(molecule), 3):
+                    original_image_shifts = np.zeros((len(molecule), 3), dtype=int)
+            if position_mode == "affine":
+                fractional = original @ inverse_old
+                transformed = fractional @ target_lattice
+            else:
+                transformed = original.copy()
+            wrap_shifts = np.zeros((len(molecule), 3), dtype=int)
+
+            if wrap_mode == "centroid" and len(transformed):
+                center_frac = transformed.mean(axis=0) @ inverse_new
+                shifts = np.zeros(3, dtype=int)
+                shifts[periodic] = np.floor(center_frac[periodic] + 1e-12).astype(int)
+                transformed -= shifts @ target_lattice
+                wrap_shifts[:] = shifts
+            elif wrap_mode == "atom" and len(transformed):
+                fractional = transformed @ inverse_new
+                shifts = np.zeros_like(fractional, dtype=int)
+                shifts[:, periodic] = np.floor(
+                    fractional[:, periodic] + 1e-12
+                ).astype(int)
+                transformed -= shifts @ target_lattice
+                wrap_shifts = shifts
+
+            molecule.set_positions(transformed)
+            molecule.set_cell(target_lattice)
+            molecule.set_pbc(self.pbc)
+            _strip_stale_frac_arrays(molecule)
+
+            # Preserve the source image assignment and apply only the explicit
+            # wrapping translation.  Inferring images by flooring Cartesian
+            # coordinates in a sheared target cell can assign neighbouring
+            # atoms to different images even for ``wrap_mode='none'``.
+            image_shifts = original_image_shifts - wrap_shifts
+            image_shifts[:, ~periodic] = 0
+            molecule.set_array(KEY_IMAGE_SHIFT, image_shifts)
+
+            # Refresh cached graph geometry while retaining graph topology;
+            # update legacy bond records when they are present.
+            if getattr(molecule, "_graph", None) is not None:
+                for left, right, edge_data in molecule._graph.edges(data=True):
+                    vector = transformed[int(right)] - transformed[int(left)]
+                    edge_data["vector"] = vector.copy()
+                    edge_data["distance"] = float(np.linalg.norm(vector))
+            _refresh_legacy_bond_records(molecule, image_shifts, transformed)
+
+        result.metadata["cell_transform"] = {
+            "source_hash": source_hash,
+            "output_hash": _structure_hash(result),
+            "matrix": basis_matrix.tolist(),
+            "new_lattice": target_lattice.tolist(),
+            "position_mode": position_mode,
+            "wrap_mode": wrap_mode,
+        }
+        return result
 
     def get_lattice_vectors(self) -> np.ndarray:
         """
