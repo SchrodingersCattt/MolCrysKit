@@ -479,10 +479,14 @@ class MolecularCrystal:
             raise ValueError("Provide exactly one of new_lattice or matrix.")
         if position_mode not in {"rigid_molecule", "affine"}:
             raise ValueError("position_mode must be 'rigid_molecule' or 'affine'.")
-          if wrap_mode not in {"centroid", "atom", "none"}:
+        if wrap_mode not in {"centroid", "atom", "none"}:
               raise ValueError("wrap_mode must be 'centroid', 'atom', or 'none'.")
-          if wrap_mode == "atom" and any(molecule.graph.number_of_edges() for molecule in self.molecules):
-              raise ValueError("wrap_mode='atom' is unsafe for bonded molecules; use 'centroid' or 'none'.")
+        if wrap_mode == "atom" and any(
+            molecule.graph.number_of_edges() for molecule in self.molecules
+        ):
+            raise ValueError(
+                "wrap_mode='atom' is unsafe for bonded molecules; use 'centroid' or 'none'."
+            )
 
         old_lattice = np.asarray(self.lattice, dtype=float)
         if old_lattice.shape != (3, 3) or not np.all(np.isfinite(old_lattice)):
@@ -517,11 +521,11 @@ class MolecularCrystal:
         inverse_old = np.linalg.inv(old_lattice)
         inverse_new = np.linalg.inv(target_lattice)
         periodic = np.asarray(self.pbc, dtype=bool)
-          result = self.copy()
-          # Positions and cell change, so cached energies/forces/stress no
-          # longer describe the returned structure.
-          result._calc_results = None
-          result.lattice = target_lattice.copy()
+        result = self.copy()
+        # Positions and cell change, so cached energies/forces/stress no
+        # longer describe the returned structure.
+        result._calc_results = None
+        result.lattice = target_lattice.copy()
 
         for molecule in result.molecules:
             original = np.asarray(molecule.get_positions(), dtype=float)
