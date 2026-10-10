@@ -13,6 +13,7 @@ from ..analysis.ring_conformation import (
     puckering_coordinates,
     reconstruct_z_from_modes,
 )
+from ..constants.config import BOND_ROTATION_AXIS_TOLERANCE
 from ..structures.molecule import (
     CrystalMolecule,
     _refresh_contiguous_bond_geometry,
@@ -47,13 +48,36 @@ def _torsion_descriptor(
     if partition.is_ring_bond:
         return None
     graph = molecule.graph
-    left_neighbors = sorted(int(index) for index in graph.neighbors(atom_i) if index != atom_j)
-    right_neighbors = sorted(int(index) for index in graph.neighbors(atom_j) if index != atom_i)
+    left_neighbors = sorted(
+        int(index) for index in graph.neighbors(atom_i) if index != atom_j
+    )
+    right_neighbors = sorted(
+        int(index) for index in graph.neighbors(atom_j) if index != atom_i
+    )
     if not left_neighbors or not right_neighbors:
         return None
     atom_k, atom_l = left_neighbors[0], right_neighbors[0]
+    normal_a = np.cross(
+        positions_a[atom_i] - positions_a[atom_k],
+        positions_a[atom_j] - positions_a[atom_i],
+    )
+    normal_b = np.cross(
+        positions_b_in_a[atom_i] - positions_b_in_a[atom_k],
+        positions_b_in_a[atom_j] - positions_b_in_a[atom_i],
+    )
+    if (
+        np.linalg.norm(normal_a) <= BOND_ROTATION_AXIS_TOLERANCE
+        or np.linalg.norm(normal_b) <= BOND_ROTATION_AXIS_TOLERANCE
+    ):
+        raise ValueError(
+            f"Cannot interpolate torsion {atom_k}-{atom_i}-{atom_j}-{atom_l}: "
+            "endpoint geometry is collinear"
+        )
     angle_a = dihedral_angle(
-        positions_a[atom_k], positions_a[atom_i], positions_a[atom_j], positions_a[atom_l]
+        positions_a[atom_k],
+        positions_a[atom_i],
+        positions_a[atom_j],
+        positions_a[atom_l],
     )
     angle_b = dihedral_angle(
         positions_b_in_a[atom_k],
@@ -69,7 +93,15 @@ def _auto_torsion_bonds(molecule: CrystalMolecule) -> list[tuple[int, int]]:
     bonds = []
     positions = molecule.get_positions()
     for atom_i, atom_j in sorted(nx.bridges(molecule.graph)):
-        if _torsion_descriptor(molecule, positions, positions, (atom_i, atom_j)) is not None:
+        try:
+            descriptor = _torsion_descriptor(
+                molecule, positions, positions, (atom_i, atom_j)
+            )
+        except ValueError:
+            # A collinear bridge cannot define a torsion; leave it to the
+            # residual Cartesian interpolation instead of inventing an angle.
+            continue
+        if descriptor is not None:
             bonds.append((int(atom_i), int(atom_j)))
     return bonds
 
@@ -108,6 +140,18 @@ def _interpolate_ring_positions(
     return positions
 
 
+def _center_positions(
+    positions: np.ndarray,
+    molecule: CrystalMolecule,
+    center: np.ndarray,
+) -> np.ndarray:
+    """Translate coordinates so their mass centre is ``center``."""
+    coords = np.asarray(positions, dtype=float)
+    masses = np.asarray(molecule.get_masses(), dtype=float)
+    current = np.average(coords, axis=0, weights=masses)
+    return coords - current + np.asarray(center, dtype=float)
+
+
 def interpolate_molecule_with_internal_dofs(
     mol_a: CrystalMolecule,
     mol_b: CrystalMolecule,
@@ -122,7 +166,7 @@ def interpolate_molecule_with_internal_dofs(
     The endpoints are atom-mapped with the existing graph-aware matcher.  The
     rigid component follows the selected SE(3)/SO(3)/SLERP path, while bridge
     bonds use shortest signed dihedral changes.  When ``ring_atoms`` is given,
-    its Cremer–Pople amplitudes and phases are interpolated for the ring
+    its Cremer-Pople amplitudes and phases are interpolated for the ring
     coordinates.  If omitted, the first simple ring is used when one exists.
 
     Ring closure is deliberately not optimized here; callers needing exact
@@ -144,17 +188,25 @@ def interpolate_molecule_with_internal_dofs(
     com_b = np.asarray(mol_b.get_center_of_mass(), dtype=float)
     centered_a = positions_a - com_a
     centered_b = positions_b - com_b
-    rotation, _ = kabsch_align(centered_a, centered_b)
-    translation = com_b - com_a
-    positions_b_in_a = centered_b @ rotation + com_a
+    # This provisional alignment is used only to express ring-plane coordinates
+    # in A's frame.  The actual rigid pose is fitted *after* internal motion is
+    # constructed below; fitting the complete A→B pair first double-counts
+    # internal torsions.
+    provisional_rotation, _ = kabsch_align(centered_a, centered_b)
+    positions_b_in_a = centered_b @ provisional_rotation + com_a
 
     if torsion_bonds is None:
         torsion_bonds = _auto_torsion_bonds(mol_a)
     torsion_descriptors = []
     for bond in torsion_bonds:
-        descriptor = _torsion_descriptor(mol_a, positions_a, positions_b_in_a, bond)
+        # Dihedrals are invariant under the endpoint's rigid pose, so compare
+        # directly with mapped B coordinates.  This keeps the internal path
+        # independent of the provisional Kabsch orientation.
+        descriptor = _torsion_descriptor(mol_a, positions_a, positions_b, bond)
         if descriptor is not None:
-            torsion_descriptors.append((tuple(int(value) for value in bond), descriptor[-1]))
+            torsion_descriptors.append(
+                (tuple(int(value) for value in bond), descriptor[-1])
+            )
 
     if ring_atoms is None:
         ring_systems = find_ring_systems(mol_a)
@@ -164,45 +216,78 @@ def interpolate_molecule_with_internal_dofs(
         ring_atoms = tuple(int(index) for index in ring_atoms)
         puckering_coordinates(mol_a, ring_atoms)
 
-    frames: list[CrystalMolecule] = []
-    for lam in path_lambda_values(int(n_images), True):
-        fraction = float(lam)
-        if fraction <= 0.0:
-            internal = positions_a.copy()
-        elif fraction >= 1.0:
-            internal = positions_b_in_a.copy()
-        elif torsion_descriptors:
-            working = mol_a.copy()
-            for (atom_i, atom_j), delta in torsion_descriptors:
-                from .bond_rotation import rotate_fragment_about_bond
+    def _internal_without_rigid(fraction: float) -> np.ndarray:
+        """Build internal coordinates in the A reference frame.
 
+        Bridge torsions and ring modes provide the requested internal path;
+        any remaining endpoint displacement is added as a residual below.
+        Evaluating this function at one is intentional: it gives the residual
+        endpoint of the selected internal-coordinate model without snapping.
+        """
+        if fraction <= 0.0:
+            return positions_a.copy()
+
+        if torsion_descriptors:
+            working = mol_a.copy()
+            from .bond_rotation import rotate_fragment_about_bond
+
+            for (atom_i, atom_j), delta in torsion_descriptors:
                 working = rotate_fragment_about_bond(
                     working,
                     atom_i,
                     atom_j,
                     np.degrees(fraction * delta),
                 )
-            internal = np.asarray(working.get_positions(), dtype=float)
-            internal_com = np.asarray(working.get_center_of_mass(), dtype=float)
-            internal += com_a - internal_com
+            raw = np.asarray(working.get_positions(), dtype=float)
         else:
-            internal = positions_a + fraction * (positions_b_in_a - positions_a)
+            raw = (1.0 - fraction) * positions_a + fraction * positions_b_in_a
 
-        if ring_atoms is not None and 0.0 < fraction < 1.0:
-            internal = _interpolate_ring_positions(
-                mol_a, internal, positions_b_in_a, ring_atoms, fraction
+        if ring_atoms is not None and fraction <= 1.0:
+            # Replace only the selected ring indices; preserve side-chain and
+            # other internal motion already present in ``raw``.
+            raw = _interpolate_ring_positions(
+                mol_a, raw, positions_b_in_a, ring_atoms, fraction
             )
+        return _center_positions(raw, mol_a, com_a)
+
+    # A torsion/ring path can leave residual bond-length or bond-angle changes
+    # at B.  Carry that residual continuously instead of forcing B only on the
+    # final frame (which creates an endpoint jump).
+    internal_endpoint = _internal_without_rigid(1.0)
+    internal_center = com_a
+    centered_internal_endpoint = internal_endpoint - internal_center
+    residual_rotation, _ = kabsch_align(centered_internal_endpoint, centered_b)
+    residual_translation = com_b - internal_center
+    # Express B in the endpoint of the internal path's frame.  The difference
+    # is the residual bond-length/angle (or ring) motion to add continuously.
+    positions_b_in_internal = centered_b @ residual_rotation + internal_center
+    internal_residual = positions_b_in_internal - internal_endpoint
+
+    frames: list[CrystalMolecule] = []
+    for lam in path_lambda_values(int(n_images), True):
+        fraction = float(lam)
+        if fraction >= 1.0:
+            # Use the residual-frame target so the endpoint is reached through
+            # the same decomposition as interior frames; no final-frame snap
+            # is needed to hide a discontinuity.
+            internal = positions_b_in_internal.copy()
+        else:
+            internal = _internal_without_rigid(fraction) + fraction * internal_residual
+            internal = _center_positions(internal, mol_a, com_a)
 
         internal_com = np.average(internal, axis=0, weights=mol_a.get_masses())
         internal_centered = internal - internal_com + com_a
         pose = interpolate_rigid_positions(
             internal_centered,
-            center=com_a,
-            rotation=rotation,
-            translation=translation,
+            center=internal_center,
+            rotation=residual_rotation,
+            translation=residual_translation,
             lam=fraction,
             method=method,
         )
+        # Keep the public endpoint bit-for-bit identical to mapped B.  The
+        # residual-frame construction above already makes this a continuous
+        # limit; this assignment only removes floating-point Kabsch noise.
         if fraction >= 1.0:
             pose = positions_b.copy()
         elif fraction <= 0.0:
