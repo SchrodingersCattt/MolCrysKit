@@ -1,0 +1,727 @@
+"""Self-contained substitutive naming for finite acyclic organic graphs.
+
+The functions in this module intentionally return the small tuple consumed by
+``naming._organic_result``.  Keeping graph perception here makes the naming
+dispatcher easy to extend while preserving the existing public result type.
+"""
+
+from __future__ import annotations
+
+from collections import Counter, deque
+
+from ..models import BondKind, FiniteChemicalEntity
+
+
+HALOGENS = {"F": "fluoride", "Cl": "chloride", "Br": "bromide", "I": "iodide"}
+HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
+
+
+def _stems():
+    # Import lazily to avoid a naming -> substitutive import cycle.
+    from ..naming import ALKANE_STEMS
+    return ALKANE_STEMS
+
+
+def alkane_stem(count: int) -> str | None:
+    """Return a Blue Book alkane stem, extending the shared table on demand."""
+    stems = _stems()
+    if count in stems:
+        return stems[count]
+    # A deterministic extension for chains beyond the precomputed C100 table.
+    # The common acceptance range is covered by the table; this branch avoids a
+    # hard length refusal while retaining valid compositional spelling.
+    if count < 1:
+        return None
+    units = {1: "hen", 2: "do", 3: "tri", 4: "tetra", 5: "penta",
+             6: "hexa", 7: "hepta", 8: "octa", 9: "nona"}
+    tens = {20: "icos", 30: "triacont", 40: "tetracont", 50: "pentacont",
+            60: "hexacont", 70: "heptacont", 80: "octacont", 90: "nonacont"}
+    if 13 <= count <= 19:
+        stem = {13: "tridec", 14: "tetradec", 15: "pentadec", 16: "hexadec",
+                17: "heptadec", 18: "octadec", 19: "nonadec"}[count]
+    elif 20 <= count <= 99:
+        ten, unit = divmod(count, 10)
+        base = tens.get(ten * 10)
+        stem = base if unit == 0 else units[unit] + base if base else None
+    else:
+        stem = None
+    if stem is not None:
+        stems[count] = stem
+    return stem
+
+
+def _adjacency(entity):
+    result = {atom.atom_id: [] for atom in entity.atoms}
+    for bond in entity.bonds:
+        result[bond.atom1_id].append((bond.atom2_id, bond))
+        result[bond.atom2_id].append((bond.atom1_id, bond))
+    return result
+
+
+def _atom_map(entity):
+    return {atom.atom_id: atom for atom in entity.atoms}
+
+
+def _heavy_adjacency(entity):
+    atoms = _atom_map(entity)
+    adjacency = _adjacency(entity)
+    return {
+        atom_id: [(neighbor, bond) for neighbor, bond in values if atoms[neighbor].element != "H"]
+        for atom_id, values in adjacency.items() if atoms[atom_id].element != "H"
+    }
+
+
+def _hcount(entity, atom_id):
+    atoms = _atom_map(entity)
+    return sum(
+        atoms[n].element == "H" for n, _ in _adjacency(entity)[atom_id]
+    ) + (atoms[atom_id].explicit_hydrogens or 0) + (atoms[atom_id].implicit_hydrogens or 0)
+
+
+def _heavy_ids(entity):
+    """Return the ids of atoms that must be represented by a name."""
+    return {
+        atom.atom_id
+        for atom in entity.atoms
+        if atom.element != "H"
+    }
+
+
+def _covers_heavy_atoms(entity, represented):
+    """Whether a recognizer accounts for every non-hydrogen atom."""
+    return _heavy_ids(entity) == set(represented)
+
+
+def _bond_between(adjacency, left, right):
+    return next((bond for neighbor, bond in adjacency[left] if neighbor == right), None)
+
+
+def _is_single(bond):
+    return bond is not None and bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN} and bond.order == 1.0
+
+
+def _is_double(bond):
+    return bond is not None and bond.order == 2.0
+
+
+def _tree_path(adjacency, start, end):
+    queue = deque([(start, (start,))])
+    seen = {start}
+    while queue:
+        current, path = queue.popleft()
+        if current == end:
+            return path
+        for neighbor in adjacency[current]:
+            if neighbor not in seen:
+                seen.add(neighbor)
+                queue.append((neighbor, (*path, neighbor)))
+    return ()
+
+
+def _carbon_parent(entity, *, required=None):
+    """Find a longest acyclic carbon path and its parent-side numbering."""
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    carbons = {a for a, atom in atoms.items() if atom.element == "C"}
+    if not carbons or any(
+        not _is_single(bond)
+        for a in carbons
+        for neighbor, bond in adjacency[a]
+        if neighbor in carbons
+    ):
+        return None
+    if any(sum(neighbor in carbons for neighbor, _ in adjacency[a]) > 2 for a in carbons):
+        # Branches can still be present; only reject non-tree carbon graphs.
+        pass
+    carbon_graph = {a: [n for n, _ in adjacency[a] if n in carbons] for a in carbons}
+    if required is not None and required in carbon_graph:
+        component = {required}
+        pending = [required]
+        while pending:
+            current = pending.pop()
+            for neighbor in carbon_graph[current]:
+                if neighbor not in component:
+                    component.add(neighbor)
+                    pending.append(neighbor)
+        carbon_graph = {a: [n for n in carbon_graph[a] if n in component] for a in component}
+        carbons = component
+    edges = sum(len(v) for v in carbon_graph.values()) // 2
+    if edges != len(carbons) - 1:
+        return None
+    endpoints = [a for a, values in carbon_graph.items() if len(values) <= 1]
+    if len(carbons) == 1:
+        paths = [(next(iter(carbons)),)]
+    else:
+        candidates = []
+        for left in endpoints:
+            for right in endpoints:
+                if left < right:
+                    path = _tree_path(carbon_graph, left, right)
+                    if required is None or required in path:
+                        candidates.append(path)
+        if not candidates:
+            return None
+        longest = max(len(p) for p in candidates)
+        paths = [p for p in candidates if len(p) == longest]
+    # Substituent locants are the first numbering criterion.  If several paths
+    # tie, lexical atom ids give a stable result independent of parser order.
+    scored = []
+    for path in paths:
+        for ordered in (path, tuple(reversed(path))):
+            numbering = {atom_id: index + 1 for index, atom_id in enumerate(ordered)}
+            branch_locs = []
+            for atom_id in ordered:
+                branch_locs.extend(
+                    numbering[atom_id]
+                    for neighbor in carbon_graph[atom_id]
+                    if neighbor not in numbering
+                )
+            required_locant = numbering.get(required, 0) if required is not None else 0
+            scored.append((required_locant, tuple(sorted(branch_locs)), tuple(ordered), numbering, carbon_graph))
+    chosen = min(scored, key=lambda item: (item[0], item[1], tuple(item[2])))
+    return chosen[1], chosen[2], chosen[3], chosen[4]
+
+
+def _prefix_string(prefixes):
+    grouped = {}
+    for locant, prefix in prefixes:
+        grouped.setdefault(prefix, []).append(locant)
+    words = []
+    for prefix in sorted(grouped):
+        locants = sorted(grouped[prefix])
+        multiplier = {
+            1: "",
+            2: "di",
+            3: "tri",
+            4: "tetra",
+            5: "penta",
+            6: "hexa",
+            7: "hepta",
+            8: "octa",
+            9: "nona",
+            10: "deca",
+        }.get(len(locants), f"{len(locants)}-")
+        words.append(f"{','.join(map(str, locants))}-{multiplier}{prefix}")
+    return "-".join(words)
+
+
+def _result(name, *trace):
+    return name, True, *trace
+
+
+def _special_patterns(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    counts = Counter(atom.element for atom in atoms.values() if atom.element != "H")
+    heavy = set(atoms) - {a for a, atom in atoms.items() if atom.element == "H"}
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in atoms.values())
+    )
+    if counts == Counter({"C": 1, "O": 2}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        if all(_is_double(_bond_between(adjacency, carbon, n)) for n, _ in adjacency[carbon]):
+            return _result("carbon dioxide", "Recognize the retained carbon dioxide name.")
+    if counts == Counter({"C": 1, "O": 3}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        oxygens = adjacency[carbon]
+        if sum(_is_double(b) for _, b in oxygens) == 1 and sum(_is_single(b) and _hcount(entity, n) > 0 for n, b in oxygens) == 2:
+            return _result("carbonic acid", "Recognize the retained carbonic acid pattern.")
+    if counts == Counter({"C": 1, "N": 1, "O": 1}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        if len(neighbours) == 2 and any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours) and any(atoms[n].element == "O" and _is_double(b) for n, b in neighbours):
+            return _result("formamide", "Recognize the retained formamide pattern.")
+        if len(neighbours) == 2 and any(atoms[n].element == "N" and _is_double(b) for n, b in neighbours) and any(atoms[n].element == "O" and _is_double(b) for n, b in neighbours):
+            return _result("isocyanic acid", "Recognize the retained isocyanic acid pattern.")
+    if counts == Counter({"C": 1, "N": 1, "O": 1, "Cl": 1}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        if (
+            any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours)
+            and any(atoms[n].element == "Cl" and _is_single(b) for n, b in neighbours)
+            and any(atoms[n].element == "O" and _is_double(b) for n, b in neighbours)
+        ):
+            return _result("carbamoyl chloride", "Name the mixed carbonyl halide as a carbamoyl chloride.")
+    if counts == Counter({"C": 1, "N": 1, "O": 2}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        single_oxygen = [
+            n for n, b in neighbours
+            if atoms[n].element == "O" and _is_single(b)
+        ]
+        # ``carbamic acid`` requires a protonated hydroxyl and a neutral
+        # molecule.  A carbamate anion has the same heavy-atom formula but
+        # must not lose its charge by being named as the neutral acid.
+        if (
+            any(atoms[n].element == "N" and _is_single(b) for n, b in neighbours)
+            and sum(atoms[n].element == "O" and _is_double(b) for n, b in neighbours) == 1
+            and len(single_oxygen) == 1
+            and _hcount(entity, single_oxygen[0]) > 0
+            and net_charge == 0
+        ):
+            return _result("carbamic acid", "Name the mixed carbonyl acid as carbamic acid.")
+    if counts == Counter({"C": 1, "O": 2, "Cl": 1}):
+        carbon = next(a for a in heavy if atoms[a].element == "C")
+        neighbours = adjacency[carbon]
+        if any(atoms[n].element == "Cl" and _is_single(b) for n, b in neighbours) and sum(
+            atoms[n].element == "O" and _is_double(b) for n, b in neighbours
+        ) == 1:
+            return _result("carbonochloridic acid", "Name the mixed carbonyl acid halide systematically.")
+    if counts.get("C") == 1 and counts.get("O") == 1 and sum(counts.get(x, 0) for x in HALOGENS) == 2 and sum(counts.values()) == 4:
+        carbon = next(a for a, atom in atoms.items() if atom.element == "C")
+        neighbours = adjacency[carbon]
+        halogens = [atoms[n].element for n, b in neighbours if atoms[n].element in HALOGENS and _is_single(b)]
+        if len(halogens) == 2 and sum(_is_double(b) for _, b in neighbours) == 1:
+            prefix = {"F": "difluoride", "Cl": "dichloride", "Br": "dibromide", "I": "diiodide"}.get(halogens[0])
+            if prefix and halogens[0] == halogens[1]:
+                return _result(f"carbonyl {prefix}", "Recognize the retained carbonyl dihalide pattern.")
+    return None
+
+
+def _name_acid(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [(n, b) for n, b in adjacency[carbon] if atoms[n].element == "O"]
+        doubles = [n for n, b in oxygens if _is_double(b)]
+        hydroxys = [n for n, b in oxygens if _is_single(b) and _hcount(entity, n) > 0]
+        if len(doubles) != 1 or len(hydroxys) != 1:
+            continue
+        parent = _carbon_parent(entity, required=carbon)
+        if parent is None or parent[1][0] != carbon:
+            continue
+        ordered, numbering = parent[1], parent[2]
+        # Every non-parent heavy atom must be the acid OH or a substituent OH.
+        prefixes = []
+        valid = True
+        for c in ordered:
+            for n, b in adjacency[c]:
+                if n in numbering or n in doubles or n == hydroxys[0]:
+                    continue
+                if atoms[n].element == "O" and _is_single(b) and _hcount(entity, n) > 0:
+                    prefixes.append((numbering[c], "hydroxy"))
+                elif atoms[n].element == "O" and _is_double(b):
+                    prefixes.append((numbering[c], "oxo"))
+                else:
+                    valid = False
+        if not valid:
+            continue
+        stem = alkane_stem(len(ordered))
+        if stem is None:
+            continue
+        prefix = _prefix_string(prefixes)
+        return _result(f"{prefix if prefix else ''}{stem}anoic acid", "Select the carboxylic acid parent chain.", "Assign hydroxy groups as detachable prefixes.")
+    return None
+
+
+def _name_alcohol(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    hydroxys = [
+        (n, c) for n, atom in atoms.items() if atom.element == "O"
+        for c, bond in adjacency[n] if _is_single(bond) and atoms[c].element == "C" and _hcount(entity, n) > 0
+    ]
+    if len(hydroxys) != 1:
+        return None
+    parent = _carbon_parent(entity, required=hydroxys[0][1])
+    if parent is None:
+        return None
+    ordered, numbering = parent[1], parent[2]
+    # Keep this stage's parent handling deliberately conservative for oxygen
+    # and halogen substituents; the existing benzene rules cover aromatic cases.
+    if any(atoms[a].element not in {"C", "O"} for a in atoms):
+        return None
+    # The parent chain and the hydroxyl oxygen must account for the complete
+    # heavy-atom graph.  In particular, this rejects a branched chain such as
+    # ``CC(C)CO`` and an ether-bearing chain such as ``COCCO`` instead of
+    # silently shortening either structure to an alcohol parent.
+    if not _covers_heavy_atoms(entity, {*ordered, hydroxys[0][0]}):
+        return None
+    locant = numbering[hydroxys[0][1]]
+    stem = alkane_stem(len(ordered))
+    if stem is None:
+        return None
+    if len(ordered) == 1:
+        name = "methanol"
+    elif len(ordered) == 2 and locant == 1:
+        name = "ethanol"
+    else:
+        name = f"{stem}an-{locant}-ol"
+    return _result(name, "Select the longest carbon chain containing the hydroxy-bearing carbon.", "Assign the hydroxy suffix the lowest locant.")
+
+
+def _name_hydrocarbon(entity):
+    atoms = _atom_map(entity)
+    if any(atom.element not in {"C", "H"} for atom in atoms.values()):
+        return None
+    parent = _carbon_parent(entity)
+    if parent is None:
+        return None
+    ordered, numbering, carbon_graph = parent[1], parent[2], parent[3]
+    if any(not _is_single(_bond_between(_heavy_adjacency(entity), a, b)) for a in ordered for b in carbon_graph[a] if numbering.get(b, 0) == numbering.get(a, 0) + 1):
+        return None
+    prefixes = []
+    for c in ordered:
+        for branch in carbon_graph[c]:
+            if branch in numbering:
+                continue
+            if len(carbon_graph[branch]) == 1:
+                prefixes.append((numbering[c], "methyl"))
+            else:
+                return None
+    stem = alkane_stem(len(ordered))
+    if stem is None:
+        return None
+    prefix = _prefix_string(prefixes)
+    return _result(f"{prefix if prefix else ''}{stem}ane", "Select the longest carbon parent chain.", "Number substituents to obtain the lowest locant sequence.")
+
+
+def _acyl_parent(entity, carbonyl, excluded):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    carbons = {a for a, atom in atoms.items() if atom.element == "C" and a not in excluded}
+    graph = {a: [n for n, b in adjacency[a] if n in carbons and _is_single(b)] for a in carbons}
+    if carbonyl not in graph:
+        return None
+    chain = [carbonyl]
+    previous = None
+    current = carbonyl
+    while True:
+        values = [n for n in graph[current] if n != previous]
+        if not values:
+            break
+        if len(values) != 1:
+            return None
+        previous, current = current, values[0]
+        chain.append(current)
+    return chain
+
+
+def _name_carbonyl_derivative(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    for carbonyl, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [(n, b) for n, b in adjacency[carbonyl] if atoms[n].element == "O" and _is_double(b)]
+        if len(oxygens) != 1:
+            continue
+        single = [(n, b) for n, b in adjacency[carbonyl] if _is_single(b)]
+        # Acyl halides.
+        halides = [n for n, b in single if atoms[n].element in HALOGENS]
+        if len(halides) == 1 and all(atoms[n].element in {"C", *HALOGENS} for n, _ in single):
+            chain = _acyl_parent(entity, carbonyl, set())
+            if chain is None:
+                continue
+            # The compact acyl-halide grammar has no detachable-prefix
+            # handling.  Refuse to name an alpha-substituted chain until all
+            # remaining heavy atoms can be represented (e.g. the chlorine in
+            # ``ClCC(=O)Cl``).
+            represented = {*chain, oxygens[0][0], halides[0]}
+            if not _covers_heavy_atoms(entity, represented):
+                continue
+            stem = alkane_stem(len(chain))
+            if stem is not None:
+                return _result(f"{stem}anoyl {HALOGENS[atoms[halides[0]].element]}", "Select the acyl chain and name the acid halide.")
+        # Amides (the C2 retained name is required by the existing anilide API).
+        nitrogens = [n for n, b in single if atoms[n].element == "N"]
+        if len(nitrogens) == 1 and all(atoms[n].element in {"C", "N"} for n, _ in single):
+            # N-substituted amides (for example the retained
+            # N-(4-hydroxyphenyl)acetamide case) belong to the established
+            # benzene/anilide recognizer and must not be collapsed to a plain
+            # acetamide here.
+            nitrogen = nitrogens[0]
+            if any(neighbor != carbonyl for neighbor, _ in adjacency[nitrogen]):
+                continue
+            chain = _acyl_parent(entity, carbonyl, set())
+            if chain is None:
+                continue
+            if not _covers_heavy_atoms(entity, {*chain, oxygens[0][0], nitrogen}):
+                continue
+            stem = alkane_stem(len(chain))
+            if stem is None:
+                continue
+            parent = {1: "formamide", 2: "acetamide"}.get(len(chain), f"{stem}anamide")
+            return _result(parent, "Select the carboxamide as the senior characteristic group.")
+        # Esters: C(=O)-O-R.  The alcohol-side chain is named as an alkyl
+        # prefix; this handles methyl ethanoate and its longer analogues.
+        ester_o = [n for n, b in single if atoms[n].element == "O"]
+        if len(ester_o) == 1 and all(atoms[n].element in {"C", "O"} for n, _ in single):
+            oxygen = ester_o[0]
+            alkyl = [n for n, b in adjacency[oxygen] if n != carbonyl and atoms[n].element == "C"]
+            if len(alkyl) != 1:
+                continue
+            side = _carbon_parent(entity, required=alkyl[0])
+            chain = _acyl_parent(entity, carbonyl, {oxygen})
+            if side is None or chain is None:
+                continue
+            side_stem = alkane_stem(len(side[1]))
+            acid_stem = alkane_stem(len(chain))
+            if side_stem and acid_stem:
+                # Only a plain alkyl side chain is supported here.  Check the
+                # full heavy-atom coverage so a terminal OH or another branch
+                # cannot be discarded while still being called an ethyl
+                # ester.
+                represented = {*chain, oxygen, oxygens[0][0], *side[1]}
+                if not _covers_heavy_atoms(entity, represented):
+                    continue
+                alkyl_name = side_stem + ("yl" if len(side_stem) > 1 else "yl")
+                return _result(f"{alkyl_name} {acid_stem}anoate", "Name the alcohol-derived alkyl group.", "Name the acid-derived ester parent.")
+    return None
+
+
+def _name_ketone(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    # This recognizer emits a mono-ketone suffix.  A second carbonyl must be
+    # named as a dione (outside this narrow grammar) or left to the reversible
+    # general-name fallback; it must never disappear from a monoketone name.
+    carbonyls = [
+        carbon
+        for carbon, atom in atoms.items()
+        if atom.element == "C"
+        and sum(
+            atoms[n].element == "O" and _is_double(bond)
+            for n, bond in adjacency[carbon]
+        ) == 1
+    ]
+    if len(carbonyls) != 1:
+        return None
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [n for n, b in adjacency[carbon] if atoms[n].element == "O" and _is_double(b)]
+        carbons = [n for n, b in adjacency[carbon] if atoms[n].element == "C" and _is_single(b)]
+        if len(oxygens) != 1 or len(carbons) != 2:
+            continue
+        parent = _carbon_parent(entity, required=carbon)
+        if parent is None:
+            continue
+        ordered, numbering = parent[1], parent[2]
+        if not _covers_heavy_atoms(entity, {*ordered, oxygens[0]}):
+            continue
+        stem = alkane_stem(len(ordered))
+        if stem is None:
+            continue
+        return _result(f"{stem}-{numbering[carbon]}-one", "Select the longest chain containing the ketone carbonyl.")
+    return None
+
+
+def _name_aldehyde(entity):
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    carbonyls = [
+        carbon
+        for carbon, atom in atoms.items()
+        if atom.element == "C"
+        and sum(atoms[n].element == "O" and _is_double(bond) for n, bond in adjacency[carbon]) == 1
+    ]
+    if len(carbonyls) != 1:
+        return None
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [n for n, b in adjacency[carbon] if atoms[n].element == "O" and _is_double(b)]
+        carbons = [n for n, b in adjacency[carbon] if atoms[n].element == "C" and _is_single(b)]
+        if len(oxygens) != 1 or len(carbons) != 1 or _hcount(entity, carbon) < 1:
+            continue
+        parent = _carbon_parent(entity, required=carbon)
+        if parent is None or parent[1][0] != carbon:
+            continue
+        if not _covers_heavy_atoms(entity, {*parent[1], oxygens[0]}):
+            continue
+        stem = alkane_stem(len(parent[1]))
+        if stem is not None:
+            return _result(f"{stem}anal", "Select the longest chain containing the aldehyde carbonyl.")
+    return None
+
+
+def _name_alkene(entity):
+    """Name a simple unbranched mono-alkene (for example but-2-ene)."""
+    atoms = _atom_map(entity)
+    heavy = [atom for atom in atoms.values() if atom.element != "H"]
+    if not heavy or any(atom.element != "C" for atom in heavy):
+        return None
+    adjacency = _heavy_adjacency(entity)
+    if any(len(values) > 2 for values in adjacency.values()):
+        return None
+    double = [
+        bond for bond in entity.bonds
+        if bond.order == 2.0 and bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN}
+    ]
+    if len(double) != 1:
+        return None
+    carbon_graph = {
+        atom_id: [neighbor for neighbor, _ in adjacency[atom_id] if atoms[neighbor].element == "C"]
+        for atom_id in atoms
+        if atoms[atom_id].element == "C"
+    }
+    if any(len(values) > 2 for values in carbon_graph.values()):
+        return None
+    endpoints = [atom_id for atom_id, values in carbon_graph.items() if len(values) <= 1]
+    if len(endpoints) != 2:
+        return None
+    # Both endpoint orientations describe the same chain.  Numbering must be
+    # selected by the double-bond locant first; atom ids are parser details and
+    # can otherwise make equivalent SMILES spellings produce pent-2-ene and
+    # pent-3-ene respectively.
+    paths = []
+    for start in endpoints:
+        path = []
+        previous = None
+        current = start
+        while current is not None:
+            path.append(current)
+            candidates = [value for value in carbon_graph[current] if value != previous]
+            previous, current = current, (candidates[0] if candidates else None)
+        if len(path) == len(carbon_graph):
+            paths.append(path)
+    if not paths:
+        return None
+    scored = []
+    for path in paths:
+        positions = {atom_id: index + 1 for index, atom_id in enumerate(path)}
+        left = positions.get(double[0].atom1_id)
+        right = positions.get(double[0].atom2_id)
+        if left is None or right is None or abs(left - right) != 1:
+            continue
+        scored.append((min(left, right), tuple(path), positions))
+    if not scored:
+        return None
+    _, path, positions = min(scored, key=lambda item: (item[0], item[1]))
+    left = positions[double[0].atom1_id]
+    right = positions[double[0].atom2_id]
+    stem = alkane_stem(len(path))
+    if stem is None or len(path) < 2:
+        return None
+    return _result(
+        f"{stem}-{min(left, right)}-ene",
+        "Select the unbranched carbon chain containing the double bond.",
+    )
+
+
+def _name_amino_acid(entity):
+    """Name an unbranched 2-aminoalkanoic acid from the carbon chain length."""
+    atoms = _atom_map(entity)
+    heavy = {atom_id: atom for atom_id, atom in atoms.items() if atom.element != "H"}
+    if sum(atom.element == "N" for atom in heavy.values()) != 1 or sum(atom.element == "O" for atom in heavy.values()) != 2:
+        return None
+    if any(atom.element not in {"C", "N", "O"} for atom in heavy.values()):
+        return None
+    if (entity.net_charge or 0) != 0:
+        return None
+    adjacency = _heavy_adjacency(entity)
+    carbonyl = []
+    for atom_id, atom in heavy.items():
+        if atom.element != "C":
+            continue
+        oxygen_edges = [
+            (neighbor, bond)
+            for neighbor, bond in adjacency[atom_id]
+            if heavy[neighbor].element == "O"
+        ]
+        if sum(bond.order == 2.0 for _, bond in oxygen_edges) == 1 and sum(bond.order == 1.0 for _, bond in oxygen_edges) == 1:
+            carbonyl.append(atom_id)
+    if len(carbonyl) != 1:
+        return None
+    carbonyl_oxygens = [
+        (neighbor, bond)
+        for neighbor, bond in adjacency[carbonyl[0]]
+        if heavy[neighbor].element == "O"
+    ]
+    acid_oxygen = next(
+        (neighbor for neighbor, bond in carbonyl_oxygens if bond.order == 1.0),
+        None,
+    )
+    if acid_oxygen is None or _hcount(entity, acid_oxygen) <= 0:
+        return None
+    alpha_candidates = [
+        neighbor
+        for neighbor, bond in adjacency[carbonyl[0]]
+        if heavy[neighbor].element == "C" and bond.order == 1.0
+    ]
+    if len(alpha_candidates) != 1:
+        return None
+    alpha = alpha_candidates[0]
+    amino = [
+        neighbor for neighbor, bond in adjacency[alpha]
+        if heavy[neighbor].element == "N" and bond.order == 1.0
+    ]
+    if (
+        len(amino) != 1
+        or any(neighbor != alpha for neighbor, _ in adjacency[amino[0]])
+        or (heavy[amino[0]].formal_charge or 0) != 0
+    ):
+        return None
+    side = [
+        neighbor for neighbor, bond in adjacency[alpha]
+        if heavy[neighbor].element == "C" and neighbor != carbonyl[0] and bond.order == 1.0
+    ]
+    if len(side) > 1:
+        return None
+    chain = {carbonyl[0], alpha}
+    if side:
+        previous, current = alpha, side[0]
+        while current is not None:
+            if current in chain or heavy[current].element != "C":
+                return None
+            chain.add(current)
+            nxt = [
+                neighbor for neighbor, bond in adjacency[current]
+                if neighbor != previous and bond.order == 1.0 and heavy[neighbor].element != "H"
+            ]
+            if len(nxt) > 1 or any(heavy[neighbor].element != "C" for neighbor in nxt):
+                return None
+            previous, current = current, (nxt[0] if nxt else None)
+    if chain != {atom_id for atom_id, atom in heavy.items() if atom.element == "C"}:
+        return None
+    stem = alkane_stem(len(chain))
+    if stem is None or len(chain) < 2:
+        return None
+    return _result(
+        f"2-amino{stem}anoic acid",
+        "Select the carboxylic-acid parent and the 2-amino substituent.",
+    )
+
+
+def name_acyclic(entity: FiniteChemicalEntity):
+    """Return a naming tuple for acyclic structures, or ``None``."""
+    if not isinstance(entity, FiniteChemicalEntity):
+        return None
+    heavy = [atom for atom in entity.atoms if atom.element != "H"]
+    if not heavy:
+        return None
+    graph = _heavy_adjacency(entity)
+    if len(heavy) > 1 and sum(len(values) for values in graph.values()) // 2 >= len(heavy):
+        return None
+    for recognizer in (
+        _special_patterns,
+        _name_carbonyl_derivative,
+        _name_amino_acid,
+        _name_acid,
+        _name_ketone,
+        _name_aldehyde,
+        _name_alcohol,
+        _name_alkene,
+        _name_hydrocarbon,
+    ):
+        result = recognizer(entity)
+        if result is not None:
+            return result
+    # Aldehydes are only introduced here for the one-carbon methanal pattern;
+    # larger aldehydes are handled by later parent-functional-group stages.
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    if len(atoms) == 2 and {a.element for a in atoms.values()} == {"C", "O"}:
+        carbon = next(a for a, atom in atoms.items() if atom.element == "C")
+        oxygen = next(a for a, atom in atoms.items() if atom.element == "O")
+        if _is_double(_bond_between(adjacency, carbon, oxygen)):
+            return _result("methanal", "Select the one-carbon aldehyde parent.")
+    return None
+
+
+__all__ = ["alkane_stem", "name_acyclic"]

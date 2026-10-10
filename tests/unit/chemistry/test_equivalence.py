@@ -17,13 +17,12 @@ def test_different_molecules_are_not_equivalent() -> None:
     assert notations_equivalent("CCO", "CCN") is False
 
 
-def test_stereo_without_coordinates_is_indeterminate() -> None:
-    # OpenSMILES stereo tokens without 3D coordinates cannot be resolved.
-    assert notations_equivalent("N[C@@H](C)C(=O)O", "N[C@@H](C)C(=O)O") is None
+def test_explicit_stereo_without_coordinates_is_reversible() -> None:
+    assert notations_equivalent("N[C@@H](C)C(=O)O", "N[C@@H](C)C(=O)O") is True
 
 
-def test_stereo_mirror_without_coordinates_is_indeterminate() -> None:
-    assert notations_equivalent("N[C@@H](C)C(=O)O", "N[C@H](C)C(=O)O") is None
+def test_explicit_stereo_mirror_without_coordinates_is_distinct() -> None:
+    assert notations_equivalent("N[C@@H](C)C(=O)O", "N[C@H](C)C(=O)O") is False
 
 
 def test_branched_ethanol_representations() -> None:

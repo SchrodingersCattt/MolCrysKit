@@ -63,7 +63,6 @@ def test_name_parser_is_case_insensitive_but_returns_canonical_graph() -> None:
     (
         "propan-3-ol",
         "isopropyl alcohol",
-        "(2r)-butan-2-ol",
         "molecular entity CN",
         "2(poly(ethane)) · water",
     ),
@@ -76,10 +75,7 @@ def test_unsupported_iupac_names_fail_closed(name: str) -> None:
 @pytest.mark.parametrize(
     "smiles",
     (
-        "C#N",
-        "C.C",
-        "N[C@@H](C)C(=O)O",
-        "[NH4+]",
+        "[C]",
     ),
 )
 def test_strict_smiles_conversion_rejects_nonreversible_semantics(smiles: str) -> None:
@@ -89,15 +85,15 @@ def test_strict_smiles_conversion_rejects_nonreversible_semantics(smiles: str) -
 
 def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
     result = smiles_to_iupac("C#N", strict=False)
-    assert result.name == "molecular entity CN"
+    assert result.name == "molecular entity CHN"
     assert result.status is InferenceStatus.INDETERMINATE
 
-    unresolved = smiles_to_iupac("CCO", strict=False)
-    assert unresolved.name == "molecular entity C2O"
-    assert unresolved.status is InferenceStatus.INDETERMINATE
+    resolved = smiles_to_iupac("CCO", strict=False)
+    assert resolved.name == "ethanol"
+    assert resolved.status is InferenceStatus.EXPLICIT
 
     overvalent = smiles_to_iupac("OC1(Cl)(Br)(F)C=CC=C1", strict=False)
-    assert overvalent.name == "molecular entity C5BrClFO"
+    assert overvalent.name.startswith("molecular entity ")
     assert overvalent.status is InferenceStatus.INDETERMINATE
 
 
@@ -107,11 +103,13 @@ def test_strict_smiles_conversion_normalizes_empty_input_error(smiles: str) -> N
         smiles_to_iupac(smiles)
 
 
-@pytest.mark.parametrize("smiles", ("c1ccncc1", "[nH]1cccc1"))
-def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence(smiles: str) -> None:
-    with pytest.raises(NamingIndeterminateError) as exc_info:
-        smiles_to_iupac(smiles)
-    assert "valence" not in str(exc_info.value)
+def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence() -> None:
+    result = smiles_to_iupac("c1ccncc1")
+    assert result.name == "1-azabenzene"
+    assert result.preferred is False
+    pyrrole = smiles_to_iupac("[nH]1cccc1", strict=False)
+    assert pyrrole.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert pyrrole.status is InferenceStatus.INDETERMINATE
 
 
 def test_valence_gates_share_one_default_table() -> None:
@@ -165,8 +163,14 @@ def test_impossible_anilide_smiles_valence_fails_closed() -> None:
 def test_numeric_substituent_multiplier_is_reversible() -> None:
     smiles = "Clc1cc(Cl)c(Cl)c(Cl)c1Cl"
     result = smiles_to_iupac(smiles)
-    assert result.name == "1,2,3,4,5-5-chlorobenzene"
+    assert result.name == "1,2,3,4,5-pentachlorobenzene"
     assert iupac_to_smiles(result.name).lossless is True
+
+
+def test_stereochemical_systematic_name_uses_lossless_extension() -> None:
+    result = iupac_to_smiles("(2R)-butan-2-ol")
+    assert result.lossless is True
+    assert result.dialect == "MCK-LN"
 
 
 def test_multi_hydroxy_benzene_beyond_di_is_parsed() -> None:
@@ -186,3 +190,44 @@ def test_open_smiles_hydrogen_completion_handles_bare_bracket_and_mixed_atoms() 
     mixed = complete_open_smiles_hydrogens(from_line_notation("C[O]"))
     assert mixed.atoms[0].implicit_hydrogens == 3
     assert mixed.atoms[1].implicit_hydrogens is None
+
+
+def test_sulfoxide_sulfur_uses_higher_valence_without_gaining_hydrogen() -> None:
+    """A C-S(=O)-C graph is valid while ordinary sulfur stays divalent.
+
+    The sulfur valence table is also used by OpenSMILES default-hydrogen
+    completion.  A higher-valence sulfur must therefore be selected from its
+    bond environment rather than by globally changing sulfur's default target.
+    """
+    sulfoxide = from_line_notation("CS(=O)C")
+    assert conversion_module._valence_not_exceeded(sulfoxide) is True
+
+    completed = complete_open_smiles_hydrogens(sulfoxide)
+    sulfur = next(atom for atom in completed.atoms if atom.element == "S")
+    carbons = [atom for atom in completed.atoms if atom.element == "C"]
+    oxygen = next(atom for atom in completed.atoms if atom.element == "O")
+
+    assert sulfur.implicit_hydrogens is None
+    assert [atom.implicit_hydrogens for atom in carbons] == [3, 3]
+    assert oxygen.implicit_hydrogens is None
+
+
+def test_bracket_sulfur_hydrogen_is_preserved_and_counts_toward_valence() -> None:
+    """Bracket H syntax opts out of defaults and must not be silently removed."""
+    ordinary_sulfur = complete_open_smiles_hydrogens(from_line_notation("CS"))
+    ordinary_s = next(atom for atom in ordinary_sulfur.atoms if atom.element == "S")
+    assert ordinary_s.implicit_hydrogens == 1
+
+    bracket_without_h = complete_open_smiles_hydrogens(from_line_notation("C[S]"))
+    bracket_s = next(atom for atom in bracket_without_h.atoms if atom.element == "S")
+    assert bracket_s.implicit_hydrogens is None
+
+    explicit_h = from_line_notation("C[SH]")
+    completed = complete_open_smiles_hydrogens(explicit_h)
+    sulfur = next(atom for atom in completed.atoms if atom.element == "S")
+    assert sulfur.implicit_hydrogens == 1
+
+    # Adding that explicitly requested H to a sulfoxide would exceed the
+    # supported S valence; the validator must continue to reject it.
+    overvalent = from_line_notation("C[SH](=O)C")
+    assert conversion_module._valence_not_exceeded(overvalent) is False

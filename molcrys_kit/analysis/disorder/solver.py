@@ -28,6 +28,12 @@ from ...analysis.interactions import get_bonding_threshold
 from ...analysis.formula_moiety import parse_moiety_string
 
 
+def _is_integral_count(value: float, *, tolerance: float = 1e-9) -> bool:
+    """Return whether a parsed formula count is effectively an integer."""
+    value = float(value)
+    return np.isfinite(value) and abs(value - round(value)) <= tolerance
+
+
 class DisorderSolver:
     """
     Solves the disorder problem by finding independent sets in the exclusion graph.
@@ -1464,6 +1470,12 @@ class DisorderSolver:
         return result
 
     def _do_parse_expected_element_totals(self) -> dict[str, int] | None:
+        """Return integer unit-cell totals, retaining decimal occupancies.
+
+        CIF moiety counts such as ``Cl2.5`` are averages over disordered sites;
+        those element contributions are combined across fragments before the
+        ``Z`` scaling and final rounding.
+        """
         fm = self.info.formula_moiety
         z = self.info.z_value
         if not fm or not z:
@@ -1471,14 +1483,46 @@ class DisorderSolver:
         fragments = parse_moiety_string(fm)
         if not fragments:
             return None
+        # Decimal element counts (e.g. ``Cl2.5`` or ``Na0.285``) describe
+        # disordered occupancy across the formula unit.  Parse and aggregate
+        # their contributions before rounding; rounding each fragment first
+        # turns ``Cl2.5 + Cl0.5`` into ``2 + 0`` and silently loses atoms.
+        # Preserve the historical per-fragment rounding for formulas whose
+        # element counts are all integral, since fractional multipliers in
+        # legacy CIFs intentionally use that contract.
+        fractional_elements = {
+            element
+            for frag in fragments
+            for element, count in frag.composition.items()
+            if not _is_integral_count(count)
+        }
         totals: dict[str, int] = {}
-        for frag in fragments:
-            for element, count in frag.composition.items():
-                totals[element] = totals.get(element, 0) + int(
-                    round(frag.multiplier * count)
+        # Keep first-seen element order for stable diagnostics and reproducible
+        # formula dictionaries while using a set for fractional membership.
+        elements = list(
+            dict.fromkeys(element for frag in fragments for element in frag.composition)
+        )
+        for element in elements:
+            if element in fractional_elements:
+                # A fractional *element count* is an occupancy averaged over
+                # equivalent sites.  Combine all occurrences before scaling
+                # by Z, otherwise Cl2.5 + Cl0.5 would lose one chlorine.
+                raw = sum(
+                    frag.multiplier * frag.composition[element]
+                    for frag in fragments
+                    if element in frag.composition
                 )
-        for el in list(totals):
-            totals[el] *= z
+                totals[element] = int(round(raw * z))
+            else:
+                # Keep the established contract for fractional fragment
+                # multipliers (e.g. 0.04(H96 N24)): each such fragment is
+                # rounded to the nearest formula-unit count before Z scaling.
+                per_unit = sum(
+                    int(round(frag.multiplier * frag.composition[element]))
+                    for frag in fragments
+                    if element in frag.composition
+                )
+                totals[element] = per_unit * z
         # Remove elements with zero count (can happen with fractional multipliers)
         totals = {el: c for el, c in totals.items() if c > 0}
         return totals if totals else None
@@ -1531,8 +1575,23 @@ class DisorderSolver:
         fragments = parse_moiety_string(fm)
         if not fragments:
             return None
+        # A fragment with fractional element counts is a disorder aggregate,
+        # not a single molecule formula.  Enforcing per-molecule identities in
+        # that case would manufacture strings such as ``Cl2.5`` and reject
+        # otherwise valid selections; the global element-total check remains
+        # authoritative for these CIFs.
+        if any(
+            not _is_integral_count(count)
+            for frag in fragments
+            for count in frag.composition.values()
+        ):
+            return None
+
         counts: dict[str, int] = {}
         for frag in fragments:
+            # Preserve the existing discrete-fragment contract.  Fractional
+            # multipliers are rounded at the fragment level; decimal element
+            # counts were handled above by disabling this second-stage check.
             multiplier = int(round(frag.multiplier))
             formula = self._hill_formula(frag.composition)
             if formula:

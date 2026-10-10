@@ -29,6 +29,7 @@ from .models import (
     FiniteChemicalEntity,
     InferenceStatus,
     PeriodicChemicalEntity,
+    DEFAULT_VALENCE,
 )
 
 
@@ -118,6 +119,12 @@ def assign_stereochemistry(
         implicit_count = int(center.implicit_hydrogens or 0)
         if len(explicit_ligands) + implicit_count != 4:
             continue
+        # A centre carrying two or more implicit hydrogens cannot be
+        # stereogenic.  Do not report it as an unresolved descriptor merely
+        # because default-valence completion made the tetrahedral valence
+        # explicit (terminal methyl groups are the common case).
+        if implicit_count > 1 and center.stereochemistry not in {"@", "@@"}:
+            continue
         descriptor = _assign_tetrahedral_center(
             center,
             explicit_ligands,
@@ -191,7 +198,32 @@ def _assign_tetrahedral_center(
             for ligand_id in ligand_ids
         ]
     except _CIPIndeterminate as exc:
-        return _indeterminate(center.atom_id, rules, str(exc))
+        if center.stereochemistry in {"@", "@@"}:
+            # An explicit token still carries a usable orientation when a
+            # branch contains an unresolved bond order (for example an
+            # aromatic duplicate-node path).  Fall back to atomic-number
+            # ordering and the stable ligand id; this keeps the assertion
+            # reversible while retaining the diagnostic in the rule trace.
+            priorities = tuple(
+                _explicit_ligand_priority(ligand_id, atoms)
+                for ligand_id in ligand_ids
+            )
+        else:
+            return _indeterminate(center.atom_id, rules, str(exc))
+
+    # A bracket atom's @/@@ token is an explicit stereochemical assertion.
+    # OpenSMILES defines its orientation from the neighbour order in the
+    # notation; the parser retains that order in the adjacency lists.  Use
+    # CIP priorities to convert the token orientation into an R/S descriptor
+    # without requiring a 3-D embedding.  The token itself is kept on the
+    # ChemicalAtom, so callers can still emit a lossless SMILES.
+    if center.stereochemistry in {"@", "@@"}:
+        return _assign_explicit_tetrahedral(
+            center,
+            ligand_ids,
+            priorities,
+            rules,
+        )
 
     if len(set(priorities)) != 4:
         tied = tuple(
@@ -299,6 +331,25 @@ def _assign_double_bond(
             "one double-bond end has CIP-equivalent ligands",
             cip_order,
         )
+    # Slash/backslash markers on the two adjacent single bonds encode the
+    # relative side of the highest-priority ligands.  Equal markers are E,
+    # opposite markers are Z (the OpenSMILES direction convention).
+    explicit = _explicit_double_bond_descriptor(
+        left_id,
+        right_id,
+        adjacency,
+    )
+    if explicit is not None:
+        descriptor, marker_reason = explicit
+        return StereoDescriptor(
+            kind=StereoKind.DOUBLE_BOND,
+            center_atom_id=left_id,
+            descriptor=descriptor,
+            cip_order=cip_order,
+            status=InferenceStatus.INFERRED,
+            reason=marker_reason,
+            rules_applied=rules,
+        )
     if embedding is None:
         return _stereo_indeterminate(
             StereoKind.DOUBLE_BOND,
@@ -358,6 +409,74 @@ def _assign_double_bond(
     )
 
 
+def _assign_explicit_tetrahedral(center, ligand_ids, priorities, rules):
+    """Resolve an explicit OpenSMILES @/@@ token using CIP priorities."""
+    if len(ligand_ids) != 4 or len(set(priorities)) != 4:
+        return _indeterminate(
+            center.atom_id,
+            rules,
+            "explicit tetrahedral token has tied or incomplete ligands",
+            ligand_ids,
+        )
+    ranked = [ligand_id for ligand_id, _ in sorted(
+        zip(ligand_ids, priorities), key=lambda item: item[1], reverse=True
+    )]
+    # Number of pair swaps taking notation-neighbour order into CIP order.
+    rank = {ligand_id: index for index, ligand_id in enumerate(ranked)}
+    permutation = [rank[ligand_id] for ligand_id in ligand_ids]
+    inversions = sum(
+        permutation[i] > permutation[j]
+        for i in range(len(permutation))
+        for j in range(i + 1, len(permutation))
+    )
+    # For the OpenSMILES neighbour order, @@ is R at even parity and @ is S;
+    # the permutation parity then maps this orientation onto CIP order.
+    descriptor = "R" if center.stereochemistry == "@@" else "S"
+    if inversions % 2:
+        descriptor = "S" if descriptor == "R" else "R"
+    return StereoDescriptor(
+        kind=StereoKind.TETRAHEDRAL,
+        center_atom_id=center.atom_id,
+        descriptor=descriptor,
+        cip_order=tuple(ranked),
+        status=InferenceStatus.INFERRED,
+        reason="resolved from explicit OpenSMILES @/@@ token and CIP priorities",
+        rules_applied=rules,
+    )
+
+
+def _explicit_ligand_priority(ligand_id, atoms):
+    if ligand_id.endswith(":implicit-H"):
+        element = "H"
+        isotope = None
+    else:
+        atom = atoms[ligand_id]
+        element = atom.element
+        isotope = atom.isotope
+    return ((atomic_numbers.get(_normal_element(element), 0),), ((isotope or 0),),)
+
+
+def _explicit_double_bond_descriptor(left_id, right_id, adjacency):
+    """Return E/Z when both alkene-side directional tokens are explicit."""
+    left_markers = [
+        bond.stereochemistry
+        for neighbor, bond in adjacency.get(left_id, ())
+        if neighbor != right_id and bond.stereochemistry in {"/", "\\"}
+    ]
+    right_markers = [
+        bond.stereochemistry
+        for neighbor, bond in adjacency.get(right_id, ())
+        if neighbor != left_id and bond.stereochemistry in {"/", "\\"}
+    ]
+    if not left_markers or not right_markers:
+        return None
+    same = left_markers[0] == right_markers[0]
+    return (
+        ("E" if same else "Z"),
+        "resolved from explicit OpenSMILES slash/backslash directional bonds",
+    )
+
+
 def _alkene_ligands(center_id, partner_id, atoms, adjacency):
     explicit = [
         atom_id
@@ -366,6 +485,18 @@ def _alkene_ligands(center_id, partner_id, atoms, adjacency):
         and edge.kind not in {BondKind.IONIC, BondKind.METALLIC}
     ]
     implicit_count = int(atoms[center_id].implicit_hydrogens or 0)
+    # ``from_line_notation`` intentionally leaves unbracketed organic atoms'
+    # default hydrogens unresolved.  For an alkene endpoint with one explicit
+    # substituent, the valence table unambiguously supplies the second ligand
+    # as an implicit hydrogen (e.g. C/C=C/C).
+    if implicit_count == 0 and len(explicit) == 1:
+        atom = atoms[center_id]
+        target = DEFAULT_VALENCE.get(atom.element)
+        bond_sum = sum(edge.order or 0.0 for _, edge in adjacency.get(center_id, ()))
+        bond_sum += atom.explicit_hydrogens or 0
+        inferred = max(0, int(round((target or bond_sum) - bond_sum)))
+        if inferred:
+            implicit_count = inferred
     if len(explicit) + implicit_count != 2 or implicit_count > 1:
         return None
     if implicit_count:

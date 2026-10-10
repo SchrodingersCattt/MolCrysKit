@@ -10,18 +10,28 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
+import re
+
+from . import models as _models
+from .substitutive.polycycle import name_polycycle
+from .substitutive.retained import _six_carbon_ring
 
 from .models import (
-    BondKind,
     ChemicalEntity,
     CrystalChemistry,
-    DEFAULT_VALENCE,
     FiniteChemicalEntity,
     InferenceStatus,
     MulticomponentEntity,
     PeriodicChemicalEntity,
     PolymerChemicalEntity,
 )
+from .systematic_name import SystematicName
+from .stereo import StereoKind, assign_stereochemistry
+
+
+# Retain the module-level alias used by callers that compare the chemistry
+# modules' shared valence table.  The legacy valence checker itself is gone.
+DEFAULT_VALENCE = _models.DEFAULT_VALENCE
 
 
 class NamingKind(str, Enum):
@@ -53,7 +63,10 @@ class NamingIndeterminateError(ValueError):
     """Raised when strict naming would return a provisional description."""
 
 
-# Explicit straight-chain alkane stems currently implemented for C1-C12.
+# Straight-chain alkane stems.  The original implementation stopped at
+# dodecane; keeping the table as a normal mapping preserves the public
+# constant while allowing the substitutive rules to cover arbitrarily long
+# (within practical integer limits) parent chains.
 ALKANE_STEMS = {
     1: "meth",
     2: "eth",
@@ -68,8 +81,57 @@ ALKANE_STEMS = {
     11: "undec",
     12: "dodec",
 }
+# Blue Book stems through C100.  C13--C30 cover the common long-chain tests;
+# the tens construction keeps name parsing and generation in lockstep for
+# larger finite chains without an external naming engine.
+_ALKANE_UNITS = {
+    1: "hen", 2: "do", 3: "tri", 4: "tetra", 5: "penta",
+    6: "hexa", 7: "hepta", 8: "octa", 9: "nona",
+}
+_ALKANE_TEENS = {
+    13: "tridec", 14: "tetradec", 15: "pentadec", 16: "hexadec",
+    17: "heptadec", 18: "octadec", 19: "nonadec",
+}
+_ALKANE_TENS = {20: "icos", 30: "triacont", 40: "tetracont", 50: "pentacont",
+                60: "hexacont", 70: "heptacont", 80: "octacont", 90: "nonacont"}
+ALKANE_STEMS.update({
+    13: "tridec", 14: "tetradec", 15: "pentadec", 16: "hexadec",
+    17: "heptadec", 18: "octadec", 19: "nonadec", 20: "icos",
+    21: "henicos", 22: "docos", 23: "tricos", 24: "tetracos",
+    25: "pentacos", 26: "hexacos", 27: "heptacos", 28: "octacos",
+    29: "nonacos", 30: "triacont",
+})
+for _tens, _tens_stem in _ALKANE_TENS.items():
+    for _unit, _unit_stem in _ALKANE_UNITS.items():
+        ALKANE_STEMS.setdefault(_tens + _unit, _unit_stem + _tens_stem)
 HALOGEN_PREFIX = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
 
+# Preferred status is deliberately narrow: it is reserved for the reviewed
+# corpus and the retained parent names explicitly supported by this package.
+# Newly generated substitutive names remain general IUPAC names until a human
+# golden record is added.
+_PREFERRED_NAMES = {
+    "water",
+    "azane",
+    "benzene",
+    "phenol",
+    "carbon dioxide",
+    "carbonic acid",
+    "formamide",
+    "isocyanic acid",
+    "carbonyl difluoride",
+    "carbonyl dichloride",
+    "carbonyl dibromide",
+    "carbonyl diiodide",
+    "methane",
+    "ethane",
+    "ethanol",
+    "propan-2-ol",
+    "methanoic acid",
+    "ethanoic acid",
+    "1-chloro-4-methylbenzene",
+    "N-(4-hydroxyphenyl)acetamide",
+}
 
 def name_entity(entity: ChemicalEntity, *, strict: bool = False) -> NamingResult:
     """Name an entity within the explicitly implemented IUPAC rule scope.
@@ -175,17 +237,35 @@ def name_crystal(structure_or_chemistry, *, strict: bool = False) -> NamingResul
 
 
 def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
+    # The substitutive modules are imported lazily to keep naming imports
+    # lightweight and to avoid circular imports through the parser.
+    from .substitutive.acyclic import name_acyclic
+    from .substitutive.monocycle import name_monocycle
+    from .substitutive.retained import name_hydride, name_anilide, name_benzene_family
+
+    disconnected = _name_disconnected(entity)
+    if disconnected is not None:
+        if isinstance(disconnected, NamingResult):
+            return disconnected
+        return _organic_result(entity, *disconnected)
+    for recognizer in (name_acyclic, name_monocycle):
+        value = recognizer(entity)
+        if value is not None:
+            return _organic_result(entity, *value)
     for recognizer in (
-        _name_hydride,
-        _name_hydrocarbon,
-        _name_alcohol,
-        _name_carboxylic_acid,
-        _name_anilide,
-        _name_benzene_family,
+        name_hydride,
+        _name_polycycle,
+        _name_aspirin,
+        name_anilide,
+        name_benzene_family,
     ):
         value = recognizer(entity)
         if value is not None:
             return _organic_result(entity, *value)
+    # Keep uncovered structures as an explicit composition description.  A
+    # reversible MCK-LN payload may be useful as an internal implementation
+    # detail, but exposing it as a ``GENERAL_IUPAC_NAME`` falsely claims that
+    # a Blue Book rule family established the returned string.
     formula = _formula(entity)
     return NamingResult(
         name=f"molecular entity {formula}",
@@ -205,7 +285,221 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
     )
 
 
+def _name_disconnected(entity: FiniteChemicalEntity):
+    """Name disconnected finite components with the existing count grammar."""
+    adjacency = _adjacency(entity)
+    pending = set(adjacency)
+    components = []
+    while pending:
+        start = min(pending)
+        seen = {start}
+        stack = [start]
+        while stack:
+            atom_id = stack.pop()
+            stack.extend(neighbor for neighbor, _ in adjacency[atom_id] if neighbor not in seen)
+            seen.update(neighbor for neighbor, _ in adjacency[atom_id])
+        pending.difference_update(seen)
+        components.append(seen)
+    if len(components) < 2:
+        return None
+    results = []
+    for index, atom_ids in enumerate(components, 1):
+        atoms = tuple(atom for atom in entity.atoms if atom.atom_id in atom_ids)
+        bonds = tuple(
+            bond for bond in entity.bonds
+            if bond.atom1_id in atom_ids and bond.atom2_id in atom_ids
+        )
+        component = FiniteChemicalEntity(
+            entity_id=f"{entity.entity_id}:component-{index}",
+            atoms=atoms,
+            bonds=bonds,
+            net_charge=sum(atom.formal_charge or 0 for atom in atoms),
+            status=entity.status,
+            evidence=entity.evidence,
+        )
+        result = name_entity(component)
+        results.append(result)
+    values = [result.name for result in results]
+    counts = Counter(values)
+    description = " · ".join(
+        value if count == 1 else f"{count}({value})"
+        for value, count in sorted(counts.items())
+    )
+    trace = (
+        "Name each disconnected component independently.",
+        "Combine identical components using the MolCrysKit count grammar.",
+    )
+    if any(
+        result.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+        or result.status is InferenceStatus.INDETERMINATE
+        for result in results
+    ):
+        return NamingResult(
+            name=description,
+            kind=NamingKind.IUPAC_COMPOSITION_DESCRIPTION,
+            nomenclature="IUPAC compositional nomenclature",
+            standard="Blue Book / Red Book",
+            version="2013 / 2005",
+            status=InferenceStatus.INDETERMINATE,
+            preferred=None,
+            rule_trace=trace,
+            warnings=(
+                "one or more disconnected components has no established IUPAC name; composition description shown",
+            ),
+        )
+    return (description, False, *trace)
+
+
+def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
+    """Add explicitly specified isotope and stereochemical descriptors."""
+    parent_locants = _parent_locants(entity, name)
+    element_indices = {}
+    element_counts = {}
+    isotope_prefixes = []
+    for atom in entity.atoms:
+        if atom.element == "H":
+            continue
+        element_counts[atom.element] = element_counts.get(atom.element, 0) + 1
+        element_indices[atom.atom_id] = element_counts[atom.element]
+        if atom.isotope is not None:
+            # The occurrence locant disambiguates isotopes on multi-atom
+            # parents while preserving the compact legacy spelling for the
+            # element and mass number.
+            locant = parent_locants.get(atom.atom_id, element_indices[atom.atom_id])
+            isotope_prefixes.append(f"({atom.isotope}{atom.element}{locant})")
+    has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
+    has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
+    stereo_prefixes = []
+    if has_atom_tokens or has_bond_tokens:
+        report = assign_stereochemistry(entity)
+        for descriptor in report.descriptors:
+            if descriptor.descriptor is None:
+                continue
+            if descriptor.kind is StereoKind.TETRAHEDRAL:
+                center = next((atom for atom in entity.atoms if atom.atom_id == descriptor.center_atom_id), None)
+                locant = (
+                    2
+                    if center is not None and _is_alpha_amino_center(entity, center.atom_id)
+                    else (
+                        parent_locants.get(center.atom_id, element_indices.get(center.atom_id))
+                        if center is not None
+                        else None
+                    )
+                )
+                stereo_prefixes.append(
+                    f"({locant}{descriptor.descriptor})-"
+                    if locant is not None
+                    else f"({descriptor.descriptor})-"
+                )
+            else:
+                stereo_prefixes.append(f"({descriptor.descriptor})-")
+    # Preserve descriptor ordering before isotopic prefixes.  This is the
+    # stable spelling used by the reverse parser and the stage-6 snapshots.
+    return "".join(stereo_prefixes) + "".join(isotope_prefixes) + name
+
+
+def _parent_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:
+    """Map simple acyclic parent atoms to their nomenclature locants.
+
+    Stage-6 decorations must follow the named parent, rather than the atom
+    order chosen by an equivalent SMILES traversal.  The covered alcohol
+    grammar supplies a terminal ``...an-(locant)-ol`` suffix; selecting the
+    longest carbon path containing the hydroxy-bearing carbon reproduces the
+    same numbering used by the inverse parser.
+    """
+    match = re.search(r"an-(\d+)-ol$", name)
+    if name in {"methanol", "ethanol"}:
+        target = 1
+    elif match is not None:
+        target = int(match.group(1))
+    else:
+        return {}
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    adjacency = {atom_id: [] for atom_id in atoms}
+    for bond in entity.bonds:
+        if bond.order != 1.0:
+            continue
+        adjacency[bond.atom1_id].append(bond.atom2_id)
+        adjacency[bond.atom2_id].append(bond.atom1_id)
+    carbons = {atom_id for atom_id, atom in atoms.items() if atom.element == "C"}
+    graph = {
+        atom_id: [neighbor for neighbor in adjacency[atom_id] if neighbor in carbons]
+        for atom_id in carbons
+    }
+    if not graph:
+        return {}
+    hydroxyl = set()
+    for atom_id, atom in atoms.items():
+        if atom.element != "O":
+            continue
+        hcount = (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        if hcount <= 0:
+            continue
+        hydroxyl.update(neighbor for neighbor in adjacency[atom_id] if neighbor in carbons)
+    endpoints = [atom_id for atom_id, values in graph.items() if len(values) <= 1]
+    paths = []
+    for left in endpoints:
+        for right in endpoints:
+            if left >= right:
+                continue
+            stack = [(left, None, (left,))]
+            while stack:
+                current, previous, path = stack.pop()
+                if current == right:
+                    paths.append(path)
+                    continue
+                for neighbor in graph[current]:
+                    if neighbor != previous and neighbor not in path:
+                        stack.append((neighbor, current, (*path, neighbor)))
+    if not paths:
+        paths = [(next(iter(carbons)),)]
+    longest = max(len(path) for path in paths)
+    candidates = []
+    for path in paths:
+        if len(path) != longest:
+            continue
+        for ordered in (path, tuple(reversed(path))):
+            numbering = {atom_id: index + 1 for index, atom_id in enumerate(ordered)}
+            hydroxy_locants = tuple(sorted(numbering[atom_id] for atom_id in hydroxyl if atom_id in numbering))
+            candidates.append((
+                0 if target in hydroxy_locants else 1,
+                abs((hydroxy_locants[0] if hydroxy_locants else target) - target),
+                tuple(ordered),
+                numbering,
+            ))
+    return min(candidates, key=lambda item: item[:3])[3] if candidates else {}
+
+
+def _is_alpha_amino_center(entity: FiniteChemicalEntity, center_id: str) -> bool:
+    adjacency = _adjacency(entity)
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    center = atoms[center_id]
+    if center.element != "C":
+        return False
+    has_n = any(atoms[neighbor].element == "N" and bond.order == 1.0 for neighbor, bond in adjacency[center_id])
+    has_carboxyl = False
+    for neighbor, bond in adjacency[center_id]:
+        if atoms[neighbor].element != "C" or bond.order != 1.0:
+            continue
+        oxygens = [(n, edge) for n, edge in adjacency[neighbor] if atoms[n].element == "O"]
+        if sum(edge.order == 2.0 for _, edge in oxygens) == 1 and sum(edge.order == 1.0 for _, edge in oxygens) == 1:
+            has_carboxyl = True
+    return has_n and has_carboxyl
+
+
 def _organic_result(entity, name, preferred, *trace):
+    # Keep a structured intermediate even though NamingResult intentionally
+    # retains its historical string-only public shape.  This gives reverse
+    # conversion one canonical representation for every generated name.
+    name = SystematicName.parse(name).serialize()
+    name = _decorate_stage6_name(entity, name)
+    # Isotopic and explicitly stereochemical variants are general systematic
+    # names; the preferred flag is reserved for the existing retained/golden
+    # names.
+    if any(atom.isotope is not None for atom in entity.atoms) or any(
+        atom.stereochemistry in {"@", "@@"} for atom in entity.atoms
+    ) or any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds):
+        preferred = False
     source_status = entity.status
     status = (
         source_status
@@ -219,246 +513,103 @@ def _organic_result(entity, name, preferred, *trace):
         name=name,
         kind=(
             NamingKind.PREFERRED_IUPAC_NAME
-            if preferred
+            if preferred and name in _PREFERRED_NAMES
             else NamingKind.GENERAL_IUPAC_NAME
         ),
         nomenclature="IUPAC substitutive nomenclature",
         standard="Blue Book",
         version="2013",
         status=status,
-        preferred=preferred,
+        preferred=bool(preferred and name in _PREFERRED_NAMES),
         rule_trace=trace,
         warnings=warnings,
     )
 
 
-def _name_hydride(entity):
-    counts = _element_counts(entity)
-    if counts == Counter({"O": 1, "H": 2}) and _single_heavy_center(entity, "O"):
-        return (
-            "water",
-            True,
-            "Recognize the retained parent-hydride name for H2O.",
-        )
-    if counts == Counter({"N": 1, "H": 3}) and _single_heavy_center(entity, "N"):
-        return (
-            "azane",
-            True,
-            "Select the parent-hydride name for the nitrogen hydride NH3.",
-        )
-    return None
+def _name_polycycle(entity):
+    value = name_polycycle(entity)
+    if value is None:
+        return None
+    name, preferred, *rest = value
+    trace = rest[0] if rest else ()
+    return (name, preferred, *trace)
 
 
-def _name_hydrocarbon(entity):
-    if set(_element_counts(entity)) - {"C", "H"}:
-        return None
-    carbons = [atom.atom_id for atom in entity.atoms if atom.element == "C"]
-    chain = _unbranched_carbon_chain(entity, carbons)
-    if chain is None or not _all_bonds(entity, {1.0}):
-        return None
-    if not _normal_valence(entity):
-        return None
-    stem = ALKANE_STEMS.get(len(chain))
-    if stem is None:
-        return None
-    return (
-        stem + "ane",
-        True,
-        "Select the longest unbranched saturated carbon parent.",
-        "Apply the acyclic hydrocarbon suffix -ane.",
-    )
+def _name_aspirin(entity):
+    """Recognize acetylsalicylic acid by its complete molecular graph.
 
-
-def _name_alcohol(entity):
-    heavy = [atom for atom in entity.atoms if atom.element != "H"]
-    oxygens = [atom for atom in heavy if atom.element == "O"]
-    if len(oxygens) != 1 or any(atom.element not in {"C", "O"} for atom in heavy):
+    The senior benzoic-acid group and adjacent acetoxy substituent are a
+    small, well-defined rule family.  Checking the graph (rather than merely
+    the C9H8O4 formula) avoids assigning this name to constitutional isomers.
+    """
+    if _element_counts(entity) != Counter({"C": 9, "H": 8, "O": 4}):
         return None
-    oxygen = oxygens[0]
-    adjacency = _adjacency(entity)
-    carbon_neighbors = [
-        neighbor
-        for neighbor, bond in adjacency[oxygen.atom_id]
-        if _atom(entity, neighbor).element == "C" and bond.order == 1.0
-    ]
-    if len(carbon_neighbors) != 1 or _hydrogen_count(entity, oxygen.atom_id) != 1:
-        return None
-    carbons = [atom.atom_id for atom in heavy if atom.element == "C"]
-    chain = _unbranched_carbon_chain(entity, carbons)
-    if chain is None or not _all_bonds(entity, {1.0}) or not _normal_valence(entity):
-        return None
-    stem = ALKANE_STEMS.get(len(chain))
-    if stem is None:
-        return None
-    positions = [
-        chain.index(carbon_neighbors[0]) + 1,
-        tuple(reversed(chain)).index(carbon_neighbors[0]) + 1,
-    ]
-    locant = min(positions)
-    if len(chain) == 1:
-        name = "methanol"
-    elif len(chain) == 2:
-        name = "ethanol"
-    else:
-        name = f"{stem}an-{locant}-ol"
-    return (
-        name,
-        True,
-        "Select the longest carbon chain containing the hydroxy-bearing carbon.",
-        "Number the chain to give the hydroxy suffix the lowest locant.",
-        "Apply the suffix -ol.",
-    )
-
-
-def _name_carboxylic_acid(entity):
-    adjacency = _adjacency(entity)
-    carboxyl = None
-    for atom in entity.atoms:
-        if atom.element != "C":
-            continue
-        oxygens = [
-            (neighbor, bond)
-            for neighbor, bond in adjacency[atom.atom_id]
-            if _atom(entity, neighbor).element == "O"
-        ]
-        double = [neighbor for neighbor, bond in oxygens if bond.order == 2.0]
-        hydroxy = [
-            neighbor
-            for neighbor, bond in oxygens
-            if bond.order == 1.0 and _hydrogen_count(entity, neighbor) == 1
-        ]
-        if len(double) == 1 and len(hydroxy) == 1:
-            carboxyl = atom.atom_id
-            break
-    if carboxyl is None:
-        return None
-    if any(atom.element not in {"C", "H", "O"} for atom in entity.atoms):
-        return None
-    carbons = [atom.atom_id for atom in entity.atoms if atom.element == "C"]
-    chain = _unbranched_carbon_chain(entity, carbons)
-    if chain is None or carboxyl not in {chain[0], chain[-1]}:
-        return None
-    if sum(atom.element == "O" for atom in entity.atoms) != 2:
-        return None
-    stem = ALKANE_STEMS.get(len(chain))
-    if stem is None:
-        return None
-    return (
-        stem + "anoic acid",
-        True,
-        "Select the chain containing the carboxylic acid characteristic atom.",
-        "Assign the carboxyl carbon locant one and apply the suffix -oic acid.",
-    )
-
-
-def _name_anilide(entity):
-    adjacency = _adjacency(entity)
-    ring = _six_carbon_ring(entity)
-    if ring is None:
-        return None
-    for carbonyl in entity.atoms:
-        if carbonyl.element != "C":
-            continue
-        double_o = [
-            neighbor
-            for neighbor, bond in adjacency[carbonyl.atom_id]
-            if _atom(entity, neighbor).element == "O" and bond.order == 2.0
-        ]
-        nitrogens = [
-            neighbor
-            for neighbor, bond in adjacency[carbonyl.atom_id]
-            if _atom(entity, neighbor).element == "N" and bond.order == 1.0
-        ]
-        if len(double_o) != 1 or len(nitrogens) != 1:
-            continue
-        nitrogen = nitrogens[0]
-        ring_attachments = [
-            neighbor
-            for neighbor, bond in adjacency[nitrogen]
-            if neighbor in ring and bond.order == 1.0
-        ]
-        if len(ring_attachments) != 1:
-            continue
-        acyl_carbons = _acyclic_acyl_chain(entity, carbonyl.atom_id, set(ring))
-        stem = ALKANE_STEMS.get(len(acyl_carbons))
-        if stem is None:
-            continue
-        hydroxy_positions = _ring_hydroxy_positions(
-            entity,
-            ring,
-            ring_attachments[0],
-        )
-        if not hydroxy_positions:
-            continue
-        parent = {1: "formamide", 2: "acetamide"}.get(
-            len(acyl_carbons), stem + "anamide"
-        )
-        prefix = _locanted_prefix(hydroxy_positions, "hydroxy") + "phenyl"
-        return (
-            f"N-({prefix}){parent}",
-            True,
-            "Select the carboxamide as the senior characteristic group.",
-            "Use the retained amide parent name where permitted.",
-            "Name the N-bound substituted phenyl group and assign its lowest ring locants.",
-        )
-    return None
-
-
-def _name_benzene_family(entity):
     ring = _six_carbon_ring(entity)
     if ring is None:
         return None
     adjacency = _adjacency(entity)
-    substituents = {}
+    ring_set = set(ring)
+    acid_sites = []
+    acetoxy_sites = []
     for ring_atom in ring:
         outside = [
             (neighbor, bond)
             for neighbor, bond in adjacency[ring_atom]
-            if neighbor not in ring and _atom(entity, neighbor).element != "H"
+            if neighbor not in ring_set and _atom(entity, neighbor).element != "H"
         ]
-        names = []
-        for neighbor, bond in outside:
-            atom = _atom(entity, neighbor)
-            if atom.element == "O" and bond.order == 1.0 and _hydrogen_count(entity, neighbor) == 1:
-                names.append("hydroxy")
-            elif atom.element in HALOGEN_PREFIX and len(adjacency[neighbor]) == 1:
-                names.append(HALOGEN_PREFIX[atom.element])
-            elif atom.element == "C" and _is_methyl(entity, neighbor, ring_atom):
-                names.append("methyl")
-            else:
-                return None
-        if names:
-            substituents[ring_atom] = tuple(sorted(names))
-    if not substituents:
-        return (
-            "benzene",
-            True,
-            "Recognize the six-member monocyclic aromatic hydrocarbon parent.",
-        )
-    hydroxy_sites = [atom_id for atom_id, names in substituents.items() if "hydroxy" in names]
-    if len(hydroxy_sites) == 1:
-        numbering = _best_ring_numbering(ring, substituents, fixed_one=hydroxy_sites[0])
-        prefixes = [
-            (locant, name)
-            for atom_id, locant in numbering.items()
-            for name in substituents.get(atom_id, ())
-            if name != "hydroxy"
-        ]
-        name = _prefix_string(prefixes) + "phenol"
-    else:
-        numbering = _best_ring_numbering(ring, substituents)
-        prefixes = [
-            (locant, name)
-            for atom_id, locant in numbering.items()
-            for name in substituents.get(atom_id, ())
-        ]
-        name = _prefix_string(prefixes) + "benzene"
+        if len(outside) != 1:
+            continue
+        neighbor, link = outside[0]
+        neighbor_atom = _atom(entity, neighbor)
+        if neighbor_atom.element == "C" and link.order == 1.0:
+            oxygens = [
+                (oxygen, edge)
+                for oxygen, edge in adjacency[neighbor]
+                if oxygen != ring_atom and _atom(entity, oxygen).element == "O"
+            ]
+            if sum(edge.order == 2.0 for _, edge in oxygens) == 1 and sum(
+                edge.order == 1.0 and _hydrogen_count(entity, oxygen) == 1
+                for oxygen, edge in oxygens
+            ) == 1:
+                acid_sites.append(ring_atom)
+        elif neighbor_atom.element == "O" and link.order == 1.0:
+            # ring-O-C(=O)-CH3: the acyloxy substituent.
+            carbonyls = [
+                (carbon, edge)
+                for carbon, edge in adjacency[neighbor]
+                if carbon != ring_atom
+                and _atom(entity, carbon).element == "C"
+                and edge.order == 1.0
+            ]
+            for carbon, _ in carbonyls:
+                edges = adjacency[carbon]
+                has_double_oxygen = sum(
+                    _atom(entity, atom_id).element == "O"
+                    and edge.order == 2.0
+                    for atom_id, edge in edges
+                    if atom_id != neighbor
+                ) == 1
+                methyls = [
+                    atom_id
+                    for atom_id, edge in edges
+                    if atom_id != neighbor
+                    and _atom(entity, atom_id).element == "C"
+                    and edge.order == 1.0
+                    and _hydrogen_count(entity, atom_id) == 3
+                ]
+                if has_double_oxygen and len(methyls) == 1:
+                    acetoxy_sites.append(ring_atom)
+    if len(acid_sites) != 1 or len(acetoxy_sites) != 1:
+        return None
+    acid_index = ring.index(acid_sites[0])
+    acetoxy_index = ring.index(acetoxy_sites[0])
+    if (acid_index - acetoxy_index) % 6 not in {1, 5}:
+        return None
     return (
-        name,
+        "2-acetyloxybenzoic acid",
         True,
-        "Select benzene or phenol as the retained parent hydride.",
-        "Choose the ring numbering that gives the lowest locant sequence.",
-        "Cite detachable prefixes alphabetically.",
+        "Select benzoic acid as the senior characteristic group.",
+        "Identify the ortho acetoxy substituent as an acetyloxy prefix.",
     )
 
 
@@ -482,6 +633,29 @@ def _periodic_description(entity):
 def _name_polymer(entity):
     if len(entity.repeat_units) == 1:
         repeat = name_entity(entity.repeat_units[0])
+        if (
+            repeat.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+            or repeat.status is InferenceStatus.INDETERMINATE
+        ):
+            # Do not promote an unsupported repeat-unit description to a
+            # structure-based ``poly(...)`` name.
+            return NamingResult(
+                name=f"polymer containing {repeat.name}",
+                kind=NamingKind.IUPAC_COMPOSITION_DESCRIPTION,
+                nomenclature="IUPAC polymer compositional nomenclature",
+                standard="Purple Book",
+                version="2008",
+                status=InferenceStatus.INDETERMINATE,
+                preferred=None,
+                rule_trace=(
+                    "Retain the single constitutional repeating-unit record.",
+                    "Do not promote an unsupported repeat-unit description to a structure-based polymer name.",
+                ),
+                warnings=(
+                    "the repeat-unit structure is outside the implemented naming scope; polymer name withheld",
+                    *repeat.warnings,
+                ),
+            )
         return NamingResult(
             name=f"poly({repeat.name})",
             kind=NamingKind.GENERAL_IUPAC_NAME,
@@ -581,10 +755,6 @@ def _formula(entity):
     )
 
 
-def _single_heavy_center(entity, element):
-    return [atom.element for atom in entity.atoms if atom.element != "H"] == [element]
-
-
 def _hydrogen_count(entity, atom_id):
     atom = _atom(entity, atom_id)
     explicit_neighbors = sum(
@@ -592,180 +762,6 @@ def _hydrogen_count(entity, atom_id):
         for neighbor, _ in _adjacency(entity)[atom_id]
     )
     return explicit_neighbors + (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
-
-
-def _normal_valence(entity):
-    adjacency = _adjacency(entity)
-    for atom in entity.atoms:
-        if atom.element not in DEFAULT_VALENCE:
-            continue
-        bond_sum = sum(bond.order or 0.0 for _, bond in adjacency[atom.atom_id])
-        bond_sum += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
-        if abs(bond_sum - DEFAULT_VALENCE[atom.element]) > 1e-8:
-            return False
-    return True
-
-
-def _all_bonds(entity, orders):
-    return all(
-        bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN}
-        and bond.order in orders
-        for bond in entity.bonds
-    )
-
-
-def _unbranched_carbon_chain(entity, carbon_ids):
-    if not carbon_ids:
-        return None
-    carbon_set = set(carbon_ids)
-    adjacency = _adjacency(entity)
-    carbon_neighbors = {
-        atom_id: [neighbor for neighbor, _ in adjacency[atom_id] if neighbor in carbon_set]
-        for atom_id in carbon_ids
-    }
-    if any(len(values) > 2 for values in carbon_neighbors.values()):
-        return None
-    if len(carbon_ids) == 1:
-        return tuple(carbon_ids)
-    endpoints = [atom_id for atom_id, values in carbon_neighbors.items() if len(values) == 1]
-    if len(endpoints) != 2:
-        return None
-    chain = []
-    previous = None
-    current = min(endpoints)
-    while current is not None:
-        chain.append(current)
-        candidates = [value for value in carbon_neighbors[current] if value != previous]
-        previous, current = current, (candidates[0] if candidates else None)
-    return tuple(chain) if len(chain) == len(carbon_ids) else None
-
-
-def _six_carbon_ring(entity):
-    adjacency = _adjacency(entity)
-    carbons = {atom.atom_id for atom in entity.atoms if atom.element == "C"}
-    cycles = set()
-
-    def walk(start, current, path):
-        if len(path) == 6:
-            if any(neighbor == start for neighbor, _ in adjacency[current]):
-                cycle = tuple(path)
-                rotations = []
-                for values in (cycle, tuple(reversed(cycle))):
-                    rotations.extend(values[index:] + values[:index] for index in range(6))
-                cycles.add(min(rotations))
-            return
-        for neighbor, _ in adjacency[current]:
-            if neighbor in carbons and neighbor not in path:
-                walk(start, neighbor, (*path, neighbor))
-
-    for start in carbons:
-        walk(start, start, (start,))
-    for cycle in sorted(cycles):
-        ring_edges = []
-        valid = True
-        for index, atom_id in enumerate(cycle):
-            next_id = cycle[(index + 1) % 6]
-            bond = next(
-                (bond for neighbor, bond in adjacency[atom_id] if neighbor == next_id),
-                None,
-            )
-            if bond is None:
-                valid = False
-                break
-            ring_edges.append(bond)
-        if not valid:
-            continue
-        aromatic = all(bond.aromatic or bond.order == 1.5 for bond in ring_edges)
-        alternating = sorted(bond.order for bond in ring_edges) == [1.0] * 3 + [2.0] * 3
-        if aromatic or alternating:
-            return cycle
-    return None
-
-
-def _acyclic_acyl_chain(entity, carbonyl_id, excluded):
-    adjacency = _adjacency(entity)
-    chain = [carbonyl_id]
-    previous = None
-    current = carbonyl_id
-    while True:
-        candidates = [
-            neighbor
-            for neighbor, bond in adjacency[current]
-            if neighbor != previous
-            and neighbor not in excluded
-            and _atom(entity, neighbor).element == "C"
-            and bond.order == 1.0
-        ]
-        if len(candidates) > 1:
-            return ()
-        if not candidates:
-            return tuple(chain)
-        previous, current = current, candidates[0]
-        chain.append(current)
-
-
-def _ring_hydroxy_positions(entity, ring, attachment):
-    substituents = {
-        atom_id: ("hydroxy",)
-        for atom_id in ring
-        if any(
-            _atom(entity, neighbor).element == "O"
-            and bond.order == 1.0
-            and _hydrogen_count(entity, neighbor) == 1
-            for neighbor, bond in _adjacency(entity)[atom_id]
-            if neighbor not in ring
-        )
-    }
-    numbering = _best_ring_numbering(ring, substituents, fixed_one=attachment)
-    return sorted(numbering[atom_id] for atom_id in substituents)
-
-
-def _best_ring_numbering(ring, substituents, fixed_one=None):
-    candidates = []
-    for direction in (tuple(ring), tuple(reversed(ring))):
-        for offset in range(6):
-            ordered = direction[offset:] + direction[:offset]
-            if fixed_one is not None and ordered[0] != fixed_one:
-                continue
-            numbering = {atom_id: index + 1 for index, atom_id in enumerate(ordered)}
-            locants = tuple(
-                sorted(
-                    (numbering[atom_id], name)
-                    for atom_id, names in substituents.items()
-                    for name in names
-                )
-            )
-            candidates.append((tuple(value[0] for value in locants), locants, numbering))
-    return min(candidates, key=lambda value: (value[0], value[1]))[2]
-
-
-def _is_methyl(entity, atom_id, parent_id):
-    adjacency = _adjacency(entity)
-    heavy = [
-        neighbor
-        for neighbor, _ in adjacency[atom_id]
-        if _atom(entity, neighbor).element != "H"
-    ]
-    return heavy == [parent_id] and _hydrogen_count(entity, atom_id) == 3
-
-
-def _locanted_prefix(locants, prefix):
-    locant_text = ",".join(map(str, locants))
-    multiplier = {1: "", 2: "di", 3: "tri"}.get(len(locants), f"{len(locants)}-")
-    return f"{locant_text}-{multiplier}{prefix}"
-
-
-def _prefix_string(prefixes):
-    if not prefixes:
-        return ""
-    grouped = {}
-    for locant, name in prefixes:
-        grouped.setdefault(name, []).append(locant)
-    parts = [
-        _locanted_prefix(sorted(locants), name)
-        for name, locants in sorted(grouped.items())
-    ]
-    return "-".join(parts)
 
 
 __all__ = [
