@@ -57,6 +57,7 @@ class MolecularCrystal:
         calc_results: Optional[dict] = None,
         metadata: Optional[dict] = None,
         extra_arrays: Optional[dict] = None,
+        _take_ownership: bool = False,
     ):
         """
         Initialize a MolecularCrystal.
@@ -83,6 +84,11 @@ class MolecularCrystal:
         extra_arrays : Optional[dict], default=None
             Extra per-atom arrays preserved through ExtXYZ ``Properties``
             columns on the flattened ASE Atoms representation.
+        _take_ownership : bool, default=False
+            Internal fast path for operations that have already made private
+            molecule copies.  Public callers retain the defensive-copy
+            default; operation code may transfer ownership of freshly created
+            ``CrystalMolecule`` objects to avoid a second full copy.
         """
         self.lattice = np.array(lattice)
         self.pbc = pbc
@@ -108,8 +114,8 @@ class MolecularCrystal:
                 self._ensure_atom_ids(mol, molecule_index)
                 
                 new_mol = (
-                    mol.copy()
-                )  # Copy ensures we don't mutate the input list objects unexpectedly
+                    mol if _take_ownership else mol.copy()
+                )  # Public construction keeps the input list independent.
                 new_mol.crystal = self
                 # IMPORTANT: copy() logic in CrystalMolecule needs to respect unwrapped state,
                 # but here we manually append to list.
