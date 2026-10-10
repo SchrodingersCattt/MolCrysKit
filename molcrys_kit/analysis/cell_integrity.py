@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import networkx as nx
 from ase.neighborlist import neighbor_list
 
 from ..structures.crystal import _structure_hash
-from ..utils.graph import graph_invariant
 from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
 
 _DERIVED_FRACTIONAL_KEYS = {KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z}
@@ -40,8 +40,37 @@ def _inventory(crystal) -> list[tuple[str, int]]:
     )
 
 
-def _topology_signatures(crystal) -> list[str]:
-    return sorted(str(graph_invariant(molecule.graph)) for molecule in crystal.molecules)
+def _topology_matches(before, after) -> bool:
+    """Compare molecular graphs exactly, including element labels.
+
+    ``graph_invariant`` is only a pre-filter: non-isomorphic graphs can share
+    the same degree and element inventory.  Integrity validation is a
+    correctness gate, so use a full isomorphism check and consume each target
+    molecule at most once when identical molecules are present.
+    """
+    if len(before.molecules) != len(after.molecules):
+        return False
+
+    def node_match(left, right):
+        return left.get("symbol") == right.get("symbol")
+
+    remaining = list(after.molecules)
+    for source in before.molecules:
+        match_index = None
+        for index, target in enumerate(remaining):
+            if len(source) != len(target):
+                continue
+            if nx.is_isomorphic(
+                source.graph,
+                target.graph,
+                node_match=node_match,
+            ):
+                match_index = index
+                break
+        if match_index is None:
+            return False
+        remaining.pop(match_index)
+    return not remaining
 
 
 def _metadata_arrays_match(before, after) -> bool:
@@ -108,23 +137,32 @@ def check_cell_integrity(crystal, reference=None, *, centroid_tolerance: float =
         # authoritative when a third-party Atoms implementation is incomplete.
         seam_contact_count = 0
 
+    # ``wrap_mode='none'`` deliberately preserves an unwrapped molecular
+    # embedding.  A centroid outside the primary cell is then valid output,
+    # so the in-cell check must be informational rather than a failure gate.
+    transform = getattr(crystal, "metadata", {}).get("cell_transform")
+    allows_unwrapped = (
+        isinstance(transform, dict) and transform.get("wrap_mode") == "none"
+    )
     checks = {
         "lattice_shape": shape_ok,
         "lattice_nonsingular": nonsingular,
         "lattice_right_handed": right_handed,
         "pbc_flags": pbc_ok,
-        "molecule_centroids_in_cell": centroids_inside,
+        "molecule_centroids_in_cell": (
+            True if allows_unwrapped else centroids_inside
+        ),
     }
     details: dict[str, Any] = {
         "determinant_A3": determinant,
         "pbc": list(pbc),
         "centroids_fractional": centroid_rows,
+        "centroids_wrapping_required": not allows_unwrapped,
         "molecule_inventory": _inventory(crystal),
         "seam_contact_count": seam_contact_count,
         "output_hash": _structure_hash(crystal),
     }
 
-    transform = getattr(crystal, "metadata", {}).get("cell_transform")
     if isinstance(transform, dict):
         expected_hash = transform.get("output_hash")
         checks["transform_provenance"] = expected_hash in {None, details["output_hash"]}
@@ -134,7 +172,7 @@ def check_cell_integrity(crystal, reference=None, *, centroid_tolerance: float =
 
     if reference is not None:
         checks["molecular_inventory"] = _inventory(reference) == details["molecule_inventory"]
-        checks["topology"] = _topology_signatures(reference) == _topology_signatures(crystal)
+        checks["topology"] = _topology_matches(reference, crystal)
         checks["per_atom_metadata"] = _metadata_arrays_match(reference, crystal)
         details["input_hash"] = _structure_hash(reference)
 
