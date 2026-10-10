@@ -52,6 +52,7 @@
 | Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
 | Collective symmetry path | `build_symmetry_path_plan`, `generate_collective_symmetry_path` | crystal + affine operation | validated rigid path | [Tutorials](tutorials.md) |
 | Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
+| Composite conformational interpolation | `interpolate_molecule_with_internal_dofs` | two `CrystalMolecule` conformers | rigid + bridge-torsion/Cremer–Pople frames | source docstring |
 | Reactive initial path | `interpolate_reactive_path` | atom-mapped endpoints + rigid groups | flat ASE frames + result metadata | [Tutorials](tutorials.md) |
 | Build periodic fragment chains | `build_periodic_chains` | templates, connection rules, cell, and closure | `PeriodicBundle` | [Periodic chains](periodic-chains.md) |
 | Validate periodic bundle | `validate_periodic_bundle` | bundle structure and sidecar metadata | integrity, graph, and periodic-distance report | [Periodic chains](periodic-chains.md) |
@@ -108,6 +109,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Periodic chains: `build_periodic_chains`
 - Symmetry paths: `RigidReachabilityTolerance`, `SymmetryPathConfig`, `AtomCorrespondence`, `SymmetryMoleculeMatch`, `CrystalCorrespondence`, `SymmetryPathProvenance`, `SymmetryPathPlan`, `RigidReachabilityError`, `transform_crystal_fractional`, `build_symmetry_path_plan`, `interpolate_symmetry_path`, `generate_collective_symmetry_path`
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
+- Internal DOF interpolation: `interpolate_molecule_with_internal_dofs`
 - Reactive paths: `RigidGroup`, `BondChange`, `ReactivePathConfig`, `ReactivePathResult`, `interpolate_reactive_path`
 
 Compatibility note: the former **create_defect_structure()** placeholder has been
