@@ -190,3 +190,44 @@ def test_open_smiles_hydrogen_completion_handles_bare_bracket_and_mixed_atoms() 
     mixed = complete_open_smiles_hydrogens(from_line_notation("C[O]"))
     assert mixed.atoms[0].implicit_hydrogens == 3
     assert mixed.atoms[1].implicit_hydrogens is None
+
+
+def test_sulfoxide_sulfur_uses_higher_valence_without_gaining_hydrogen() -> None:
+    """A C-S(=O)-C graph is valid while ordinary sulfur stays divalent.
+
+    The sulfur valence table is also used by OpenSMILES default-hydrogen
+    completion.  A higher-valence sulfur must therefore be selected from its
+    bond environment rather than by globally changing sulfur's default target.
+    """
+    sulfoxide = from_line_notation("CS(=O)C")
+    assert conversion_module._valence_not_exceeded(sulfoxide) is True
+
+    completed = complete_open_smiles_hydrogens(sulfoxide)
+    sulfur = next(atom for atom in completed.atoms if atom.element == "S")
+    carbons = [atom for atom in completed.atoms if atom.element == "C"]
+    oxygen = next(atom for atom in completed.atoms if atom.element == "O")
+
+    assert sulfur.implicit_hydrogens is None
+    assert [atom.implicit_hydrogens for atom in carbons] == [3, 3]
+    assert oxygen.implicit_hydrogens is None
+
+
+def test_bracket_sulfur_hydrogen_is_preserved_and_counts_toward_valence() -> None:
+    """Bracket H syntax opts out of defaults and must not be silently removed."""
+    ordinary_sulfur = complete_open_smiles_hydrogens(from_line_notation("CS"))
+    ordinary_s = next(atom for atom in ordinary_sulfur.atoms if atom.element == "S")
+    assert ordinary_s.implicit_hydrogens == 1
+
+    bracket_without_h = complete_open_smiles_hydrogens(from_line_notation("C[S]"))
+    bracket_s = next(atom for atom in bracket_without_h.atoms if atom.element == "S")
+    assert bracket_s.implicit_hydrogens is None
+
+    explicit_h = from_line_notation("C[SH]")
+    completed = complete_open_smiles_hydrogens(explicit_h)
+    sulfur = next(atom for atom in completed.atoms if atom.element == "S")
+    assert sulfur.implicit_hydrogens == 1
+
+    # Adding that explicitly requested H to a sulfoxide would exceed the
+    # supported S valence; the validator must continue to reject it.
+    overvalent = from_line_notation("C[SH](=O)C")
+    assert conversion_module._valence_not_exceeded(overvalent) is False

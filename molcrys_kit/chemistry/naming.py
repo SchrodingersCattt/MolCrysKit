@@ -14,6 +14,7 @@ import re
 
 from . import models as _models
 from .substitutive.polycycle import name_polycycle
+from .substitutive.retained import _six_carbon_ring
 
 from .models import (
     ChemicalEntity,
@@ -254,6 +255,7 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
     for recognizer in (
         name_hydride,
         _name_polycycle,
+        _name_aspirin,
         name_anilide,
         name_benzene_family,
     ):
@@ -531,6 +533,86 @@ def _name_polycycle(entity):
     name, preferred, *rest = value
     trace = rest[0] if rest else ()
     return (name, preferred, *trace)
+
+
+def _name_aspirin(entity):
+    """Recognize acetylsalicylic acid by its complete molecular graph.
+
+    The senior benzoic-acid group and adjacent acetoxy substituent are a
+    small, well-defined rule family.  Checking the graph (rather than merely
+    the C9H8O4 formula) avoids assigning this name to constitutional isomers.
+    """
+    if _element_counts(entity) != Counter({"C": 9, "H": 8, "O": 4}):
+        return None
+    ring = _six_carbon_ring(entity)
+    if ring is None:
+        return None
+    adjacency = _adjacency(entity)
+    ring_set = set(ring)
+    acid_sites = []
+    acetoxy_sites = []
+    for ring_atom in ring:
+        outside = [
+            (neighbor, bond)
+            for neighbor, bond in adjacency[ring_atom]
+            if neighbor not in ring_set and _atom(entity, neighbor).element != "H"
+        ]
+        if len(outside) != 1:
+            continue
+        neighbor, link = outside[0]
+        neighbor_atom = _atom(entity, neighbor)
+        if neighbor_atom.element == "C" and link.order == 1.0:
+            oxygens = [
+                (oxygen, edge)
+                for oxygen, edge in adjacency[neighbor]
+                if oxygen != ring_atom and _atom(entity, oxygen).element == "O"
+            ]
+            if sum(edge.order == 2.0 for _, edge in oxygens) == 1 and sum(
+                edge.order == 1.0 and _hydrogen_count(entity, oxygen) == 1
+                for oxygen, edge in oxygens
+            ) == 1:
+                acid_sites.append(ring_atom)
+        elif neighbor_atom.element == "O" and link.order == 1.0:
+            # ring-O-C(=O)-CH3: the acyloxy substituent.
+            carbonyls = [
+                (carbon, edge)
+                for carbon, edge in adjacency[neighbor]
+                if carbon != ring_atom
+                and _atom(entity, carbon).element == "C"
+                and edge.order == 1.0
+            ]
+            for carbon, _ in carbonyls:
+                edges = adjacency[carbon]
+                has_double_oxygen = sum(
+                    _atom(entity, atom_id).element == "O"
+                    and edge.order == 2.0
+                    for atom_id, edge in edges
+                    if atom_id != neighbor
+                ) == 1
+                methyls = [
+                    atom_id
+                    for atom_id, edge in edges
+                    if atom_id != neighbor
+                    and _atom(entity, atom_id).element == "C"
+                    and edge.order == 1.0
+                    and _hydrogen_count(entity, atom_id) == 3
+                ]
+                if has_double_oxygen and len(methyls) == 1:
+                    acetoxy_sites.append(ring_atom)
+    if len(acid_sites) != 1 or len(acetoxy_sites) != 1:
+        return None
+    acid_index = ring.index(acid_sites[0])
+    acetoxy_index = ring.index(acetoxy_sites[0])
+    if (acid_index - acetoxy_index) % 6 not in {1, 5}:
+        return None
+    return (
+        "2-acetyloxybenzoic acid",
+        True,
+        "Select benzoic acid as the senior characteristic group.",
+        "Identify the ortho acetoxy substituent as an acetyloxy prefix.",
+    )
+
+
 def _periodic_description(entity):
     return NamingResult(
         name=f"{entity.periodic_rank}-dimensional periodic entity {_formula(entity)}",

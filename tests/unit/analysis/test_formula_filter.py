@@ -158,6 +158,27 @@ class TestParseExpectedElementTotals:
         result = solver._parse_expected_element_totals()
         assert result == {"H": 8, "O": 4}
 
+    def test_decimal_element_counts_are_aggregated_before_rounding(self):
+        """PAP-M5-style Cl2.5 + Cl0.5 must retain all chlorine atoms."""
+        solver = _make_solver("Ag Cl2.5 O10, Cl0.5 O2, C5 H14 N2", 8)
+        result = solver._parse_expected_element_totals()
+        assert result == {
+            "Ag": 8,
+            "Cl": 24,
+            "O": 96,
+            "C": 40,
+            "H": 112,
+            "N": 16,
+        }
+
+    def test_decimal_element_count_does_not_change_multiplier_rounding(self):
+        """DAP-O4 keeps the established 0.04(H96 N24) rounding contract."""
+        solver = _make_solver(
+            "6(Cl0.5 O2), 0.04(H96 N24), 1(C6 H14 N2 O)", 8
+        )
+        result = solver._parse_expected_element_totals()
+        assert result == {"Cl": 24, "O": 104, "H": 144, "N": 24, "C": 48}
+
     def test_charged_species(self):
         """'Fe2+' should not leave stray characters."""
         solver = _make_solver("C5 Fe N6 O", 2)

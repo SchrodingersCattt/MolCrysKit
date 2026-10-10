@@ -46,6 +46,15 @@ def test_parse_fractional_solvent_fragment():
     assert fragments[2].composition == {"C": 3, "H": 8, "O": 1}
 
 
+def test_parse_decimal_element_counts():
+    """Disordered moieties preserve decimal element occupancies."""
+    fragments = parse_moiety_string("Ag Cl2.5 O10, Cl.5 O2, C5 H14 N2")
+
+    assert fragments is not None
+    assert fragments[0].composition == {"Ag": 1, "Cl": 2.5, "O": 10}
+    assert fragments[1].composition == {"Cl": 0.5, "O": 2}
+
+
 @pytest.mark.parametrize("value", [None, "", "?", "'?'"])
 def test_parse_absent_or_unknown_returns_none(value):
     assert parse_moiety_string(value) is None
