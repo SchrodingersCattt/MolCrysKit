@@ -772,4 +772,3 @@ def name_acyclic(entity: FiniteChemicalEntity):
 
 
 __all__ = ["alkane_stem", "name_acyclic"]
-

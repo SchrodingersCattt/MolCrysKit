@@ -286,4 +286,3 @@ def test_bracket_sulfur_hydrogen_is_preserved_and_counts_toward_valence() -> Non
     # supported S valence; the validator must continue to reject it.
     overvalent = from_line_notation("C[SH](=O)C")
     assert conversion_module._valence_not_exceeded(overvalent) is False
-

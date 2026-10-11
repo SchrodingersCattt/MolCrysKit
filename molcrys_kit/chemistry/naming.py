@@ -786,4 +786,3 @@ __all__ = [
     "name_crystal",
     "name_entity",
 ]
-

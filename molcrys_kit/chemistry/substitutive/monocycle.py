@@ -315,4 +315,3 @@ def name_monocycle(entity: FiniteChemicalEntity):
 
 
 __all__ = ["name_monocycle"]
-
