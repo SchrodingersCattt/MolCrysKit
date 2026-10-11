@@ -542,6 +542,19 @@ def _name_aspirin(entity):
     small, well-defined rule family.  Checking the graph (rather than merely
     the C9H8O4 formula) avoids assigning this name to constitutional isomers.
     """
+    # The retained name is for neutral, closed-shell aspirin.  Formula and
+    # connectivity alone are insufficient: charge-separated and radical
+    # variants can share both while representing a different species.
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in entity.atoms)
+    )
+    if net_charge != 0 or any(
+        (atom.formal_charge or 0) != 0 or atom.radical_electrons
+        for atom in entity.atoms
+    ):
+        return None
     if _element_counts(entity) != Counter({"C": 9, "H": 8, "O": 4}):
         return None
     ring = _six_carbon_ring(entity)
@@ -773,3 +786,4 @@ __all__ = [
     "name_crystal",
     "name_entity",
 ]
+

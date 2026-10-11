@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter, deque
 
-from ..models import BondKind, FiniteChemicalEntity
+from ..models import DEFAULT_VALENCE, BondKind, FiniteChemicalEntity
 
 
 HALOGENS = {"F": "fluoride", "Cl": "chloride", "Br": "bromide", "I": "iodide"}
@@ -90,6 +90,34 @@ def _heavy_ids(entity):
 def _covers_heavy_atoms(entity, represented):
     """Whether a recognizer accounts for every non-hydrogen atom."""
     return _heavy_ids(entity) == set(represented)
+
+
+def _has_unfilled_bracket_valence(entity) -> bool:
+    """Return whether a bracket atom opts out of H defaults but is underfilled.
+
+    A bracket atom without ``H`` explicitly requests zero hydrogens.  If its
+    neutral bond-order sum is below the ordinary valence, treating it as an
+    alkane atom would silently turn a radical/carbene-like graph into a closed
+    shell parent name.  Such graphs remain available through the composition
+    fallback until a radical-aware naming rule is implemented.
+    """
+    adjacency = _adjacency(entity)
+    for atom in entity.atoms:
+        if not any(
+            evidence.method == "OpenSMILES bracket atom parser"
+            for evidence in atom.evidence
+        ):
+            continue
+        if atom.formal_charge:
+            continue
+        target = DEFAULT_VALENCE.get(atom.element)
+        if target is None:
+            continue
+        valence = sum(bond.order or 0.0 for _, bond in adjacency[atom.atom_id])
+        valence += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        if valence + 1e-8 < target:
+            return True
+    return False
 
 
 def _bond_between(adjacency, left, right):
@@ -265,9 +293,13 @@ def _special_patterns(entity):
     if counts == Counter({"C": 1, "O": 2, "Cl": 1}):
         carbon = next(a for a in heavy if atoms[a].element == "C")
         neighbours = adjacency[carbon]
+        single_oxygen = [
+            n for n, bond in neighbours
+            if atoms[n].element == "O" and _is_single(bond)
+        ]
         if any(atoms[n].element == "Cl" and _is_single(b) for n, b in neighbours) and sum(
             atoms[n].element == "O" and _is_double(b) for n, b in neighbours
-        ) == 1:
+        ) == 1 and len(single_oxygen) == 1 and _hcount(entity, single_oxygen[0]) > 0 and net_charge == 0:
             return _result("carbonochloridic acid", "Name the mixed carbonyl acid halide systematically.")
     if counts.get("C") == 1 and counts.get("O") == 1 and sum(counts.get(x, 0) for x in HALOGENS) == 2 and sum(counts.values()) == 4:
         carbon = next(a for a, atom in atoms.items() if atom.element == "C")
@@ -695,6 +727,21 @@ def name_acyclic(entity: FiniteChemicalEntity):
     heavy = [atom for atom in entity.atoms if atom.element != "H"]
     if not heavy:
         return None
+    # Every recognizer below emits a neutral constitutional name.  Do not let
+    # formal charges or radical electrons disappear into an ordinary alkane,
+    # alcohol, or carbonyl name.  Deliberately supported ionic parents (such
+    # as ``azanium``) are handled by their dedicated recognizers in
+    # ``naming.py`` and are therefore unaffected by this gate.
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in entity.atoms)
+    )
+    if net_charge != 0 or any(
+        (atom.formal_charge or 0) != 0 or atom.radical_electrons
+        for atom in entity.atoms
+    ) or _has_unfilled_bracket_valence(entity):
+        return None
     graph = _heavy_adjacency(entity)
     if len(heavy) > 1 and sum(len(values) for values in graph.values()) // 2 >= len(heavy):
         return None
@@ -725,3 +772,4 @@ def name_acyclic(entity: FiniteChemicalEntity):
 
 
 __all__ = ["alkane_stem", "name_acyclic"]
+

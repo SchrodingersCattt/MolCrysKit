@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from molcrys_kit import (
@@ -95,6 +97,59 @@ def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
     overvalent = smiles_to_iupac("OC1(Cl)(Br)(F)C=CC=C1", strict=False)
     assert overvalent.name.startswith("molecular entity ")
     assert overvalent.status is InferenceStatus.INDETERMINATE
+
+
+@pytest.mark.parametrize(
+    "smiles", ("[CH3+]C", "[C]C", "[CH2]C", "ClC(=O)[O-]", "[NH2+]1CCCCC1")
+)
+def test_neutral_recognizers_do_not_erase_charge_or_radicals(smiles: str) -> None:
+    result = smiles_to_iupac(smiles, strict=False)
+    assert result.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
+    with pytest.raises(NamingIndeterminateError):
+        smiles_to_iupac(smiles, strict=True)
+
+
+def test_explicit_radical_electrons_use_the_composition_fallback() -> None:
+    entity = from_line_notation("CC")
+    radical = replace(
+        entity,
+        atoms=(replace(entity.atoms[0], radical_electrons=1), *entity.atoms[1:]),
+    )
+    result = name_entity(radical)
+    assert result.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
+
+
+def test_aspirin_fast_path_rejects_charge_separated_graphs() -> None:
+    """A charge-separated C9H8O4 graph must not receive aspirin's name."""
+    entity = complete_open_smiles_hydrogens(
+        from_line_notation("CC(=O)OC1=CC=CC=C1C(=O)O")
+    )
+    atoms = [
+        replace(
+            atom,
+            formal_charge=(
+                1
+                if atom.atom_id == "line:a2"
+                else -1
+                if atom.atom_id == "line:a12"
+                else atom.formal_charge
+            ),
+        )
+        for atom in entity.atoms
+    ]
+    charged = chemistry_models.FiniteChemicalEntity(
+        entity_id=entity.entity_id,
+        atoms=tuple(atoms),
+        bonds=entity.bonds,
+        net_charge=0,
+        status=entity.status,
+        evidence=entity.evidence,
+    )
+    result = name_entity(charged)
+    assert result.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert result.status is InferenceStatus.INDETERMINATE
 
 
 @pytest.mark.parametrize("smiles", ("", "  "))
@@ -231,3 +286,4 @@ def test_bracket_sulfur_hydrogen_is_preserved_and_counts_toward_valence() -> Non
     # supported S valence; the validator must continue to reject it.
     overvalent = from_line_notation("C[SH](=O)C")
     assert conversion_module._valence_not_exceeded(overvalent) is False
+

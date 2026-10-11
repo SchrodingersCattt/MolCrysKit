@@ -9,7 +9,7 @@ skeletal replacement names.
 from __future__ import annotations
 
 from ..models import FiniteChemicalEntity
-from .acyclic import alkane_stem
+from .acyclic import _has_unfilled_bracket_valence, alkane_stem
 
 
 def _ring_functional_name(entity):
@@ -274,6 +274,21 @@ def _ring_name(cycle, graph, atoms):
 
 def name_monocycle(entity: FiniteChemicalEntity):
     """Return a naming tuple for an isolated monocycle, or ``None``."""
+    # The supported monocycle grammar names neutral, closed-shell parents.
+    # Reject charged or radical graphs before functional-group shortcuts can
+    # erase that state (for example protonated piperidine or a cyclohexanone
+    # radical).  Charge-aware heterocyclic parents belong to the dedicated
+    # polycycle grammar; no ionic monocycle grammar is exposed here yet.
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in entity.atoms)
+    )
+    if net_charge != 0 or any(
+        (atom.formal_charge or 0) != 0 or atom.radical_electrons
+        for atom in entity.atoms
+    ) or _has_unfilled_bracket_valence(entity):
+        return None
     atoms = {atom.atom_id: atom for atom in entity.atoms}
     functional = _ring_functional_name(entity)
     if functional is not None:
@@ -300,3 +315,4 @@ def name_monocycle(entity: FiniteChemicalEntity):
 
 
 __all__ = ["name_monocycle"]
+
