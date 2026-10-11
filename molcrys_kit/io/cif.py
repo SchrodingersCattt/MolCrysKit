@@ -6,7 +6,9 @@ It includes tools for handling disorder information and identifying molecular un
 """
 
 from typing import List, Tuple, Optional, Dict
+import base64
 import copy
+import json
 import itertools
 import warnings
 import re
@@ -990,6 +992,25 @@ def _extract_cif_chemistry(data_block: dict) -> dict:
     if absolute:
         metadata["absolute_structure"] = absolute
 
+    # ``write_cif`` stores transform provenance as URL-safe JSON so arbitrary
+    # matrices, hashes, and mode strings survive a CIF round trip without
+    # relying on a non-standard loop schema.  Malformed third-party fields are
+    # ignored like other optional metadata.
+    encoded_transform = _clean_cif_text_value(
+        data_block.get("_molcrys_cell_transform_json")
+    )
+    if encoded_transform:
+        try:
+            padding = "=" * (-len(encoded_transform) % 4)
+            decoded = base64.urlsafe_b64decode(
+                (encoded_transform + padding).encode("ascii")
+            ).decode("utf-8")
+            transform = json.loads(decoded)
+            if isinstance(transform, dict):
+                metadata["cell_transform"] = transform
+        except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed _molcrys_cell_transform_json field")
+
     type_symbols = _as_cif_list(data_block.get("_atom_type_symbol"))
     oxidation = _as_cif_list(data_block.get("_atom_type_oxidation_number"))
     if type_symbols:
@@ -1854,8 +1875,12 @@ def read_mol_crystal(
                 method="optimal",
             )
             resolved = crystals[0]
-            resolved.metadata["cif_chemistry"] = dict(disorder_info.cif_chemistry)
+            cif_chemistry = dict(disorder_info.cif_chemistry)
+            cell_transform = cif_chemistry.pop("cell_transform", None)
+            resolved.metadata["cif_chemistry"] = cif_chemistry
             resolved.metadata["crystal_symmetry"] = disorder_info.crystal_symmetry
+            if cell_transform is not None:
+                resolved.metadata["cell_transform"] = cell_transform
             if attach_chemistry:
                 from ..chemistry import infer_chemistry
 
@@ -1945,15 +1970,20 @@ def read_mol_crystal(
     )
 
     pbc = (True, True, True)
+    cif_chemistry = dict(disorder_info.cif_chemistry)
+    cell_transform = cif_chemistry.pop("cell_transform", None)
+    crystal_metadata = {
+        "cif_chemistry": cif_chemistry,
+        "crystal_symmetry": disorder_info.crystal_symmetry,
+    }
+    if cell_transform is not None:
+        crystal_metadata["cell_transform"] = cell_transform
     crystal = MolecularCrystal(
         lattice,
         molecules,
         pbc,
         formula_moiety=formula_moiety,
-        metadata={
-            "cif_chemistry": dict(disorder_info.cif_chemistry),
-            "crystal_symmetry": disorder_info.crystal_symmetry,
-        },
+        metadata=crystal_metadata,
     )
     if attach_chemistry:
         from ..chemistry import infer_chemistry

@@ -61,3 +61,38 @@ def test_cell_integrity_identity_preserves_nan_metadata(simple_crystal):
 
     assert report.passed is True, report.to_dict()
     assert report.checks["per_atom_metadata"] is True
+
+
+def test_cell_integrity_report_is_json_native():
+    """Public reports contain only JSON-native check flags."""
+    import json
+
+    crystal = MolecularCrystal(
+        np.diag([10.0, 10.0, 10.0]),
+        [Atoms("C", positions=[[1.0, 1.0, 1.0]])],
+    )
+    payload = check_cell_integrity(crystal).to_dict()
+    encoded = json.dumps(payload)
+    assert '"lattice_shape": true' in encoded
+
+
+def test_cell_transform_provenance_survives_cif_round_trip(tmp_path):
+    """CIF export keeps transform metadata and its stable output hash."""
+    from molcrys_kit.analysis import check_cell_integrity
+    from molcrys_kit.io import read_mol_crystal, write_cif
+
+    lattice = np.array(
+        [[8.123456789, 0.1, 0.0], [0.0, 9.234567891, 0.2], [0.0, 0.0, 10.345678912]]
+    )
+    source = MolecularCrystal(
+        lattice,
+        [Atoms("C", positions=[[1.123456789, 2.234567891, 3.345678912]])],
+    )
+    transformed = source.transform_cell(matrix=np.eye(3), wrap_mode="none")
+    output = tmp_path / "transformed.cif"
+    write_cif(transformed, str(output))
+
+    restored = read_mol_crystal(str(output))
+    report = check_cell_integrity(restored)
+    assert report.passed is True, report.to_dict()
+    assert restored.metadata["cell_transform"] == transformed.metadata["cell_transform"]

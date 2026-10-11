@@ -125,12 +125,12 @@ def check_cell_integrity(crystal, reference=None, *, centroid_tolerance: float =
     check for :meth:`MolecularCrystal.transform_cell`.
     """
     lattice = np.asarray(crystal.lattice, dtype=float)
-    shape_ok = lattice.shape == (3, 3) and np.all(np.isfinite(lattice))
+    shape_ok = bool(lattice.shape == (3, 3) and np.all(np.isfinite(lattice)))
     determinant = float(np.linalg.det(lattice)) if shape_ok else 0.0
     nonsingular = abs(determinant) > 1e-10
     right_handed = determinant > 0
     pbc = tuple(bool(value) for value in crystal.pbc)
-    pbc_ok = len(pbc) == 3
+    pbc_ok = bool(len(pbc) == 3)
 
     centroid_rows: list[list[float]] = []
     centroids_inside = True

@@ -30,14 +30,63 @@ import itertools
 _BOND_RECORDS_INFO_KEY = "_molcrys_bond_records"
 
 
+_HASH_DECIMALS = 4
+
+
 def _structure_hash(crystal: "MolecularCrystal") -> str:
-    """Return a stable hash of lattice, symbols, molecule boundaries, and positions."""
+    """Return a serialization-stable hash of the crystal geometry.
+
+    CIF writers preserve cell lengths/angles and fractional coordinates, but
+    may choose a different Cartesian orientation for the same lattice.  Hash
+    those canonical quantities rather than raw Cartesian vectors so a valid
+    CIF or ExtXYZ write/read round trip retains transform provenance.
+    Values are quantized to the precision guaranteed by the text writers.
+    """
     digest = hashlib.sha256()
-    digest.update(np.asarray(crystal.lattice, dtype=np.float64).tobytes())
+    lattice = np.asarray(crystal.lattice, dtype=np.float64)
+    lengths = np.linalg.norm(lattice, axis=1)
+    angles = np.array(
+        [
+            np.degrees(
+                np.arccos(
+                    np.clip(
+                        np.dot(lattice[1], lattice[2])
+                        / (lengths[1] * lengths[2]),
+                        -1.0,
+                        1.0,
+                    )
+                )
+            ),
+            np.degrees(
+                np.arccos(
+                    np.clip(
+                        np.dot(lattice[0], lattice[2])
+                        / (lengths[0] * lengths[2]),
+                        -1.0,
+                        1.0,
+                    )
+                )
+            ),
+            np.degrees(
+                np.arccos(
+                    np.clip(
+                        np.dot(lattice[0], lattice[1])
+                        / (lengths[0] * lengths[1]),
+                        -1.0,
+                        1.0,
+                    )
+                )
+            ),
+        ],
+        dtype=np.float64,
+    )
+    digest.update(np.round(np.concatenate((lengths, angles)), 4).tobytes())
     digest.update(np.asarray(crystal.pbc, dtype=np.uint8).tobytes())
+    inverse = np.linalg.inv(lattice)
     for molecule in crystal.molecules:
         digest.update("|".join(molecule.get_chemical_symbols()).encode("utf-8"))
-        digest.update(np.asarray(molecule.get_positions(), dtype=np.float64).round(12).tobytes())
+        fractional = np.asarray(molecule.get_positions(), dtype=np.float64) @ inverse
+        digest.update(np.round(fractional, 4).tobytes())
     return digest.hexdigest()
 
 
@@ -600,8 +649,42 @@ class MolecularCrystal:
             # update legacy bond records when they are present.
             if getattr(molecule, "_graph", None) is not None:
                 for left, right, edge_data in molecule._graph.edges(data=True):
-                    vector = transformed[int(right)] - transformed[int(left)]
-                    edge_data["vector"] = vector.copy()
+                    left = int(left)
+                    right = int(right)
+                    edge_shift = np.asarray(
+                        edge_data.get("image_shift", np.zeros(3, dtype=int)),
+                        dtype=int,
+                    )
+                    if edge_shift.shape != (3,):
+                        edge_shift = np.zeros(3, dtype=int)
+                    if position_mode == "affine":
+                        # In affine mode the endpoint fractional coordinates
+                        # and the periodic image both transform with the new
+                        # cell.  Keep the image contribution in the graph
+                        # vector; omitting it makes graph geometry disagree
+                        # with the public bond-record contract.
+                        vector = (
+                            transformed[right]
+                            - transformed[left]
+                            + edge_shift @ target_lattice
+                        )
+                    elif np.any(edge_shift):
+                        # Rigid mode intentionally preserves the source
+                        # molecular geometry.  Retain an existing authoritative
+                        # edge vector (or reconstruct it from the source cell)
+                        # instead of recomputing only endpoint differences.
+                        source_vector = edge_data.get("vector")
+                        if source_vector is not None:
+                            vector = np.asarray(source_vector, dtype=float)
+                        else:
+                            vector = (
+                                original[right]
+                                - original[left]
+                                + edge_shift @ old_lattice
+                            )
+                    else:
+                        vector = transformed[right] - transformed[left]
+                    edge_data["vector"] = np.asarray(vector, dtype=float).copy()
                     edge_data["distance"] = float(np.linalg.norm(vector))
             _refresh_legacy_bond_records(molecule, image_shifts, transformed)
 
