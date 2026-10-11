@@ -733,19 +733,16 @@ class MolecularCrystal:
                             + edge_shift @ target_lattice
                         )
                     elif np.any(edge_shift):
-                        # Rigid mode intentionally preserves the source
-                        # molecular geometry.  Retain an existing authoritative
-                        # edge vector (or reconstruct it from the source cell)
-                        # instead of recomputing only endpoint differences.
-                        source_vector = edge_data.get("vector")
-                        if source_vector is not None:
-                            vector = np.asarray(source_vector, dtype=float)
-                        else:
-                            vector = (
-                                original[right]
-                                - original[left]
-                                + edge_shift @ old_lattice
-                            )
+                        # Graph-only periodic edges have no legacy record to
+                        # supply an authoritative contact vector.  Recompute
+                        # their image contribution in the target cell even in
+                        # rigid mode; retaining the source vector would leave
+                        # cached graph geometry stale after a lattice change.
+                        vector = (
+                            transformed[right]
+                            - transformed[left]
+                            + edge_shift @ target_lattice
+                        )
                     else:
                         vector = transformed[right] - transformed[left]
                     edge_data["vector"] = np.asarray(vector, dtype=float).copy()
