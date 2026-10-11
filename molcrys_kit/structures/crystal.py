@@ -645,9 +645,56 @@ class MolecularCrystal:
             image_shifts[:, ~periodic] = 0
             molecule.set_array(KEY_IMAGE_SHIFT, image_shifts)
 
-            # Refresh cached graph geometry while retaining graph topology;
-            # update legacy bond records when they are present.
+            # Refresh legacy records before graph geometry so a graph edge can
+            # reuse the authoritative per-contact vector.  A graph is simple
+            # and may contain only one of several periodic contacts, while
+            # ``bond_records`` retains each image-specific contact.
+            _refresh_legacy_bond_records(molecule, image_shifts, transformed)
+
+            # Refresh cached graph geometry while retaining graph topology.
             if getattr(molecule, "_graph", None) is not None:
+                global_indices = molecule.info.get("atom_indices")
+                if global_indices is None:
+                    global_indices = list(range(len(molecule)))
+                global_indices = np.asarray(global_indices).tolist()
+                global_to_local = {
+                    int(global_index): local_index
+                    for local_index, global_index in enumerate(global_indices)
+                }
+
+                # Match a graph edge to its same-image legacy record when
+                # available.  This keeps the two public geometry views in
+                # agreement even when the cached graph vector was stale.
+                record_vectors = {}
+                for raw in molecule.info.get("bond_records", ()):
+                    try:
+                        raw_left = int(raw["left"])
+                        raw_right = int(raw["right"])
+                        raw_shift = np.asarray(
+                            raw["right_image_shift"], dtype=int
+                        )
+                        raw_vector = np.asarray(raw["vector"], dtype=float)
+                        if raw_shift.shape != (3,) or raw_vector.shape != (3,):
+                            continue
+                        raw_left_local = global_to_local[raw_left]
+                        raw_right_local = global_to_local[raw_right]
+                    except (KeyError, TypeError, ValueError, IndexError):
+                        continue
+                    if raw_left_local <= raw_right_local:
+                        key = (
+                            raw_left_local,
+                            raw_right_local,
+                            tuple(int(value) for value in raw_shift),
+                        )
+                        record_vectors[key] = raw_vector
+                    else:
+                        key = (
+                            raw_right_local,
+                            raw_left_local,
+                            tuple(int(value) for value in -raw_shift),
+                        )
+                        record_vectors[key] = -raw_vector
+
                 for left, right, edge_data in molecule._graph.edges(data=True):
                     left = int(left)
                     right = int(right)
@@ -657,7 +704,24 @@ class MolecularCrystal:
                     )
                     if edge_shift.shape != (3,):
                         edge_shift = np.zeros(3, dtype=int)
-                    if position_mode == "affine":
+                    edge_key = (
+                        min(left, right),
+                        max(left, right),
+                        tuple(
+                            int(value)
+                            for value in (
+                                edge_shift if left <= right else -edge_shift
+                            )
+                        ),
+                    )
+                    recorded_vector = record_vectors.get(edge_key)
+                    if recorded_vector is not None:
+                        vector = (
+                            recorded_vector
+                            if left <= right
+                            else -recorded_vector
+                        )
+                    elif position_mode == "affine":
                         # In affine mode the endpoint fractional coordinates
                         # and the periodic image both transform with the new
                         # cell.  Keep the image contribution in the graph
@@ -686,7 +750,6 @@ class MolecularCrystal:
                         vector = transformed[right] - transformed[left]
                     edge_data["vector"] = np.asarray(vector, dtype=float).copy()
                     edge_data["distance"] = float(np.linalg.norm(vector))
-            _refresh_legacy_bond_records(molecule, image_shifts, transformed)
 
         result.metadata["cell_transform"] = {
             "source_hash": source_hash,

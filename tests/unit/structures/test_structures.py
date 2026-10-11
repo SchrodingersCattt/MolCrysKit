@@ -358,6 +358,46 @@ class TestMolecularCrystal:
         np.testing.assert_allclose(edge["vector"], [-1.0, 0.0, 0.0])
         assert edge["distance"] == pytest.approx(1.0)
 
+    def test_transform_cell_graph_matches_periodic_legacy_bond_vector(self):
+        """Cached graph geometry follows the same periodic contact as records."""
+        from molcrys_kit.structures.molecule import CrystalMolecule
+
+        molecule = CrystalMolecule(
+            Atoms(
+                "CC",
+                positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+                cell=np.diag([10.0, 8.0, 8.0]),
+                pbc=True,
+            ),
+            check_pbc=False,
+        )
+        molecule._graph = nx.Graph()
+        molecule._graph.add_edge(
+            0,
+            1,
+            image_shift=np.array([-1, 0, 0], dtype=int),
+            vector=np.array([1.0, 0.0, 0.0]),
+            distance=1.0,
+        )
+        molecule.info["bond_records"] = [
+            {
+                "left": 0,
+                "right": 1,
+                "right_image_shift": [-1, 0, 0],
+                "vector": [-9.0, 0.0, 0.0],
+            }
+        ]
+        crystal = MolecularCrystal(
+            np.diag([10.0, 8.0, 8.0]),
+            [molecule],
+        )
+
+        transformed = crystal.transform_cell(matrix=np.eye(3), wrap_mode="none")
+        edge = transformed.molecules[0].graph.edges[0, 1]
+        record = transformed.get_bond_records()[0]
+        np.testing.assert_allclose(edge["vector"], record.vector_A)
+        assert edge["distance"] == pytest.approx(record.distance_A)
+
     def test_transform_cell_shear_none_does_not_reassign_atom_images(self):
         atoms = Atoms(
             "CC",
