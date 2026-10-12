@@ -93,6 +93,8 @@ from .interpolation import (
     match_molecules_vc,
 )
 
+from .conformational_interpolation import interpolate_molecule_with_internal_dofs
+
 from .reorientation import reorient_crystal, ReorientationInfo
 
 from .reactive_path import (
@@ -171,6 +173,7 @@ __all__ = [
     "interpolate_pose",
     "match_molecules",
     "match_molecules_vc",
+    "interpolate_molecule_with_internal_dofs",
     "VCMoleculeMatch",
     "get_surface_basis",
     "reorient_crystal",
