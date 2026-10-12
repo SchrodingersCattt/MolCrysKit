@@ -121,6 +121,22 @@ def test_explicit_radical_electrons_use_the_composition_fallback() -> None:
     assert result.status is InferenceStatus.INDETERMINATE
 
 
+def test_polycycle_neutral_recognizers_do_not_erase_unsupported_states() -> None:
+    # The bicyclo grammar supports only its explicit locanted N+ forms.  A
+    # charged carbon or a bracket atom with omitted/overfilled valence must
+    # stay a composition description in non-strict mode.
+    for smiles in (
+        "C1C[C-]2CCC1CC2",
+        "C1C[C]2CCC1CC2",
+        "C1C[CH2]2CCC1CC2",
+    ):
+        result = smiles_to_iupac(smiles, strict=False)
+        assert result.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+        assert result.status is InferenceStatus.INDETERMINATE
+        with pytest.raises(NamingIndeterminateError):
+            smiles_to_iupac(smiles, strict=True)
+
+
 def test_aspirin_fast_path_rejects_charge_separated_graphs() -> None:
     """A charge-separated C9H8O4 graph must not receive aspirin's name."""
     entity = complete_open_smiles_hydrogens(

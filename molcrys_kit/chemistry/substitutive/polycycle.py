@@ -925,8 +925,46 @@ def _with_substituent_prefix(core: FiniteChemicalEntity, named, specs, attachmen
     )
 
 
+def _unsupported_atom_state(entity: FiniteChemicalEntity) -> bool:
+    """Reject charge/radical states this bounded polycycle grammar cannot carry.
+
+    The polycycle parser has explicit ``azonia``/``azanium`` support for a
+    positively charged ring nitrogen.  Other formal charges and bracket atoms
+    whose valence is not represented by the input must remain composition
+    descriptions; otherwise non-strict naming silently returns a neutral
+    constitutional name for a different species.
+    """
+    adjacency = {atom.atom_id: [] for atom in entity.atoms}
+    for bond in entity.bonds:
+        adjacency[bond.atom1_id].append(bond)
+        adjacency[bond.atom2_id].append(bond)
+    for atom in entity.atoms:
+        charge = atom.formal_charge or 0
+        if atom.radical_electrons:
+            return True
+        if charge and not (atom.element == "N" and charge == 1):
+            return True
+        if not any(
+            evidence.method == "OpenSMILES bracket atom parser"
+            for evidence in atom.evidence
+        ):
+            continue
+        if atom.element not in {"C", "N", "O"}:
+            continue
+        valence = sum(bond.order or 0.0 for bond in adjacency[atom.atom_id])
+        valence += (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        allowed = (3.0, 4.0) if atom.element == "N" and charge == 1 else (
+            float(DEFAULT_VALENCE[atom.element]),
+        )
+        if not any(abs(valence - target) <= 1e-8 for target in allowed):
+            return True
+    return False
+
+
 def name_polycycle(entity: FiniteChemicalEntity):
     """Return ``(name, preferred, trace)`` for a supported ring system."""
+    if _unsupported_atom_state(entity):
+        return None
     core_nodes = _two_core_nodes(entity)
     heavy = _heavy(entity)
     specs: list[tuple[str, str]] = []
