@@ -1159,6 +1159,11 @@ def construct_statistical_disorder(
             raise ConstructionValidationError(f"alternatives overoccupy center orbit {orbit_id}")
     metadata = {
         "representation": "statistical_average",
+        # Keep the validated object available to ordered-realization and CIF
+        # export paths.  ``source_symmetry`` is intentionally a lightweight
+        # metadata snapshot, but it is not sufficient to reconstruct the
+        # lattice/operation provenance needed for a true ASU export.
+        "forward_context": context,
         "source_symmetry": context.to_metadata(),
         "correlation_status": correlation_status,
         "correlations": dict(correlations),
@@ -1184,6 +1189,7 @@ def select_ordered_realization(
     """Select one whole-molecule state per orbit without materialising others."""
     selections = dict(selections or {})
     chosen: list[CrystalMolecule] = []
+    selected_alternatives: dict[str, str] = {}
     for orbit_id, alternatives in model.alternatives_by_orbit.items():
         choice = selections.get(orbit_id, 0)
         if isinstance(choice, str):
@@ -1193,9 +1199,13 @@ def select_ordered_realization(
         if selected is None:
             raise ConstructionValidationError(f"no alternative {choice!r} for orbit {orbit_id}")
         chosen.append(selected.molecule.copy())
+        selected_alternatives[orbit_id] = selected.alternative_id
     metadata = dict(model.metadata)
     metadata["representation"] = "ordered_realization"
     metadata["source_disorder"] = model.to_dict()
+    metadata["forward_context"] = model.context
+    metadata["source_symmetry"] = model.context.to_metadata()
+    metadata["selected_alternatives"] = selected_alternatives
     return MolecularCrystal(model.context.lattice, chosen, metadata=metadata)
 
 

@@ -248,6 +248,22 @@ def test_asu_rejects_full_occupancy_independent_rows_related_by_symmetry():
         write_cif_asu(crystal)
 
 
+def test_asu_rejects_mixed_species_full_occupancy_collision():
+    """Different species on one symmetry orbit cannot both be full sites."""
+    context = _pminus1_context()
+    molecules = []
+    for symbol, fractional in (("C", [0.13, 0.21, 0.37]), ("N", [0.87, 0.79, 0.63])):
+        atoms = Atoms(symbol, positions=[np.asarray(fractional) * 10.0])
+        atoms.set_array(KEY_OCCUPANCY, np.asarray([1.0]))
+        atoms.set_array(KEY_LABEL, np.asarray([f"{symbol}1"], dtype=str))
+        molecules.append(CrystalMolecule(atoms, check_pbc=False))
+    crystal = MolecularCrystal(
+        context.lattice, molecules, metadata={"forward_context": context}
+    )
+    with pytest.raises(ValueError, match="overoccupies a symmetry-related"):
+        write_cif_asu(crystal)
+
+
 def test_asu_metadata_and_site_provenance_survive_round_trip():
     context = _pminus1_context()
     template = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), anchor_index=0)
@@ -425,3 +441,22 @@ def test_statistical_operation_indices_are_group_unique_for_p_minus_1():
     ]
     assert len(indices) == len(set(indices)) == 2
     assert len(atom_ids) == len(set(atom_ids)) == 2
+
+
+def test_selected_realization_retains_forward_context_for_asu_export():
+    context = _pminus1_context()
+    model = construct_statistical_disorder(
+        context,
+        MolecularPose(
+            MolecularTemplate(
+                Atoms("C", positions=[[0, 0, 0]]), identifier="selected"
+            ),
+            [0.13, 0.21, 0.37],
+        ),
+    )
+    selected = model.select_ordered_realization()
+    assert selected.metadata["forward_context"] is context
+    restored = read_mol_crystal(
+        cif_text=write_cif_asu(selected), attach_chemistry=False
+    )
+    assert len(restored.molecules) == 2

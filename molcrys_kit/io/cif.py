@@ -1397,6 +1397,18 @@ def _crystal_symmetry_from_data_block(
     declared_sg = _declared_space_group(data_block)
     expanded = False
     if (
+        strict
+        and declared_sg is not None
+        and declared_sg.int_number > 1
+        and len(parsed_pairs) < len(declared_sg.symmetry_ops)
+    ):
+        raise ValueError(
+            "incomplete non-P1 symmetry operation loop: CIF declares "
+            f"space group #{declared_sg.int_number} ({declared_sg.symbol}) with "
+            f"{len(declared_sg.symmetry_ops)} operations but provides "
+            f"only {len(parsed_pairs)}"
+        )
+    if (
         expand_symmetry
         and declared_sg is not None
         and declared_sg.int_number > 1
@@ -2037,8 +2049,32 @@ def read_mol_crystal(
         KEY_ATOM_ID,
     )
 
-    def _published_bond_pairs(atoms_obj: Atoms, records) -> list[tuple[int, int]]:
-        """Map CIF bond-loop labels back to the expanded atom indices."""
+    # A full molecular-crystal read must never silently expand an identity-only
+    # loop from a non-P1 declaration.  That fallback is retained for the
+    # explicitly permissive ``scan_cif_disorder`` compatibility API, while the
+    # structure reader rejects the incomplete source before any atoms are
+    # materialized with a wrong multiplicity.
+    read_cif_symmetry(
+        filepath,
+        cif_text=cif_text,
+        expand_symmetry=False,
+        strict=True,
+    )
+
+    def _published_bond_pairs(
+        atoms_obj: Atoms,
+        records,
+        *,
+        operations=(),
+        lattice_matrix=None,
+    ) -> list[tuple[int, int]]:
+        """Map CIF bond-loop labels back to the expanded atom indices.
+
+        ``_geom_bond_site_symmetry_2`` is essential for ASU rows whose bond
+        endpoint is exchanged by a site stabilizer.  In that case both CIF
+        labels are intentionally the same and a distance-only label match
+        would either discard the edge or select the wrong image.
+        """
         if not records:
             return []
         labels_arr = np.asarray(atoms_obj.arrays.get(KEY_LABEL, []), dtype=str)
@@ -2051,6 +2087,47 @@ def read_mol_crystal(
             right_candidates = by_label.get(str(record.get("atom2_label", "")), ())
             if not left_candidates or not right_candidates:
                 continue
+            site_symmetry = str(record.get("site_symmetry_2") or "").strip().strip("'\"")
+            symmetry_match = re.fullmatch(r"(?P<index>\d+)(?:_(?P<shift>[1-9]{3}))?", site_symmetry)
+            if (
+                symmetry_match is not None
+                and operations
+                and lattice_matrix is not None
+            ):
+                operation_index = int(symmetry_match.group("index")) - 1
+                if 0 <= operation_index < len(operations):
+                    shift_token = symmetry_match.group("shift")
+                    image_shift = np.zeros(3, dtype=int)
+                    if shift_token is not None:
+                        image_shift = np.asarray(
+                            [int(value) - 5 for value in shift_token], dtype=int
+                        )
+                    fractional = np.asarray(
+                        atoms_obj.get_scaled_positions(wrap=False), dtype=float
+                    )
+                    operation = operations[operation_index]
+                    for left in left_candidates:
+                        expected = np.asarray(
+                            operation.apply(fractional[left], wrap=False), dtype=float
+                        ) + image_shift
+                        candidates = []
+                        for right in right_candidates:
+                            if int(left) == int(right):
+                                continue
+                            delta = fractional[right] - expected
+                            delta -= np.rint(delta)
+                            cartesian_delta = delta @ np.asarray(lattice_matrix, dtype=float)
+                            candidates.append((float(np.linalg.norm(cartesian_delta)), int(right)))
+                        if candidates:
+                            error, right = min(candidates)
+                            if error <= 1.0e-4:
+                                pair = tuple(sorted((int(left), int(right))))
+                                if pair not in pairs:
+                                    pairs.append(pair)
+                    # A valid symmetry-coded row is authoritative even when
+                    # the endpoint is the same label; do not fall through to
+                    # ambiguous distance matching.
+                    continue
             try:
                 raw_expected = record.get("distance_A")
                 if isinstance(raw_expected, dict):
@@ -2197,6 +2274,10 @@ def read_mol_crystal(
         disorder_info.cif_chemistry.get("published_bonds", ())
         if disorder_info.cif_chemistry.get("molcrys_provenance")
         else (),
+        operations=disorder_info.crystal_symmetry.operations
+        if disorder_info.crystal_symmetry is not None
+        else (),
+        lattice_matrix=disorder_info.lattice_matrix,
     )
     molecules = identify_molecules(
         atoms,

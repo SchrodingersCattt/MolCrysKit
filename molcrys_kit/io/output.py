@@ -789,8 +789,6 @@ def _is_symmetry_related_site(left, right, operations, tolerance=1e-7) -> bool:
     decides whether retaining both coordinates would cause a second symmetry
     expansion of the same site orbit.
     """
-    if left.get("symbol") != right.get("symbol"):
-        return False
     for operation in operations:
         mapped = operation.apply(left["fractional"], wrap=False)
         if np.allclose(
@@ -815,6 +813,13 @@ def _reduce_asu_rows(rows, operations, tolerance: float):
     emitting an invalid CIF.
     """
     selected = []
+    for row in rows:
+        occupancy = float(row.get("occupancy", 1.0))
+        if not np.isfinite(occupancy) or occupancy < -tolerance or occupancy > 1.0 + tolerance:
+            raise ValueError(
+                "true-ASU export requires each site occupancy to lie in [0, 1] "
+                f"(got {occupancy:.8g} for {row.get('atom_id') or row.get('label')})"
+            )
     for row in rows:
         if not any(
             _is_equivalent_site(row, existing, operations, tolerance)
@@ -917,6 +922,13 @@ def write_cif_asu(
         operations = (identity_operation(),)
     rows = _forward_atom_rows(crystal, lattice)
     tolerance = float(getattr(context, "fractional_tolerance", 1e-7))
+    for row in rows:
+        occupancy = float(row.get("occupancy", 1.0))
+        if not np.isfinite(occupancy) or occupancy < -tolerance or occupancy > 1.0 + tolerance:
+            raise ValueError(
+                "ASU export requires each site occupancy to lie in [0, 1] "
+                f"(got {occupancy:.8g} for {row.get('atom_id') or row.get('label')})"
+            )
     selected = rows if materialized else _reduce_asu_rows(rows, operations, tolerance)
     # Stable labels are required even when source templates used duplicate
     # element labels.
@@ -1064,6 +1076,38 @@ def write_cif_asu(
                 return candidate
         return None
 
+    def _symmetry_site_code(left_row, right_source_row) -> str:
+        """Encode the operation taking an ASU endpoint to its bond mate.
+
+        A bond may terminate at a symmetry image of the same retained ASU
+        row.  CIF represents that image with ``_geom_bond_site_symmetry_2``;
+        retaining the operation and integer image shift is what lets a reader
+        reconstruct a self-labelled bond such as ``C1 C1 1_555``.
+        """
+        if left_row is None or right_source_row is None:
+            return "."
+        left_fractional = np.asarray(left_row["fractional"], dtype=float)
+        right_fractional = np.asarray(right_source_row["fractional"], dtype=float)
+        for operation_index, operation in enumerate(operations):
+            mapped = np.asarray(operation.apply(left_fractional, wrap=False), dtype=float)
+            shift = np.rint(right_fractional - mapped).astype(int)
+            if not np.allclose(
+                mapped + shift,
+                right_fractional,
+                atol=tolerance,
+                rtol=0.0,
+            ):
+                continue
+            if np.all(shift == 0):
+                # A plain identity relation is the ordinary same-cell bond.
+                if _operation_xyz(operation).replace(" ", "") == "x,y,z":
+                    return "."
+            if np.any(np.abs(shift) > 4):
+                raise ValueError("ASU bond symmetry image is outside CIF code range")
+            digits = "".join(str(int(value) + 5) for value in shift)
+            return f"{operation_index + 1}_{digits}"
+        return "."
+
     asu_bonds = []
     had_bond_candidates = False
     seen_bonds = set()
@@ -1079,6 +1123,8 @@ def write_cif_asu(
             except (TypeError, ValueError, IndexError):
                 continue
             had_bond_candidates = True
+            left_source_row = rows_by_source.get((molecule_index, left))
+            right_source_row = rows_by_source.get((molecule_index, right))
             left_row = selected_by_source.get((molecule_index, left))
             right_row = selected_by_source.get((molecule_index, right))
             # A bond can connect two atoms exchanged by a stabilizer.  Only
@@ -1087,22 +1133,24 @@ def write_cif_asu(
             # repeated label and restores the pair from the bond distance.
             if left_row is None:
                 left_row = _selected_equivalent(
-                    rows_by_source.get((molecule_index, left))
+                    left_source_row
                 )
             if right_row is None:
                 right_row = _selected_equivalent(
-                    rows_by_source.get((molecule_index, right))
+                    right_source_row
                 )
             if left_row is None or right_row is None:
                 continue
-            # A stabilizer can exchange the two endpoints of a bond.  Mapping
-            # both endpoints to one retained ASU row would create an invalid
-            # self-reference (e.g. ``C1 C1``).  The expanded geometry still
-            # carries this edge, so omit the ambiguous ASU row rather than
-            # writing a dangling/self bond that CIF readers cannot recover.
-            if left_row["label"] == right_row["label"]:
-                continue
-            key = tuple(sorted((left_row["label"], right_row["label"])))
+            symmetry_code = _symmetry_site_code(left_row, right_source_row)
+            if (
+                left_row["label"] == right_row["label"]
+                and symmetry_code == "."
+            ):
+                raise ValueError(
+                    "ASU export cannot represent a collapsed explicit bond without "
+                    "a symmetry operation mapping its endpoints"
+                )
+            key = (tuple(sorted((left_row["label"], right_row["label"]))), symmetry_code)
             if key in seen_bonds:
                 continue
             seen_bonds.add(key)
@@ -1112,8 +1160,13 @@ def write_cif_asu(
                     - np.asarray(molecule.positions[left], dtype=float)
                 )
             )
-            asu_bonds.append((left_row["label"], right_row["label"], distance))
+            asu_bonds.append(
+                (left_row["label"], right_row["label"], distance, symmetry_code)
+            )
     if asu_bonds:
+        def _format_bond_endpoint(left: str, right: str) -> str:
+            return f"'{right}'" if left == right else right
+
         lines.extend(
             [
                 "",
@@ -1122,18 +1175,21 @@ def write_cif_asu(
                 "  _geom_bond_atom_site_label_2",
                 "  _geom_bond_distance",
                 "  _geom_bond_type",
+                "  _geom_bond_site_symmetry_2",
             ]
         )
         lines.extend(
-            f"  {left} {right} {distance:.6f} single"
-            for left, right, distance in asu_bonds
+            (
+                f"  {left} {_format_bond_endpoint(left, right)} "
+                f"{distance:.6f} single {symmetry_code}"
+            )
+            for left, right, distance, symmetry_code in asu_bonds
         )
     elif had_bond_candidates:
         # Keep a discoverable marker for callers that inspect the standard
-        # bond schema, while deliberately emitting no invalid/self row.
+        # bond schema if a malformed source edge could not be mapped.
         lines.append(
-            "# _geom_bond_atom_site_label_1 omitted: "
-            "symmetry-exchanged self reference"
+            "# _geom_bond_atom_site_label_1 omitted: unmappable source edge"
         )
     lines.extend(
         [
