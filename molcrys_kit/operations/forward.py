@@ -771,26 +771,6 @@ def _copy_generated_atoms(
     return molecule
 
 
-def _operation_source_index(
-    context: ForwardConstructionContext,
-    operation: FractionalAffineOperation,
-    fallback: int = 0,
-) -> int:
-    """Return the stable source-group index for a generated operation.
-
-    Coset representatives and composed alternatives are newly-created affine
-    operations and therefore do not carry the source CIF operation's index.
-    Matching them back to the validated group keeps ``sym_op_index`` and atom
-    provenance unique across center orbits while retaining the source order.
-    """
-    for index, candidate in enumerate(context.operations):
-        if operation.equivalent_to(candidate, tolerance=context.fractional_tolerance):
-            return int(candidate.index if candidate.index is not None else index)
-    if operation.index is not None:
-        return int(operation.index)
-    return int(fallback)
-
-
 def construct_molecular_crystal(
     context: ForwardConstructionContext,
     poses: MolecularPose | Sequence[MolecularPose],
@@ -830,16 +810,14 @@ def construct_molecular_crystal(
         seen_centers.add(center_orbit)
         atom_identities = _stabilizer_atom_identities(analysis, pose.template.atom_count)
         representatives = _coset_representatives(context.operations, subgroup, context.fractional_tolerance)
-        for representative_index, operation in enumerate(representatives):
+        for operation in representatives:
             molecules.append(
                 _copy_generated_atoms(
                     context,
                     pose,
                     operation,
                     pose_index=pose_index,
-                    operation_index=_operation_source_index(
-                        context, operation, representative_index
-                    ),
+                    operation_index=_context_operation_index(context, operation),
                     occupancy=1.0,
                     asym_id=pose_index,
                     site_symmetry_order=analysis.site_symmetry_order,
@@ -1136,9 +1114,6 @@ def construct_statistical_disorder(
                 # may occupy the same center orbit with partial weights, and
                 # their local state numbers would otherwise collide.
                 alternative_id = f"{orbit_id}:pose{pose_index}:state{local_index}"
-                operation_index = _operation_source_index(
-                    context, operation, local_index
-                )
                 molecule = _copy_generated_atoms(
                     context,
                     pose,

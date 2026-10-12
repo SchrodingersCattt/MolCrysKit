@@ -369,9 +369,11 @@ def write_cif(
     all_atom_ids = []
     all_molecule_ids = []
     molecule_offsets = []
+    all_bond_edges = []
 
     for molecule_index, mol in enumerate(crystal.molecules):
         molecule_offsets.append(len(all_symbols))
+        molecule_offset = molecule_offsets[-1]
         # Get metadata arrays if they exist
         if hasattr(mol, 'arrays'):
             if KEY_OCCUPANCY in mol.arrays:
@@ -511,62 +513,6 @@ def write_cif(
         lines.append(
             f"  {safe_label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
             f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} {uiso_token} {adp_type}"
-        )
-
-    # Preserve authoritative molecular connectivity.  Forward templates may
-    # intentionally carry a bond graph whose distances are outside the
-    # heuristic perception cutoff; emitting it as a standard CIF bond loop
-    # lets readers reconstruct the same connected molecule after a round trip.
-    bond_rows = []
-    for molecule_index, molecule in enumerate(crystal.molecules):
-        offset = molecule_offsets[molecule_index]
-        info = getattr(molecule, "info", {}) or {}
-        raw_pairs = info.get("forward_connectivity") or info.get("bond_pairs")
-        if raw_pairs is None:
-            graph = getattr(molecule, "_graph", None)
-            raw_pairs = list(graph.edges()) if graph is not None else []
-        for raw_pair in raw_pairs:
-            try:
-                left, right = (int(raw_pair[0]), int(raw_pair[1]))
-            except (TypeError, ValueError, IndexError):
-                continue
-            if not (
-                0 <= left < len(molecule)
-                and 0 <= right < len(molecule)
-                and left != right
-            ):
-                continue
-            left_global = offset + left
-            right_global = offset + right
-            if left_global >= len(written_labels) or right_global >= len(written_labels):
-                continue
-            distance = float(
-                np.linalg.norm(
-                    np.asarray(molecule.positions[right], dtype=float)
-                    - np.asarray(molecule.positions[left], dtype=float)
-                )
-            )
-            bond_rows.append(
-                (
-                    written_labels[left_global],
-                    written_labels[right_global],
-                    distance,
-                )
-            )
-    if bond_rows:
-        lines.extend(
-            [
-                "",
-                "loop_",
-                "  _geom_bond_atom_site_label_1",
-                "  _geom_bond_atom_site_label_2",
-                "  _geom_bond_distance",
-                "  _geom_bond_type",
-            ]
-        )
-        lines.extend(
-            f"  {left} {right} {distance:.6f} single"
-            for left, right, distance in bond_rows
         )
 
     anisotropic_rows = []

@@ -71,26 +71,25 @@ def _disorder_lookup(crystal: Any) -> tuple[dict[str, tuple[int, str]], list[str
     raw_groups: set[tuple[str, int]] = set()
     try:
         # CCDC disorder group identifiers are release/API data and may start
-        # at zero.  MolCrysKit reserves zero for ordered atoms, so remap each
-        # (assembly, raw group) pair to a positive deterministic ID.
-        group_ids: dict[tuple[str, int], int] = {}
+        # at zero.  MolCrysKit reserves zero for ordered atoms, so collect the
+        # raw identifiers first and remap each (assembly, raw group) pair to a
+        # positive deterministic ID below.
         for assembly in disorder.assemblies:
             assembly_id = str(getattr(assembly, "id", ""))
             for group in assembly.groups:
                 raw_group_id = int(getattr(group, "id", 0))
-                key = (assembly_id, raw_group_id)
-                group_id = group_ids.setdefault(key, len(group_ids) + 1)
+                raw_groups.add((assembly_id, raw_group_id))
                 for atom in group.atoms:
                     label = str(atom.label)
-                    raw_mapping[label] = (group_id, assembly_id)
+                    raw_mapping[label] = (raw_group_id, assembly_id)
                     # CCDC appends ``?`` to labels on some alternate sites
                     # (for example ``C4?``), while the disorder hierarchy can
                     # expose the same atom as ``C4``.  Keep both spellings so
                     # that the group/assembly information survives export.
                     if label.endswith("?"):
-                        raw_mapping.setdefault(label[:-1], (group_id, assembly_id))
+                        raw_mapping.setdefault(label[:-1], (raw_group_id, assembly_id))
                     else:
-                        raw_mapping.setdefault(f"{label}?", (group_id, assembly_id))
+                        raw_mapping.setdefault(f"{label}?", (raw_group_id, assembly_id))
     except Exception as exc:  # CCDC release-specific null handles
         warnings.append(f"Could not read complete disorder hierarchy: {exc}")
 
@@ -115,8 +114,6 @@ def export_full_cif_from_csd(
     output_path: Path,
 ) -> dict[str, Any]:
     """Export one CSD refcode to a metadata-preserving CIF."""
-    entry = reader.entry(refcode)
-    crystal = reader.crystal(refcode)
     warnings: list[str] = []
     try:
         # Entry metadata is separate from the crystallographic model in the
@@ -254,10 +251,11 @@ def export_full_cif_from_csd(
         r_factor_value = None
     lines = [
         f"data_{refcode}",
-        "_audit_creation_method " + _cif_quote("CCDC API + MolCrysKit demo"),
-        "_chemical_name_common " + _cif_quote(getattr(entry, "chemical_name", None) or "?"),
-        "_chemical_formula_sum " + _cif_quote(getattr(entry, "formula", None) or "?"),
-        f"_refine_ls_R_factor_all {_float_text(getattr(entry, 'r_factor', None), 2)}",
+        "_audit_creation_method " + _cif_quote("CCDC Python API; query-csd-structures skill"),
+        "_database_code_CSD " + _cif_quote(refcode),
+        "_chemical_name_common " + _cif_quote(chemical_name),
+        "_chemical_formula_sum " + _cif_quote(formula),
+        f"_refine_ls_R_factor_all {_float_text(r_factor_value, 2)}",
         f"_cell_length_a {_float_text(a)}",
         f"_cell_length_b {_float_text(b)}",
         f"_cell_length_c {_float_text(c)}",
