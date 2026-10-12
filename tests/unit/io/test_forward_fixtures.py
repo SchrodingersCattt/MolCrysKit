@@ -21,8 +21,10 @@ from molcrys_kit.operations.forward import (
     MolecularTemplate,
     construct_molecular_crystal,
     construct_statistical_disorder,
+    prepare_construction_context,
     prepare_context_from_cif,
 )
+from molcrys_kit.structures.symmetry import CrystalSymmetry, FractionalAffineOperation
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "cif" / "forward"
@@ -236,3 +238,46 @@ def test_iquhuy_forward_statistical_average_round_trip(tmp_path):
     assert {int(value) for value in parsed.disorder_groups if int(value) > 0}
     selected = model.select_ordered_realization()
     assert sum(len(molecule) for molecule in selected.molecules) == pose.template.atom_count * 2
+
+
+def test_true_asu_p_minus_one_round_trip_preserves_special_site_provenance():
+    """Inversion-center ASU rows retain site order and MolCrysKit provenance."""
+    identity = FractionalAffineOperation(np.eye(3), np.zeros(3), xyz="x,y,z")
+    inversion = FractionalAffineOperation(-np.eye(3), np.zeros(3), xyz="-x,-y,-z")
+    context = prepare_construction_context(
+        np.eye(3) * 10.0,
+        CrystalSymmetry(
+            (identity, inversion),
+            space_group_number=2,
+            space_group_symbol="P-1",
+        ),
+    )
+    atoms = Atoms(symbols=["C"], positions=[[0.0, 0.0, 0.0]])
+    atoms.set_array("label", np.asarray(["C1"], dtype=str))
+    pose = MolecularPose(
+        MolecularTemplate(atoms, identifier="inversion-center"),
+        np.zeros(3),
+    )
+    crystal = construct_molecular_crystal(context, pose)
+
+    asu = write_cif_asu(crystal)
+    assert "_atom_site_site_symmetry_order" in asu
+    assert "_molcrys_sym_op_index" in asu
+    assert "_molcrys_asym_id" in asu
+    assert "_molcrys_site_symmetry_order" in asu
+
+    round_trip = read_mol_crystal(cif_text=asu, attach_chemistry=False)
+    orders = np.concatenate(
+        [molecule.arrays["site_symmetry_order"] for molecule in round_trip.molecules]
+    )
+    assert set(orders.tolist()) == {2}
+    assert all(
+        np.all(molecule.arrays["asym_id"] == 0)
+        for molecule in round_trip.molecules
+    )
+
+    parsed = CifParser.from_str(asu, occupancy_tolerance=1.0).parse_structures(
+        primitive=False
+    )
+    assert len(parsed) == 1
+    assert len(parsed[0]) == 1

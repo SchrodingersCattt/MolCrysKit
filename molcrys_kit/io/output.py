@@ -715,6 +715,18 @@ def _forward_atom_rows(crystal: MolecularCrystal, lattice: np.ndarray):
         groups = np.asarray(arrays.get(KEY_DISORDER_GROUP, np.zeros(len(molecule), dtype=int)), dtype=int)
         assemblies = np.asarray(arrays.get(KEY_ASSEMBLY, np.full(len(molecule), ".", dtype="U1")))
         labels = np.asarray(arrays.get(KEY_LABEL, np.asarray(symbols, dtype=str)))
+        sym_op_indices = np.asarray(
+            arrays.get(KEY_SYM_OP_INDEX, np.zeros(len(molecule), dtype=int)),
+            dtype=int,
+        )
+        asym_ids = np.asarray(
+            arrays.get(KEY_ASYM_ID, np.full(len(molecule), -1, dtype=int)),
+            dtype=int,
+        )
+        site_symmetry_orders = np.asarray(
+            arrays.get(KEY_SITE_SYMMETRY_ORDER, np.ones(len(molecule), dtype=int)),
+            dtype=int,
+        )
         forward_ids = (getattr(molecule, "info", {}) or {}).get("forward_atom_identities")
         for atom_index, symbol in enumerate(symbols):
             rows.append(
@@ -734,18 +746,9 @@ def _forward_atom_rows(crystal: MolecularCrystal, lattice: np.ndarray):
                     "molecule_id": int(molecule_index),
                     "molecule_index": molecule_index,
                     "atom_index": atom_index,
-                    "sym_op_index": int(
-                        arrays.get(KEY_SYM_OP_INDEX, np.zeros(len(molecule), dtype=int))[atom_index]
-                    ),
-                    "asym_id": int(
-                        arrays.get(KEY_ASYM_ID, np.full(len(molecule), -1, dtype=int))[atom_index]
-                    ),
-                    "site_symmetry_order": int(
-                        arrays.get(
-                            KEY_SITE_SYMMETRY_ORDER,
-                            np.ones(len(molecule), dtype=int),
-                        )[atom_index]
-                    ),
+                    "sym_op_index": int(sym_op_indices[atom_index]),
+                    "asym_id": int(asym_ids[atom_index]),
+                    "site_symmetry_order": int(site_symmetry_orders[atom_index]),
                 }
             )
     return rows
@@ -842,13 +845,14 @@ def write_cif_asu(
         "  _atom_site_occupancy",
         "  _atom_site_disorder_group",
         "  _atom_site_disorder_assembly",
+        "  _atom_site_site_symmetry_order",
     ])
     for row in selected:
         fractional = row["fractional"] - np.floor(row["fractional"])
         assembly = row["assembly"] if row["assembly"] not in {"", "None"} else "."
         lines.append(
             f"  {row['label']} {row['symbol']} {fractional[0]:.8f} {fractional[1]:.8f} {fractional[2]:.8f} "
-            f"{row['occupancy']:.8f} {row['group']} {assembly}"
+            f"{row['occupancy']:.8f} {row['group']} {assembly} {int(row['site_symmetry_order'])}"
         )
     selected_by_source = {
         (int(row["molecule_index"]), int(row["atom_index"])): row
@@ -923,22 +927,8 @@ def write_cif_asu(
         [
             "",
             "loop_",
-            "  _molcrys_asu_atom_index",
-            "  _molcrys_atom_id",
-            "  _molcrys_molecule_id",
-        ]
-    )
-    for index, row in enumerate(selected):
-        atom_id = str(row.get("atom_id", "")) or "."
-        lines.append(
-            f"  {index} '{atom_id.replace(chr(39), chr(39) * 2)}' "
-            f"{int(row.get('molecule_id', -1))}"
-        )
-    lines.extend(
-        [
-            "",
-            "loop_",
             "  _molcrys_atom_index",
+            "  _molcrys_asu_atom_index",
             "  _molcrys_sym_op_index",
             "  _molcrys_asym_id",
             "  _molcrys_site_symmetry_order",
@@ -949,10 +939,9 @@ def write_cif_asu(
     for index, row in enumerate(selected):
         atom_id = str(row.get("atom_id", "")) or "."
         lines.append(
-            f"  {index} {int(row.get('sym_op_index', 0))} "
+            f"  {index} {index} {int(row.get('sym_op_index', 0))} "
             f"{int(row.get('asym_id', -1))} {int(row.get('site_symmetry_order', 1))} "
-            f"'{atom_id.replace(chr(39), chr(39) * 2)}' "
-            f"{int(row.get('molecule_id', -1))}"
+            f"'{atom_id.replace(chr(39), chr(39) * 2)}' {int(row.get('molecule_id', -1))}"
         )
     lines.extend(["", "# The full-cell expansion is represented by the operation loop above.", ""])
     text = "\n".join(lines)

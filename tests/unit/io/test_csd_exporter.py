@@ -40,6 +40,16 @@ class _Bond:
         return 1.4
 
 
+class _AnisotropicDisplacement:
+    isotropic_equivalent = 0.25
+    type = "Anisotropic"
+    values = (
+        (0.10, 0.01, 0.02),
+        (0.01, 0.20, 0.03),
+        (0.02, 0.03, 0.30),
+    )
+
+
 class _Group:
     def __init__(self, group_id: int, atoms: list[_Atom]):
         self.id = group_id
@@ -132,6 +142,28 @@ def test_exporter_falls_back_from_null_disordered_molecule_and_skips_null_bonds(
     assert "H1       H" not in output.text
     assert any("omitted because fractional coordinates are unavailable" in warning for warning in result["warnings"])
     assert any("Bond export skipped" in warning for warning in result["warnings"])
+
+
+def test_exporter_drops_bonds_and_aniso_rows_for_omitted_atoms():
+    """A valid CCDC bond/ADP object must not resurrect a null-coordinate atom."""
+    c = _Atom("C1", "C", _Coords(0.1, 0.2, 0.3))
+    h = _Atom("H1", "H", None)
+    c.displacement_parameters = _AnisotropicDisplacement()
+    h.displacement_parameters = _AnisotropicDisplacement()
+    output = _MemoryPath()
+
+    result = MODULE.export_full_cif_from_csd(
+        _Reader(_Crystal(_Molecule([c, h], [_Bond(c, h)]))),
+        "NULLADP",
+        output,
+    )
+
+    assert result["n_written_atoms"] == 1
+    assert " H1 H " not in output.text
+    assert "_atom_site_aniso_label" in output.text
+    assert " H1 " not in output.text.split("_atom_site_aniso_label", 1)[1]
+    assert "_geom_bond_atom_site_label_1" not in output.text
+    assert any("omitted atom endpoint" in warning for warning in result["warnings"])
 
 
 def test_exporter_preserves_disorder_when_ccdc_groups_start_at_zero():

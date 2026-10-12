@@ -200,12 +200,15 @@ def export_full_cif_from_csd(
             }
         )
 
-    bonds: list[tuple[str, str, float, str]] = []
+    # Collect bond candidates before filtering coordinate-less atoms.  CCDC
+    # can expose a valid bond length even when one endpoint's fractional
+    # coordinates are a null TSite; those rows must not leak into the CIF.
+    bond_candidates: list[tuple[str, str, float, str]] = []
     try:
         for bond in molecule.bonds:
             try:
                 atom_1, atom_2 = bond.atoms
-                bonds.append(
+                bond_candidates.append(
                     (
                         str(atom_1.label),
                         str(atom_2.label),
@@ -294,8 +297,20 @@ def export_full_cif_from_csd(
         lines.extend(["_atom_site_disorder_assembly", "_atom_site_disorder_group"])
 
     written_atom_count = 0
+    written_labels: set[str] = set()
+
+    def _has_coordinates(row: dict[str, Any]) -> bool:
+        values = (row.get("x"), row.get("y"), row.get("z"))
+        return all(value is not None and _is_finite_number(value) for value in values)
+
+    def _is_finite_number(value: object) -> bool:
+        try:
+            return bool(float(value) == float(value) and abs(float(value)) != float("inf"))
+        except (TypeError, ValueError):
+            return False
+
     for row in atom_rows:
-        if row["x"] is None:
+        if not _has_coordinates(row):
             warnings.append(f"{row['label']}: omitted because fractional coordinates are unavailable")
             continue
         fields = [
@@ -317,9 +332,16 @@ def export_full_cif_from_csd(
             )
         lines.append("  " + " ".join(fields))
         written_atom_count += 1
+        written_labels.add(row["label"])
     lines.append("")
 
-    aniso_atoms = [row for row in atom_rows if row["aniso"] is not None]
+    # Anisotropic displacement rows are keyed by atom label and therefore
+    # must use the same coordinate-backed atom set as the atom-site loop.
+    aniso_atoms = [
+        row
+        for row in atom_rows
+        if row["aniso"] is not None and row["label"] in written_labels
+    ]
     if aniso_atoms:
         lines.extend(
             [
@@ -346,6 +368,15 @@ def export_full_cif_from_csd(
                 )
             )
         lines.append("")
+
+    bonds: list[tuple[str, str, float, str]] = []
+    for label_1, label_2, distance, bond_type in bond_candidates:
+        if label_1 not in written_labels or label_2 not in written_labels:
+            warnings.append(
+                f"Bond export skipped: omitted atom endpoint ({label_1}, {label_2})"
+            )
+            continue
+        bonds.append((label_1, label_2, distance, bond_type))
 
     if bonds:
         lines.extend(
