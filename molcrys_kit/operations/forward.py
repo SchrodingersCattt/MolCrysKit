@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
+import networkx as nx
 from ase import Atoms
 from scipy.optimize import linear_sum_assignment
 
@@ -678,6 +679,7 @@ def _copy_generated_atoms(
     disorder_group: int = 0,
     assembly: str = "",
     asym_id: int = -1,
+    site_symmetry_order: int = 1,
     atom_identities: Sequence[str] | None = None,
 ) -> CrystalMolecule:
     _, cartesian = _mapped_template(context, pose, operation)
@@ -695,7 +697,10 @@ def _copy_generated_atoms(
     atoms.set_array(KEY_ASSEMBLY, np.full(n, assembly, dtype=assembly_dtype))
     atoms.set_array(KEY_SYM_OP_INDEX, np.full(n, int(operation_index), dtype=int))
     atoms.set_array(KEY_ASYM_ID, np.full(n, int(asym_id), dtype=int))
-    atoms.set_array(KEY_SITE_SYMMETRY_ORDER, np.full(n, 1, dtype=int))
+    atoms.set_array(
+        KEY_SITE_SYMMETRY_ORDER,
+        np.full(n, int(site_symmetry_order), dtype=int),
+    )
     image_shift = np.rint(
         operation.apply(pose.anchor_fractional, wrap=False)
         - _canonical_fractional(operation.apply(pose.anchor_fractional, wrap=False))
@@ -726,8 +731,50 @@ def _copy_generated_atoms(
         raise ConstructionValidationError("atom_identities must match template atom count")
     molecule.info["forward_atom_identities"] = tuple(str(item) for item in atom_identities)
     if pose.template.connectivity:
-        molecule.info["forward_connectivity"] = [list(edge) for edge in pose.template.connectivity]
+        connectivity = [
+            (int(edge[0]), int(edge[1]))
+            for edge in pose.template.connectivity
+            if len(edge) >= 2 and 0 <= int(edge[0]) < n and 0 <= int(edge[1]) < n
+        ]
+        molecule.info["forward_connectivity"] = [list(edge) for edge in connectivity]
+        molecule.info["bond_pairs"] = [
+            tuple(sorted(edge)) for edge in connectivity if edge[0] != edge[1]
+        ]
+        molecule._graph = nx.Graph()
+        molecule._graph.add_nodes_from(range(n))
+        positions = np.asarray(molecule.get_positions(), dtype=float)
+        for left, right in connectivity:
+            if left == right:
+                continue
+            vector = positions[right] - positions[left]
+            molecule._graph.add_edge(
+                left,
+                right,
+                vector=vector.copy(),
+                distance=float(np.linalg.norm(vector)),
+                image_shift=np.zeros(3, dtype=int),
+            )
     return molecule
+
+
+def _operation_source_index(
+    context: ForwardConstructionContext,
+    operation: FractionalAffineOperation,
+    fallback: int = 0,
+) -> int:
+    """Return the stable source-group index for a generated operation.
+
+    Coset representatives and composed alternatives are newly-created affine
+    operations and therefore do not carry the source CIF operation's index.
+    Matching them back to the validated group keeps ``sym_op_index`` and atom
+    provenance unique across center orbits while retaining the source order.
+    """
+    for index, candidate in enumerate(context.operations):
+        if operation.equivalent_to(candidate, tolerance=context.fractional_tolerance):
+            return int(candidate.index if candidate.index is not None else index)
+    if operation.index is not None:
+        return int(operation.index)
+    return int(fallback)
 
 
 def construct_molecular_crystal(
@@ -769,16 +816,19 @@ def construct_molecular_crystal(
         seen_centers.add(center_orbit)
         atom_identities = _stabilizer_atom_identities(analysis, pose.template.atom_count)
         representatives = _coset_representatives(context.operations, subgroup, context.fractional_tolerance)
-        for operation_index, operation in enumerate(representatives):
+        for representative_index, operation in enumerate(representatives):
             molecules.append(
                 _copy_generated_atoms(
                     context,
                     pose,
                     operation,
                     pose_index=pose_index,
-                    operation_index=operation_index,
+                    operation_index=_operation_source_index(
+                        context, operation, representative_index
+                    ),
                     occupancy=1.0,
                     asym_id=pose_index,
+                    site_symmetry_order=analysis.site_symmetry_order,
                     atom_identities=atom_identities,
                 )
             )
@@ -1060,16 +1110,20 @@ def construct_statistical_disorder(
                 # may occupy the same center orbit with partial weights, and
                 # their local state numbers would otherwise collide.
                 alternative_id = f"{orbit_id}:pose{pose_index}:state{local_index}"
+                operation_index = _operation_source_index(
+                    context, operation, local_index
+                )
                 molecule = _copy_generated_atoms(
                     context,
                     pose,
                     operation,
                     pose_index=pose_index,
-                    operation_index=local_index,
+                    operation_index=operation_index,
                     occupancy=1.0,
                     disorder_group=local_index + 1 if local_count > 1 else 0,
                     assembly=orbit_id,
                     asym_id=orbit_index,
+                    site_symmetry_order=analysis.site_symmetry_order,
                     atom_identities=atom_identities,
                 )
                 alternative = MolecularAlternative(
@@ -1077,7 +1131,7 @@ def construct_statistical_disorder(
                     alternative_id,
                     molecule,
                     weight,
-                    local_index,
+                    operation_index,
                     _canonical_fractional(operation.apply(pose.anchor_fractional, wrap=False)),
                 )
                 alternatives.append(alternative)

@@ -56,10 +56,16 @@ def _disorder_lookup(crystal: Any) -> tuple[dict[str, tuple[int, str]], list[str
         return mapping, warnings
 
     try:
+        # CCDC disorder group identifiers are release/API data and may start
+        # at zero.  MolCrysKit reserves zero for ordered atoms, so remap each
+        # (assembly, raw group) pair to a positive deterministic ID.
+        group_ids: dict[tuple[str, int], int] = {}
         for assembly in disorder.assemblies:
             assembly_id = str(getattr(assembly, "id", ""))
             for group in assembly.groups:
-                group_id = int(getattr(group, "id", 0))
+                raw_group_id = int(getattr(group, "id", 0))
+                key = (assembly_id, raw_group_id)
+                group_id = group_ids.setdefault(key, len(group_ids) + 1)
                 for atom in group.atoms:
                     label = str(atom.label)
                     mapping[label] = (group_id, assembly_id)
@@ -82,6 +88,7 @@ def export_full_cif_from_csd(
     output_path: Path,
 ) -> dict[str, Any]:
     """Export one CSD refcode to a metadata-preserving CIF."""
+    entry = reader.entry(refcode)
     crystal = reader.crystal(refcode)
     warnings: list[str] = []
 
@@ -205,6 +212,10 @@ def export_full_cif_from_csd(
 
     lines = [
         f"data_{refcode}",
+        "_audit_creation_method " + _cif_quote("CCDC API + MolCrysKit demo"),
+        "_chemical_name_common " + _cif_quote(getattr(entry, "chemical_name", None) or "?"),
+        "_chemical_formula_sum " + _cif_quote(getattr(entry, "formula", None) or "?"),
+        f"_refine_ls_R_factor_all {_float_text(getattr(entry, 'r_factor', None), 2)}",
         f"_cell_length_a {_float_text(a)}",
         f"_cell_length_b {_float_text(b)}",
         f"_cell_length_c {_float_text(c)}",

@@ -368,8 +368,10 @@ def write_cif(
     all_u_cart = []
     all_atom_ids = []
     all_molecule_ids = []
+    molecule_offsets = []
 
     for molecule_index, mol in enumerate(crystal.molecules):
+        molecule_offsets.append(len(all_symbols))
         # Get metadata arrays if they exist
         if hasattr(mol, 'arrays'):
             if KEY_OCCUPANCY in mol.arrays:
@@ -486,6 +488,62 @@ def write_cif(
         lines.append(
             f"  {safe_label:8s} {symbol:4s} {frac_pos[0]:10.6f} {frac_pos[1]:10.6f} {frac_pos[2]:10.6f} "
             f"{occ:8.5f} {group:2d} {assembly if assembly != '.' else '.':4s} {uiso_token} {adp_type}"
+        )
+
+    # Preserve authoritative molecular connectivity.  Forward templates may
+    # intentionally carry a bond graph whose distances are outside the
+    # heuristic perception cutoff; emitting it as a standard CIF bond loop
+    # lets readers reconstruct the same connected molecule after a round trip.
+    bond_rows = []
+    for molecule_index, molecule in enumerate(crystal.molecules):
+        offset = molecule_offsets[molecule_index]
+        info = getattr(molecule, "info", {}) or {}
+        raw_pairs = info.get("forward_connectivity") or info.get("bond_pairs")
+        if raw_pairs is None:
+            graph = getattr(molecule, "_graph", None)
+            raw_pairs = list(graph.edges()) if graph is not None else []
+        for raw_pair in raw_pairs:
+            try:
+                left, right = (int(raw_pair[0]), int(raw_pair[1]))
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not (
+                0 <= left < len(molecule)
+                and 0 <= right < len(molecule)
+                and left != right
+            ):
+                continue
+            left_global = offset + left
+            right_global = offset + right
+            if left_global >= len(written_labels) or right_global >= len(written_labels):
+                continue
+            distance = float(
+                np.linalg.norm(
+                    np.asarray(molecule.positions[right], dtype=float)
+                    - np.asarray(molecule.positions[left], dtype=float)
+                )
+            )
+            bond_rows.append(
+                (
+                    written_labels[left_global],
+                    written_labels[right_global],
+                    distance,
+                )
+            )
+    if bond_rows:
+        lines.extend(
+            [
+                "",
+                "loop_",
+                "  _geom_bond_atom_site_label_1",
+                "  _geom_bond_atom_site_label_2",
+                "  _geom_bond_distance",
+                "  _geom_bond_type",
+            ]
+        )
+        lines.extend(
+            f"  {left} {right} {distance:.6f} single"
+            for left, right, distance in bond_rows
         )
 
     anisotropic_rows = []
@@ -626,6 +684,8 @@ def _forward_atom_rows(crystal: MolecularCrystal, lattice: np.ndarray):
         KEY_DISORDER_GROUP,
         KEY_LABEL,
         KEY_OCCUPANCY,
+        KEY_SITE_SYMMETRY_ORDER,
+        KEY_SYM_OP_INDEX,
     )
 
     def _entity_key(molecule, molecule_index: int, atom_index: int, arrays) -> tuple:
@@ -692,6 +752,18 @@ def _forward_atom_rows(crystal: MolecularCrystal, lattice: np.ndarray):
                     "molecule_id": int(molecule_index),
                     "molecule_index": molecule_index,
                     "atom_index": atom_index,
+                    "sym_op_index": int(
+                        arrays.get(KEY_SYM_OP_INDEX, np.zeros(len(molecule), dtype=int))[atom_index]
+                    ),
+                    "asym_id": int(
+                        arrays.get(KEY_ASYM_ID, np.full(len(molecule), -1, dtype=int))[atom_index]
+                    ),
+                    "site_symmetry_order": int(
+                        arrays.get(
+                            KEY_SITE_SYMMETRY_ORDER,
+                            np.ones(len(molecule), dtype=int),
+                        )[atom_index]
+                    ),
                 }
             )
     return rows
@@ -796,6 +868,75 @@ def write_cif_asu(
             f"  {row['label']} {row['symbol']} {fractional[0]:.8f} {fractional[1]:.8f} {fractional[2]:.8f} "
             f"{row['occupancy']:.8f} {row['group']} {assembly}"
         )
+    selected_by_source = {
+        (int(row["molecule_index"]), int(row["atom_index"])): row
+        for row in selected
+    }
+    rows_by_source = {
+        (int(row["molecule_index"]), int(row["atom_index"])): row
+        for row in rows
+    }
+
+    def _selected_equivalent(row):
+        """Map a full-cell bond endpoint to its retained ASU representative."""
+        if row is None:
+            return None
+        for candidate in selected:
+            if _is_equivalent_site(row, candidate, operations, tolerance):
+                return candidate
+        return None
+
+    asu_bonds = []
+    seen_bonds = set()
+    for molecule_index, molecule in enumerate(crystal.molecules):
+        info = getattr(molecule, "info", {}) or {}
+        raw_pairs = info.get("forward_connectivity") or info.get("bond_pairs")
+        if raw_pairs is None:
+            graph = getattr(molecule, "_graph", None)
+            raw_pairs = list(graph.edges()) if graph is not None else []
+        for raw_pair in raw_pairs:
+            try:
+                left, right = int(raw_pair[0]), int(raw_pair[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            left_row = selected_by_source.get((molecule_index, left))
+            right_row = selected_by_source.get((molecule_index, right))
+            # A bond can connect two atoms exchanged by a stabilizer.  Only
+            # one of those rows is retained in the ASU, so use its retained
+            # representative for both endpoints; the reader expands the
+            # repeated label and restores the pair from the bond distance.
+            if left_row is None:
+                left_row = _selected_equivalent(rows_by_source.get((molecule_index, left)))
+            if right_row is None:
+                right_row = _selected_equivalent(rows_by_source.get((molecule_index, right)))
+            if left_row is None or right_row is None:
+                continue
+            key = tuple(sorted((left_row["label"], right_row["label"])))
+            if key in seen_bonds:
+                continue
+            seen_bonds.add(key)
+            distance = float(
+                np.linalg.norm(
+                    np.asarray(molecule.positions[right], dtype=float)
+                    - np.asarray(molecule.positions[left], dtype=float)
+                )
+            )
+            asu_bonds.append((left_row["label"], right_row["label"], distance))
+    if asu_bonds:
+        lines.extend(
+            [
+                "",
+                "loop_",
+                "  _geom_bond_atom_site_label_1",
+                "  _geom_bond_atom_site_label_2",
+                "  _geom_bond_distance",
+                "  _geom_bond_type",
+            ]
+        )
+        lines.extend(
+            f"  {left} {right} {distance:.6f} single"
+            for left, right, distance in asu_bonds
+        )
     lines.extend(
         [
             "",
@@ -809,6 +950,26 @@ def write_cif_asu(
         atom_id = str(row.get("atom_id", "")) or "."
         lines.append(
             f"  {index} '{atom_id.replace(chr(39), chr(39) * 2)}' "
+            f"{int(row.get('molecule_id', -1))}"
+        )
+    lines.extend(
+        [
+            "",
+            "loop_",
+            "  _molcrys_atom_index",
+            "  _molcrys_sym_op_index",
+            "  _molcrys_asym_id",
+            "  _molcrys_site_symmetry_order",
+            "  _molcrys_atom_id",
+            "  _molcrys_molecule_id",
+        ]
+    )
+    for index, row in enumerate(selected):
+        atom_id = str(row.get("atom_id", "")) or "."
+        lines.append(
+            f"  {index} {int(row.get('sym_op_index', 0))} "
+            f"{int(row.get('asym_id', -1))} {int(row.get('site_symmetry_order', 1))} "
+            f"'{atom_id.replace(chr(39), chr(39) * 2)}' "
             f"{int(row.get('molecule_id', -1))}"
         )
     lines.extend(["", "# The full-cell expansion is represented by the operation loop above.", ""])

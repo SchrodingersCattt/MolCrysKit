@@ -218,9 +218,13 @@ def test_special_position_asu_has_one_row_for_exchanged_atom_orbit():
     cif = write_cif_asu(crystal)
     block = next(iter(CifParser.from_str(cif).as_dict().values()))
     assert len(block["_atom_site_label"]) == 1
+    assert "_geom_bond_atom_site_label_1" in cif
     expanded = scan_cif_disorder(cif_text=cif)
     assert len(expanded.symbols) == 2
     assert all(np.isclose(value, 1.0) for value in expanded.occupancies)
+    reread = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+    assert len(reread.molecules) == 1
+    assert reread.molecules[0].graph.has_edge(0, 1)
 
 
 def test_statistical_cif_is_materialized_p1_and_parser_occupancies_stay_bounded():
@@ -264,3 +268,63 @@ def test_pose_occupations_control_duplicate_center_sum_when_unspecified():
     ids = [alternative.alternative_id for alternative in model.alternatives]
     assert len(ids) == len(set(ids))
     assert len(model.alternatives_by_orbit[next(iter(model.alternatives_by_orbit))]) == 2
+
+
+def test_forward_special_provenance_and_template_bonds_round_trip():
+    """Special-site provenance and explicit template edges survive P1 CIF IO."""
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("CC", positions=[[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        identifier="long-edge",
+        anchor_index=0,
+        connectivity=((0, 1),),
+    )
+    crystal = construct_molecular_crystal(
+        context, MolecularPose(template, [0.13, 0.21, 0.37])
+    )
+    assert all(np.all(molecule.arrays["site_symmetry_order"] == 1) for molecule in crystal.molecules)
+    assert all(molecule.graph.has_edge(0, 1) for molecule in crystal.molecules)
+
+    cif = write_cif_p1(crystal)
+    assert "_geom_bond_atom_site_label_1" in cif
+    parsed = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+    assert len(parsed.molecules) == 2
+    assert all(molecule.graph.has_edge(0, 1) for molecule in parsed.molecules)
+    assert all(np.all(molecule.arrays["site_symmetry_order"] == 1) for molecule in parsed.molecules)
+    assert len(parsed.metadata["forward_context"].operations) == 2
+
+    parsed_asu = read_mol_crystal(
+        cif_text=write_cif_asu(crystal), attach_chemistry=False
+    )
+    assert len(parsed_asu.molecules) == 2
+    assert all(molecule.graph.has_edge(0, 1) for molecule in parsed_asu.molecules)
+
+    special = construct_molecular_crystal(
+        context,
+        MolecularPose(
+            MolecularTemplate(Atoms("C", positions=[[0.0, 0.0, 0.0]]), anchor_index=0),
+            [0.0, 0.0, 0.0],
+        ),
+    )
+    special_cif = write_cif_p1(special)
+    special_parsed = read_mol_crystal(cif_text=special_cif, attach_chemistry=False)
+    assert len(special_parsed.molecules) == 1
+    assert np.all(special_parsed.molecules[0].arrays["site_symmetry_order"] == 2)
+
+
+def test_statistical_operation_indices_are_group_unique_for_p_minus_1():
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("C", positions=[[0.0, 0.0, 0.0]]),
+        identifier="single",
+        anchor_index=0,
+    )
+    model = construct_statistical_disorder(context, MolecularPose(template, [0.13, 0.21, 0.37]))
+    indices = [alternative.operation_index for alternative in model.alternatives]
+    atom_ids = [
+        str(value)
+        for alternative in model.alternatives
+        for value in alternative.molecule.arrays[KEY_ATOM_ID]
+    ]
+    assert len(indices) == len(set(indices)) == 2
+    assert len(atom_ids) == len(set(atom_ids)) == 2

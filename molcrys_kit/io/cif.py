@@ -313,6 +313,7 @@ def _build_molecule_graph(
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
+    explicit_bonds: Optional[List[Tuple[int, int]]] = None,
 ) -> nx.Graph:
     """Build molecule membership and periodic-image bond provenance.
 
@@ -472,6 +473,67 @@ def _build_molecule_graph(
                 image_shift=image_shift,
             )
 
+    # Published/forward connectivity is authoritative when present.  It is
+    # intentionally additive: ordinary geometric perception remains useful
+    # for contacts that were not recorded, while a long or unusual template
+    # bond cannot disappear merely because it exceeds the heuristic cutoff.
+    if explicit_bonds:
+        for raw_left, raw_right in explicit_bonds:
+            try:
+                left, right = int(raw_left), int(raw_right)
+            except (TypeError, ValueError):
+                continue
+            if not (
+                0 <= left < len(atoms)
+                and 0 <= right < len(atoms)
+                and left != right
+                and left not in excluded
+                and right not in excluded
+            ):
+                continue
+            if left > right:
+                left, right = right, left
+            if disorder_groups is not None:
+                group_left = int(disorder_groups[left])
+                group_right = int(disorder_groups[right])
+                if group_left and group_right and group_left != group_right:
+                    continue
+                if (
+                    sym_op_indices is not None
+                    and group_left
+                    and group_right
+                    and int(sym_op_indices[left]) != int(sym_op_indices[right])
+                ):
+                    continue
+            vector = np.asarray(
+                atoms.get_distance(left, right, mic=True, vector=True),
+                dtype=float,
+            )
+            raw_vector = np.asarray(
+                atoms.positions[right] - atoms.positions[left], dtype=float
+            )
+            cell = np.asarray(atoms.get_cell(), dtype=float)
+            if cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1.0e-12:
+                image_shift = np.rint((vector - raw_vector) @ np.linalg.inv(cell)).astype(int)
+            else:
+                image_shift = np.zeros(3, dtype=int)
+            crystal_graph.add_edge(
+                left,
+                right,
+                vector=vector,
+                image_shift=image_shift,
+            )
+            key = (min(left, right), max(left, right), tuple(int(value) for value in image_shift))
+            canonical_records.setdefault(
+                key,
+                {
+                    "left": key[0],
+                    "right": key[1],
+                    "right_image_shift": list(key[2]),
+                    "vector": [float(value) for value in vector],
+                },
+            )
+
     crystal_graph.graph["bond_records"] = [
         canonical_records[key] for key in sorted(canonical_records)
     ]
@@ -501,6 +563,7 @@ def identify_molecule_indices(
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
+    explicit_bonds: Optional[List[Tuple[int, int]]] = None,
 ) -> List[List[int]]:
     """
     Identify discrete molecular units and return their original atom indices.
@@ -516,6 +579,7 @@ def identify_molecule_indices(
         bond_thresholds=bond_thresholds,
         exclude_indices=exclude_indices,
         bond_scale=bond_scale,
+        explicit_bonds=explicit_bonds,
     )
     return _component_atom_indices(
         crystal_graph,
@@ -530,6 +594,7 @@ def identify_molecules(
     max_atoms: Optional[int] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
+    explicit_bonds: Optional[List[Tuple[int, int]]] = None,
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -561,6 +626,7 @@ def identify_molecules(
         bond_thresholds=bond_thresholds,
         exclude_indices=exclude_indices,
         bond_scale=bond_scale,
+        explicit_bonds=explicit_bonds,
     )
     components = _component_atom_indices(
         crystal_graph,
@@ -1701,6 +1767,13 @@ def scan_cif_disorder(
     _have_custom_soi = len(_raw_molcrys_soi) >= n_atoms or bool(_side_table)
     _have_custom_aid = len(_raw_molcrys_aid) >= n_atoms or bool(_side_table)
     _have_custom_sso = len(_raw_molcrys_sso) >= n_atoms or bool(_side_table)
+    # Standard CSD CIFs often contain a published ``_geom_bond`` table,
+    # but those bonds are descriptive and must not override the caller's
+    # bond-scale perception threshold.  MolCrysKit forward exports carry one
+    # of the custom provenance tables above; mark that distinction so only
+    # those authoritative connectivity records are re-applied on read-back.
+    if _have_custom_soi or _have_custom_aid or _have_custom_sso:
+        cif_chemistry["molcrys_provenance"] = True
 
     molcrys_sym_op_indices = []
     molcrys_asym_ids = []
@@ -1958,6 +2031,49 @@ def read_mol_crystal(
         KEY_ATOM_ID,
     )
 
+    def _published_bond_pairs(atoms_obj: Atoms, records) -> list[tuple[int, int]]:
+        """Map CIF bond-loop labels back to the expanded atom indices."""
+        if not records:
+            return []
+        labels_arr = np.asarray(atoms_obj.arrays.get(KEY_LABEL, []), dtype=str)
+        by_label: dict[str, list[int]] = {}
+        for index, label in enumerate(labels_arr):
+            by_label.setdefault(str(label), []).append(index)
+        pairs: list[tuple[int, int]] = []
+        for record in records:
+            left_candidates = by_label.get(str(record.get("atom1_label", "")), ())
+            right_candidates = by_label.get(str(record.get("atom2_label", "")), ())
+            if not left_candidates or not right_candidates:
+                continue
+            try:
+                raw_expected = record.get("distance_A")
+                if isinstance(raw_expected, dict):
+                    raw_expected = raw_expected.get("value")
+                expected = float(raw_expected)
+            except (TypeError, ValueError):
+                expected = float("nan")
+            candidates = []
+            for left in left_candidates:
+                for right in right_candidates:
+                    if left == right:
+                        continue
+                    distance = float(atoms_obj.get_distance(left, right, mic=True))
+                    error = abs(distance - expected) if np.isfinite(expected) else 0.0
+                    candidates.append((error, left, right))
+            if not candidates:
+                continue
+            # A P1 forward export has unique labels.  For an ASU export with
+            # repeated labels, retain every symmetry image at the published
+            # distance so connectivity is replicated along with the atoms.
+            best_error = min(item[0] for item in candidates)
+            cutoff = max(0.15, best_error + 1.0e-6)
+            for error, left, right in candidates:
+                if error <= cutoff:
+                    pair = tuple(sorted((int(left), int(right))))
+                    if pair not in pairs:
+                        pairs.append(pair)
+        return pairs
+
     # Extract disorder info — this is now the SOLE authority for atomic
     # positions, elements, and all disorder metadata.  We no longer use
     # pymatgen parse_structures() for the Structure, eliminating the
@@ -2070,11 +2186,18 @@ def read_mol_crystal(
     formula_moiety = disorder_info.formula_moiety
 
     # Identify molecular units using graph-based approach
+    explicit_bonds = _published_bond_pairs(
+        atoms,
+        disorder_info.cif_chemistry.get("published_bonds", ())
+        if disorder_info.cif_chemistry.get("molcrys_provenance")
+        else (),
+    )
     molecules = identify_molecules(
         atoms,
         bond_thresholds=bond_thresholds,
         max_atoms=max_atoms,
         bond_scale=bond_scale,
+        explicit_bonds=explicit_bonds,
     )
 
     pbc = (True, True, True)

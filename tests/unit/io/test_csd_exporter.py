@@ -125,7 +125,11 @@ def test_exporter_falls_back_from_null_disordered_molecule_and_skips_null_bonds(
     assert result["n_source_atoms"] == 2
     assert result["n_written_atoms"] == 1
     assert "_space_group_IT_number 61" in output.text
-    assert "H1" not in output.text
+    assert "_audit_creation_method" in output.text
+    assert "_chemical_name_common 'private name'" in output.text
+    assert "_chemical_formula_sum 'C2 H1'" in output.text
+    assert "_refine_ls_R_factor_all 2.00" in output.text
+    assert "H1       H" not in output.text
     assert any("omitted because fractional coordinates are unavailable" in warning for warning in result["warnings"])
     assert any("Bond export skipped" in warning for warning in result["warnings"])
 
@@ -141,3 +145,6 @@ def test_exporter_preserves_disorder_when_ccdc_groups_start_at_zero():
     assert "_atom_site_disorder_assembly" in output.text
     assert "_atom_site_disorder_group" in output.text
     assert result["n_disorder_sites"] == 2
+    # Raw CCDC group 0 is reserved for ordered atoms in MolCrysKit.
+    assert " 0.5000 ? ? 0 1" in output.text
+    assert " 0.5000 ? ? 0 0" not in output.text
