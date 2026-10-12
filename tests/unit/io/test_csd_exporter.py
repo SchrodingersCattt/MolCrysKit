@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
+import types
 from pathlib import Path
-
 
 SCRIPT = Path("skills/query-csd-structures/scripts/demo_csd_disorder_workflow.py")
 SPEC = importlib.util.spec_from_file_location("csd_exporter", SCRIPT)
@@ -47,6 +48,11 @@ class _AnisotropicDisplacement:
         (0.10, 0.01, 0.02),
         (0.01, 0.20, 0.03),
         (0.02, 0.03, 0.30),
+    )
+    uncertainties = (
+        (0.01, 0.01, 0.01),
+        (0.01, 0.01, 0.01),
+        (0.01, 0.01, 0.01),
     )
 
 
@@ -180,3 +186,52 @@ def test_exporter_preserves_disorder_when_ccdc_groups_start_at_zero():
     # Raw CCDC group 0 is reserved for ordered atoms in MolCrysKit.
     assert " 0.5000 ? ? 0 1" in output.text
     assert " 0.5000 ? ? 0 0" not in output.text
+
+
+def test_root_exporter_filters_null_coordinate_adps_and_bonds(monkeypatch):
+    """The root CSD demo must not emit rows for omitted null-coordinate atoms."""
+    root_script = Path("scripts/demo_csd_disorder_workflow.py")
+    spec = importlib.util.spec_from_file_location("root_csd_exporter", root_script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    c = _Atom("C1", "C", _Coords(0.1, 0.2, 0.3))
+    h = _Atom("H1", "H", None)
+    c.displacement_parameters = _AnisotropicDisplacement()
+    h.displacement_parameters = _AnisotropicDisplacement()
+    crystal = _Crystal(_Molecule([c, h], [_Bond(c, h)]))
+
+    class _EntryReader:
+        def __init__(self, _database):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def entry(self, _refcode):
+            return _Entry()
+
+        def crystal(self, _refcode):
+            return crystal
+
+    ccdc_io = types.ModuleType("ccdc.io")
+    ccdc_io.EntryReader = _EntryReader
+    ccdc = types.ModuleType("ccdc")
+    ccdc.io = ccdc_io
+    monkeypatch.setitem(sys.modules, "ccdc", ccdc)
+    monkeypatch.setitem(sys.modules, "ccdc.io", ccdc_io)
+
+    output = _MemoryPath()
+    result = module.export_full_cif_from_csd("NULLADP", output)
+
+    assert result["n_atoms"] == 2
+    assert result["n_aniso"] == 1
+    assert result["n_bonds"] == 0
+    assert " H1 H " not in output.text
+    aniso_section = output.text.split("_atom_site_aniso_label", 1)[1]
+    assert "H1" not in aniso_section.split("#END", 1)[0]
+    assert "_geom_bond_atom_site_label_1" not in output.text

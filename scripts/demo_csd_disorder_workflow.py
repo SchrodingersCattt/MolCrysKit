@@ -34,26 +34,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from itertools import product
 from pathlib import Path
 from typing import Any
 
-import re
 import numpy as np
 from ase import Atoms
 from ase.io import write as ase_write
 from pymatgen.core.lattice import Lattice
 
-from molcrys_kit.io.cif import scan_cif_disorder, identify_molecules
 from molcrys_kit.constants.config import (
-    KEY_OCCUPANCY,
-    KEY_DISORDER_GROUP,
     KEY_ASSEMBLY,
+    KEY_DISORDER_GROUP,
     KEY_LABEL,
+    KEY_OCCUPANCY,
 )
-
+from molcrys_kit.io.cif import identify_molecules, scan_cif_disorder
 
 # =============================================================================
 # Step 1-2: Export full CIF from CSD (requires CCDC Python API)
@@ -163,13 +162,17 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
             "dg": dg, "da": da, "aniso": aniso,
         })
 
-    # Extract bonds
-    bonds = []
+    # Extract bond candidates before filtering coordinate-less atom rows.  A
+    # CCDC bond can remain readable even when one endpoint has a null TSite;
+    # those endpoints must not leak into the emitted CIF.
+    bond_candidates = []
     try:
         for b in mol.bonds:
             try:
                 a1, a2 = b.atoms
-                bonds.append((str(a1.label), str(a2.label), float(b.length), str(b.bond_type)))
+                bond_candidates.append(
+                    (str(a1.label), str(a2.label), float(b.length), str(b.bond_type))
+                )
             except Exception:
                 continue
     except Exception:
@@ -229,8 +232,19 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
         L.append("_atom_site_disorder_assembly")
         L.append("_atom_site_disorder_group")
 
+    written_labels = set()
+
+    def _has_coordinates(row: dict[str, Any]) -> bool:
+        values = (row.get("fx"), row.get("fy"), row.get("fz"))
+        try:
+            return all(
+                value is not None and np.isfinite(float(value)) for value in values
+            )
+        except (TypeError, ValueError):
+            return False
+
     for d in atom_data:
-        if d["fx"] is None:
+        if not _has_coordinates(d):
             continue
         parts = [f"{d['label']:<8s}", f"{d['symbol']:<4s}",
                  f"{d['fx']:12.6f}", f"{d['fy']:12.6f}", f"{d['fz']:12.6f}",
@@ -239,10 +253,11 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
             parts.append(f"{str(d['da']) if d['da'] is not None else '.':>4s}")
             parts.append(f"{str(d['dg']) if d['dg'] is not None else '.':>4s}")
         L.append("  " + " ".join(parts))
+        written_labels.add(d["label"])
     L.append("")
 
     # Aniso ADP
-    aniso_atoms = [d for d in atom_data if d["aniso"]]
+    aniso_atoms = [d for d in atom_data if d["aniso"] and d["label"] in written_labels]
     if aniso_atoms:
         L.append("loop_")
         L.append("_atom_site_aniso_label")
@@ -262,6 +277,12 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
                      f" {fv_esd(u['u13'], u['e13']):>12s}"
                      f" {fv_esd(u['u23'], u['e23']):>12s}")
         L.append("")
+
+    bonds = [
+        candidate
+        for candidate in bond_candidates
+        if candidate[0] in written_labels and candidate[1] in written_labels
+    ]
 
     # Bonds
     if bonds:

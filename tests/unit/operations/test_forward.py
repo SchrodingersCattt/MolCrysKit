@@ -5,10 +5,6 @@ import pytest
 from ase import Atoms
 from pymatgen.io.cif import CifParser
 
-from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder
-from molcrys_kit.io.output import write_cif_asu, write_cif_p1, write_disorder_cif
-from molcrys_kit.structures.crystal import MolecularCrystal
-from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.constants.config import (
     KEY_ASSEMBLY,
     KEY_ATOM_ID,
@@ -18,7 +14,10 @@ from molcrys_kit.constants.config import (
     KEY_SITE_SYMMETRY_ORDER,
     KEY_SYM_OP_INDEX,
 )
+from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder
+from molcrys_kit.io.output import write_cif_asu, write_cif_p1, write_disorder_cif
 from molcrys_kit.operations.forward import (
+    ConstructionValidationError,
     IncompatibleSiteError,
     InvalidOrientationError,
     MolecularPose,
@@ -27,8 +26,9 @@ from molcrys_kit.operations.forward import (
     construct_molecular_crystal,
     construct_statistical_disorder,
     prepare_construction_context,
-    ConstructionValidationError,
 )
+from molcrys_kit.structures.crystal import MolecularCrystal
+from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.structures.symmetry import FractionalAffineOperation
 
 
@@ -218,6 +218,7 @@ def test_special_position_asu_has_one_row_for_exchanged_atom_orbit():
     )
     crystal = construct_molecular_crystal(context, MolecularPose(template, [0, 0, 0]))
     cif = write_cif_asu(crystal)
+    assert " C1 C1 " not in cif
     block = next(iter(CifParser.from_str(cif).as_dict().values()))
     assert len(block["_atom_site_label"]) == 1
     assert "_geom_bond_atom_site_label_1" in cif
@@ -227,6 +228,50 @@ def test_special_position_asu_has_one_row_for_exchanged_atom_orbit():
     reread = read_mol_crystal(cif_text=cif, attach_chemistry=False)
     assert len(reread.molecules) == 1
     assert reread.molecules[0].graph.has_edge(0, 1)
+
+
+def test_asu_rejects_full_occupancy_independent_rows_related_by_symmetry():
+    """Two independent full sites in one declared orbit cannot both expand."""
+    context = _pminus1_context()
+    molecules = []
+    for index, fractional in enumerate(
+        ([0.13, 0.21, 0.37], [0.87, 0.79, 0.63])
+    ):
+        atoms = Atoms("C", positions=[np.asarray(fractional) * 10.0])
+        atoms.set_array(KEY_LABEL, np.asarray([f"C{index + 1}"], dtype=str))
+        atoms.set_array(KEY_ATOM_ID, np.asarray([f"site{index + 1}"], dtype=str))
+        molecules.append(CrystalMolecule(atoms, check_pbc=False))
+    crystal = MolecularCrystal(
+        context.lattice, molecules, metadata={"forward_context": context}
+    )
+    with pytest.raises(ValueError, match="overoccupies a symmetry-related"):
+        write_cif_asu(crystal)
+
+
+def test_asu_metadata_and_site_provenance_survive_round_trip():
+    context = _pminus1_context()
+    template = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), anchor_index=0)
+    crystal = construct_molecular_crystal(
+        context, MolecularPose(template, [0.0, 0.0, 0.0])
+    )
+    cif = write_cif_asu(
+        crystal,
+        metadata={"cell_transform": {"mode": "test", "source_hash": "abc"}},
+    )
+    restored = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+    assert restored.metadata["cell_transform"] == {
+        "mode": "test",
+        "source_hash": "abc",
+    }
+    assert np.all(
+        np.concatenate(
+            [
+                molecule.arrays[KEY_SITE_SYMMETRY_ORDER]
+                for molecule in restored.molecules
+            ]
+        )
+        == 2
+    )
 
 
 def test_forward_molecules_preserve_site_symmetry_order_provenance():

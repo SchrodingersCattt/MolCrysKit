@@ -5,22 +5,22 @@ This module provides functions for writing molecular crystal data to various for
 """
 
 import base64
+import hashlib
 import json
 import os
 import re
+import warnings
 from fractions import Fraction
-import hashlib
 from io import StringIO
 from typing import Optional, Sequence
-import warnings
 
 import ase.io
 import numpy as np
 from ase.constraints import FixScaled
 from ase.io.vasp import write_vasp
 
-from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
+from ..structures.molecule import CrystalMolecule
 
 
 def write_xyz(molecule: CrystalMolecule, filename: str = None) -> str:
@@ -256,10 +256,16 @@ def write_cif(
         )
 
     from ..constants.config import (
-        KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL,
+        KEY_ASSEMBLY,
+        KEY_ASYM_ID,
         KEY_ATOM_ID,
-        KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
-        KEY_UISO, KEY_U_CART,
+        KEY_DISORDER_GROUP,
+        KEY_LABEL,
+        KEY_OCCUPANCY,
+        KEY_SITE_SYMMETRY_ORDER,
+        KEY_SYM_OP_INDEX,
+        KEY_U_CART,
+        KEY_UISO,
     )
 
     # Transform provenance belongs to the crystal itself, while the optional
@@ -775,6 +781,98 @@ def _is_equivalent_site(left, right, operations, tolerance=1e-7) -> bool:
     return False
 
 
+def _is_symmetry_related_site(left, right, operations, tolerance=1e-7) -> bool:
+    """Return whether two rows occupy one crystallographic site orbit.
+
+    This deliberately ignores entity/disorder identity.  Those fields decide
+    whether rows are alternatives at the same site, while this predicate
+    decides whether retaining both coordinates would cause a second symmetry
+    expansion of the same site orbit.
+    """
+    if left.get("symbol") != right.get("symbol"):
+        return False
+    for operation in operations:
+        mapped = operation.apply(left["fractional"], wrap=False)
+        if np.allclose(
+            mapped - right["fractional"],
+            np.rint(mapped - right["fractional"]),
+            atol=tolerance,
+            rtol=0.0,
+        ):
+            return True
+    return False
+
+
+def _reduce_asu_rows(rows, operations, tolerance: float):
+    """Reduce materialized rows to one coordinate per crystallographic orbit.
+
+    Forward-generated operation mates with the same site identity are reduced
+    by ``_is_equivalent_site``.  Independent identities that happen to be
+    related by a non-identity operation are retained as alternatives, but are
+    moved to the first representative coordinate so the operation loop does
+    not expand them twice.  Their summed occupation is bounded by one per
+    crystallographic slot; a full-occupancy collision is rejected instead of
+    emitting an invalid CIF.
+    """
+    selected = []
+    for row in rows:
+        if not any(
+            _is_equivalent_site(row, existing, operations, tolerance)
+            for existing in selected
+        ):
+            selected.append(row)
+
+    # Build connected components under symmetry equivalence.  A pair may be
+    # related through more than one operation, hence the small union-find
+    # rather than only comparing every row with the first one.
+    parent = list(range(len(selected)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for left in range(len(selected)):
+        for right in range(left + 1, len(selected)):
+            if _is_symmetry_related_site(
+                selected[left], selected[right], operations, tolerance
+            ):
+                union(left, right)
+
+    components = {}
+    for index in range(len(selected)):
+        components.setdefault(find(index), []).append(index)
+    for indices in components.values():
+        representative = selected[indices[0]]
+        total_occupancy = sum(
+            float(selected[index].get("occupancy", 1.0)) for index in indices
+        )
+        if total_occupancy > 1.0 + tolerance:
+            identities = ", ".join(
+                str(
+                    selected[index].get("atom_id")
+                    or selected[index].get("entity_key")
+                )
+                for index in indices
+            )
+            raise ValueError(
+                "true-ASU export overoccupies a symmetry-related crystallographic "
+                f"site (occupancy={total_occupancy:.8g}; identities={identities})"
+            )
+        coordinate = np.asarray(representative["fractional"], dtype=float).copy()
+        for index in indices[1:]:
+            # Retain each independent identity/disorder row, but serialize it
+            # at the one representative coordinate of the site orbit.
+            selected[index]["fractional"] = coordinate.copy()
+    return selected
+
+
 def write_cif_asu(
     crystal: MolecularCrystal,
     filename: str | None = None,
@@ -791,18 +889,45 @@ def write_cif_asu(
     """
     context = _forward_context_for_io(crystal, symmetry=symmetry)
     lattice, operations, symmetry_obj = _context_parts(context)
+    crystal_metadata = dict(getattr(crystal, "metadata", {}) or {})
+    export_metadata = dict(crystal_metadata)
+    export_metadata.update(metadata or {})
+    chemistry_metadata = export_metadata.get("cif_chemistry")
+    if isinstance(chemistry_metadata, dict):
+        representation = chemistry_metadata.get("molcrys_representation")
+    else:
+        representation = None
+    representation = export_metadata.get("molcrys_representation", representation)
+    representation = export_metadata.get("representation", representation)
+
+    # A P1/statistical output already contains every symmetry image.  Reusing
+    # its source context as the serialization group would expand those rows a
+    # second time.  Keep the physical source group in provenance, but emit the
+    # materialized rows with identity symmetry.
+    materialized = str(representation or "").casefold() in {
+        "expanded_full_cell_p1",
+        "statistical_average",
+        "ordered_realization",
+        "materialized_p1",
+    }
+    source_operations = operations
+    if materialized:
+        from ..structures.symmetry import identity_operation
+
+        operations = (identity_operation(),)
     rows = _forward_atom_rows(crystal, lattice)
-    selected = []
     tolerance = float(getattr(context, "fractional_tolerance", 1e-7))
-    for row in rows:
-        if not any(_is_equivalent_site(row, existing, operations, tolerance) for existing in selected):
-            selected.append(row)
+    selected = rows if materialized else _reduce_asu_rows(rows, operations, tolerance)
     # Stable labels are required even when source templates used duplicate
     # element labels.
     used = set()
     for index, row in enumerate(selected):
         label = row["label"]
-        if not label or label in used or not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", label):
+        if (
+            not label
+            or label in used
+            or not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", label)
+        ):
             label = f"{row['symbol']}{index + 1}"
         while label in used:
             label = f"{row['symbol']}{index + 1}_{len(used)}"
@@ -810,21 +935,56 @@ def write_cif_asu(
         used.add(label)
 
     a, b, c = [float(np.linalg.norm(vector)) for vector in lattice]
-    alpha = float(np.degrees(np.arccos(np.clip(np.dot(lattice[1], lattice[2]) / (b * c), -1.0, 1.0))))
-    beta = float(np.degrees(np.arccos(np.clip(np.dot(lattice[0], lattice[2]) / (a * c), -1.0, 1.0))))
-    gamma = float(np.degrees(np.arccos(np.clip(np.dot(lattice[0], lattice[1]) / (a * b), -1.0, 1.0))))
+    alpha = float(
+        np.degrees(
+            np.arccos(np.clip(np.dot(lattice[1], lattice[2]) / (b * c), -1.0, 1.0))
+        )
+    )
+    beta = float(
+        np.degrees(
+            np.arccos(np.clip(np.dot(lattice[0], lattice[2]) / (a * c), -1.0, 1.0))
+        )
+    )
+    gamma = float(
+        np.degrees(
+            np.arccos(np.clip(np.dot(lattice[0], lattice[1]) / (a * b), -1.0, 1.0))
+        )
+    )
     number = getattr(symmetry_obj, "space_group_number", None)
     symbol = getattr(symmetry_obj, "space_group_symbol", None) or "?"
     hall = getattr(symmetry_obj, "hall_symbol", None)
+    if materialized:
+        number = 1
+        symbol = "P 1"
+        hall = None
     lines = [
         "data_molcrys_forward_asu",
         "_audit_creation_method 'MolCrysKit forward construction'",
-        "_molcrys_representation 'ordered_asymmetric_unit'",
+        "_molcrys_representation "
+        f"'{('expanded_full_cell_P1' if materialized else 'ordered_asymmetric_unit')}'",
         f"_symmetry_space_group_name_H-M '{symbol}'",
         f"_symmetry_Int_Tables_number {number if number is not None else '?'}",
     ]
     if hall:
         lines.append(f"_space_group_name_Hall '{hall}'")
+    if materialized:
+        source_symbol = getattr(symmetry_obj, "space_group_symbol", None)
+        source_number = getattr(symmetry_obj, "space_group_number", None)
+        lines.extend(
+            [
+                f"_molcrys_source_space_group_name_H-M '{source_symbol or '?'}'",
+                "_molcrys_source_space_group_number "
+                f"{source_number if source_number is not None else '?'}",
+                "",
+                "loop_",
+                "  _molcrys_source_symop_id",
+                "  _molcrys_source_symop_xyz",
+            ]
+        )
+        lines.extend(
+            f"  {index + 1} '{_operation_xyz(operation)}'"
+            for index, operation in enumerate(source_operations)
+        )
     lines.extend(["", "loop_", "  _symmetry_equiv_pos_as_xyz"])
     lines.extend(f"  '{_operation_xyz(operation)}'" for operation in operations)
     lines.extend([
@@ -836,6 +996,36 @@ def write_cif_asu(
         f"_cell_angle_beta {beta:.8f}",
         f"_cell_angle_gamma {gamma:.8f}",
         "",
+    ])
+    transform = export_metadata.get("cell_transform")
+    if transform is not None:
+        payload = base64.urlsafe_b64encode(
+            json.dumps(transform, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii")
+        lines.extend([f"_molcrys_cell_transform_json '{payload}'", ""])
+    termination = export_metadata.get("termination_info")
+    if termination is not None:
+        for name, attribute in (
+            ("_molcrys_termination_shift", "shift"),
+            ("_molcrys_termination_index", "termination_index"),
+            ("_molcrys_tasker_type", "tasker_type"),
+            ("_molcrys_tasker_polar", "is_polar"),
+            ("_molcrys_tasker_dipole_per_area", "dipole_per_area"),
+            ("_molcrys_charge_source", "charge_source"),
+            ("_molcrys_tasker2_corrected", "tasker2_corrected"),
+        ):
+            value = (
+                termination.get(attribute)
+                if isinstance(termination, dict)
+                else getattr(termination, attribute, None)
+            )
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = f"'{value.replace(chr(39), chr(39) * 2)}'"
+            lines.append(f"{name} {value}")
+        lines.append("")
+    lines.extend([
         "loop_",
         "  _atom_site_label",
         "  _atom_site_type_symbol",
@@ -851,8 +1041,10 @@ def write_cif_asu(
         fractional = row["fractional"] - np.floor(row["fractional"])
         assembly = row["assembly"] if row["assembly"] not in {"", "None"} else "."
         lines.append(
-            f"  {row['label']} {row['symbol']} {fractional[0]:.8f} {fractional[1]:.8f} {fractional[2]:.8f} "
-            f"{row['occupancy']:.8f} {row['group']} {assembly} {int(row['site_symmetry_order'])}"
+            f"  {row['label']} {row['symbol']} {fractional[0]:.8f} "
+            f"{fractional[1]:.8f} {fractional[2]:.8f} "
+            f"{row['occupancy']:.8f} {row['group']} {assembly} "
+            f"{int(row['site_symmetry_order'])}"
         )
     selected_by_source = {
         (int(row["molecule_index"]), int(row["atom_index"])): row
@@ -873,6 +1065,7 @@ def write_cif_asu(
         return None
 
     asu_bonds = []
+    had_bond_candidates = False
     seen_bonds = set()
     for molecule_index, molecule in enumerate(crystal.molecules):
         info = getattr(molecule, "info", {}) or {}
@@ -885,6 +1078,7 @@ def write_cif_asu(
                 left, right = int(raw_pair[0]), int(raw_pair[1])
             except (TypeError, ValueError, IndexError):
                 continue
+            had_bond_candidates = True
             left_row = selected_by_source.get((molecule_index, left))
             right_row = selected_by_source.get((molecule_index, right))
             # A bond can connect two atoms exchanged by a stabilizer.  Only
@@ -892,10 +1086,21 @@ def write_cif_asu(
             # representative for both endpoints; the reader expands the
             # repeated label and restores the pair from the bond distance.
             if left_row is None:
-                left_row = _selected_equivalent(rows_by_source.get((molecule_index, left)))
+                left_row = _selected_equivalent(
+                    rows_by_source.get((molecule_index, left))
+                )
             if right_row is None:
-                right_row = _selected_equivalent(rows_by_source.get((molecule_index, right)))
+                right_row = _selected_equivalent(
+                    rows_by_source.get((molecule_index, right))
+                )
             if left_row is None or right_row is None:
+                continue
+            # A stabilizer can exchange the two endpoints of a bond.  Mapping
+            # both endpoints to one retained ASU row would create an invalid
+            # self-reference (e.g. ``C1 C1``).  The expanded geometry still
+            # carries this edge, so omit the ambiguous ASU row rather than
+            # writing a dangling/self bond that CIF readers cannot recover.
+            if left_row["label"] == right_row["label"]:
                 continue
             key = tuple(sorted((left_row["label"], right_row["label"])))
             if key in seen_bonds:
@@ -922,6 +1127,13 @@ def write_cif_asu(
         lines.extend(
             f"  {left} {right} {distance:.6f} single"
             for left, right, distance in asu_bonds
+        )
+    elif had_bond_candidates:
+        # Keep a discoverable marker for callers that inspect the standard
+        # bond schema, while deliberately emitting no invalid/self row.
+        lines.append(
+            "# _geom_bond_atom_site_label_1 omitted: "
+            "symmetry-exchanged self reference"
         )
     lines.extend(
         [
