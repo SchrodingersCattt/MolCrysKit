@@ -248,6 +248,42 @@ def _extract_custom_molcrys_provenance_rows(
     return rows
 
 
+def _extract_custom_molcrys_atom_ids(text: str) -> Dict[int, str]:
+    """Read the optional atom-identity side table emitted by MolCrysKit."""
+    lines = text.splitlines()
+    result: Dict[int, str] = {}
+    for index, line in enumerate(lines):
+        if line.strip().lower() != "loop_":
+            continue
+        cursor = index + 1
+        tags = []
+        while cursor < len(lines) and lines[cursor].lstrip().startswith("_"):
+            tags.append(lines[cursor].strip().split()[0])
+            cursor += 1
+        if "_molcrys_atom_index" not in tags or "_molcrys_atom_id" not in tags:
+            continue
+        tag_to_index = {tag: position for position, tag in enumerate(tags)}
+        while cursor < len(lines):
+            stripped = lines[cursor].strip()
+            if not stripped:
+                cursor += 1
+                continue
+            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+                break
+            # IDs are quoted by the writer; shlex handles both quoted and
+            # unquoted legacy values without changing embedded punctuation.
+            import shlex
+            tokens = shlex.split(stripped)
+            if len(tokens) == len(tags):
+                try:
+                    atom_index = int(tokens[tag_to_index["_molcrys_atom_index"]])
+                    result[atom_index] = tokens[tag_to_index["_molcrys_atom_id"]]
+                except (TypeError, ValueError, IndexError):
+                    pass
+            cursor += 1
+    return result
+
+
 def _pymatgen_cif_parser(
     filepath: Optional[str] = None,
     *,
@@ -517,6 +553,7 @@ def identify_molecules(
         KEY_LABEL,
         KEY_OCCUPANCY,
         KEY_SYM_OP_INDEX,
+        KEY_ATOM_ID,
     )
 
     crystal_graph = _build_molecule_graph(
@@ -575,6 +612,8 @@ def identify_molecules(
             KEY_ASSEMBLY,
             KEY_LABEL,
             KEY_SYM_OP_INDEX,
+            KEY_ATOM_ID,
+            "mck_molecule_id",
         ]:
             if key in atoms.arrays:
                 original_array = atoms.arrays[key]
@@ -661,6 +700,9 @@ class DisorderInfo:
     site_formal_charges: List[Optional[int]] = None  # Explicit per-site charge
     cif_chemistry: dict = None  # Names, absolute-structure evidence, bond table
     crystal_symmetry: CrystalSymmetry = None  # Validated affine operation set
+    atom_ids: List[str] = None  # Stable MolCrysKit atom identities
+    molecule_ids: List[int] = None  # Optional writer-side molecule provenance
+    source_symmetry: CrystalSymmetry = None  # Provenance symmetry for expanded-P1 output
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -687,6 +729,10 @@ class DisorderInfo:
             self.isotopes = [0] * len(self.labels)
         if self.site_formal_charges is None:
             self.site_formal_charges = [None] * len(self.labels)
+        if self.atom_ids is None:
+            self.atom_ids = [""] * len(self.labels)
+        if self.molecule_ids is None:
+            self.molecule_ids = [-1] * len(self.labels)
         if self.cif_chemistry is None:
             self.cif_chemistry = {}
         # lattice_matrix stays None when not available (e.g. legacy callers);
@@ -741,6 +787,7 @@ class DisorderInfo:
             KEY_FORMAL_CHARGE,
             KEY_FORMAL_CHARGE_KNOWN,
             KEY_ISOTOPE,
+            KEY_ATOM_ID,
         )
 
         atoms = crystal.to_ase()
@@ -750,6 +797,14 @@ class DisorderInfo:
 
         labels_arr = atoms.arrays.get(KEY_LABEL)
         labels = list(labels_arr) if labels_arr is not None else list(symbols)
+        atom_ids_arr = atoms.arrays.get(KEY_ATOM_ID)
+        atom_ids = list(atom_ids_arr) if atom_ids_arr is not None else [""] * n
+        molecule_ids_arr = atoms.arrays.get("mck_molecule_id")
+        molecule_ids = (
+            [int(value) for value in molecule_ids_arr]
+            if molecule_ids_arr is not None
+            else [-1] * n
+        )
 
         # Always recompute fractional coordinates from Cartesian positions
         # and the current lattice.  Stored frac_x/y/z arrays are CIF-origin
@@ -837,6 +892,11 @@ class DisorderInfo:
             site_formal_charges=site_formal_charges,
             cif_chemistry=dict(crystal.metadata.get("cif_chemistry", {})),
             crystal_symmetry=crystal.metadata.get("crystal_symmetry"),
+            atom_ids=atom_ids,
+            molecule_ids=molecule_ids,
+            source_symmetry=crystal.metadata.get("forward_context", None).symmetry
+            if crystal.metadata.get("forward_context") is not None
+            else None,
         )
 
     def summary(self) -> str:
@@ -1428,6 +1488,24 @@ def scan_cif_disorder(
         expand_symmetry=expand_symmetry,
         strict=False,
     )
+    source_symmetry = None
+    source_xyz = _as_cif_list(data_block.get("_molcrys_source_symop_xyz"))
+    if source_xyz:
+        source_block = dict(data_block)
+        source_block["_symmetry_equiv_pos_as_xyz"] = source_xyz
+        if "_molcrys_source_space_group_number" in data_block:
+            source_block["_symmetry_Int_Tables_number"] = data_block[
+                "_molcrys_source_space_group_number"
+            ]
+        if "_molcrys_source_space_group_name_H-M" in data_block:
+            source_block["_symmetry_space_group_name_H-M"] = data_block[
+                "_molcrys_source_space_group_name_H-M"
+            ]
+        source_symmetry = _crystal_symmetry_from_data_block(
+            source_block,
+            expand_symmetry=False,
+            strict=False,
+        )
     sym_ops = [
         SymmOp.from_rotation_and_translation(
             operation.rotation,
@@ -1454,6 +1532,9 @@ def scan_cif_disorder(
     # Extract raw data fields
     labels = _as_cif_list(data_block.get("_atom_site_label"))
     symbols = _as_cif_list(data_block.get("_atom_site_type_symbol"))
+    raw_atom_ids = [str(value) for value in _as_cif_list(data_block.get("_molcrys_atom_id"))]
+    raw_molecule_ids = _as_cif_list(data_block.get("_molcrys_molecule_id"))
+    side_atom_ids = _extract_custom_molcrys_atom_ids(raw_text or "")
     raw_type_symbols = list(symbols)
 
     # If type symbols are missing, try to extract them from labels
@@ -1493,6 +1574,16 @@ def scan_cif_disorder(
 
     # Convert fractional coordinates to numpy array
     n_atoms = len(labels)
+    atom_ids = [
+        (raw_atom_ids[index] if index < len(raw_atom_ids) else side_atom_ids.get(index, ""))
+        for index in range(n_atoms)
+    ]
+    molecule_ids = []
+    for index in range(n_atoms):
+        try:
+            molecule_ids.append(int(_extract_numeric_value(raw_molecule_ids[index])))
+        except (IndexError, TypeError, ValueError):
+            molecule_ids.append(-1)
     frac_coords = np.zeros((n_atoms, 3))
 
     for i in range(n_atoms):
@@ -1677,6 +1768,8 @@ def scan_cif_disorder(
     all_raw_type_symbols = []
     all_isotopes = []
     all_site_formal_charges = []
+    all_atom_ids = []
+    all_molecule_ids = []
 
     # Per-element buckets canonicalise symmetry-equivalent ASU rows (some CSD
     # exports contain multiple labelled rows from the same orbit).  Distinct
@@ -1749,6 +1842,11 @@ def scan_cif_disorder(
             all_raw_type_symbols.append(str(raw_type_symbols[i]))
             all_isotopes.append(int(isotopes[i]))
             all_site_formal_charges.append(site_formal_charges[i])
+            source_atom_id = atom_ids[i] if i < len(atom_ids) else ""
+            if source_atom_id and len(sym_ops) > 1 and op_idx:
+                source_atom_id = f"{source_atom_id}@op{op_idx}"
+            all_atom_ids.append(source_atom_id)
+            all_molecule_ids.append(molecule_ids[i] if i < len(molecule_ids) else -1)
 
             # Use custom _molcrys_* provenance when available (CIF round-trip
             # for slabs/supercells where symmetry expansion is P1 identity).
@@ -1794,8 +1892,11 @@ def scan_cif_disorder(
         raw_type_symbols=all_raw_type_symbols,
         isotopes=all_isotopes,
         site_formal_charges=all_site_formal_charges,
+        atom_ids=all_atom_ids,
+        molecule_ids=all_molecule_ids,
         cif_chemistry=cif_chemistry,
         crystal_symmetry=crystal_symmetry,
+        source_symmetry=source_symmetry,
     )
 
 
@@ -1854,6 +1955,7 @@ def read_mol_crystal(
         KEY_FORMAL_CHARGE,
         KEY_FORMAL_CHARGE_KNOWN,
         KEY_ISOTOPE,
+        KEY_ATOM_ID,
     )
 
     # Extract disorder info — this is now the SOLE authority for atomic
@@ -1917,6 +2019,12 @@ def read_mol_crystal(
     )
     atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies))
     atoms.set_array(KEY_LABEL, np.array(disorder_info.labels))
+    if disorder_info.atom_ids:
+        atoms.set_array(KEY_ATOM_ID, np.asarray(disorder_info.atom_ids, dtype=str))
+    if disorder_info.molecule_ids and len(disorder_info.molecule_ids) == n:
+        atoms.set_array(
+            "mck_molecule_id", np.asarray(disorder_info.molecule_ids, dtype=int)
+        )
     if disorder_info.sym_op_indices:
         atoms.set_array(
             KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices, dtype=int)
@@ -1972,18 +2080,39 @@ def read_mol_crystal(
     pbc = (True, True, True)
     cif_chemistry = dict(disorder_info.cif_chemistry)
     cell_transform = cif_chemistry.pop("cell_transform", None)
-    crystal_metadata = {
+    metadata = {
         "cif_chemistry": cif_chemistry,
         "crystal_symmetry": disorder_info.crystal_symmetry,
+        "cif_molecule_ids": tuple(disorder_info.molecule_ids),
     }
     if cell_transform is not None:
-        crystal_metadata["cell_transform"] = cell_transform
+        metadata["cell_transform"] = cell_transform
+    # Reconstruct the validated forward context written by expanded-P1
+    # exports.  ASU exports use their declared operation loop directly;
+    # expanded-P1 exports carry the physical source operation loop in the
+    # provenance fields above the atom table.
+    source_symmetry = disorder_info.source_symmetry or disorder_info.crystal_symmetry
+    if source_symmetry is not None and (
+        disorder_info.source_symmetry is not None
+        or any(str(value) for value in disorder_info.atom_ids)
+    ):
+        try:
+            from ..operations.forward import prepare_construction_context
+
+            metadata["forward_context"] = prepare_construction_context(
+                lattice,
+                source_symmetry,
+                chemistry_policy="unspecified",
+            )
+            metadata["source_symmetry"] = metadata["forward_context"].to_metadata()
+        except Exception as error:
+            metadata["source_symmetry_error"] = str(error)
     crystal = MolecularCrystal(
         lattice,
         molecules,
         pbc,
         formula_moiety=formula_moiety,
-        metadata=crystal_metadata,
+        metadata=metadata,
     )
     if attach_chemistry:
         from ..chemistry import infer_chemistry

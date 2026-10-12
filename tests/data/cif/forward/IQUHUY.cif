@@ -1,0 +1,99 @@
+data_forward_fixture
+_cell_length_a 10.5850
+_cell_length_b 8.5580
+_cell_length_c 3.9106
+_cell_angle_alpha 90.00
+_cell_angle_beta 90.46
+_cell_angle_gamma 90.00
+_cell_volume 354.24
+_cell_formula_units_Z 2
+_space_group_name_H-M_alt 'C2/m'
+_space_group_IT_number 12
+_space_group_setting 1
+_space_group_name_Hall '?'
+
+loop_
+_symmetry_equiv_pos_as_xyz
+'x,y,z'
+'-x,y,-z'
+'1/2+x,1/2+y,z'
+'1/2-x,1/2+y,-z'
+'-x,-y,-z'
+'x,-y,z'
+'1/2-x,1/2-y,-z'
+'1/2+x,1/2-y,z'
+
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_U_iso_or_equiv
+_atom_site_thermal_displace_type
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+N1 N 0.846000 0.000000 1.382600 0.5000 0.1047 Uani 0 1
+C1 C 0.746600 0.000000 1.275300 1.0000 0.0785 Uani . .
+C2 C 0.559700 -0.139600 1.068300 1.0000 0.0803 Uani . .
+C3 C 0.622100 0.000000 1.138200 1.0000 0.0705 Uani . .
+H1 H 0.609000 -0.233000 1.127000 1.0000 0.1090 Uiso . .
+C4 C 0.846000 0.000000 1.382600 0.5000 0.1047 Uani 0 2
+H2 H 0.939000 0.000000 1.432000 1.0000 0.0940 Uiso 0 2
+N2 N 0.154000 0.000000 0.617400 0.5000 0.1047 Uani 0 2
+C5 C 0.253400 0.000000 0.724700 1.0000 0.0785 Uani . .
+C6 C 0.440300 -0.139600 0.931700 1.0000 0.0803 Uani . .
+C7 C 0.377900 0.000000 0.861800 1.0000 0.0705 Uani . .
+H3 H 0.391000 -0.233000 0.873000 1.0000 0.1090 Uiso . .
+C8 C 0.154000 0.000000 0.617400 0.5000 0.1047 Uani 0 1
+H4 H 0.061000 0.000000 0.568000 1.0000 0.0940 Uiso 0 1
+C9 C 0.440300 0.139600 0.931700 1.0000 0.0803 Uani . .
+H5 H 0.391000 0.233000 0.873000 1.0000 0.1090 Uiso . .
+C10 C 0.559700 0.139600 1.068300 1.0000 0.0803 Uani . .
+H6 H 0.609000 0.233000 1.127000 1.0000 0.1090 Uiso . .
+
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+N1 0.110000 0.105000 0.099000 0.000000 -0.011000 0.000000
+C1 0.089000 0.081000 0.065500 0.000000 -0.002300 0.000000
+C2 0.098700 0.061100 0.081200 0.007300 -0.001200 0.003900
+C3 0.092000 0.067200 0.052500 0.000000 0.005100 0.000000
+C4 0.110000 0.105000 0.099000 0.000000 -0.011000 0.000000
+N2 0.110000 0.105000 0.099000 0.000000 -0.011000 0.000000
+C5 0.089000 0.081000 0.065500 0.000000 -0.002300 0.000000
+C6 0.098700 0.061100 0.081200 -0.007300 -0.001200 -0.003900
+C7 0.092000 0.067200 0.052500 0.000000 0.005100 0.000000
+C8 0.110000 0.105000 0.099000 0.000000 -0.011000 0.000000
+C9 0.098700 0.061100 0.081200 0.007300 -0.001200 0.003900
+C10 0.098700 0.061100 0.081200 -0.007300 -0.001200 -0.003900
+
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_type
+N1 C1 1.1296 Triple
+C1 C3 1.4187 Single
+C1 C4 1.1296 Triple
+C2 C3 1.3912 Aromatic
+C2 H1 0.9808 Single
+C2 C6 1.3681 Aromatic
+C3 C10 1.3912 Aromatic
+C4 H2 1.0017 Single
+N2 C5 1.1296 Triple
+C5 C7 1.4187 Single
+C5 C8 1.1296 Triple
+C6 C7 1.3912 Aromatic
+C6 H3 0.9808 Single
+C7 C9 1.3912 Aromatic
+C8 H4 1.0017 Single
+C9 H5 0.9808 Single
+C9 C10 1.3681 Aromatic
+C10 H6 0.9808 Single

@@ -1,0 +1,266 @@
+"""Contract tests for the Issue #172 forward-construction kernel."""
+
+import numpy as np
+import pytest
+from ase import Atoms
+from pymatgen.io.cif import CifParser
+
+from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder
+from molcrys_kit.io.output import write_cif_asu, write_cif_p1, write_disorder_cif
+from molcrys_kit.structures.crystal import MolecularCrystal
+from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.constants.config import (
+    KEY_ASSEMBLY,
+    KEY_ATOM_ID,
+    KEY_DISORDER_GROUP,
+    KEY_LABEL,
+    KEY_OCCUPANCY,
+)
+from molcrys_kit.operations.forward import (
+    IncompatibleSiteError,
+    InvalidOrientationError,
+    MolecularPose,
+    MolecularTemplate,
+    analyze_molecular_pose,
+    construct_molecular_crystal,
+    construct_statistical_disorder,
+    prepare_construction_context,
+    ConstructionValidationError,
+)
+from molcrys_kit.structures.symmetry import FractionalAffineOperation
+
+
+def _operation(rotation, translation=(0, 0, 0), xyz=None, index=None):
+    return FractionalAffineOperation(
+        np.asarray(rotation, dtype=float),
+        np.asarray(translation, dtype=float),
+        xyz=xyz,
+        index=index,
+    )
+
+
+def _pminus1_context(lattice=None):
+    lattice = np.eye(3) * 10.0 if lattice is None else lattice
+    return prepare_construction_context(
+        lattice,
+        (
+            _operation(np.eye(3), xyz="x,y,z", index=0),
+            _operation(-np.eye(3), xyz="-x,-y,-z", index=1),
+        ),
+        space_group_number=2,
+        space_group_symbol="P -1",
+    )
+
+
+def test_general_position_expands_two_complete_molecules_without_disorder():
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("CO", positions=[[0.0, 0.0, 0.0], [1.2, 0.2, 0.1]]),
+        identifier="co",
+        anchor_index=0,
+    )
+    pose = MolecularPose(template, [0.17, 0.23, 0.31])
+    analysis = analyze_molecular_pose(context, pose)
+    assert analysis.orbit_multiplicity == 2
+    assert analysis.site_symmetry_order == 1
+    assert analysis.ordered_compatible
+    crystal = construct_molecular_crystal(context, pose)
+    assert len(crystal.molecules) == 2
+    assert sum(len(molecule) for molecule in crystal.molecules) == 4
+    assert all(np.isclose(molecule.arrays["occupancy"], 1.0).all() for molecule in crystal.molecules)
+
+
+def test_inversion_special_site_requires_explicit_disorder_and_merges_anchor_atom():
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("OH2", positions=[[0.0, 0.0, 0.0], [0.8, 0.0, 0.0], [-0.2, 0.7, 0.0]]),
+        identifier="water",
+        anchor_index=0,
+    )
+    pose = MolecularPose(template, [0.0, 0.0, 0.0])
+    analysis = analyze_molecular_pose(context, pose)
+    assert (analysis.site_symmetry_order, analysis.stabilizer_order, analysis.orientation_multiplicity) == (2, 1, 2)
+    with pytest.raises(IncompatibleSiteError):
+        construct_molecular_crystal(context, pose)
+    model = construct_statistical_disorder(context, pose)
+    assert len(model.alternatives) == 2
+    assert model.expected_formula == {"O": 1.0, "H": 2.0}
+    oxygen = [site for site in model.average_sites if site.symbol == "O"]
+    hydrogen = [site for site in model.average_sites if site.symbol == "H"]
+    assert len(oxygen) == 1 and np.isclose(oxygen[0].occupancy, 1.0)
+    assert len(hydrogen) == 4 and all(np.isclose(site.occupancy, 0.5) for site in hydrogen)
+    cif = write_disorder_cif(model)
+    assert "_molcrys_representation 'statistical_average'" in cif
+    assert "_atom_site_occupancy" in cif
+
+
+def test_proper_rotation_is_required():
+    template = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), identifier="c")
+    with pytest.raises(InvalidOrientationError):
+        MolecularPose(template, [0, 0, 0], orientation=np.diag([1.0, 1.0, -1.0]))
+
+
+def test_true_asu_writer_uses_the_declared_group_and_not_p1():
+    context = _pminus1_context()
+    template = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), identifier="c", anchor_index=0)
+    crystal = construct_molecular_crystal(context, MolecularPose(template, [0.13, 0.21, 0.37]))
+    cif = write_cif_asu(crystal)
+    assert "_symmetry_Int_Tables_number 2" in cif
+    assert "-x,-y,-z" in cif
+    assert cif.count("_atom_site_label") == 1
+    # A general-position single atom has one ASU row; the inversion operation
+    # supplies the second full-cell image on read.
+    assert sum(line.strip().startswith("C") for line in cif.splitlines()) == 1
+
+
+def test_true_asu_writer_keeps_independent_same_element_sites_and_occupancies():
+    """Coordinate equivalence cannot erase independent molecular entities."""
+    context = _pminus1_context()
+    molecules = []
+    for label, occupancy, group in (("C_A", 0.5, 1), ("C_B", 0.25, 2)):
+        atoms = Atoms("C", positions=[[1.3, 2.1, 3.7]])
+        atoms.set_array(KEY_LABEL, np.asarray([label], dtype=str))
+        atoms.set_array(KEY_ATOM_ID, np.asarray([label], dtype=str))
+        atoms.set_array(KEY_OCCUPANCY, np.asarray([occupancy], dtype=float))
+        atoms.set_array(KEY_DISORDER_GROUP, np.asarray([group], dtype=int))
+        atoms.set_array(KEY_ASSEMBLY, np.asarray(["A"], dtype=str))
+        molecules.append(CrystalMolecule(atoms, check_pbc=False))
+    crystal = MolecularCrystal(
+        context.lattice,
+        molecules,
+        metadata={"forward_context": context},
+    )
+
+    cif = write_cif_asu(crystal)
+    atom_rows = [
+        line.split()
+        for line in cif.splitlines()
+        if line.startswith("  C_")
+    ]
+    assert {row[0] for row in atom_rows} == {"C_A", "C_B"}
+    assert {float(row[5]) for row in atom_rows} == {0.5, 0.25}
+    assert {int(row[6]) for row in atom_rows} == {1, 2}
+    assert {row[7] for row in atom_rows} == {"A"}
+    assert "_molcrys_atom_id" in cif
+    assert "C_A" in cif and "C_B" in cif
+
+
+def test_center_occupancy_is_canonical_across_template_identifiers():
+    context = _pminus1_context()
+    first = MolecularPose(
+        MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), identifier="carbon"),
+        [0.0, 0.0, 0.0],
+    )
+    second = MolecularPose(
+        MolecularTemplate(Atoms("N", positions=[[0, 0, 0]]), identifier="nitrogen"),
+        [0.0, 0.0, 0.0],
+    )
+    with pytest.raises(ConstructionValidationError, match="center orbit"):
+        construct_molecular_crystal(context, [first, second])
+    with pytest.raises(ConstructionValidationError, match="center orbit"):
+        construct_statistical_disorder(
+            context,
+            [
+                MolecularPose(first.template, [0.0, 0.0, 0.0], occupation=0.75),
+                MolecularPose(second.template, [0.0, 0.0, 0.0], occupation=0.5),
+            ],
+        )
+
+
+def test_stabilizer_must_preserve_connectivity_and_stereochemical_identity():
+    context = _pminus1_context()
+    square_path = MolecularTemplate(
+        Atoms("C4", positions=[[1, 0, 0], [0, 1, 0], [-1, 0, 0], [0, -1, 0]]),
+        identifier="square-path",
+        anchor_cartesian=np.zeros(3),
+        connectivity=((0, 1), (1, 2), (2, 3)),
+    )
+    analysis = analyze_molecular_pose(context, MolecularPose(square_path, [0, 0, 0]))
+    assert not analysis.ordered_compatible
+    stereo_atoms = Atoms("CC", positions=[[1, 0, 0], [-1, 0, 0]])
+    stereo = MolecularTemplate(
+        stereo_atoms,
+        identifier="stereo",
+        anchor_cartesian=np.zeros(3),
+        stereochemistry=("R", "S"),
+    )
+    stereo_analysis = analyze_molecular_pose(context, MolecularPose(stereo, [0, 0, 0]))
+    assert not stereo_analysis.ordered_compatible
+
+
+def test_cif_round_trip_retains_forward_atom_ids_and_source_operations():
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("CO", positions=[[0, 0, 0], [1.2, 0.2, 0.1]]),
+        identifier="co",
+        anchor_index=0,
+    )
+    crystal = construct_molecular_crystal(context, MolecularPose(template, [0.13, 0.21, 0.37]))
+    p1 = read_mol_crystal(cif_text=write_cif_p1(crystal), attach_chemistry=False)
+    asu = read_mol_crystal(cif_text=write_cif_asu(crystal), attach_chemistry=False)
+    assert len(p1.metadata["forward_context"].operations) == len(context.operations)
+    assert len(asu.metadata["forward_context"].operations) == len(context.operations)
+    p1_ids = {str(value) for molecule in p1.molecules for value in molecule.arrays[KEY_ATOM_ID]}
+    asu_ids = {str(value) for molecule in asu.molecules for value in molecule.arrays[KEY_ATOM_ID]}
+    assert {"pose0:op0:a0", "pose0:op0:a1"}.issubset(p1_ids)
+    assert {"atom_orbit0", "atom_orbit1"}.issubset(asu_ids)
+
+
+def test_special_position_asu_has_one_row_for_exchanged_atom_orbit():
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("CC", positions=[[0.7, 0, 0], [-0.7, 0, 0]]),
+        identifier="centred-pair",
+        anchor_cartesian=np.zeros(3),
+        connectivity=((0, 1),),
+    )
+    crystal = construct_molecular_crystal(context, MolecularPose(template, [0, 0, 0]))
+    cif = write_cif_asu(crystal)
+    block = next(iter(CifParser.from_str(cif).as_dict().values()))
+    assert len(block["_atom_site_label"]) == 1
+    expanded = scan_cif_disorder(cif_text=cif)
+    assert len(expanded.symbols) == 2
+    assert all(np.isclose(value, 1.0) for value in expanded.occupancies)
+
+
+def test_statistical_cif_is_materialized_p1_and_parser_occupancies_stay_bounded():
+    """Average sites already cover every center orbit; readers must not expand twice."""
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("OH2", positions=[[0, 0, 0], [0.8, 0, 0], [-0.2, 0.7, 0]]),
+        identifier="water",
+        anchor_index=0,
+    )
+    model = construct_statistical_disorder(
+        context, MolecularPose(template, [0, 0, 0])
+    )
+    cif = write_disorder_cif(model)
+    parsed = CifParser.from_str(cif, occupancy_tolerance=1.0).parse_structures(
+        primitive=False
+    )
+    assert len(parsed) == 1
+    assert all(
+        float(site.species[site.species.elements[0]]) <= 1.0 + 1e-8
+        for site in parsed[0]
+    )
+    assert "_symmetry_Int_Tables_number 1" in cif
+    assert "_molcrys_source_symop_xyz" in cif
+
+
+def test_pose_occupations_control_duplicate_center_sum_when_unspecified():
+    context = _pminus1_context()
+    first = MolecularPose(
+        MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), identifier="a"),
+        [0, 0, 0],
+        occupation=0.4,
+    )
+    second = MolecularPose(
+        MolecularTemplate(Atoms("N", positions=[[0, 0, 0]]), identifier="b"),
+        [0, 0, 0],
+        occupation=0.4,
+    )
+    model = construct_statistical_disorder(context, (first, second))
+    assert np.isclose(sum(model.orbit_probabilities.values()), 0.8)
+    ids = [alternative.alternative_id for alternative in model.alternatives]
+    assert len(ids) == len(set(ids))
+    assert len(model.alternatives_by_orbit[next(iter(model.alternatives_by_orbit))]) == 2

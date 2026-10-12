@@ -36,10 +36,9 @@ import argparse
 import json
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import re
 import numpy as np
@@ -47,7 +46,6 @@ from ase import Atoms
 from ase.io import write as ase_write
 from pymatgen.core.lattice import Lattice
 
-import molcrys_kit as mck
 from molcrys_kit.io.cif import scan_cif_disorder, identify_molecules
 from molcrys_kit.constants.config import (
     KEY_OCCUPANCY,
@@ -77,20 +75,38 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
         entry = reader.entry(refcode)
         crystal = reader.crystal(refcode)
 
-    # Get disordered molecule (includes all sites, major + minor)
-    mol = crystal.disordered_molecule or crystal.molecule
+    # Get disordered molecule (includes all sites, major + minor).  Some CCDC
+    # releases expose a null-handle property for ordered entries such as
+    # BENZEN02; fall back to the ordinary molecule in that case.
+    try:
+        mol = crystal.disordered_molecule
+    except Exception:
+        mol = None
+    if mol is None:
+        mol = crystal.molecule
 
     # Build disorder group/assembly lookup from crystal.disorder API
     disorder_map: dict[str, tuple[int, str]] = {}
+    # CCDC group IDs are zero-based for some entries (IQUHUY uses 0 and 1),
+    # whereas MolCrysKit reserves group 0 for ordered atoms.  Normalize IDs
+    # per assembly while retaining the assembly identifier in the CIF.
+    group_ids: dict[tuple[str, int], int] = {}
     disorder = getattr(crystal, "disorder", None)
     if disorder is not None:
         try:
             for assembly in disorder.assemblies:
                 asm_id = str(getattr(assembly, "id", ""))
                 for group in assembly.groups:
-                    g_id = int(getattr(group, "id", 0))
+                    raw_g_id = int(getattr(group, "id", 0))
+                    key = (asm_id, raw_g_id)
+                    g_id = group_ids.setdefault(key, len(group_ids) + 1)
                     for atom in group.atoms:
-                        disorder_map[str(atom.label)] = (g_id, asm_id)
+                        label = str(atom.label)
+                        disorder_map[label] = (g_id, asm_id)
+                        if label.endswith("?"):
+                            disorder_map.setdefault(label[:-1], (g_id, asm_id))
+                        else:
+                            disorder_map.setdefault(f"{label}?", (g_id, asm_id))
         except Exception:
             pass
 
@@ -99,7 +115,10 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
     for atom in mol.atoms:
         label = str(atom.label) if atom.label else "?"
         symbol = str(atom.atomic_symbol) if atom.atomic_symbol else "?"
-        frac = atom.fractional_coordinates
+        try:
+            frac = atom.fractional_coordinates
+        except Exception:
+            frac = None
         fx = float(frac.x) if frac else None
         fy = float(frac.y) if frac else None
         fz = float(frac.z) if frac else None
@@ -148,8 +167,11 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
     bonds = []
     try:
         for b in mol.bonds:
-            a1, a2 = b.atoms
-            bonds.append((str(a1.label), str(a2.label), float(b.length), str(b.bond_type)))
+            try:
+                a1, a2 = b.atoms
+                bonds.append((str(a1.label), str(a2.label), float(b.length), str(b.bond_type)))
+            except Exception:
+                continue
     except Exception:
         pass
 
@@ -166,10 +188,10 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
         s = f"{v:.{p}f}"
         return f"{s}({e})" if e and e > 0 else s
 
-    has_disorder = any(d["dg"] is not None for d in atom_data)
+    has_disorder = bool(disorder_map) or any(d["occ"] < 0.999 for d in atom_data)
     L = []
     L.append(f"data_{refcode}")
-    L.append(f"_audit_creation_method            'CCDC API + MolCrysKit demo'")
+    L.append("_audit_creation_method            'CCDC API + MolCrysKit demo'")
     L.append(f"_chemical_name_common             '{(entry.chemical_name or '?').replace(chr(39), chr(39)+chr(39))}'")
     L.append(f"_chemical_formula_sum             '{entry.formula or '?'}'")
     rf = entry.r_factor
@@ -463,10 +485,6 @@ def main(argv: list[str] | None = None) -> int:
         mols = identify_molecules(atoms)
         formula_counts = defaultdict(int)
         for mol in mols:
-            na = len(mol)
-            mol_occ = mol.arrays.get("occupancy", np.ones(na))
-            mol_dg = mol.arrays.get("disorder_group", np.zeros(na, dtype=int))
-            n_p = sum(1 for o in mol_occ if o < 0.999)
             formula_counts[mol.get_chemical_formula()] += 1
         for f, cnt in sorted(formula_counts.items()):
             print(f"    {f} × {cnt}")
@@ -480,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"      {st['state_id']}: {st['description']} → {n_kept}/{n} atoms")
 
         # Step 6: Write
-        print(f"\n  Step 6: Write ordered cells")
+        print("\n  Step 6: Write ordered cells")
         out_dir = args.output_dir / "ordered_cells" / stem
         out_dir.mkdir(parents=True, exist_ok=True)
         ref_results = []

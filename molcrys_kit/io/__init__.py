@@ -15,6 +15,10 @@ from .cif import (
 from .extxyz import read_extxyz, write_extxyz
 from .output import (
     write_cif,
+    write_cif_asu,
+    write_cif_p1,
+    write_disorder_cif,
+    write_forward_cif,
     write_cif_sequence,
     write_poscar,
     write_poscar_sequence,
@@ -34,6 +38,10 @@ __all__ = [
     "identify_molecule_indices",
     "scan_cif_disorder",
     "write_cif",
+    "write_cif_asu",
+    "write_cif_p1",
+    "write_disorder_cif",
+    "write_forward_cif",
     "write_cif_sequence",
     "write_poscar",
     "write_poscar_sequence",

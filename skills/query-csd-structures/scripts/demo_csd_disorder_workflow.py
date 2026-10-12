@@ -61,8 +61,17 @@ def _disorder_lookup(crystal: Any) -> tuple[dict[str, tuple[int, str]], list[str
             for group in assembly.groups:
                 group_id = int(getattr(group, "id", 0))
                 for atom in group.atoms:
-                    mapping[str(atom.label)] = (group_id, assembly_id)
-    except (AttributeError, TypeError, ValueError) as exc:
+                    label = str(atom.label)
+                    mapping[label] = (group_id, assembly_id)
+                    # CCDC appends ``?`` to labels on some alternate sites
+                    # (for example ``C4?``), while the disorder hierarchy can
+                    # expose the same atom as ``C4``.  Keep both spellings so
+                    # that the group/assembly information survives export.
+                    if label.endswith("?"):
+                        mapping.setdefault(label[:-1], (group_id, assembly_id))
+                    else:
+                        mapping.setdefault(f"{label}?", (group_id, assembly_id))
+    except Exception as exc:  # CCDC release-specific null handles
         warnings.append(f"Could not read complete disorder hierarchy: {exc}")
     return mapping, warnings
 
@@ -73,15 +82,38 @@ def export_full_cif_from_csd(
     output_path: Path,
 ) -> dict[str, Any]:
     """Export one CSD refcode to a metadata-preserving CIF."""
-    entry = reader.entry(refcode)
     crystal = reader.crystal(refcode)
-    molecule = crystal.disordered_molecule or crystal.molecule
-    disorder_map, warnings = _disorder_lookup(crystal)
+    warnings: list[str] = []
+
+    # ``disordered_molecule`` is not uniformly implemented across CCDC
+    # releases.  It may be ``None`` (ordered entries such as BENZEN02), or a
+    # property access may raise when no disorder model exists.  Fall back in a
+    # documented order and fail with a useful error only when no molecule is
+    # available at all.
+    molecule = None
+    for attr in ("disordered_molecule", "molecule", "asymmetric_unit_molecule"):
+        try:
+            candidate = getattr(crystal, attr, None)
+        except Exception as exc:  # pragma: no cover - release-specific CCDC
+            warnings.append(f"{attr} unavailable: {type(exc).__name__}: {exc}")
+            candidate = None
+        if candidate is not None:
+            molecule = candidate
+            break
+    if molecule is None:
+        raise RuntimeError(f"CSD entry {refcode} has no readable molecular model")
+
+    disorder_map, disorder_warnings = _disorder_lookup(crystal)
+    warnings.extend(disorder_warnings)
 
     atom_rows: list[dict[str, Any]] = []
     for atom in molecule.atoms:
         label = str(atom.label) if atom.label else "?"
-        fractional = atom.fractional_coordinates
+        try:
+            fractional = atom.fractional_coordinates
+        except Exception as exc:  # CCDC null TSite handles (e.g. BENZEN02 H)
+            fractional = None
+            warnings.append(f"{label}: fractional coordinates unavailable ({type(exc).__name__}: {exc})")
         occupancy = 1.0
         try:
             if atom.occupancy is not None:
@@ -91,12 +123,25 @@ def export_full_cif_from_csd(
 
         u_iso = None
         adp_type = "?"
+        aniso: dict[str, float] | None = None
         try:
             displacement = atom.displacement_parameters
             if displacement is not None:
                 u_iso = float(displacement.isotropic_equivalent)
-                adp_type = "Uani" if displacement.type == "Anisotropic" else "Uiso"
-        except (AttributeError, TypeError, ValueError) as exc:
+                if displacement.type == "Anisotropic":
+                    adp_type = "Uani"
+                    values = displacement.values
+                    aniso = {
+                        "u11": float(values[0][0]),
+                        "u22": float(values[1][1]),
+                        "u33": float(values[2][2]),
+                        "u12": float(values[0][1]),
+                        "u13": float(values[0][2]),
+                        "u23": float(values[1][2]),
+                    }
+                else:
+                    adp_type = "Uiso"
+        except Exception as exc:  # CCDC release-specific null handles
             warnings.append(f"{label}: displacement parameters unavailable ({exc})")
 
         group_id, assembly_id = disorder_map.get(label, (None, None))
@@ -110,6 +155,7 @@ def export_full_cif_from_csd(
                 "occupancy": occupancy,
                 "u_iso": u_iso,
                 "adp_type": adp_type,
+                "aniso": aniso,
                 "group": group_id,
                 "assembly": assembly_id,
             }
@@ -118,28 +164,47 @@ def export_full_cif_from_csd(
     bonds: list[tuple[str, str, float, str]] = []
     try:
         for bond in molecule.bonds:
-            atom_1, atom_2 = bond.atoms
-            bonds.append(
-                (
-                    str(atom_1.label),
-                    str(atom_2.label),
-                    float(bond.length),
-                    str(bond.bond_type),
+            try:
+                atom_1, atom_2 = bond.atoms
+                bonds.append(
+                    (
+                        str(atom_1.label),
+                        str(atom_2.label),
+                        float(bond.length),
+                        str(bond.bond_type),
+                    )
                 )
-            )
+            except Exception as exc:  # null TSite handles on missing H coords
+                warnings.append(f"Bond export skipped: {type(exc).__name__}: {exc}")
     except (AttributeError, TypeError, ValueError) as exc:
         warnings.append(f"Bond export incomplete: {exc}")
 
     a, b, c = crystal.cell_lengths
     alpha, beta, gamma = crystal.cell_angles
-    has_disorder = any(row["group"] is not None for row in atom_rows)
+    # A valid CSD entry can carry partial occupancy without a populated
+    # disorder hierarchy (and vice versa).  Emit both occupancy and disorder
+    # columns whenever either signal is present; this is essential for the
+    # IQUHUY orientational-disorder fixture and avoids silently dropping
+    # occupancy metadata on older CCDC releases.
+    has_disorder = bool(disorder_map) or any(row["occupancy"] < 0.999 for row in atom_rows)
+
+    try:
+        it_number, setting = crystal.spacegroup_number_and_setting
+        it_number = int(it_number)
+        setting = int(setting)
+    except (AttributeError, TypeError, ValueError):
+        it_number, setting = None, None
+        warnings.append("Space-group IT number/setting unavailable from CCDC API")
+
+    # CCDC 3.6.x exposes the complete operation list and the IT number/setting,
+    # but not the Hall symbol.  Write an explicit missing value rather than
+    # inventing one from a symbol (which can be setting-dependent).
+    hall_symbol = None
+    if hall_symbol is None:
+        warnings.append("Hall symbol unavailable from CCDC API; wrote '?' in CIF")
 
     lines = [
         f"data_{refcode}",
-        "_audit_creation_method " + _cif_quote("CCDC Python API; query-csd-structures skill"),
-        "_chemical_name_common " + _cif_quote(entry.chemical_name or "?"),
-        "_chemical_formula_sum " + _cif_quote(entry.formula or "?"),
-        f"_refine_ls_R_factor_all {_float_text(entry.r_factor, 2)}",
         f"_cell_length_a {_float_text(a)}",
         f"_cell_length_b {_float_text(b)}",
         f"_cell_length_c {_float_text(c)}",
@@ -149,6 +214,9 @@ def export_full_cif_from_csd(
         f"_cell_volume {_float_text(crystal.cell_volume, 2)}",
         f"_cell_formula_units_Z {int(crystal.z_value) if crystal.z_value else '?'}",
         "_symmetry_space_group_name_H-M " + _cif_quote(crystal.spacegroup_symbol or "?"),
+        f"_space_group_IT_number {it_number if it_number is not None else '?'}",
+        f"_space_group_setting {setting if setting is not None else '?'}",
+        "_space_group_name_Hall " + _cif_quote(hall_symbol),
         "",
     ]
 
@@ -200,6 +268,34 @@ def export_full_cif_from_csd(
         written_atom_count += 1
     lines.append("")
 
+    aniso_atoms = [row for row in atom_rows if row["aniso"] is not None]
+    if aniso_atoms:
+        lines.extend(
+            [
+                "loop_",
+                "_atom_site_aniso_label",
+                "_atom_site_aniso_U_11",
+                "_atom_site_aniso_U_22",
+                "_atom_site_aniso_U_33",
+                "_atom_site_aniso_U_12",
+                "_atom_site_aniso_U_13",
+                "_atom_site_aniso_U_23",
+            ]
+        )
+        for row in aniso_atoms:
+            values = row["aniso"]
+            assert values is not None
+            lines.append(
+                "  "
+                + " ".join(
+                    [
+                        row["label"],
+                        *(_float_text(values[key], 6) for key in ("u11", "u22", "u33", "u12", "u13", "u23")),
+                    ]
+                )
+            )
+        lines.append("")
+
     if bonds:
         lines.extend(
             [
@@ -222,8 +318,14 @@ def export_full_cif_from_csd(
 
     return {
         "refcode": refcode,
+        "spacegroup_symbol": crystal.spacegroup_symbol,
+        "spacegroup_it_number": it_number,
+        "spacegroup_setting": setting,
+        "spacegroup_hall": hall_symbol,
         "status": "ok",
-        "output": str(output_path),
+        # Keep the retrieval manifest portable; the absolute local path is
+        # neither needed for provenance nor safe to copy into a fixture bundle.
+        "output": output_path.name,
         "n_source_atoms": len(atom_rows),
         "n_written_atoms": written_atom_count,
         "n_partial_occupancy": sum(row["occupancy"] < 0.999 for row in atom_rows),
@@ -278,7 +380,9 @@ def main(argv: list[str] | None = None) -> int:
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "python": sys.version,
         "platform": platform.platform(),
-        "ccdc_module": str(Path(ccdc.__file__).resolve()),
+        "ccdc_module": "ccdc",
+        "ccdc_api_version": str(getattr(ccdc, "__version__", "unknown")),
+        "database": "CSD",
         "requested_refcodes": refcodes,
         "n_requested": len(refcodes),
         "n_succeeded": sum(record["status"] == "ok" for record in records),
