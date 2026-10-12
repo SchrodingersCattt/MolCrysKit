@@ -218,7 +218,21 @@ class MolecularTemplate:
             anchor = None
         object.__setattr__(self, "atoms", copy)
         object.__setattr__(self, "anchor_cartesian", anchor)
-        connectivity = tuple(tuple(map(int, edge)) for edge in self.connectivity)
+        connectivity_values: set[tuple[int, int]] = set()
+        for edge in self.connectivity:
+            if len(edge) != 2:
+                raise ConstructionValidationError(
+                    "connectivity edges must contain exactly two atom indices"
+                )
+            left, right = (int(edge[0]), int(edge[1]))
+            if not 0 <= left < len(copy) or not 0 <= right < len(copy):
+                raise ConstructionValidationError(
+                    "connectivity edge index is outside the template"
+                )
+            if left == right:
+                raise ConstructionValidationError("connectivity cannot contain self-edges")
+            connectivity_values.add(tuple(sorted((left, right))))
+        connectivity = tuple(sorted(connectivity_values))
         if not connectivity and getattr(self.atoms, "_graph", None) is not None:
             connectivity = tuple(
                 sorted((min(int(left), int(right)), max(int(left), int(right)))
@@ -1007,6 +1021,17 @@ def _stabilizer_atom_identities(
     return tuple(f"atom_orbit{roots[find(index)]}" for index in range(atom_count))
 
 
+def _context_operation_index(
+    context: ForwardConstructionContext,
+    operation: FractionalAffineOperation,
+) -> int:
+    """Return the canonical zero-based index for a group operation."""
+    for index, candidate in enumerate(context.operations):
+        if operation.equivalent_to(candidate, tolerance=context.fractional_tolerance):
+            return index
+    raise ConstructionValidationError("generated operation is outside the validated symmetry group")
+
+
 def construct_statistical_disorder(
     context: ForwardConstructionContext,
     poses: MolecularPose | Sequence[MolecularPose],
@@ -1106,6 +1131,7 @@ def construct_statistical_disorder(
             probabilities[orbit_id] = probabilities.get(orbit_id, 0.0) + pose_occupation
             for local_index, local_operation in enumerate(local_representatives):
                 operation = orbit_operation.compose(local_operation)
+                operation_index = _context_operation_index(context, operation)
                 # Pose index is part of the identity: different templates
                 # may occupy the same center orbit with partial weights, and
                 # their local state numbers would otherwise collide.

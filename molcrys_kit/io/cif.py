@@ -5,7 +5,7 @@ This module provides functionality to parse CIF files into MolecularCrystal obje
 It includes tools for handling disorder information and identifying molecular units.
 """
 
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Sequence, Mapping
 import base64
 import copy
 import json
@@ -335,7 +335,53 @@ def _build_molecule_graph(
     for i in range(len(atoms)):
         crystal_graph.add_node(i, symbol=symbols[i])
 
+    # A writer may provide a chemically authoritative bond table for bonds
+    # that are longer than the package's perception cutoff.  Materialize those
+    # edges before geometry-based perception so explicit template connectivity
+    # remains intact across CIF round trips.
+    labels = atoms.arrays.get("label")
+    label_indices: dict[str, list[int]] = {}
+    if labels is not None:
+        for index, label in enumerate(labels):
+            label_indices.setdefault(str(label), []).append(index)
+    explicit_records: dict[tuple[int, int, tuple[int, int, int]], dict] = {}
+    for raw in explicit_bonds or ():
+        try:
+            left_label = str(raw["atom1_label"])
+            right_label = str(raw["atom2_label"])
+            left = label_indices[left_label][0]
+            right = label_indices[right_label][0]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if left == right:
+            continue
+        if left > right:
+            left, right = right, left
+        vector = np.asarray(atoms.positions[right], dtype=float) - np.asarray(
+            atoms.positions[left], dtype=float
+        )
+        distance = raw.get("distance_A")
+        if isinstance(distance, Mapping):
+            distance = distance.get("value")
+        try:
+            distance_value = float(distance)
+        except (TypeError, ValueError):
+            distance_value = float(np.linalg.norm(vector))
+        record = {
+            "left": left,
+            "right": right,
+            "right_image_shift": [0, 0, 0],
+            "vector": [float(value) for value in vector],
+            "distance": distance_value,
+        }
+        key = (left, right, (0, 0, 0))
+        explicit_records[key] = record
+        crystal_graph.add_edge(left, right, distance=distance_value, vector=vector)
+
     if len(atoms) == 0 or bond_scale <= 0:
+        crystal_graph.graph["bond_records"] = [
+            explicit_records[key] for key in sorted(explicit_records)
+        ]
         return crystal_graph
 
     from ..analysis.interactions import get_bonding_threshold
@@ -535,7 +581,7 @@ def _build_molecule_graph(
             )
 
     crystal_graph.graph["bond_records"] = [
-        canonical_records[key] for key in sorted(canonical_records)
+        merged_records[key] for key in sorted(merged_records)
     ]
 
     return crystal_graph
@@ -1093,6 +1139,12 @@ def _clean_cif_text_value(value) -> str | None:
 def _extract_cif_chemistry(data_block: dict) -> dict:
     """Preserve chemistry and absolute-structure fields from one CIF block."""
     metadata: dict = {}
+    representation = _clean_cif_text_value(data_block.get("_molcrys_representation"))
+    if representation is not None:
+        metadata["molcrys_representation"] = representation
+    bond_source = _clean_cif_text_value(data_block.get("_molcrys_bond_table_source"))
+    if bond_source is not None:
+        metadata["molcrys_bond_table_source"] = bond_source
     text_tags = {
         "chemical_name_systematic": "_chemical_name_systematic",
         "chemical_name_common": "_chemical_name_common",
