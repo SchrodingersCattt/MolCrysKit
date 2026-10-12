@@ -4,6 +4,7 @@ Output functionality for molecular crystal structures.
 This module provides functions for writing molecular crystal data to various formats.
 """
 
+import base64
 import json
 import os
 import re
@@ -208,7 +209,9 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
         ``_molcrys_tasker_polar``,
         ``_molcrys_tasker_dipole_per_area``,
         ``_molcrys_charge_source``,
-        ``_molcrys_tasker2_corrected``.
+        ``_molcrys_tasker2_corrected``.  A crystal's
+        ``metadata["cell_transform"]`` is serialized as a compact, URL-safe
+        JSON payload in ``_molcrys_cell_transform_json``.
 
     Returns
     -------
@@ -228,6 +231,14 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
         KEY_SYM_OP_INDEX, KEY_ASYM_ID, KEY_SITE_SYMMETRY_ORDER,
         KEY_UISO, KEY_U_CART,
     )
+
+    # Transform provenance belongs to the crystal itself, while the optional
+    # metadata argument remains available for operation-specific annotations.
+    metadata = dict(metadata or {})
+    if "cell_transform" not in metadata:
+        transform = getattr(crystal, "metadata", {}).get("cell_transform")
+        if transform is not None:
+            metadata["cell_transform"] = transform
 
     lines = []
     lines.append("data_crystal")
@@ -267,6 +278,16 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
             )
             lines.append(f"_molcrys_charge_source            '{ti.charge_source}'")
             lines.append(f"_molcrys_tasker2_corrected        {ti.tasker2_corrected}")
+            lines.append("")
+
+        transform = metadata.get("cell_transform")
+        if transform is not None:
+            payload = base64.urlsafe_b64encode(
+                json.dumps(transform, sort_keys=True, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+            ).decode("ascii")
+            lines.append(f"_molcrys_cell_transform_json    '{payload}'")
             lines.append("")
 
     # Add atom positions with disorder metadata

@@ -60,7 +60,9 @@ def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[Molecular
 
     if suffix == ".cif":
         if isinstance(obj, MolecularCrystal):
-            write_cif(obj, str(file_path))
+            # CIF supports a small MolCrysKit side-table for transform
+            # provenance; pass crystal metadata so it survives this export.
+            write_cif(obj, str(file_path), metadata=obj.metadata)
             return
         if isinstance(obj, CrystalMolecule):
             lattice = np.asarray(obj.get_cell().array, dtype=float)
