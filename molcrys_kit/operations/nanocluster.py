@@ -392,9 +392,15 @@ class NanoClusterCarver:
                     molecules.append(self._copy_molecule(molecule, translation))
                     selected_base_molecules.append(molecule_index)
 
-        all_positions = np.vstack([molecule.get_positions() for molecule in molecules])
-        atom_min = np.min(all_positions, axis=0)
-        atom_max = np.max(all_positions, axis=0)
+        # Compute output bounds without materialising a second full
+        # ``(n_atoms, 3)`` array.  For million-atom outputs this removes a
+        # peak-memory-sized copy while preserving the exact min/max result.
+        atom_min = np.full(3, np.inf, dtype=float)
+        atom_max = np.full(3, -np.inf, dtype=float)
+        for molecule in molecules:
+            positions = np.asarray(molecule.get_positions(), dtype=float)
+            atom_min = np.minimum(atom_min, positions.min(axis=0))
+            atom_max = np.maximum(atom_max, positions.max(axis=0))
         span = atom_max - atom_min
         cell_lengths = span + 2.0 * vacuum
         cell_lengths[cell_lengths < 1e-8] = 1.0
@@ -435,6 +441,7 @@ class NanoClusterCarver:
             pbc=(False, False, False),
             metadata=metadata,
             extra_arrays=extra_arrays,
+            _take_ownership=True,
         )
 
     def _replicate_extra_arrays(
@@ -442,13 +449,23 @@ class NanoClusterCarver:
         selected_base_molecules: Sequence[int],
     ) -> dict[str, np.ndarray]:
         replicated: dict[str, np.ndarray] = {}
+        if not selected_base_molecules:
+            return {
+                key: np.asarray(values)[:0].copy()
+                for key, values in self.crystal.extra_arrays.items()
+            }
+        source_indices = self._source_molecule_indices
+        atom_count = sum(len(source_indices[index]) for index in selected_base_molecules)
+        gather = np.empty(atom_count, dtype=np.intp)
+        offset = 0
+        for molecule_index in selected_base_molecules:
+            indices = np.asarray(source_indices[molecule_index], dtype=np.intp)
+            stop = offset + len(indices)
+            gather[offset:stop] = indices
+            offset = stop
         for key, values in self.crystal.extra_arrays.items():
             array = np.asarray(values)
-            blocks = [
-                array[self._source_molecule_indices[molecule_index]]
-                for molecule_index in selected_base_molecules
-            ]
-            replicated[key] = np.concatenate(blocks, axis=0)
+            replicated[key] = array[gather].copy()
         return replicated
 
 

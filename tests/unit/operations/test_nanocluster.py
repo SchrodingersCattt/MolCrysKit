@@ -428,7 +428,10 @@ def test_million_candidate_selection_is_batched_and_copies_only_hit(monkeypatch)
     assert sum(field_batch_sizes) == 101**3
     assert max(field_batch_sizes) <= 100_000
     assert len(field_batch_sizes) == math.ceil((101**3) / 100_000)
-    assert copy_count == 2  # selected molecule + MolecularCrystal ownership copy
+    # The selected molecule is copied once; MolecularCrystal transfers
+    # ownership of that private copy instead of duplicating the million-atom
+    # payload a second time.
+    assert copy_count == 1
     assert info["selected_atom_count"] == 1
 
 
