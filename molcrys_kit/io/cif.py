@@ -33,7 +33,11 @@ from ..constants import (
     has_atomic_radius,
     is_metal_element,
 )
-from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bonds
+from ..constants.config import (
+    CIF_LEGACY_COINCIDENCE_TOLERANCE_A,
+    CIF_SYMMETRY_TOLERANCE,
+)
+from ..utils.geometry import unwrap_positions_along_bonds
 
 
 logger = logging.getLogger(__name__)
@@ -410,6 +414,16 @@ def _build_molecule_graph(
                 != sym_op_indices[j_list].astype(int, copy=False)
             )
         compatible &= ~incompatible
+    # Forward/ASU CIFs carry complete explicit connectivity.  A geometric
+    # contact between different symmetry images is not an additional bond: a
+    # general-position atom close to a mirror plane can otherwise form a
+    # spurious ultra-short self-image edge.  Keep ordinary geometry within one
+    # image and add the authoritative cross-image edges below.
+    if explicit_bonds and sym_op_indices is not None:
+        compatible &= (
+            sym_op_indices[i_list].astype(int, copy=False)
+            == sym_op_indices[j_list].astype(int, copy=False)
+        )
 
     i_list = i_list[compatible]
     j_list = j_list[compatible]
@@ -474,8 +488,7 @@ def _build_molecule_graph(
             )
 
     # Published/forward connectivity is authoritative when present.  It is
-    # intentionally additive: ordinary geometric perception remains useful
-    # for contacts that were not recorded, while a long or unusual template
+    # additive within each symmetry image, while a long or unusual template
     # bond cannot disappear merely because it exceeds the heuristic cutoff.
     if explicit_bonds:
         for raw_left, raw_right in explicit_bonds:
@@ -1490,28 +1503,20 @@ def read_cif_symmetry(
     )
 
 
-def _are_coords_close(
-    coord1: np.ndarray, coord2: np.ndarray, lattice: Lattice, tol: float = 0.01
+def _fractional_sites_equivalent(
+    coord1: np.ndarray,
+    coord2: np.ndarray,
+    tolerance: float = CIF_SYMMETRY_TOLERANCE,
 ) -> bool:
-    """
-    Check if two fractional coordinates represent the same position in the unit cell.
+    """Return whether two fractional coordinates are the same site modulo PBC.
 
-    Parameters
-    ----------
-    coord1, coord2 : np.ndarray
-        Fractional coordinates to compare.
-    lattice : Lattice
-        The crystal lattice for distance calculation.
-    tol : float
-        Tolerance for considering coordinates as the same (in Angstroms).
-
-    Returns
-    -------
-    bool
-        True if the coordinates are close enough to be considered the same.
+    Symmetry expansion may remove an image only when the coordinates agree in
+    fractional space, up to an integer lattice translation.  A Cartesian
+    distance cutoff would incorrectly turn a general-position site very close
+    to a mirror or rotation axis into a special-position site.
     """
-    distance = minimum_image_distance(coord1, coord2, lattice.matrix)
-    return distance < tol
+    delta = np.asarray(coord1, dtype=float) - np.asarray(coord2, dtype=float)
+    return bool(np.allclose(delta, np.rint(delta), atol=tolerance, rtol=0.0))
 
 
 def scan_cif_disorder(
@@ -1572,6 +1577,10 @@ def scan_cif_disorder(
         expand_symmetry=expand_symmetry,
         strict=False,
     )
+    representation = str(
+        _first_cif_value(data_block.get("_molcrys_representation")) or ""
+    ).strip().casefold()
+    is_true_asu_export = representation == "ordered_asymmetric_unit"
     source_symmetry = None
     source_xyz = _as_cif_list(data_block.get("_molcrys_source_symop_xyz"))
     if source_xyz:
@@ -1866,25 +1875,43 @@ def scan_cif_disorder(
     # exports contain multiple labelled rows from the same orbit).  Distinct
     # labelled sources that are already coincident in the ASU are the important
     # exception: they represent separate provenance/disorder alternatives and
-    # must both survive, including in P1.
+    # must both survive, including in P1.  Equivalence is tested in fractional
+    # space below; a Cartesian distance cutoff would collapse valid sites just
+    # off a special-position plane.
     coords_by_symbol: dict[str, list[np.ndarray]] = {}
     sources_by_symbol: dict[str, list[int]] = {}
     lattice_matrix = lattice.matrix
-    tol_sq = 0.01 * 0.01  # match _are_coords_close default (Å)
+    legacy_tol_sq = CIF_LEGACY_COINCIDENCE_TOLERANCE_A**2
+    legacy_shifts_frac = np.array(
+        list(itertools.product([-1, 0, 1], repeat=3)), dtype=float
+    )
 
     protected_source_mask = np.zeros((len(labels), len(labels)), dtype=bool)
     for left in range(len(labels)):
         for right in range(left + 1, len(labels)):
             if symbols[left] != symbols[right] or labels[left] == labels[right]:
                 continue
-            if _are_coords_close(frac_coords[left], frac_coords[right], lattice):
+            if is_true_asu_export:
+                protected = _fractional_sites_equivalent(
+                    frac_coords[left], frac_coords[right]
+                )
+            else:
+                fractional_delta = frac_coords[left] - frac_coords[right]
+                fractional_delta -= np.rint(fractional_delta)
+                candidate_cartesian = (
+                    fractional_delta[None, :] + legacy_shifts_frac
+                ) @ lattice_matrix
+                protected = (
+                    np.min(
+                        np.einsum(
+                            "ij,ij->i", candidate_cartesian, candidate_cartesian
+                        )
+                    )
+                    < legacy_tol_sq
+                )
+            if protected:
                 protected_source_mask[left, right] = True
                 protected_source_mask[right, left] = True
-
-    # Pre-compute the 27 lattice-shift integer offsets used by the
-    # minimum-image convention, plus their Cartesian counterparts.  We
-    # reuse them on every comparison to avoid rebuilding the shift table.
-    _shifts_frac = np.array(list(itertools.product([-1, 0, 1], repeat=3)), dtype=float)
 
     # For each original atom, apply each symmetry operation
     for i in range(len(labels)):
@@ -1904,18 +1931,31 @@ def scan_cif_disorder(
             # Wrap to unit cell (between 0 and 1)
             new_coord = np.mod(new_coord, 1.0)
 
-            # Vectorised dedup against every existing image of this
-            # element.  Equivalent to running `_are_coords_close` against
-            # each one but ~100x faster on large unit cells (e.g. PAP-4).
+            # Vectorised dedup against every existing image of this element.
+            # Only fractional-coordinate equivalence is a crystallographic
+            # coincidence; nearby Cartesian positions remain distinct sites.
             if bucket:
                 existing = np.asarray(bucket)
-                deltas = existing - new_coord  # (N, 3)
-                deltas -= np.round(deltas)  # bring into [-0.5, 0.5]
-                # 27 candidate vectors per existing atom: (N, 27, 3)
-                cand_frac = deltas[:, None, :] + _shifts_frac[None, :, :]
-                cand_cart = cand_frac @ lattice_matrix  # (N, 27, 3)
-                dists_sq = np.einsum("ijk,ijk->ij", cand_cart, cand_cart)
-                coincident = np.min(dists_sq, axis=1) < tol_sq
+                deltas = existing - new_coord
+                if is_true_asu_export:
+                    coincident = np.all(
+                        np.isclose(
+                            deltas,
+                            np.rint(deltas),
+                            atol=CIF_SYMMETRY_TOLERANCE,
+                            rtol=0.0,
+                        ),
+                        axis=1,
+                    )
+                else:
+                    candidate_fractional = (
+                        deltas[:, None, :] + legacy_shifts_frac[None, :, :]
+                    )
+                    candidate_cartesian = candidate_fractional @ lattice_matrix
+                    distance_squared = np.einsum(
+                        "ijk,ijk->ij", candidate_cartesian, candidate_cartesian
+                    )
+                    coincident = np.min(distance_squared, axis=1) < legacy_tol_sq
                 existing_sources = np.asarray(bucket_sources, dtype=int)
                 protected = protected_source_mask[i, existing_sources]
                 if np.any(coincident & ~protected):
@@ -1944,7 +1984,7 @@ def scan_cif_disorder(
             # Otherwise fall back to symmetry-expansion-based defaults.
             # (Bounds checks are safe because the lists are built for n_atoms;
             # this is defense-in-depth against edge-case CIF corruption.)
-            if _have_custom_soi:
+            if _have_custom_soi and not is_true_asu_export:
                 all_sym_op_indices.append(molcrys_sym_op_indices[i])
             else:
                 all_sym_op_indices.append(op_idx)
@@ -2081,6 +2121,7 @@ def read_mol_crystal(
         by_label: dict[str, list[int]] = {}
         for index, label in enumerate(labels_arr):
             by_label.setdefault(str(label), []).append(index)
+        fractional = np.asarray(atoms_obj.get_scaled_positions(wrap=False), dtype=float)
         pairs: list[tuple[int, int]] = []
         for record in records:
             left_candidates = by_label.get(str(record.get("atom1_label", "")), ())
@@ -2102,9 +2143,6 @@ def read_mol_crystal(
                         image_shift = np.asarray(
                             [int(value) - 5 for value in shift_token], dtype=int
                         )
-                    fractional = np.asarray(
-                        atoms_obj.get_scaled_positions(wrap=False), dtype=float
-                    )
                     operation = operations[operation_index]
                     for left in left_candidates:
                         expected = np.asarray(
@@ -2127,6 +2165,48 @@ def read_mol_crystal(
                     # A valid symmetry-coded row is authoritative even when
                     # the endpoint is the same label; do not fall through to
                     # ambiguous distance matching.
+                    continue
+
+            # A true-ASU bond with the ordinary ``.`` site code is replicated
+            # by applying the same space-group operation to both endpoints.
+            # Distance-only matching is ambiguous when an endpoint lies close
+            # to a mirror plane: both C--O images can have nearly identical
+            # lengths even though only one pair is symmetry-related.  Recover
+            # the operation copy from each label's first retained image and
+            # pair candidates carrying the same operation index.
+            if (
+                site_symmetry in {"", ".", "?"}
+                and len(operations) > 1
+                and (len(left_candidates) > 1 or len(right_candidates) > 1)
+            ):
+                def _operation_copy_indices(candidates):
+                    reference = fractional[int(candidates[0])]
+                    result = {}
+                    for candidate in candidates:
+                        matches = [
+                            index
+                            for index, operation in enumerate(operations)
+                            if _fractional_sites_equivalent(
+                                operation.apply(reference, wrap=False),
+                                fractional[int(candidate)],
+                            )
+                        ]
+                        if matches:
+                            result[int(candidate)] = matches[0]
+                    return result
+
+                left_copies = _operation_copy_indices(left_candidates)
+                right_copies = _operation_copy_indices(right_candidates)
+                mapped = False
+                for left, left_operation in left_copies.items():
+                    for right, right_operation in right_copies.items():
+                        if left == right or left_operation != right_operation:
+                            continue
+                        pair = tuple(sorted((left, right)))
+                        if pair not in pairs:
+                            pairs.append(pair)
+                        mapped = True
+                if mapped:
                     continue
             try:
                 raw_expected = record.get("distance_A")

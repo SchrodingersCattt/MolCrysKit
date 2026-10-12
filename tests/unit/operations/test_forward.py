@@ -72,6 +72,45 @@ def test_general_position_expands_two_complete_molecules_without_disorder():
     assert all(np.isclose(molecule.arrays["occupancy"], 1.0).all() for molecule in crystal.molecules)
 
 
+def test_asu_round_trip_keeps_general_site_near_mirror_and_explicit_bonds():
+    """A near-plane general site is distinct from its mirror image."""
+    context = prepare_construction_context(
+        np.eye(3) * 10.0,
+        (
+            _operation(np.eye(3), xyz="x,y,z", index=0),
+            _operation(np.diag([1.0, -1.0, 1.0]), xyz="x,-y,z", index=1),
+        ),
+        space_group_number=6,
+        space_group_symbol="P m",
+    )
+    template = MolecularTemplate(
+        Atoms("CO", positions=[[0.0, 0.0, 0.0], [4.0, 1.2, 0.0]]),
+        identifier="near-mirror-co",
+        anchor_index=0,
+        connectivity=((0, 1),),
+    )
+    crystal = construct_molecular_crystal(
+        context, MolecularPose(template, [0.2, 0.00036042, 0.2])
+    )
+    asu = write_cif_asu(crystal)
+
+    # Independent symmetry expansion and MolCrysKit read-back must agree on
+    # the two complete C--O molecules.  The C image separation is 0.0072 Å,
+    # below the old 0.01 Å Cartesian deduplication threshold.
+    parsed = CifParser.from_str(asu, occupancy_tolerance=1.0).parse_structures(
+        primitive=False
+    )
+    assert len(parsed) == 1
+    assert len(parsed[0]) == 4
+    expanded = scan_cif_disorder(cif_text=asu)
+    assert len(expanded.symbols) == 4
+
+    restored = read_mol_crystal(cif_text=asu, attach_chemistry=False)
+    assert sum(len(molecule) for molecule in restored.molecules) == 4
+    assert len(restored.molecules) == 2
+    assert all(list(molecule.graph.edges()) == [(0, 1)] for molecule in restored.molecules)
+
+
 def test_inversion_special_site_requires_explicit_disorder_and_merges_anchor_atom():
     context = _pminus1_context()
     template = MolecularTemplate(
