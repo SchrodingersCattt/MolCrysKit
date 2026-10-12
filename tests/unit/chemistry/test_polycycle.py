@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import pytest
+
+from molcrys_kit.chemistry import notations_equivalent
+from molcrys_kit.chemistry.name_conversion import iupac_to_smiles, smiles_to_iupac
+
+
+@pytest.mark.parametrize(
+    ("smiles", "name"),
+    (
+        ("C1CC2CCC1C2", "bicyclo[2.2.1]heptane"),
+        ("C1=CC2CCC1C2", "bicyclo[2.2.1]hept-2-ene"),
+        ("C1=CC2C=CC1C2", "bicyclo[2.2.1]hept-2,5-diene"),
+        ("C1CCC2CCCCC2C1", "bicyclo[4.4.0]decane"),
+        ("C1C2CC3CC1CC(C2)C3", "tricyclo[3.3.1.1^3,7]decane"),
+        ("C1CN2CCN1CC2", "1-aza-4-azabicyclo[2.2.2]octane"),
+        ("C1C[N+]2CCC1CC2", "1-azoniabicyclo[2.2.2]octane"),
+        ("C1C[NH+]2CCC1CC2", "1-azaniumbicyclo[2.2.2]octane"),
+        ("C1C[NH+]2CC[NH+]1CC2", "1-azanium-4-azaniumbicyclo[2.2.2]octane"),
+        ("CC1CCC2CCC1C2", "2-methylbicyclo[3.2.1]octane"),
+        ("CC1CCC2CCN1C2", "2-methyl-5-azabicyclo[3.2.1]octane"),
+        # This input has four- and five-member rings sharing one atom.
+        ("C1CCC12CCCC2", "spiro[3.4]octane"),
+        ("C12(CCN2)CCCCC1", "1-azaspiro[3.5]nonane"),
+        ("C1=CC2(CC1)CCC2", "spiro[3.4]oct-5-ene"),
+        ("C1=CC2(C1)CCC2", "spiro[3.3]hept-1-ene"),
+        ("C1C=C2CCC1C2", "bicyclo[2.2.1]hept-1-ene"),
+        ("C1CC2CC3CC1CC(C2)C3", "tricyclo[4.3.1.1^3,8]undecane"),
+        ("c1ccc2ccccc2c1", "bicyclo[4.4.0]dec-1,3,5,7,9-pentaene"),
+        ("c1ccc(-c2ccccc2)cc1", "phenylbenzene"),
+    ),
+)
+def test_polycycle_names_round_trip(smiles: str, name: str) -> None:
+    result = smiles_to_iupac(smiles)
+    assert result.name == name
+    rebuilt = iupac_to_smiles(name)
+    assert rebuilt.lossless is True
+    assert notations_equivalent(smiles, rebuilt.value) is True
+
+
+def test_polycycle_names_are_general_iupac() -> None:
+    result = smiles_to_iupac("C1CC2CCC1C2")
+    assert result.preferred is False
+    assert result.kind.value == "general_iupac_name"
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "bicyclo[4.4.0]dec-4-ene",
+        "bicyclo[4.4.0]dec-4,8-diene",
+    ),
+)
+def test_bicyclo_unsaturation_locants_are_preserved(name: str) -> None:
+    """Bicyclo suffix locants must produce the corresponding double bonds."""
+    rebuilt = iupac_to_smiles(name)
+    assert rebuilt.lossless is True
+    result = smiles_to_iupac(rebuilt.value)
+    assert result.name.endswith("ene")
+    assert "molecule" not in result.name
+    assert (
+        notations_equivalent(rebuilt.value, iupac_to_smiles(result.name).value) is True
+    )

@@ -3,7 +3,8 @@ Utilities for parsing CIF ``_chemical_formula_moiety`` values.
 
 The parser intentionally keeps moiety fragments unscaled: ``0.5(C3 H8 O1)``
 represents a fragment whose stored element counts are still ``C3 H8 O1`` and
-whose multiplier is ``0.5``.
+whose multiplier is ``0.5``.  Element counts may themselves be decimal for
+disorder averages (for example ``Cl0.5``).
 """
 
 from __future__ import annotations
@@ -20,13 +21,20 @@ class Fragment:
     """One fragment from a CIF ``_chemical_formula_moiety`` value."""
 
     multiplier: float
-    composition: Dict[str, int]
+    # Counts may be fractional for disordered CIF moieties (e.g. ``Cl0.5``).
+    # Integer values are kept as ``int`` for backwards compatibility, while
+    # decimal values are represented as ``float``.
+    composition: Dict[str, float]
     charge: int
     raw: str
 
 
-_ELEMENT_RE = re.compile(r"([A-Z][a-z]?)([0-9]*)")
-_MULTIPLIER_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*\((.*)\)$")
+# CIF formula counts are commonly decimal values (``Cl2.5``), and a few
+# producers omit the leading zero (``.5``).  Keep the numeric grammar strict so
+# malformed values still trigger the parser's existing warning/fallback path.
+_DECIMAL_RE = r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+_ELEMENT_RE = re.compile(rf"([A-Z][a-z]?)({_DECIMAL_RE})?")
+_MULTIPLIER_RE = re.compile(rf"^({_DECIMAL_RE})\s*\((.*)\)$")
 _CHARGE_RE = re.compile(r"^(?:(\d+))?([+-])$")
 
 
@@ -57,7 +65,7 @@ def parse_moiety_string(value: Optional[str]) -> Optional[List[Fragment]]:
     return fragments or None
 
 
-def heavy_signature(composition: Dict[str, int]) -> Tuple[Tuple[str, int], ...]:
+def heavy_signature(composition: Dict[str, float]) -> Tuple[Tuple[str, float], ...]:
     """Return a hashable composition signature with hydrogen removed."""
     return tuple(
         sorted((element, count) for element, count in composition.items() if element != "H")
@@ -183,18 +191,24 @@ def _parse_charge(token: str) -> int:
     return magnitude if match.group(2) == "+" else -magnitude
 
 
-def _parse_composition(text: str) -> Dict[str, int]:
+def _parse_composition(text: str) -> Dict[str, float]:
     compact = text.replace(" ", "")
     if not compact:
         return {}
 
-    composition: Dict[str, int] = {}
+    composition: Dict[str, float] = {}
     consumed = 0
     for match in _ELEMENT_RE.finditer(compact):
         if match.start() != consumed:
             raise ValueError(f"unexpected token near {compact[consumed:]!r}")
         element, count_text = match.groups()
-        composition[element] = composition.get(element, 0) + int(count_text or "1")
+        if not count_text:
+            count: float | int = 1
+        elif "." in count_text:
+            count = float(count_text)
+        else:
+            count = int(count_text)
+        composition[element] = composition.get(element, 0) + count
         consumed = match.end()
 
     if consumed != len(compact):

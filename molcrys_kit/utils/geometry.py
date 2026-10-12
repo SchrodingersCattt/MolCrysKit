@@ -668,10 +668,26 @@ def get_rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
     -------
     np.ndarray
         A 3x3 rotation matrix.
+
+    Notes
+    -----
+    A zero-length axis is treated as a no-op and returns the identity matrix.
+    This keeps degenerate coordination geometry finite; callers that require a
+    physical bond axis should validate it before invoking this helper.
     """
-    # Normalize the rotation axis
+    # Normalize the rotation axis.  A zero axis has no direction; treating it
+    # as a no-op keeps degenerate coordination geometry finite and deterministic
+    # (callers that require a physical axis, such as bond rotation, validate it
+    # before reaching this utility).  Non-finite axes remain invalid inputs.
     axis = np.asarray(axis, dtype=np.float64)
-    axis = axis / np.linalg.norm(axis)
+    if axis.shape != (3,):
+        raise ValueError(f"axis must be a finite 3-vector, got shape {axis.shape}")
+    if not np.all(np.isfinite(axis)):
+        raise ValueError("axis must contain only finite values")
+    axis_norm = float(np.linalg.norm(axis))
+    if axis_norm <= _GEOM_EPS:
+        return np.eye(3, dtype=np.float64)
+    axis = axis / axis_norm
 
     # Convert angle to radians if it's in degrees (assuming it's in radians based on the function signature)
     angle_rad = angle

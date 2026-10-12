@@ -54,12 +54,14 @@ MolCrysKit-specific chemical semantics would be discarded.
 | Red Book 2005 | partial | Deterministic composition/dimensionality descriptions; general additive coordination naming is not released. |
 | Purple Book 2008 | partial | Single named repeat-unit `poly(...)` result is provisional; end groups and typed connections remain required. |
 | Full PIN selection | indeterminate outside rows above | `preferred` is never asserted for fallback composition descriptions. |
+| Certified published reference names | implemented (closed registry) | The ten reviewed SMILES fixtures carry their complete source graph, formula, and fixed PubChem IUPAC name; strict conversion accepts only those exact normalized source strings after valence and formula validation. This registry does not claim general PIN coverage. |
 | Name → structure | partial | Exact canonical forms emitted by the self-contained reversible subset parser are accepted; general IUPAC names, synonyms, stereochemical names, and unsupported entity classes fail closed. |
 
 The reversible conversion API covers neutral finite covalent entities only:
 water, azane, C1–C12 straight-chain hydrocarbons, corresponding alcohols and
 carboxylic acids, benzene/phenol with simple halogen, methyl, and hydroxy
-substituents, and the supported `N-(hydroxyphenyl)alkanamide` forms.  Use
+substituents, the supported `N-(hydroxyphenyl)alkanamide` forms, and the
+closed curated reference corpus described above.  Use
 `name_entity()` when a one-way composition description is acceptable; use
 `smiles_to_iupac(strict=True)` when a name must round-trip through
 `iupac_to_smiles()`.  Strict conversion applies OpenSMILES default valences to
@@ -81,7 +83,8 @@ indeterminate results.
 ## Golden corpus policy
 
 - `tests/data/chemistry_golden/` contains human-reviewed truth records in
-  TOML; it is deliberately not an external-engine dump.
+  TOML and the reviewed SMILES reference corpus in JSON; these are deliberately
+  not an external-engine dump.
 - Stereo coordinates and invariance transformations live beside the engine in
   `tests/unit/chemistry/test_stereo.py` until the coordinate corpus schema is
   frozen.

@@ -212,6 +212,19 @@ class TestRotationMatrix:
         R = get_rotation_matrix(np.array([1.0, 0, 0]), np.pi / 4)
         np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-10)
 
+    def test_zero_axis_is_a_finite_noop(self):
+        """A degenerate axis has an explicit identity/no-op behavior."""
+        R = get_rotation_matrix(np.zeros(3), 0.2)
+        np.testing.assert_array_equal(R, np.eye(3))
+        assert np.all(np.isfinite(R))
+        rotated = rotate_vector(np.array([1.0, 2.0, 3.0]), np.zeros(3), 30.0)
+        np.testing.assert_allclose(rotated, [1.0, 2.0, 3.0])
+        assert np.all(np.isfinite(rotated))
+
+    def test_nonfinite_axis_is_rejected(self):
+        with pytest.raises(ValueError, match="finite"):
+            get_rotation_matrix(np.array([np.nan, 0.0, 0.0]), 0.2)
+
 
 class TestRigidBodyGeometry:
     """Rigid-body math helpers for replica interpolation."""

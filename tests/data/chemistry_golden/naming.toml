@@ -57,3 +57,163 @@ expected = "1-chloro-4-methylbenzene"
 standard = "Blue Book"
 version = "2013"
 human_reviewed = true
+
+[[case]]
+id = "2-methylpropane"
+notation = "CC(C)C"
+expected = "2-methylpropane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "carbon-dioxide"
+notation = "O=C=O"
+expected = "carbon dioxide"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "carbonic-acid"
+notation = "[OH][C](=[O])[OH]"
+expected = "carbonic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "formamide"
+notation = "NC=O"
+expected = "formamide"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "isocyanic-acid"
+notation = "N=C=O"
+expected = "isocyanic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "carbonyl-dichloride"
+notation = "ClC(=O)Cl"
+expected = "carbonyl dichloride"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "methyl-ethanoate"
+notation = "CC(=O)OC"
+expected = "methyl ethanoate"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "glycolic-acid"
+notation = "[O]=[C]([OH])[CH2][OH]"
+expected = "2-hydroxyethanoic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexane"
+notation = "C1CCCCC1"
+expected = "cyclohexane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexene"
+notation = "C1=CCCCC1"
+expected = "cyclohexene"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "azabenzene-general"
+notation = "c1ccncc1"
+expected = "1-azabenzene"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "bicyclo-heptane"
+notation = "C1CC2CCC1C2"
+expected = "bicyclo[2.2.1]heptane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "adamantane-systematic"
+notation = "C1C2CC3CC1CC(C2)C3"
+expected = "tricyclo[3.3.1.1^3,7]decane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "methyl-bicyclo-systematic"
+notation = "CC1CCC2CCC1C2"
+expected = "2-methylbicyclo[3.2.1]octane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "spiro-octane"
+notation = "C1CCC12CCCC2"
+expected = "spiro[3.4]octane"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "benzenecarboxylic-acid"
+notation = "[O]=[C]([OH])c1ccccc1"
+expected = "benzenecarboxylic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "phenyl-ethanoate"
+notation = "CC(=O)Oc1ccccc1"
+expected = "phenyl ethanoate"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexanecarboxamide"
+notation = "NC(=O)C1CCCCC1"
+expected = "cyclohexanecarboxamide"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "cyclohexanone"
+notation = "O=C1CCCCC1"
+expected = "cyclohexanone"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true
+
+[[case]]
+id = "3-oxobutanoic-acid"
+notation = "[CH3][C](=[O])[CH2][C](=[O])[OH]"
+expected = "3-oxobutanoic acid"
+standard = "Blue Book"
+version = "2013"
+human_reviewed = true

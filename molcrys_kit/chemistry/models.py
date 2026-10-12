@@ -15,9 +15,13 @@ from typing import Union
 Vector3 = tuple[float, float, float]
 ImageShift = tuple[int, int, int]
 
-# Shared target valences for the bounded OpenSMILES/naming subset.  Keeping
+# Shared *default* valences for the bounded OpenSMILES/naming subset.  Keeping
 # this table in the chemistry model avoids separate completion and validation
-# rules drifting apart.
+# rules drifting apart.  ``DEFAULT_VALENCE`` is deliberately the ordinary
+# organic-subset target used when an atom has no higher-valence environment.
+# In particular, sulfur remains divalent here: changing this value to six
+# would make an unbracketed ``S``/``CS`` acquire the wrong implicit hydrogen
+# count.
 DEFAULT_VALENCE = {
     "H": 1.0,
     "B": 3.0,
@@ -26,6 +30,21 @@ DEFAULT_VALENCE = {
     "O": 2.0,
     "P": 3.0,
     "S": 2.0,
+}
+
+# Some elements have more than one neutral valence state.  The bounded
+# OpenSMILES subset currently needs this for sulfur (for example,
+# ``C-S(=O)-C`` has bond-order sum four).  Keep the alternatives separate from
+# ``DEFAULT_VALENCE`` so callers that infer implicit hydrogens can select the
+# lowest compatible state for the local bond environment.
+ALLOWED_VALENCES = {
+    "H": (1.0,),
+    "B": (3.0,),
+    "C": (4.0,),
+    "N": (3.0,),
+    "O": (2.0,),
+    "P": (3.0,),
+    "S": (2.0, 4.0, 6.0),
 }
 
 

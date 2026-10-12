@@ -8,7 +8,7 @@ than pre-built entity objects.
 from __future__ import annotations
 
 from .crystal_stereo import EntityRelationship, classify_entity_relationship
-from .line_notation import LineNotationError, from_line_notation
+from .line_notation import LineNotationError, from_line_notation, to_line_notation
 from .models import FiniteChemicalEntity, InferenceStatus
 from .stereo import StereoReport
 
@@ -72,6 +72,16 @@ def notations_equivalent(left: str, right: str) -> bool | None:
         left_entity = complete_open_smiles_hydrogens(left_entity)
     if not right.strip().startswith("MCK-LN1|"):
         right_entity = complete_open_smiles_hydrogens(right_entity)
+    # General systematic names use MCK-LN when OpenSMILES cannot preserve all
+    # fields.  Its canonical serialization is exact for the completed graph,
+    # so use it as a lossless comparison fast path before coordinate-free CIP
+    # classification can conservatively return indeterminate.
+    if left.strip().startswith("MCK-LN1|") or right.strip().startswith("MCK-LN1|"):
+        if (
+            to_line_notation(left_entity, dialect="mck-ln").value
+            == to_line_notation(right_entity, dialect="mck-ln").value
+        ):
+            return True
     result = classify_entity_relationship(left_entity, right_entity)
     if result is EntityRelationship.SAME_STEREOISOMER:
         return True

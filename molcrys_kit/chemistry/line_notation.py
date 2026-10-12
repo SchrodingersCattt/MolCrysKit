@@ -66,7 +66,15 @@ def to_line_notation(
     entity: ChemicalEntity,
     dialect: str = "auto",
 ) -> LineNotation:
-    """Generate deterministic OpenSMILES or the lossless MCK-LN 1 extension."""
+    """Generate deterministic OpenSMILES or the lossless MCK-LN 1 extension.
+
+    Stored atom and bond stereo tokens stay outside this writer's OpenSMILES
+    subset.  ``@``/``@@`` and directional bond markers depend on ligand order
+    in the emitted traversal, while the canonical writer may reorder that
+    traversal.  Such entities therefore select MCK-LN in ``auto`` mode (or
+    fail explicitly for an OpenSMILES request) instead of claiming a
+    potentially inverted ``lossless=True`` representation.
+    """
     requested = dialect.strip().lower().replace("_", "-")
     if requested == "auto":
         requested = (
@@ -130,6 +138,11 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
         unsupported.append("explicit radical-electron counts")
     if any(atom.explicit_hydrogens is not None for atom in entity.atoms):
         unsupported.append("explicit/implicit hydrogen distinction")
+    # OpenSMILES carries tetrahedral ``@``/``@@`` tokens relative to the
+    # ligand order in the emitted traversal.  This writer canonicalises roots
+    # and neighbours, so copying a stored token could invert a stereocentre.
+    # Refuse the OpenSMILES path until the traversal-aware adjustment is
+    # implemented; ``dialect="auto"`` then selects lossless MCK-LN.
     if any(atom.stereochemistry is not None for atom in entity.atoms):
         unsupported.append("stored atom stereo tokens")
     if any(
@@ -139,6 +152,7 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
         unsupported.append("non-covalent bond semantics")
     if any(bond.atom2_image_shift != (0, 0, 0) for bond in entity.bonds):
         unsupported.append("periodic image shifts")
+    # Directional bond tokens have the same traversal-order dependency.
     if any(bond.stereochemistry is not None for bond in entity.bonds):
         unsupported.append("stored bond stereo tokens")
     if any(
@@ -199,6 +213,11 @@ def _canonical_colors(entity: FiniteChemicalEntity) -> dict[str, int]:
 def _write_opensmiles(entity: FiniteChemicalEntity) -> str:
     if not entity.atoms:
         raise LineNotationError("an empty entity has no OpenSMILES representation")
+    # Keep the guard next to the renderer as well as in ``to_line_notation``;
+    # internal callers must not be able to silently drop unsupported fields.
+    unsupported = _opensmiles_unsupported(entity)
+    if unsupported:
+        raise LineNotationError("OpenSMILES would discard: " + ", ".join(unsupported))
     adjacency = _adjacency(entity)
     colors = _canonical_colors(entity)
     components = _connected_components(tuple(adjacency), adjacency)
@@ -245,6 +264,11 @@ def _render_component(entity, adjacency, colors, root: str) -> str:
     }
     extra_edges = []
     for bond in entity.bonds:
+        # `_render_component` receives the full entity while rendering one
+        # disconnected component.  Bonds belonging to another component are
+        # outside this traversal and therefore have no position entry.
+        if bond.atom1_id not in parent or bond.atom2_id not in parent:
+            continue
         edge = frozenset((bond.atom1_id, bond.atom2_id))
         if edge not in tree_edges:
             endpoints = tuple(sorted(edge, key=position.__getitem__))
@@ -270,32 +294,52 @@ def _render_component(entity, adjacency, colors, root: str) -> str:
             )
         )
 
-    def render(atom_id: str) -> str:
-        text = _smiles_atom(
-            atom_by_id[atom_id],
-            aromatic=any(bond.aromatic for _, bond in adjacency[atom_id]),
+    def aromatic_atom(atom_id: str) -> bool:
+        return any(bond.aromatic for _, bond in adjacency[atom_id])
+
+    def bond_token(left: str, right: str, bond: ChemicalBond) -> str:
+        # OpenSMILES defaults an omitted bond between two aromatic atoms to an
+        # aromatic edge.  Emit an explicit '-' for a genuine single bond that
+        # joins two aromatic rings (for example biphenyl), preserving the
+        # ring-collection topology on a text round trip.
+        explicit_single = (
+            not bond.aromatic
+            and bond.order == 1.0
+            and aromatic_atom(left)
+            and aromatic_atom(right)
         )
+        return _smiles_bond(bond, explicit_single=explicit_single)
+
+    def render(atom_id: str) -> str:
+        text = _smiles_atom(atom_by_id[atom_id], aromatic=aromatic_atom(atom_id))
         for number, bond, first in sorted(ring_marks[atom_id]):
             if first:
-                text += _smiles_bond(bond)
+                other = bond.atom2_id if bond.atom1_id == atom_id else bond.atom1_id
+                text += bond_token(atom_id, other, bond)
             text += str(number) if number < 10 else f"%{number}"
         atom_children = children[atom_id]
         for child in atom_children[1:]:
-            text += f"({_smiles_bond(parent_bond[child])}{render(child)})"
+            text += f"({bond_token(atom_id, child, parent_bond[child])}{render(child)})"
         if atom_children:
             child = atom_children[0]
-            text += _smiles_bond(parent_bond[child]) + render(child)
+            text += bond_token(atom_id, child, parent_bond[child]) + render(child)
         return text
 
     return render(root)
 
 
 def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
+    if atom.stereochemistry is not None:
+        raise LineNotationError(
+            "OpenSMILES writer cannot safely emit stored atom stereo tokens; "
+            "use MCK-LN"
+        )
     simple = (
         atom.element in _ORGANIC
         and atom.isotope is None
         and atom.formal_charge in {None, 0}
         and atom.implicit_hydrogens is None
+        and atom.stereochemistry is None
     )
     if simple:
         if aromatic and atom.element.lower() in _AROMATIC:
@@ -313,9 +357,16 @@ def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
     return f"[{isotope}{atom.element}{hydrogens}{charge}]"
 
 
-def _smiles_bond(bond: ChemicalBond) -> str:
+def _smiles_bond(bond: ChemicalBond, *, explicit_single: bool = False) -> str:
+    if bond.stereochemistry is not None:
+        raise LineNotationError(
+            "OpenSMILES writer cannot safely emit stored bond stereo tokens; "
+            "use MCK-LN"
+        )
     if bond.aromatic:
         return ":"
+    if explicit_single and bond.order == 1.0:
+        return "-"
     try:
         return _BOND_TO_TOKEN[float(bond.order)]
     except (KeyError, TypeError) as exc:
