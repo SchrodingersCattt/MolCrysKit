@@ -8,8 +8,10 @@ from molcrys_kit.operations import (
     interpolate_molecule_with_internal_dofs,
     rotate_fragment_about_bond,
 )
+from molcrys_kit.operations._path_core import interpolate_rigid_positions
 from molcrys_kit.operations.interpolation import best_atom_mapping
 from molcrys_kit.structures.molecule import CrystalMolecule
+from molcrys_kit.utils.geometry import get_rotation_matrix
 
 
 def _butane_like() -> CrystalMolecule:
@@ -119,6 +121,13 @@ def test_torsion_path_interpolates_residual_endpoint_motion():
     )
     final_step = np.linalg.norm(frames[-1].get_positions() - frames[-2].get_positions())
     assert final_step < 0.1
+    previous_step = np.linalg.norm(
+        frames[-2].get_positions() - frames[-3].get_positions()
+    )
+    assert final_step < 1.5 * previous_step
+    np.testing.assert_allclose(
+        frames[-1].get_positions(), mol_b.get_positions(), atol=1e-8
+    )
 
 
 def test_ring_path_keeps_side_chain_motion():
@@ -144,6 +153,69 @@ def test_ring_path_keeps_side_chain_motion():
     )
     final_step = np.linalg.norm(frames[-1].get_positions() - frames[-2].get_positions())
     assert final_step < 1.5 * previous_step
+
+
+def test_ring_plane_change_converges_continuously_to_endpoint():
+    """CP interpolation must not snap when the endpoint plane changes."""
+    angles = np.arange(6) * np.pi / 3.0
+    ring = np.column_stack((1.4 * np.cos(angles), 1.4 * np.sin(angles), np.zeros(6)))
+    positions_a = np.vstack([ring, [[2.8, 0.0, 0.0], [4.0, 0.4, 1.0]]])
+    positions_b = positions_a.copy()
+    plane_rotation = get_rotation_matrix(np.array([1.0, 0.3, 0.2]), 0.9)
+    positions_b[:6] = ring @ plane_rotation.T
+    positions_b[:6, 2] += np.array([0.25, -0.1, 0.2, -0.15, 0.1, -0.05])
+    symbols = ["C", "N", "O", "F", "P", "S", "Ne", "Ar"]
+    mol_a = CrystalMolecule(Atoms(symbols, positions=positions_a))
+    mol_b = CrystalMolecule(Atoms(symbols, positions=positions_b))
+
+    frames = interpolate_molecule_with_internal_dofs(
+        mol_a,
+        mol_b,
+        n_images=101,
+        ring_atoms=tuple(range(6)),
+        torsion_bonds=[],
+    )
+    target = mol_b.get_positions()[best_atom_mapping(mol_a, mol_b)]
+    previous_step = np.linalg.norm(
+        frames[-2].get_positions() - frames[-3].get_positions()
+    )
+    final_step = np.linalg.norm(frames[-1].get_positions() - frames[-2].get_positions())
+    assert final_step < 1.5 * previous_step
+    assert np.linalg.norm(frames[-2].get_positions() - target) < 1.5 * final_step
+    np.testing.assert_allclose(frames[-1].get_positions(), target, atol=1e-8)
+
+
+def test_internal_torsion_and_rigid_pose_are_composed_once():
+    """A global pose must be applied to the already interpolated torsion."""
+    mol_a = _butane_like()
+    torsion_target = rotate_fragment_about_bond(mol_a, 1, 2, 60.0)
+    rotation = get_rotation_matrix(np.array([0.3, 0.6, 0.2]), 0.7)
+    offset = np.array([3.0, -2.0, 1.0])
+    mol_b = CrystalMolecule(
+        Atoms(
+            "CCCC",
+            positions=torsion_target.get_positions() @ rotation.T + offset,
+        )
+    )
+
+    frames = interpolate_molecule_with_internal_dofs(
+        mol_a, mol_b, n_images=11, torsion_bonds=[(1, 2)]
+    )
+    fraction = 0.5
+    internal = rotate_fragment_about_bond(mol_a, 1, 2, 30.0).get_positions()
+    internal -= (
+        np.average(internal, axis=0, weights=mol_a.get_masses())
+        - mol_a.get_center_of_mass()
+    )
+    expected = interpolate_rigid_positions(
+        internal,
+        center=mol_a.get_center_of_mass(),
+        rotation=rotation,
+        translation=mol_b.get_center_of_mass() - mol_a.get_center_of_mass(),
+        lam=fraction,
+        method="se3_screw",
+    )
+    np.testing.assert_allclose(frames[5].get_positions(), expected, atol=1e-8)
 
 
 @pytest.mark.parametrize("ring_selection", [None, tuple(range(6))])

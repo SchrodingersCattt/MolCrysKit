@@ -156,11 +156,24 @@ def _interpolate_ring_positions(
     normal = cp_a.mean_plane_normal
     center = cp_a.mean_plane_center
     ring_a_in_plane = ring_a - ((ring_a - center) @ normal)[:, None] * normal
-    ring_b_in_plane = ring_b_local - (
-        (ring_b_local - center) @ normal
-    )[:, None] * normal
+    ring_b_in_plane = (
+        ring_b_local - ((ring_b_local - center) @ normal)[:, None] * normal
+    )
     ring_in_plane = (1.0 - lam) * ring_a_in_plane + lam * ring_b_in_plane
     local_result = ring_in_plane + z[:, None] * normal
+
+    # The CP basis is defined by ``cp_a`` while ``cp_b`` is measured in the
+    # endpoint ring's own best-fit plane.  For a changing endpoint plane, the
+    # reconstructed B modes can therefore differ from the aligned endpoint by
+    # a residual component outside the interpolated CP modes.  Carry that
+    # component through the same local path so the ring reaches
+    # ``ring_b_local`` at ``lam == 1`` instead of relying on endpoint snapping.
+    endpoint_z = reconstruct_z_from_modes(len(ring), cp_b.amplitudes, cp_b.phases)
+    endpoint_in_plane = (
+        ring_b_local - ((ring_b_local - center) @ normal)[:, None] * normal
+    )
+    endpoint_shape = endpoint_in_plane + endpoint_z[:, None] * normal
+    local_result += float(lam) * (ring_b_local - endpoint_shape)
 
     # Carry the interpolated local shape with the already rotated/deformed
     # ring in ``base``.  For a pure bridge torsion, this is an exact rigid
