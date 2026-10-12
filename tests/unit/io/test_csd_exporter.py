@@ -125,7 +125,10 @@ def test_exporter_falls_back_from_null_disordered_molecule_and_skips_null_bonds(
     assert result["n_source_atoms"] == 2
     assert result["n_written_atoms"] == 1
     assert "_space_group_IT_number 61" in output.text
-    assert "H1" not in output.text
+    # The source entry formula may legitimately contain ``H1`` even though
+    # the atom row was omitted because its coordinates are unavailable.
+    assert " H1 H " not in output.text
+    assert "_chemical_formula_sum 'C2 H1'" in output.text
     assert any("omitted because fractional coordinates are unavailable" in warning for warning in result["warnings"])
     assert any("Bond export skipped" in warning for warning in result["warnings"])
 
@@ -141,3 +144,19 @@ def test_exporter_preserves_disorder_when_ccdc_groups_start_at_zero():
     assert "_atom_site_disorder_assembly" in output.text
     assert "_atom_site_disorder_group" in output.text
     assert result["n_disorder_sites"] == 2
+
+
+def test_exporter_restores_entry_metadata_and_normalizes_zero_group():
+    a = _Atom("A1", "C", _Coords(0.1, 0.2, 0.3), occupancy=0.5)
+    disorder = _Disorder([_Assembly(0, [_Group(0, [a])])])
+    crystal = _Crystal(_Molecule([a], []), disorder)
+    output = _MemoryPath()
+    result = MODULE.export_full_cif_from_csd(_Reader(crystal), "META01", output)
+    assert "_audit_creation_method 'CCDC Python API; query-csd-structures skill'" in output.text
+    assert "_database_code_CSD 'META01'" in output.text
+    assert "_chemical_name_common 'private name'" in output.text
+    assert "_chemical_formula_sum 'C2 H1'" in output.text
+    assert "_refine_ls_R_factor_all 2.00" in output.text
+    atom_row = next(line for line in output.text.splitlines() if line.startswith("  A1"))
+    assert atom_row.split()[-1] == "1"
+    assert result["source"] == "CSD"

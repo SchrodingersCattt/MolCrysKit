@@ -368,8 +368,10 @@ def write_cif(
     all_u_cart = []
     all_atom_ids = []
     all_molecule_ids = []
+    all_bond_edges = []
 
     for molecule_index, mol in enumerate(crystal.molecules):
+        molecule_offset = len(all_symbols)
         # Get metadata arrays if they exist
         if hasattr(mol, 'arrays'):
             if KEY_OCCUPANCY in mol.arrays:
@@ -455,6 +457,29 @@ def write_cif(
             all_atom_ids.append(str(atom_ids[i]))
             all_molecule_ids.append(int(molecule_index))
 
+        # Preserve an already-materialized molecular graph.  Do not trigger
+        # fresh geometric bond perception for molecules that have no graph:
+        # explicit template connectivity is the source of truth here.
+        graph = getattr(mol, "_graph", None)
+        if graph is not None:
+            for left, right, edge_data in graph.edges(data=True):
+                left = int(left)
+                right = int(right)
+                if not (0 <= left < len(mol) and 0 <= right < len(mol)):
+                    continue
+                try:
+                    distance = float(edge_data.get("distance"))
+                except (AttributeError, TypeError, ValueError):
+                    distance = float(
+                        np.linalg.norm(
+                            np.asarray(positions[right], dtype=float)
+                            - np.asarray(positions[left], dtype=float)
+                        )
+                    )
+                all_bond_edges.append(
+                    (molecule_offset + left, molecule_offset + right, distance)
+                )
+
     def _sanitise_label(label, symbol: str, atom_index: int) -> str:
         text = str(label).strip() if label is not None else ""
         if not text or text.startswith("_") or text.startswith("_molcrys_"):
@@ -515,6 +540,19 @@ def write_cif(
                 f"  {label:8s} {matrix[0, 0]:.8f} {matrix[1, 1]:.8f} "
                 f"{matrix[2, 2]:.8f} {matrix[0, 1]:.8f} "
                 f"{matrix[0, 2]:.8f} {matrix[1, 2]:.8f}"
+            )
+
+    if all_bond_edges:
+        lines.append("")
+        lines.append("_molcrys_bond_table_source 'materialized_graph'")
+        lines.append("loop_")
+        lines.append("  _geom_bond_atom_site_label_1")
+        lines.append("  _geom_bond_atom_site_label_2")
+        lines.append("  _geom_bond_distance")
+        lines.append("  _geom_bond_type")
+        for left, right, distance in all_bond_edges:
+            lines.append(
+                f"  {written_labels[left]} {written_labels[right]} {distance:.6f} single"
             )
 
     lines.append("")

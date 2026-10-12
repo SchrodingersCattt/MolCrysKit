@@ -15,6 +15,8 @@ from molcrys_kit.constants.config import (
     KEY_DISORDER_GROUP,
     KEY_LABEL,
     KEY_OCCUPANCY,
+    KEY_SITE_SYMMETRY_ORDER,
+    KEY_SYM_OP_INDEX,
 )
 from molcrys_kit.operations.forward import (
     IncompatibleSiteError,
@@ -221,6 +223,56 @@ def test_special_position_asu_has_one_row_for_exchanged_atom_orbit():
     expanded = scan_cif_disorder(cif_text=cif)
     assert len(expanded.symbols) == 2
     assert all(np.isclose(value, 1.0) for value in expanded.occupancies)
+
+
+def test_forward_molecules_preserve_site_symmetry_order_provenance():
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms("CC", positions=[[0.7, 0, 0], [-0.7, 0, 0]]),
+        identifier="centred-pair",
+        anchor_cartesian=np.zeros(3),
+        connectivity=((0, 1),),
+    )
+    crystal = construct_molecular_crystal(context, MolecularPose(template, [0, 0, 0]))
+    assert all(
+        np.all(molecule.arrays[KEY_SITE_SYMMETRY_ORDER] == 2)
+        for molecule in crystal.molecules
+    )
+
+
+def test_template_connectivity_is_written_and_used_for_round_trip_grouping():
+    context = prepare_construction_context(
+        np.eye(3) * 20.0,
+        (_operation(np.eye(3), xyz="x,y,z", index=0),),
+    )
+    template = MolecularTemplate(
+        Atoms("CC", positions=[[0, 0, 0], [4, 0, 0]]),
+        identifier="long-bond",
+        anchor_index=0,
+        connectivity=((0, 1),),
+    )
+    crystal = construct_molecular_crystal(context, MolecularPose(template, [0.1, 0.1, 0.1]))
+    assert list(crystal.molecules[0].graph.edges()) == [(0, 1)]
+    cif = write_cif_p1(crystal)
+    assert "_geom_bond_atom_site_label_1" in cif
+    round_tripped = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+    assert len(round_tripped.molecules) == 1
+    assert list(round_tripped.molecules[0].graph.edges()) == [(0, 1)]
+
+
+def test_statistical_pminus1_alternatives_use_unique_group_operation_indices():
+    context = _pminus1_context()
+    template = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]), anchor_index=0)
+    model = construct_statistical_disorder(
+        context, MolecularPose(template, [0.13, 0.21, 0.37])
+    )
+    assert len(model.alternatives) == 2
+    operation_indices = [alternative.operation_index for alternative in model.alternatives]
+    atom_ids = [str(alternative.molecule.arrays[KEY_ATOM_ID][0]) for alternative in model.alternatives]
+    sym_op_indices = [int(alternative.molecule.arrays[KEY_SYM_OP_INDEX][0]) for alternative in model.alternatives]
+    assert len(set(operation_indices)) == 2
+    assert len(set(atom_ids)) == 2
+    assert operation_indices == sym_op_indices
 
 
 def test_statistical_cif_is_materialized_p1_and_parser_occupancies_stay_bounded():
