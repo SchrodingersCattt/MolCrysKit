@@ -23,6 +23,8 @@ class SearchOutcome:
     states: int
     complete: bool
     rejected: int
+    # Assignments dropped because a requested total charge was missing or wrong.
+    charge_rejected: int = 0
 
 
 def _possible(
@@ -118,6 +120,7 @@ def search_bond_orders(
     results: list[tuple[float, tuple[ChemicalBond, ...]]] = []
     states = 0
     rejected = 0
+    charge_rejected = 0
     exhausted = False
 
     def retain(candidate: tuple[float, tuple[ChemicalBond, ...]]) -> None:
@@ -128,7 +131,7 @@ def search_bond_orders(
             results.pop()
 
     def visit(remaining: set[int], assignment: dict[int, int]) -> None:
-        nonlocal states, rejected, exhausted
+        nonlocal states, rejected, charge_rejected, exhausted
         if exhausted:
             return
         states += 1
@@ -149,22 +152,24 @@ def search_bond_orders(
                 if target not in states_for_atom:
                     rejected += 1
                     return
-            charges = []
-            for atom in atoms:
-                value = inferred_charge(
-                    atom, atom_valence_target(atom, sums[atom.atom_id])
-                )
-                if value is None:
-                    charges = []
-                    break
-                charges.append(value)
-            if (
-                total_charge is not None
-                and charges
-                and sum(charges) != int(total_charge)
-            ):
-                rejected += 1
-                return
+            # A requested total charge is a hard constraint.  It is checked
+            # even when one or more atoms have no inferred formal charge:
+            # an incomplete charge vector cannot be treated as a match.
+            if total_charge is not None:
+                charges: list[int] = []
+                charge_known = True
+                for atom in atoms:
+                    value = inferred_charge(
+                        atom, atom_valence_target(atom, sums[atom.atom_id])
+                    )
+                    if value is None:
+                        charge_known = False
+                        break
+                    charges.append(value)
+                if not charge_known or sum(charges) != int(total_charge):
+                    rejected += 1
+                    charge_rejected += 1
+                    return
             assigned = list(bonds)
             for idx, order in assignment.items():
                 assigned[idx] = assigned[idx].__class__(
@@ -206,7 +211,9 @@ def search_bond_orders(
 
     all_indices = set(variable)
     visit(all_indices, {})
-    return SearchOutcome(tuple(results), states, not exhausted, rejected)
+    return SearchOutcome(
+        tuple(results), states, not exhausted, rejected, charge_rejected
+    )
 
 
 def order_signature(bonds: Sequence[ChemicalBond]) -> tuple[float, ...]:

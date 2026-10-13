@@ -40,6 +40,14 @@ Unknown elements, unsupported metal oxidation states, unresolved charge, and
 chemically competitive assignments are represented as provisional or
 indeterminate evidence.
 
+An explicit ``total_charge`` is enforced for every candidate even when one or
+more atoms have no inferred formal charge.  A missing atomic charge does not
+skip the check and is not treated as zero.  The candidate is kept only when
+every atom has a charge and the sum equals the requested total.  If no such
+candidate remains, the result is ``INDETERMINATE``, strict mode raises, and
+``diagnostics["total_charge_unsatisfied"]`` is true.  The constraint is not
+applied when both the argument and the entity net charge are omitted.
+
 Periodic vectors use the row-vector convention
 `r_j + image_shift @ cell_A - r_i`, including triclinic cells. A periodic
 self-edge contributes twice to the valence of its sole atom. Coordinates and

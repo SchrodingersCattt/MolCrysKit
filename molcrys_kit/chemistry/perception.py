@@ -1,7 +1,7 @@
 """Pure bond-order and charge perception plus the legacy crystal adapter."""
 
 from __future__ import annotations
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -68,7 +68,9 @@ class BondOrderResult:
     bond_evidence: tuple[Evidence, ...] = ()
     resonance_classes: tuple[tuple[int, ...], ...] = ()
     alternatives: tuple[Any, ...] = ()
-    diagnostics: Mapping[str, Any] = MappingProxyType({})
+    # ``default_factory`` is required: a ``mappingproxy`` default is rejected
+    # by dataclasses on Python 3.11 because that type sets ``__hash__ = None``.
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         object.__setattr__(
@@ -109,7 +111,13 @@ def _json_value(value):
 
 
 def infer_bond_orders(entity, *, total_charge=None, cell=None, options=None):
-    """Infer covalent orders without mutating an entity."""
+    """Infer covalent orders without mutating an entity.
+
+    When ``total_charge`` is an integer, every retained assignment must have a
+    complete per-atom formal charge that sums to that total.  An atom whose
+    charge cannot be inferred does not waive the constraint: the assignment is
+    rejected and, if none remain, the result is indeterminate.
+    """
     options = options or BondOrderOptions()
     if total_charge is not None and (not isinstance(total_charge, (int, np.integer))):
         raise ValueError("total_charge must be an integer or None")
@@ -169,7 +177,9 @@ def _infer_entity(entity, total_charge, cell, options):
         for a in entity.atoms
         if allowed_valences(a) is None and not is_metal_element(a.element)
     ]
-    metal_edges = sum(1 for bond in bonds if bond.kind in {BondKind.COORDINATION, BondKind.METALLIC})
+    metal_edges = sum(
+        1 for bond in bonds if bond.kind in {BondKind.COORDINATION, BondKind.METALLIC}
+    )
 
     def score(assign):
         return _assignment_score(bonds, assign, atom_by_id, entity.embedding, cell)
@@ -199,12 +209,24 @@ def _infer_entity(entity, total_charge, cell, options):
         "max_candidates": options.max_candidates,
         "candidate_scores": tuple(float(score) for score, _ in outcome.candidates),
         "unresolved_atoms": tuple(unresolved),
+        "total_charge_requested": (None if total_charge is None else int(total_charge)),
+        "charge_constraint_rejected": outcome.charge_rejected,
+        "total_charge_unsatisfied": bool(
+            total_charge is not None
+            and outcome.charge_rejected
+            and not outcome.candidates
+        ),
     }
     if not outcome.candidates:
         warning = (
             f"{entity.entity_id}: no complete valence-consistent bond-order assignment"
             + ("; search budget exhausted" if not outcome.complete else "")
         )
+        if diagnostics["total_charge_unsatisfied"]:
+            warning += (
+                f"; requested total charge {int(total_charge)} is not satisfied "
+                "by a complete atomic-charge assignment"
+            )
         return (
             _entity_with_orders(
                 entity,

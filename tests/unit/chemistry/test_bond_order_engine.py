@@ -1,8 +1,11 @@
+import pytest
+
 from molcrys_kit.chemistry import (
     BondOrderOptions,
     BondKind,
     ChemicalAtom,
     ChemicalBond,
+    ChemistryIndeterminateError,
     Embedding,
     FiniteChemicalEntity,
     InferenceStatus,
@@ -77,3 +80,64 @@ def test_known_total_charge_is_solved_jointly_with_atom_valence():
     assert result.status is InferenceStatus.INFERRED
     assert result.entity.net_charge == 1
     assert result.entity.atoms[0].formal_charge == 1
+    assert result.diagnostics["total_charge_unsatisfied"] is False
+
+
+def _ammonium_with_unmapped_metal() -> FiniteChemicalEntity:
+    atoms = (
+        ChemicalAtom("N", "N"),
+        *(ChemicalAtom(f"H{i}", "H") for i in range(4)),
+        ChemicalAtom("M", "Fe"),
+    )
+    bonds = tuple(ChemicalBond("N", f"H{i}", kind=BondKind.COVALENT) for i in range(4))
+    return FiniteChemicalEntity("ammonium-plus-unmapped", atoms, bonds)
+
+
+def test_total_charge_is_enforced_when_one_atom_has_no_inferred_charge():
+    """An unmapped atom must not waive a conflicting requested total charge."""
+    entity = _ammonium_with_unmapped_metal()
+    result = infer_bond_orders(entity, total_charge=0)
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["total_charge_requested"] == 0
+    assert result.diagnostics["total_charge_unsatisfied"] is True
+    assert result.diagnostics["charge_constraint_rejected"] > 0
+    assert all(bond.order is None for bond in result.entity.bonds)
+    assert "requested total charge 0" in result.entity.warnings[0]
+    with pytest.raises(ChemistryIndeterminateError, match="requested total charge 0"):
+        infer_bond_orders(entity, total_charge=0, options=BondOrderOptions(strict=True))
+
+
+def test_unmapped_atom_does_not_make_a_partial_charge_sum_acceptable():
+    """Unknown atomic charge is not treated as zero to satisfy ``total_charge``."""
+    entity = _ammonium_with_unmapped_metal()
+    result = infer_bond_orders(entity, total_charge=1)
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["total_charge_unsatisfied"] is True
+    assert all(bond.order is None for bond in result.entity.bonds)
+
+
+def test_explicit_charge_on_unmapped_element_still_enforces_the_total():
+    atoms = (
+        ChemicalAtom("N", "N"),
+        *(ChemicalAtom(f"H{i}", "H") for i in range(4)),
+        ChemicalAtom("M", "Fe", formal_charge=0),
+    )
+    bonds = tuple(ChemicalBond("N", f"H{i}", kind=BondKind.COVALENT) for i in range(4))
+    entity = FiniteChemicalEntity("ammonium-iron", atoms, bonds)
+    matched = infer_bond_orders(entity, total_charge=1)
+    assert matched.status is InferenceStatus.INFERRED
+    assert matched.entity.net_charge == 1
+    assert matched.diagnostics["total_charge_unsatisfied"] is False
+    conflict = infer_bond_orders(entity, total_charge=0)
+    assert conflict.status is InferenceStatus.INDETERMINATE
+    assert conflict.diagnostics["total_charge_unsatisfied"] is True
+
+
+def test_omitted_total_charge_does_not_reject_an_unmapped_atom():
+    result = infer_bond_orders(_ammonium_with_unmapped_metal())
+    assert result.status is not InferenceStatus.INDETERMINATE
+    assert result.diagnostics["total_charge_requested"] is None
+    assert result.diagnostics["total_charge_unsatisfied"] is False
+    assert result.diagnostics["charge_constraint_rejected"] == 0
+    assert result.entity.net_charge is None
+    assert all(bond.order == 1.0 for bond in result.entity.bonds)
