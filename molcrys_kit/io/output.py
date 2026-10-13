@@ -1079,33 +1079,79 @@ def write_cif_asu(
     def _symmetry_site_code(right_row, right_source_row) -> str:
         """Encode the operation taking the retained second endpoint to its image.
 
-        CIF's ``_geom_bond_site_symmetry_2`` code belongs to atom site 2.  A
-        true-ASU bond therefore records the operation that maps the retained
-        ASU row for the *right* endpoint to the source image used by the full
-        cell edge.  Keeping that convention in the writer lets the reader
-        reconstruct cross-image bonds without guessing from distances.
+        CIF's ``_geom_bond_site_symmetry_2`` is attached to atom 2.  The
+        operation therefore maps the retained ASU row for the second endpoint
+        to the concrete endpoint in the materialized molecule.  Encoding the
+        first endpoint (the old convention) loses edges when a stabilizer
+        exchanges the two ends of a bond.
         """
         if right_row is None or right_source_row is None:
             return "."
-        right_fractional = np.asarray(right_row["fractional"], dtype=float)
-        right_source_fractional = np.asarray(
-            right_source_row["fractional"], dtype=float
-        )
-        for operation_index, operation in enumerate(operations):
-            mapped = np.asarray(operation.apply(right_fractional, wrap=False), dtype=float)
-            shift = np.rint(right_source_fractional - mapped).astype(int)
+        retained_fractional = np.asarray(right_row["fractional"], dtype=float)
+        source_fractional = np.asarray(right_source_row["fractional"], dtype=float)
+
+        # Prefer the identity relation even when the validated operation set
+        # is canonically ordered with a non-identity stabilizer first.
+        identity_indices = [
+            index
+            for index, operation in enumerate(operations)
+            if _operation_xyz(operation).replace(" ", "") == "x,y,z"
+        ]
+        operation_indices = identity_indices + [
+            index for index in range(len(operations)) if index not in identity_indices
+        ]
+        for operation_index in operation_indices:
+            operation = operations[operation_index]
+            mapped = np.asarray(
+                operation.apply(retained_fractional, wrap=False), dtype=float
+            )
+            shift = np.rint(source_fractional - mapped).astype(int)
             if not np.allclose(
                 mapped + shift,
-                right_source_fractional,
+                source_fractional,
                 atol=tolerance,
                 rtol=0.0,
             ):
                 continue
+            if (
+                _operation_xyz(operation).replace(" ", "") == "x,y,z"
+                and np.all(shift == 0)
+            ):
+                return "."
             if np.any(np.abs(shift) > 4):
                 raise ValueError("ASU bond symmetry image is outside CIF code range")
             digits = "".join(str(int(value) + 5) for value in shift)
             return f"{operation_index + 1}_{digits}"
         return "."
+
+    def _symmetry_relation(row, source_row):
+        """Return the operation/image shift taking *row* to *source_row*."""
+        if row is None or source_row is None:
+            return None
+        retained_fractional = np.asarray(row["fractional"], dtype=float)
+        source_fractional = np.asarray(source_row["fractional"], dtype=float)
+        identity_indices = [
+            index
+            for index, operation in enumerate(operations)
+            if _operation_xyz(operation).replace(" ", "") == "x,y,z"
+        ]
+        operation_indices = identity_indices + [
+            index for index in range(len(operations)) if index not in identity_indices
+        ]
+        for operation_index in operation_indices:
+            operation = operations[operation_index]
+            mapped = np.asarray(
+                operation.apply(retained_fractional, wrap=False), dtype=float
+            )
+            shift = np.rint(source_fractional - mapped).astype(int)
+            if np.allclose(
+                mapped + shift,
+                source_fractional,
+                atol=tolerance,
+                rtol=0.0,
+            ):
+                return operation_index, tuple(int(value) for value in shift)
+        return None
 
     asu_bonds = []
     had_bond_candidates = False
@@ -1126,21 +1172,30 @@ def write_cif_asu(
             right_source_row = rows_by_source.get((molecule_index, right))
             left_row = selected_by_source.get((molecule_index, left))
             right_row = selected_by_source.get((molecule_index, right))
-            # Root each written bond at a retained ASU endpoint.  Reversing
-            # an edge whose second endpoint is retained handles arbitrary
-            # graph orientation while skipping complete symmetry-mate
-            # molecules that would otherwise duplicate the same bond orbit.
-            if left_row is None and right_row is not None:
-                left, right = right, left
-                left_source_row, right_source_row = right_source_row, left_source_row
-                left_row, right_row = right_row, left_row
+            # A bond can connect to a symmetry image of an endpoint that is
+            # not retained as an ASU row.  Resolve that endpoint to its
+            # retained representative; the endpoint-2 symmetry code below
+            # preserves which image was actually bonded.
             if left_row is None:
-                continue
+                left_row = _selected_equivalent(
+                    left_source_row
+                )
             if right_row is None:
-                right_row = _selected_equivalent(right_source_row)
-            if right_row is None:
+                right_row = _selected_equivalent(
+                    right_source_row
+                )
+            if left_row is None or right_row is None:
                 continue
-            symmetry_code = _symmetry_site_code(right_row, right_source_row)
+            left_relation = _symmetry_relation(left_row, left_source_row)
+            right_relation = _symmetry_relation(right_row, right_source_row)
+            if left_relation is not None and left_relation == right_relation:
+                # Both endpoints came from the same materialized symmetry
+                # image.  The ordinary ``.`` row represents that bond under
+                # every operation; retaining the image-specific code would
+                # add a spurious cross-image edge on read-back.
+                symmetry_code = "."
+            else:
+                symmetry_code = _symmetry_site_code(right_row, right_source_row)
             if (
                 left_row["label"] == right_row["label"]
                 and symmetry_code == "."
