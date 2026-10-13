@@ -269,6 +269,43 @@ def test_special_position_asu_has_one_row_for_exchanged_atom_orbit():
     assert reread.molecules[0].graph.has_edge(0, 1)
 
 
+def test_true_asu_inversion_centered_ring_preserves_cross_image_bonds():
+    """A ring crossing an inversion centre keeps both bond-image orbits."""
+    context = _pminus1_context()
+    template = MolecularTemplate(
+        Atoms(
+            "C4",
+            positions=[
+                [1.5, 0.0, 0.0],
+                [0.0, 1.5, 0.0],
+                [-1.5, 0.0, 0.0],
+                [0.0, -1.5, 0.0],
+            ],
+        ),
+        identifier="inversion-ring",
+        anchor_cartesian=np.zeros(3),
+        connectivity=((0, 1), (1, 2), (2, 3), (3, 0)),
+    )
+    crystal = construct_molecular_crystal(
+        context, MolecularPose(template, np.zeros(3))
+    )
+
+    asu = write_cif_asu(crystal)
+    published = scan_cif_disorder(cif_text=asu).cif_chemistry["published_bonds"]
+    assert len(published) == 2
+    assert all(
+        str(record["site_symmetry_2"]).strip() not in {"", ".", "?"}
+        for record in published
+    )
+
+    restored = read_mol_crystal(cif_text=asu, attach_chemistry=False)
+    assert len(restored.molecules) == 1
+    ring = restored.molecules[0]
+    assert len(ring) == 4
+    assert ring.graph.number_of_edges() == 4
+    assert sorted(dict(ring.graph.degree()).values()) == [2, 2, 2, 2]
+
+
 def test_asu_rejects_full_occupancy_independent_rows_related_by_symmetry():
     """Two independent full sites in one declared orbit cannot both expand."""
     context = _pminus1_context()

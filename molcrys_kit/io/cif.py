@@ -2122,6 +2122,39 @@ def read_mol_crystal(
         for index, label in enumerate(labels_arr):
             by_label.setdefault(str(label), []).append(index)
         fractional = np.asarray(atoms_obj.get_scaled_positions(wrap=False), dtype=float)
+        sym_op_indices = np.asarray(
+            atoms_obj.arrays.get(KEY_SYM_OP_INDEX, ()), dtype=int
+        )
+
+        def _identity_operation_index() -> int | None:
+            for index, operation in enumerate(operations):
+                if np.allclose(
+                    operation.rotation,
+                    np.eye(3),
+                    atol=CIF_SYMMETRY_TOLERANCE,
+                    rtol=0.0,
+                ) and np.allclose(
+                    operation.translation,
+                    np.rint(operation.translation),
+                    atol=CIF_SYMMETRY_TOLERANCE,
+                    rtol=0.0,
+                ):
+                    return index
+            return None
+
+        identity_index = _identity_operation_index()
+
+        def _matching_candidates(expected, candidates):
+            matches = []
+            expected = np.asarray(expected, dtype=float)
+            for candidate in candidates:
+                delta = fractional[int(candidate)] - expected
+                delta -= np.rint(delta)
+                cartesian_delta = delta @ np.asarray(lattice_matrix, dtype=float)
+                if float(np.linalg.norm(cartesian_delta)) <= 1.0e-4:
+                    matches.append(int(candidate))
+            return matches
+
         pairs: list[tuple[int, int]] = []
         for record in records:
             left_candidates = by_label.get(str(record.get("atom1_label", "")), ())
@@ -2144,69 +2177,60 @@ def read_mol_crystal(
                             [int(value) - 5 for value in shift_token], dtype=int
                         )
                     operation = operations[operation_index]
-                    for left in left_candidates:
-                        expected = np.asarray(
-                            operation.apply(fractional[left], wrap=False), dtype=float
-                        ) + image_shift
-                        candidates = []
-                        for right in right_candidates:
-                            if int(left) == int(right):
-                                continue
-                            delta = fractional[right] - expected
-                            delta -= np.rint(delta)
-                            cartesian_delta = delta @ np.asarray(lattice_matrix, dtype=float)
-                            candidates.append((float(np.linalg.norm(cartesian_delta)), int(right)))
-                        if candidates:
-                            error, right = min(candidates)
-                            if error <= 1.0e-4:
-                                pair = tuple(sorted((int(left), int(right))))
-                                if pair not in pairs:
-                                    pairs.append(pair)
+                    # CIF's site-symmetry code describes atom site 2.  Start
+                    # from the two untransformed ASU endpoints, map the right
+                    # endpoint by that code, and then apply every group
+                    # operation to both endpoints.  This keeps the symmetry
+                    # image provenance in both directions and reconstructs
+                    # every mate of a cross-image bond.
+                    if identity_index is not None and len(sym_op_indices) == len(fractional):
+                        asu_left_candidates = [
+                            int(index)
+                            for index in left_candidates
+                            if int(sym_op_indices[int(index)]) == identity_index
+                        ]
+                        asu_right_candidates = [
+                            int(index)
+                            for index in right_candidates
+                            if int(sym_op_indices[int(index)]) == identity_index
+                        ]
+                        # A special-position site may be deduplicated before
+                        # the identity operation is visited.  Its retained
+                        # coordinate is still a valid ASU representative.
+                        if not asu_left_candidates:
+                            asu_left_candidates = list(map(int, left_candidates))
+                        if not asu_right_candidates:
+                            asu_right_candidates = list(map(int, right_candidates))
+                    else:
+                        asu_left_candidates = list(map(int, left_candidates))
+                        asu_right_candidates = list(map(int, right_candidates))
+                    for asu_left in asu_left_candidates:
+                        for asu_right in asu_right_candidates:
+                            transformed_right = np.asarray(
+                                operation.apply(fractional[asu_right], wrap=False),
+                                dtype=float,
+                            ) + image_shift
+                            for group_operation in operations:
+                                expected_left = group_operation.apply(
+                                    fractional[asu_left], wrap=False
+                                )
+                                expected_right = group_operation.apply(
+                                    transformed_right, wrap=False
+                                )
+                                for left in _matching_candidates(
+                                    expected_left, left_candidates
+                                ):
+                                    for right in _matching_candidates(
+                                        expected_right, right_candidates
+                                    ):
+                                        if left == right:
+                                            continue
+                                        pair = tuple(sorted((left, right)))
+                                        if pair not in pairs:
+                                            pairs.append(pair)
                     # A valid symmetry-coded row is authoritative even when
                     # the endpoint is the same label; do not fall through to
                     # ambiguous distance matching.
-                    continue
-
-            # A true-ASU bond with the ordinary ``.`` site code is replicated
-            # by applying the same space-group operation to both endpoints.
-            # Distance-only matching is ambiguous when an endpoint lies close
-            # to a mirror plane: both C--O images can have nearly identical
-            # lengths even though only one pair is symmetry-related.  Recover
-            # the operation copy from each label's first retained image and
-            # pair candidates carrying the same operation index.
-            if (
-                site_symmetry in {"", ".", "?"}
-                and len(operations) > 1
-                and (len(left_candidates) > 1 or len(right_candidates) > 1)
-            ):
-                def _operation_copy_indices(candidates):
-                    reference = fractional[int(candidates[0])]
-                    result = {}
-                    for candidate in candidates:
-                        matches = [
-                            index
-                            for index, operation in enumerate(operations)
-                            if _fractional_sites_equivalent(
-                                operation.apply(reference, wrap=False),
-                                fractional[int(candidate)],
-                            )
-                        ]
-                        if matches:
-                            result[int(candidate)] = matches[0]
-                    return result
-
-                left_copies = _operation_copy_indices(left_candidates)
-                right_copies = _operation_copy_indices(right_candidates)
-                mapped = False
-                for left, left_operation in left_copies.items():
-                    for right, right_operation in right_copies.items():
-                        if left == right or left_operation != right_operation:
-                            continue
-                        pair = tuple(sorted((left, right)))
-                        if pair not in pairs:
-                            pairs.append(pair)
-                        mapped = True
-                if mapped:
                     continue
             try:
                 raw_expected = record.get("distance_A")
