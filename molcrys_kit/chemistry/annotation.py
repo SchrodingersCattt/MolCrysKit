@@ -16,6 +16,7 @@ from .models import (
     InferenceStatus,
     PeriodicChemicalEntity,
 )
+from .source import apply_published_bond_types
 from .topology import analyze_periodic_topology
 
 
@@ -55,6 +56,7 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
         raise ChemistryIndeterminateError(warning)
 
     components = []
+    bond_type_notes: list[str] = []
     for molecule_index, molecule in enumerate(structure.molecules):
         molecule_sites = sorted(
             (site for site in sites if site.molecule_index == molecule_index),
@@ -89,6 +91,13 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
             )
             for bond in bonds_by_molecule.get(molecule_index, ())
         )
+        published = (getattr(structure, "metadata", {}) or {}).get("cif_chemistry", {})
+        entity_bonds, bond_type_warnings = apply_published_bond_types(
+            atoms,
+            entity_bonds,
+            published.get("published_bonds") if isinstance(published, dict) else None,
+        )
+        bond_type_notes.extend(bond_type_warnings)
         embedding = Embedding(
             coordinates_A=tuple(
                 (site.site_id, site.cartesian_position_A) for site in molecule_sites
@@ -112,6 +121,7 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
             entity_bonds,
             periodic_axes=tuple(bool(value) for value in structure.pbc),
         )
+        entity_warnings = (warning, *bond_type_warnings)
         if topology.rank:
             entity = PeriodicChemicalEntity(
                 entity_id=f"periodic:{molecule_index}",
@@ -123,7 +133,7 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
                 net_charge_per_repeat=net_charge,
                 status=InferenceStatus.PROVISIONAL,
                 evidence=(evidence,),
-                warnings=(warning,),
+                warnings=entity_warnings,
             )
         else:
             entity = FiniteChemicalEntity(
@@ -134,7 +144,7 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
                 net_charge=net_charge,
                 status=InferenceStatus.PROVISIONAL,
                 evidence=(evidence,),
-                warnings=(warning,),
+                warnings=entity_warnings,
             )
         molecule.chemical_entity = entity
         components.append(entity)
@@ -149,7 +159,7 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
         if components
         else InferenceStatus.INDETERMINATE,
         evidence=(evidence,),
-        warnings=(warning,)
+        warnings=tuple(dict.fromkeys((warning, *bond_type_notes)))
         if components
         else ("Crystal contains no chemical components.",),
     )

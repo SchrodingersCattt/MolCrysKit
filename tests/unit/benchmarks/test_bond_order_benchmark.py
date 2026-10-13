@@ -32,6 +32,41 @@ def test_mck_adapter_scores_entity_bonds_not_provenance():
     assert result["prediction"]["bond_orders"]["C1--H1"] == 1.0
 
 
+def test_declared_kekule_forms_are_edge_equivalent():
+    manifest = load_manifest()
+    case = next(
+        c for c in manifest["cases"] if c["case_id"] == "benzene_aromatic_resonance"
+    )
+    flipped = {
+        key: 3 - int(value) for key, value in case["expected"]["bond_orders"].items()
+    }
+    prediction = {
+        "bond_orders": flipped,
+        "aromatic_bonds": list(case["expected"]["aromatic_bonds"]),
+        "formal_charges": dict(case["expected"]["formal_charges"]),
+        "implicit_hydrogens": dict(case["expected"]["implicit_hydrogens"]),
+    }
+    result = score_prediction(case, prediction)
+    assert result["edge_exact"] is True
+    assert result["known_correct"] == result["known_total"]
+    ethane = next(c for c in manifest["cases"] if c["case_id"] == "ethane_c2h6")
+    wrong = score_prediction(
+        ethane,
+        {
+            "bond_orders": {
+                "C1--C2": 2,
+                "C1--H1": 1,
+                "C1--H2": 1,
+                "C1--H3": 1,
+                "C2--H4": 1,
+                "C2--H5": 1,
+                "C2--H6": 1,
+            }
+        },
+    )
+    assert wrong["edge_exact"] is False
+
+
 def test_unknown_truth_is_not_counted_as_correct_order():
     manifest = load_manifest()
     case = next(c for c in manifest["cases"] if c["case_id"] == "missing_charge_and_h")
@@ -70,3 +105,64 @@ def test_incomplete_comparison_cannot_pass_strict_scorecard():
     report = score_results(manifest, result)
     assert report["strict_pass"] is False
     assert all(row["status"] == "NOT-COMPARABLE" for row in report["scorecard"])
+    assert all(row["blocks_strict_pass"] is False for row in report["scorecard"])
+
+
+def test_functional_strict_pass_does_not_require_open_babel():
+    manifest = load_manifest()
+    case = next(c for c in manifest["cases"] if c["case_id"] == "ethane_c2h6")
+    result = {
+        "suite": "ci",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "engines": ["mck", "ob_cpp"],
+        "selected_case_count": 1,
+        "environment": {"processes": 1, "python": "test"},
+        "raw_results": [
+            {
+                "case_id": "ethane_c2h6",
+                "family": "aliphatic",
+                "engine": "mck",
+                "status": "ok",
+                "prediction": {
+                    "bond_orders": dict(case["expected"]["bond_orders"]),
+                },
+            },
+            {
+                "case_id": "ethane_c2h6",
+                "family": "aliphatic",
+                "engine": "ob_cpp",
+                "status": "incomplete",
+                "reason": "mapping",
+            },
+        ],
+    }
+    report = score_results(manifest, result)
+    assert report["strict_pass"] is True
+    assert all(gate["status"] == "PASS" for gate in report["functional_gates"])
+    assert all(row["status"] == "NOT-COMPARABLE" for row in report["scorecard"])
+    assert all(row["scope"] == "deferred-superiority" for row in report["scorecard"])
+
+
+def test_false_assertion_fails_functional_strict_gate():
+    manifest = load_manifest()
+    result = {
+        "suite": "ci",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "engines": ["mck"],
+        "selected_case_count": 1,
+        "environment": {"processes": 1, "python": "test"},
+        "raw_results": [
+            {
+                "case_id": "zinc_nitrogen_coordination",
+                "family": "metal_semantics",
+                "engine": "mck",
+                "status": "ok",
+                "prediction": {"bond_orders": {"Zn1--N1": 1}},
+            }
+        ],
+    }
+    report = score_results(manifest, result)
+    gates = {gate["metric"]: gate["status"] for gate in report["functional_gates"]}
+    assert gates["mck_observations"] == "PASS"
+    assert gates["mck_false_assertions"] == "FAIL"
+    assert report["strict_pass"] is False

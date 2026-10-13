@@ -23,7 +23,7 @@
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
 | Attach chemistry-domain records | `annotate_chemistry` | `MolecularCrystal` | `CrystalChemistry` | source docstring |
 | Infer bond orders and formal charges | `infer_chemistry` | `MolecularCrystal` | `CrystalChemistry` with alternatives/warnings | source docstring |
-| Infer bond orders for one entity | `infer_bond_orders` | `FiniteChemicalEntity` / `PeriodicChemicalEntity` | `BondOrderResult` with diagnostics and alternatives | source docstring |
+| Infer bond orders for one entity | `infer_bond_orders` | `FiniteChemicalEntity` / `PeriodicChemicalEntity` | `BondOrderResult` with Hückel aromaticity, source locks, diagnostics, and alternatives | source docstring |
 | Infer bond orders from arrays | `infer_bond_orders_array`, `infer_bond_orders_batch` | coordinates, elements, optional bond pairs | `BondOrderResult` / tuple of results | source docstring |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |

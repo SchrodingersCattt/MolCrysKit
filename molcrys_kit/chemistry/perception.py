@@ -11,8 +11,6 @@ from ..constants.config import CHEMISTRY_PERCEPTION_CONFIG
 from .annotation import ChemistryIndeterminateError, annotate_chemistry
 from .models import (
     BondKind,
-    ChemicalAtom,
-    ChemicalBond,
     CrystalChemistry,
     Evidence,
     EvidenceSource,
@@ -20,7 +18,9 @@ from .models import (
     InferenceStatus,
     PeriodicChemicalEntity,
 )
-from .solver import order_signature, search_bond_orders
+from .aromaticity import apply_aromaticity
+from .source import apply_source_precedence
+from .tree_dp import decompose_and_solve
 from .valence import (
     CHARGE_BY_VALENCE,
     VALENCES,
@@ -39,10 +39,13 @@ _EXPECTED_LENGTHS = {
     ("C", "N"): {1: 1.47, 2: 1.28, 3: 1.16},
     ("C", "O"): {1: 1.43, 2: 1.23},
     ("C", "P"): {1: 1.84, 2: 1.65},
-    ("C", "S"): {1: 1.82, 2: 1.60},
     ("N", "N"): {1: 1.45, 2: 1.25, 3: 1.10},
     ("N", "O"): {1: 1.40, 2: 1.21},
     ("O", "O"): {1: 1.48, 2: 1.21},
+    ("C", "S"): {1: 1.82, 2: 1.61},
+    ("C", "Cl"): {1: 1.77},
+    ("O", "S"): {1: 1.64, 2: 1.48},
+    ("O", "P"): {1: 1.60, 2: 1.48},
 }
 
 
@@ -164,6 +167,17 @@ def infer_bond_orders(entity, *, total_charge=None, cell=None, options=None):
 def _infer_entity(entity, total_charge, cell, options):
     atom_by_id = {a.atom_id: a for a in entity.atoms}
     bonds = tuple(_classify_bond(b, atom_by_id) for b in entity.bonds)
+    source = apply_source_precedence(bonds)
+    bonds = source.bonds
+    aromaticity = apply_aromaticity(entity.atoms, bonds)
+    bonds = aromaticity.bonds
+    solver_atoms = tuple(
+        replace(atom, explicit_hydrogens=aromaticity.implicit_hydrogens[atom.atom_id])
+        if atom.atom_id in aromaticity.implicit_hydrogens
+        and atom.explicit_hydrogens is None
+        else atom
+        for atom in entity.atoms
+    )
     variable = []
     choices = {}
     for i, bond in enumerate(bonds):
@@ -184,8 +198,8 @@ def _infer_entity(entity, total_charge, cell, options):
     def score(assign):
         return _assignment_score(bonds, assign, atom_by_id, entity.embedding, cell)
 
-    outcome = search_bond_orders(
-        entity.atoms,
+    outcome, decomposition = decompose_and_solve(
+        solver_atoms,
         bonds,
         variable,
         choices,
@@ -209,6 +223,15 @@ def _infer_entity(entity, total_charge, cell, options):
         "max_candidates": options.max_candidates,
         "candidate_scores": tuple(float(score) for score, _ in outcome.candidates),
         "unresolved_atoms": tuple(unresolved),
+        "aromatic_rings": aromaticity.ring_count,
+        "aromatic_implicit_hydrogens": tuple(sorted(aromaticity.implicit_hydrogens)),
+        "source_locked_orders": source.locked_orders,
+        "source_contradictions": source.contradictions,
+        "source_warnings": source.warnings,
+        "bond_components": decomposition["components"],
+        "tree_components": decomposition["tree_components"],
+        "cyclic_components": decomposition["cyclic_components"],
+        "solver": decomposition["solver"],
         "total_charge_requested": (None if total_charge is None else int(total_charge)),
         "charge_constraint_rejected": outcome.charge_rejected,
         "total_charge_unsatisfied": bool(
@@ -232,8 +255,9 @@ def _infer_entity(entity, total_charge, cell, options):
                 entity,
                 bonds,
                 status=InferenceStatus.INDETERMINATE,
-                warnings=(warning,),
+                warnings=(warning, *source.warnings),
                 evidence=evidence,
+                implicit_hydrogens=aromaticity.implicit_hydrogens,
             ),
             (),
             diagnostics,
@@ -242,7 +266,12 @@ def _infer_entity(entity, total_charge, cell, options):
     candidates = outcome.candidates
     entities = tuple(
         _entity_with_orders(
-            entity, b, status=InferenceStatus.INFERRED, warnings=(), evidence=evidence
+            entity,
+            b,
+            status=InferenceStatus.INFERRED,
+            warnings=(),
+            evidence=evidence,
+            implicit_hydrogens=aromaticity.implicit_hydrogens,
         )
         for _, b in candidates
     )
@@ -259,10 +288,15 @@ def _infer_entity(entity, total_charge, cell, options):
         warnings.append(
             f"{entity.entity_id}: {metal_edges} metal edge(s) retained as coordination/metallic evidence"
         )
+    warnings.extend(source.warnings)
     gap = float(CHEMISTRY_PERCEPTION_CONFIG.get("COMPETITIVE_SCORE_GAP", 1.0))
     competitive = [
         e for (s, _), e in zip(candidates, entities) if s - candidates[0][0] <= gap
     ]
+    if len(_resonance_classes(competitive)) > 1:
+        warnings.append(
+            f"{entity.entity_id}: competitive assignments fall in more than one resonance class"
+        )
     # ``max_candidates`` is an output-retention limit.  It must not change the
     # selected best assignment or resolution status; retained alternatives are
     # a view onto the complete bounded search result.
@@ -349,7 +383,9 @@ def _bond_distance(bond, embedding, cell=None):
     return float(np.linalg.norm(right - left))
 
 
-def _entity_with_orders(entity, bonds, *, status, warnings, evidence):
+def _entity_with_orders(
+    entity, bonds, *, status, warnings, evidence, implicit_hydrogens=None
+):
     sums = {a.atom_id: 0 for a in entity.atoms}
     for b in bonds:
         if b.kind is BondKind.COVALENT and b.order is not None:
@@ -363,7 +399,16 @@ def _entity_with_orders(entity, bonds, *, status, warnings, evidence):
             a,
             formal_charge=a.formal_charge
             if a.formal_charge is not None
-            else inferred_charge(a, sums[a.atom_id]),
+            else inferred_charge(
+                a, _charge_valence(a, sums[a.atom_id], implicit_hydrogens)
+            ),
+            implicit_hydrogens=(
+                a.implicit_hydrogens
+                if a.implicit_hydrogens is not None
+                else None
+                if implicit_hydrogens is None
+                else implicit_hydrogens.get(a.atom_id)
+            ),
             evidence=a.evidence + (evidence,),
         )
         for a in entity.atoms
@@ -388,6 +433,14 @@ def _entity_with_orders(entity, bonds, *, status, warnings, evidence):
         else "net_charge"
     ] = charge
     return replace(entity, **kw)
+
+
+def _charge_valence(atom, bond_sum: int, implicit_hydrogens) -> int:
+    """Valence used for formal charge, including hydrogens the solver counted."""
+    hydrogens = atom.explicit_hydrogens
+    if hydrogens is None and implicit_hydrogens:
+        hydrogens = implicit_hydrogens.get(atom.atom_id) or 0
+    return int(bond_sum) + int(hydrogens or 0) + int(atom.radical_electrons > 0)
 
 
 def _resonance_classes(entities):

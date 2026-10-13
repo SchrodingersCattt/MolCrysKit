@@ -22,7 +22,9 @@ The adapter calls the same public command-line conversion path used for the
 pinned release and records the raw output.  A SMILES-only output cannot prove
 the stable fixture atom-ID mapping (especially for omitted hydrogens), so it is
 reported as `incomplete`, never silently scored as a win.  A source-aware native
-adapter must be supplied before a release comparison can be complete.
+adapter, the paired tasks, and the section 5 resource gates are
+[issue #176](https://github.com/SchrodingersCattt/MolCrysKit/issues/176).
+They are not required for the functional `--strict-gates` check.
 
 For the optional Python comparator, install the bindings built from this exact
 checkout and run with the same interpreter.  The benchmark records missing

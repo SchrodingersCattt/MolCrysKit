@@ -46,6 +46,14 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     "SINGLE_BOND_DISTANCE": 1.75,
     "TRIPLE_BOND_DISTANCE": 1.58,
     "BOND_LENGTH_SIGMA": 0.08,
+    # Chordless rings in this size window are the aromaticity candidates.
+    # 4n+2 uses residue 2 modulo 4. The path cap stops dense fused systems
+    # from turning ring discovery into an unbounded search.
+    "AROMATIC_MIN_RING_SIZE": 5,
+    "AROMATIC_MAX_RING_SIZE": 7,
+    "AROMATIC_RING_SEARCH_LIMIT": 20_000,
+    "HUCKEL_ELECTRON_MODULUS": 4,
+    "HUCKEL_ELECTRON_RESIDUE": 2,
 }
 
 STEREOCHEMISTRY_CONFIG = {

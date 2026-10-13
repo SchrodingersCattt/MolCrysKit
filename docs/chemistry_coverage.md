@@ -14,7 +14,7 @@ golden result.
 | Stable atom identity and embedding separation | implemented | Immutable atom IDs survive geometry-only transforms; embeddings reference IDs. |
 | CIF isotope, charge, bond, name, uncertainty, disorder, absolute-structure retention | implemented | Explicit source values retain raw text and parsed value/SU where applicable. |
 | 0D–3D connected-component rank | implemented | Periodic candidate edges are classified by translation-subgroup rank. |
-| Bond order and formal charge | partial | Bounded main-group valence solver retains competitive alternatives. Metals, mixed valence, and delocalized systems may be provisional. |
+| Bond order and formal charge | partial | Hückel aromaticity, source precedence, and tree dynamic programming cover the section 4.1 organic micro-families. Metals, mixed valence, and underdetermined radicals stay provisional. Open Babel and corpus gates are issue #176. |
 | Oxidation state and coordination geometry | indeterminate | Fields exist; no general solver is released. |
 | Disorder ensemble consensus | indeterminate | Ordered replicas retain provenance, but cross-replica chemical consensus is not yet aggregated. |
 

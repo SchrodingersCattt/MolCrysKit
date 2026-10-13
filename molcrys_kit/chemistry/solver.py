@@ -9,7 +9,7 @@ and are reported as truncated when the caller's budget is reached.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Collection, Mapping, Sequence
 
 from .models import BondKind, ChemicalAtom, ChemicalBond
 from .valence import allowed_valences, atom_valence_target, inferred_charge
@@ -53,11 +53,14 @@ def search_bond_orders(
     total_charge: int | None = None,
     max_search_states: int = 100_000,
     max_candidates: int = 64,
+    valence_atom_ids: Collection[str] | None = None,
 ) -> SearchOutcome:
     """Enumerate valid order assignments with residual-valence propagation.
 
     ``max_search_states`` bounds visited nodes only.  ``max_candidates`` caps
     retained output and therefore never changes search completeness.
+    ``valence_atom_ids`` limits the valence and charge checks to one
+    component; the default still checks every atom.
     """
     if max_search_states < 1:
         raise ValueError("max_search_states must be positive")
@@ -65,6 +68,11 @@ def search_bond_orders(
         raise ValueError("max_candidates must be positive")
     atoms = tuple(atoms)
     bonds = tuple(bonds)
+    active = None if valence_atom_ids is None else set(valence_atom_ids)
+
+    def relevant(atom: ChemicalAtom) -> bool:
+        return active is None or atom.atom_id in active
+
     degrees = {atom.atom_id: 0 for atom in atoms}
     for idx in variable_indices:
         bond = bonds[idx]
@@ -107,6 +115,8 @@ def search_bond_orders(
     def partial_valid(unassigned: set[int]) -> bool:
         low, high = bounds(unassigned)
         for atom in atoms:
+            if not relevant(atom):
+                continue
             if not _possible(
                 allowed_valences(atom),
                 sums[atom.atom_id],
@@ -145,6 +155,8 @@ def search_bond_orders(
             # Every known valence must be exact. Unknown elements are allowed
             # through but are marked provisional by the façade.
             for atom in atoms:
+                if not relevant(atom):
+                    continue
                 states_for_atom = allowed_valences(atom)
                 if states_for_atom is None:
                     continue
@@ -159,6 +171,8 @@ def search_bond_orders(
                 charges: list[int] = []
                 charge_known = True
                 for atom in atoms:
+                    if not relevant(atom):
+                        continue
                     value = inferred_charge(
                         atom, atom_valence_target(atom, sums[atom.atom_id])
                     )
