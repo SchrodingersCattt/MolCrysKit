@@ -2107,7 +2107,6 @@ def read_mol_crystal(
         *,
         operations=(),
         lattice_matrix=None,
-        true_asu: bool = False,
     ) -> list[tuple[int, int]]:
         """Map CIF bond-loop labels back to the expanded atom indices.
 
@@ -2123,58 +2122,38 @@ def read_mol_crystal(
         for index, label in enumerate(labels_arr):
             by_label.setdefault(str(label), []).append(index)
         fractional = np.asarray(atoms_obj.get_scaled_positions(wrap=False), dtype=float)
-        sym_op_indices_arr = atoms_obj.arrays.get(KEY_SYM_OP_INDEX)
-        if sym_op_indices_arr is not None:
-            sym_op_indices_arr = np.asarray(sym_op_indices_arr, dtype=int)
+        sym_op_indices = np.asarray(
+            atoms_obj.arrays.get(KEY_SYM_OP_INDEX, ()), dtype=int
+        )
 
-        def _matching_candidates(candidates, expected, preferred_operation=None):
-            """Return the closest expanded image at a fractional coordinate."""
-            pool = list(candidates)
-            if (
-                preferred_operation is not None
-                and sym_op_indices_arr is not None
-            ):
-                preferred = [
-                    index
-                    for index in pool
-                    if int(sym_op_indices_arr[int(index)]) == int(preferred_operation)
-                ]
-                if preferred:
-                    pool = preferred
-            scored = []
-            for candidate in pool:
-                delta = fractional[int(candidate)] - np.asarray(expected, dtype=float)
+        def _identity_operation_index() -> int | None:
+            for index, operation in enumerate(operations):
+                if np.allclose(
+                    operation.rotation,
+                    np.eye(3),
+                    atol=CIF_SYMMETRY_TOLERANCE,
+                    rtol=0.0,
+                ) and np.allclose(
+                    operation.translation,
+                    np.rint(operation.translation),
+                    atol=CIF_SYMMETRY_TOLERANCE,
+                    rtol=0.0,
+                ):
+                    return index
+            return None
+
+        identity_index = _identity_operation_index()
+
+        def _matching_candidates(expected, candidates):
+            matches = []
+            expected = np.asarray(expected, dtype=float)
+            for candidate in candidates:
+                delta = fractional[int(candidate)] - expected
                 delta -= np.rint(delta)
-                scored.append((float(np.linalg.norm(delta)), int(candidate)))
-            if not scored:
-                return None
-            error, candidate = min(scored)
-            if error > CIF_SYMMETRY_TOLERANCE * 10.0:
-                return None
-            return candidate
-
-        identity_operation_indices = [
-            index
-            for index, operation in enumerate(operations)
-            if np.allclose(operation.rotation, np.eye(3), atol=CIF_SYMMETRY_TOLERANCE)
-            and np.allclose(
-                operation.translation,
-                np.zeros(3),
-                atol=CIF_SYMMETRY_TOLERANCE,
-            )
-        ]
-
-        def _base_candidates(candidates):
-            """Select the source ASU image when custom operation provenance exists."""
-            if sym_op_indices_arr is None or not identity_operation_indices:
-                return list(candidates)
-            identity_index = identity_operation_indices[0]
-            preferred = [
-                index
-                for index in candidates
-                if int(sym_op_indices_arr[int(index)]) == identity_index
-            ]
-            return preferred or list(candidates)
+                cartesian_delta = delta @ np.asarray(lattice_matrix, dtype=float)
+                if float(np.linalg.norm(cartesian_delta)) <= 1.0e-4:
+                    matches.append(int(candidate))
+            return matches
 
         pairs: list[tuple[int, int]] = []
         for record in records:
@@ -2198,116 +2177,60 @@ def read_mol_crystal(
                             [int(value) - 5 for value in shift_token], dtype=int
                         )
                     operation = operations[operation_index]
-                    # The site-symmetry code belongs to endpoint 2.  A
-                    # true-ASU row describes the retained source endpoints
-                    # once; apply every space-group operation to that
-                    # relation so long/cross-image bonds are materialized for
-                    # every expanded molecular image.
-                    base_left = _base_candidates(left_candidates)
-                    base_right = _base_candidates(right_candidates)
-                    for left_base in base_left:
-                        for right_base in base_right:
-                            right_image = np.asarray(
-                                operation.apply(
-                                    fractional[int(right_base)], wrap=False
-                                ),
+                    # CIF's site-symmetry code describes atom site 2.  Start
+                    # from the two untransformed ASU endpoints, map the right
+                    # endpoint by that code, and then apply every group
+                    # operation to both endpoints.  This keeps the symmetry
+                    # image provenance in both directions and reconstructs
+                    # every mate of a cross-image bond.
+                    if identity_index is not None and len(sym_op_indices) == len(fractional):
+                        asu_left_candidates = [
+                            int(index)
+                            for index in left_candidates
+                            if int(sym_op_indices[int(index)]) == identity_index
+                        ]
+                        asu_right_candidates = [
+                            int(index)
+                            for index in right_candidates
+                            if int(sym_op_indices[int(index)]) == identity_index
+                        ]
+                        # A special-position site may be deduplicated before
+                        # the identity operation is visited.  Its retained
+                        # coordinate is still a valid ASU representative.
+                        if not asu_left_candidates:
+                            asu_left_candidates = list(map(int, left_candidates))
+                        if not asu_right_candidates:
+                            asu_right_candidates = list(map(int, right_candidates))
+                    else:
+                        asu_left_candidates = list(map(int, left_candidates))
+                        asu_right_candidates = list(map(int, right_candidates))
+                    for asu_left in asu_left_candidates:
+                        for asu_right in asu_right_candidates:
+                            transformed_right = np.asarray(
+                                operation.apply(fractional[asu_right], wrap=False),
                                 dtype=float,
                             ) + image_shift
-                            for image_operation_index, image_operation in enumerate(
-                                operations
-                            ):
-                                left = _matching_candidates(
-                                    left_candidates,
-                                    image_operation.apply(
-                                        fractional[int(left_base)], wrap=False
-                                    ),
-                                    preferred_operation=image_operation_index,
+                            for group_operation in operations:
+                                expected_left = group_operation.apply(
+                                    fractional[asu_left], wrap=False
                                 )
-                                right = _matching_candidates(
-                                    right_candidates,
-                                    image_operation.apply(right_image, wrap=False),
+                                expected_right = group_operation.apply(
+                                    transformed_right, wrap=False
                                 )
-                                if left is None or right is None or left == right:
-                                    continue
-                                pair = tuple(sorted((int(left), int(right))))
-                                if pair not in pairs:
-                                    pairs.append(pair)
+                                for left in _matching_candidates(
+                                    expected_left, left_candidates
+                                ):
+                                    for right in _matching_candidates(
+                                        expected_right, right_candidates
+                                    ):
+                                        if left == right:
+                                            continue
+                                        pair = tuple(sorted((left, right)))
+                                        if pair not in pairs:
+                                            pairs.append(pair)
                     # A valid symmetry-coded row is authoritative even when
                     # the endpoint is the same label; do not fall through to
                     # ambiguous distance matching.
-                    continue
-
-            # A true-ASU bond with the ordinary ``.`` site code is replicated
-            # by applying the same space-group operation to both endpoints.
-            # Distance-only matching is ambiguous when an endpoint lies close
-            # to a mirror plane: both C--O images can have nearly identical
-            # lengths even though only one pair is symmetry-related.  Recover
-            # the operation copy from each label's first retained image and
-            # pair candidates carrying the same operation index.
-            if (
-                site_symmetry in {"", ".", "?"}
-                and len(operations) > 1
-                and (len(left_candidates) > 1 or len(right_candidates) > 1)
-            ):
-                if true_asu:
-                    base_left = _base_candidates(left_candidates)
-                    base_right = _base_candidates(right_candidates)
-                    mapped = False
-                    for left_base in base_left:
-                        for right_base in base_right:
-                            for image_operation_index, image_operation in enumerate(
-                                operations
-                            ):
-                                left = _matching_candidates(
-                                    left_candidates,
-                                    image_operation.apply(
-                                        fractional[int(left_base)], wrap=False
-                                    ),
-                                    preferred_operation=image_operation_index,
-                                )
-                                right = _matching_candidates(
-                                    right_candidates,
-                                    image_operation.apply(
-                                        fractional[int(right_base)], wrap=False
-                                    ),
-                                )
-                                if left is None or right is None or left == right:
-                                    continue
-                                pair = tuple(sorted((int(left), int(right))))
-                                if pair not in pairs:
-                                    pairs.append(pair)
-                                mapped = True
-                    if mapped:
-                        continue
-
-                def _operation_copy_indices(candidates):
-                    reference = fractional[int(candidates[0])]
-                    result = {}
-                    for candidate in candidates:
-                        matches = [
-                            index
-                            for index, operation in enumerate(operations)
-                            if _fractional_sites_equivalent(
-                                operation.apply(reference, wrap=False),
-                                fractional[int(candidate)],
-                            )
-                        ]
-                        if matches:
-                            result[int(candidate)] = matches[0]
-                    return result
-
-                left_copies = _operation_copy_indices(left_candidates)
-                right_copies = _operation_copy_indices(right_candidates)
-                mapped = False
-                for left, left_operation in left_copies.items():
-                    for right, right_operation in right_copies.items():
-                        if left == right or left_operation != right_operation:
-                            continue
-                        pair = tuple(sorted((left, right)))
-                        if pair not in pairs:
-                            pairs.append(pair)
-                        mapped = True
-                if mapped:
                     continue
             try:
                 raw_expected = record.get("distance_A")
@@ -2459,10 +2382,6 @@ def read_mol_crystal(
         if disorder_info.crystal_symmetry is not None
         else (),
         lattice_matrix=disorder_info.lattice_matrix,
-        true_asu=(
-            disorder_info.cif_chemistry.get("molcrys_representation")
-            == "ordered_asymmetric_unit"
-        ),
     )
     molecules = identify_molecules(
         atoms,
