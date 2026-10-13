@@ -69,6 +69,7 @@ mck validate-periodic-bundle structure.cif --json
 | `mck analyze summary INPUT` | Summarize composition, cell, symmetry, Wyckoff sites, and disorder | `--symprec FLOAT`, `--json` |
 | `mck analyze bfdh INPUT` | Rank low-index facets by BFDH morphology | `--max-index INT`, `--top-n INT`, `--json` |
 | `mck analyze interactions INPUT` | Summarize weak interactions | `--json` |
+| `mck analyze bond-orders INPUT` | Infer covalent bond orders and formal charges | `--json`, `--strict`, `--charge INT` |
 | `mck analyze cell-integrity INPUT` | Audit lattice, molecule images, and transform provenance | `--json` |
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
 | `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--profile {complete-crystal,fragment}`, `--skip-check NAME` (repeatable), `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |

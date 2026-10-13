@@ -165,7 +165,7 @@ The command groups roughly mirror the Python package layout:
 
 - `mck io ...` — inspect molecular-crystal contents, extract molecules, and convert structures (`info`, `molecules`, `extract-molecule`, `convert`).
 - `mck operate ...` — generate modified structures (`disorder`, `disorder-supercell`, `add-h`, `slab`, `cluster`, `nanocluster`, `void`, `supercell`, `vacancy`, `desolvate`, `interpolate`, `reorient`).
-- `mck analyze ...` — print analysis reports (`summary`, `bfdh`, `interactions`, `polyhedra`, `sanity-check`).
+- `mck analyze ...` — print analysis reports (`summary`, `bfdh`, `interactions`, `bond-orders`, `polyhedra`, `sanity-check`).
 - `mck build chain ...` — construct a geometry-native periodic chain bundle.
 - `mck validate-periodic-bundle ...` — validate a periodic bundle and its sidecar.
 

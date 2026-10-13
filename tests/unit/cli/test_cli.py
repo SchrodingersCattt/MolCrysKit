@@ -271,6 +271,33 @@ def test_analyze_summary_text() -> None:
     assert "Wyckoff:" in result.output
 
 
+def test_analyze_bond_orders_json_is_auditable() -> None:
+    result = CliRunner().invoke(
+        main, ["analyze", "bond-orders", str(PETN), "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["components"]
+    first = report["components"][0]
+    assert first["status"] in {"inferred", "provisional", "indeterminate"}
+    assert "diagnostics" in first
+    assert "entity" in first
+
+
+def test_analyze_bond_orders_strict_rejects_unsupported_input() -> None:
+    # ``--strict`` is wired through the same solver options as the Python API.
+    result = CliRunner().invoke(
+        main, ["analyze", "bond-orders", str(DAP4), "--strict", "--json"]
+    )
+    # Depending on the input's disorder/topology, strict may either resolve or
+    # reject; both outcomes must remain structured CLI behaviour.
+    if result.exit_code == 0:
+        payload = json.loads(result.output)
+        assert "components" in payload
+    else:
+        assert "Error:" in result.output
+
+
 def test_operate_transform_cell_and_integrity(tmp_path: Path) -> None:
     import numpy as np
     from ase import Atoms

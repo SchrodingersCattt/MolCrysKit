@@ -13,7 +13,13 @@ from .crystal_stereo import (
     classify_entity_relationship,
 )
 from .equivalence import notations_equivalent
-from .perception import infer_chemistry
+from .perception import BondOrderOptions, BondOrderResult, infer_bond_orders, infer_chemistry
+from .adapters import (
+    infer_bond_orders_array,
+    infer_bond_orders_arrays,
+    infer_bond_orders_from_arrays,
+    infer_bond_orders_batch,
+)
 from .line_notation import (
     LineNotation,
     LineNotationError,
@@ -54,6 +60,8 @@ from .models import (
 __all__ = [
     "AbsoluteStructureParameter",
     "BondKind",
+    "BondOrderOptions",
+    "BondOrderResult",
     "ChemicalAtom",
     "ChemicalBond",
     "ChemicalEntity",
@@ -91,6 +99,11 @@ __all__ = [
     "from_line_notation",
     "from_iupac_name",
     "infer_chemistry",
+    "infer_bond_orders",
+    "infer_bond_orders_array",
+    "infer_bond_orders_arrays",
+    "infer_bond_orders_from_arrays",
+    "infer_bond_orders_batch",
     "iupac_to_smiles",
     "name_crystal",
     "name_entity",

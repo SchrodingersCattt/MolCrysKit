@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from .models import (
     BondKind,
     ChemicalAtom,
@@ -91,6 +93,13 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
             coordinates_A=tuple(
                 (site.site_id, site.cartesian_position_A) for site in molecule_sites
             ),
+            cell_A=tuple(
+                tuple(float(value) for value in row)
+                for row in np.asarray(structure.lattice, dtype=float)
+            )
+            if getattr(structure, "lattice", None) is not None
+            and np.asarray(structure.lattice).shape == (3, 3)
+            else None,
             evidence=(evidence,),
         )
         net_charge = (
@@ -136,9 +145,13 @@ def annotate_chemistry(structure, *, strict: bool = False) -> CrystalChemistry:
     result = CrystalChemistry(
         components=tuple(components),
         atom_ids_by_global_index=ordered_atom_ids,
-        status=InferenceStatus.PROVISIONAL if components else InferenceStatus.INDETERMINATE,
+        status=InferenceStatus.PROVISIONAL
+        if components
+        else InferenceStatus.INDETERMINATE,
         evidence=(evidence,),
-        warnings=(warning,) if components else ("Crystal contains no chemical components.",),
+        warnings=(warning,)
+        if components
+        else ("Crystal contains no chemical components.",),
     )
     structure._set_chemistry(result)
     return result

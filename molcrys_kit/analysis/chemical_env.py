@@ -49,7 +49,7 @@ class ChemicalEnvironment:
     planarity, and ring membership for atoms in a molecular graph.
     """
     
-    def __init__(self, crystal_molecule, anion_positions=None, cation_positions=None):
+    def __init__(self, crystal_molecule, anion_positions=None, cation_positions=None, chemistry=None):
         """
         Initialize with a CrystalMolecule or graph + positions.
         
@@ -74,6 +74,7 @@ class ChemicalEnvironment:
             # It's a (graph, positions) tuple
             self.graph, self.positions = crystal_molecule
 
+        self.chemistry = chemistry
         self.anion_positions = (
             np.array(anion_positions, dtype=float)
             if anion_positions is not None and len(anion_positions) > 0
@@ -84,6 +85,10 @@ class ChemicalEnvironment:
             if cation_positions is not None and len(cation_positions) > 0
             else np.empty((0, 3), dtype=float)
         )
+        # A canonical chemistry result may be attached by callers that need
+        # authoritative aromatic flags.  The graph-only path remains a
+        # geometry evidence provider for legacy hydrogen-completion workflows.
+        self.aromaticity_source = "geometry-evidence"
         
         # Precompute cycle basis ONCE per molecule to avoid repeated heavy calculations
         self._precompute_ring_info()
@@ -177,7 +182,49 @@ class ChemicalEnvironment:
             if not all(s in _AROM_ATOMS for s in symbols):
                 continue
 
-            # Criterion 3: consecutive ring-bond lengths in aromatic window
+            # Prefer explicit chemistry edge annotations whenever present.
+            # Geometry can suggest conjugation, but cannot override an explicit
+            # non-aromatic source assertion or establish aromaticity for a
+            # chemically unsupported ring.
+            edge_flags = [
+                self.graph.get_edge_data(cycle[k], cycle[(k + 1) % n], {}).get("aromatic")
+                for k in range(n)
+            ]
+            # A canonical immutable entity can be supplied explicitly.  Map
+            # graph nodes by their stable ID when present, otherwise by the
+            # entity's deterministic atom order used by CrystalMolecule.
+            if self.chemistry is not None:
+                atoms = tuple(getattr(self.chemistry, "atoms", ()))
+                atom_ids = [getattr(atom, "atom_id", None) for atom in atoms]
+                node_ids = {
+                    node: self.graph.nodes[node].get("atom_id", self.graph.nodes[node].get("site_id", node))
+                    for node in self.graph.nodes()
+                }
+                if not all(node_ids.get(node) in atom_ids for node in cycle):
+                    if all(isinstance(node, (int, np.integer)) and 0 <= int(node) < len(atom_ids) for node in cycle):
+                        node_ids = {node: atom_ids[int(node)] for node in cycle}
+                if all(node_ids.get(node) in atom_ids for node in cycle):
+                    canonical = {
+                        frozenset((bond.atom1_id, bond.atom2_id)): bool(bond.aromatic)
+                        for bond in getattr(self.chemistry, "bonds", ())
+                    }
+                    mapped_flags = [
+                        canonical.get(frozenset((node_ids[cycle[k]], node_ids[cycle[(k + 1) % n]])))
+                        for k in range(n)
+                    ]
+                    if all(flag is not None for flag in mapped_flags):
+                        edge_flags = mapped_flags
+            if any(flag is not None for flag in edge_flags):
+                if not all(flag is True for flag in edge_flags):
+                    continue
+                self.aromaticity_source = "explicit-graph-evidence"
+                for idx in cycle:
+                    self._atom_aromatic_ring_sizes[idx].append(n)
+                continue
+
+            # Criterion 3: consecutive ring-bond lengths in the legacy
+            # aromatic-like window.  This branch is deliberately labelled
+            # evidence rather than authoritative chemistry above.
             ok = True
             for k in range(n):
                 a, b = cycle[k], cycle[(k + 1) % n]
