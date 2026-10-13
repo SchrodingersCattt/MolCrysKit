@@ -4,6 +4,7 @@ The benchmark deliberately treats candidate/comparator engines as optional.  An
 unavailable engine is represented in the result file and is never replaced by
 an invented prediction.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,6 +17,7 @@ import signal
 import subprocess
 import sys
 import time
+
 try:
     import resource
 except ImportError:  # pragma: no cover - Windows
@@ -28,7 +30,9 @@ MANIFEST_PATH = ROOT / "data" / "manifest.json"
 
 
 def canonical_json(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
 
 
 def load_manifest(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
@@ -43,7 +47,10 @@ def verify_manifest(manifest: dict[str, Any]) -> tuple[bool, str]:
     unsigned = {k: v for k, v in manifest.items() if k != "manifest_sha256"}
     actual = hashlib.sha256(canonical_json(unsigned)).hexdigest()
     if actual != recorded:
-        return False, f"manifest checksum mismatch: expected {recorded}, calculated {actual}"
+        return (
+            False,
+            f"manifest checksum mismatch: expected {recorded}, calculated {actual}",
+        )
     ids = [c.get("case_id") for c in manifest.get("cases", [])]
     if len(ids) != len(set(ids)) or any(not x for x in ids):
         return False, "case IDs are missing or duplicated"
@@ -73,13 +80,18 @@ def fixture_entity(case: dict[str, Any]):
     atoms = []
     coordinates = []
     for atom in case["atoms"]:
-        atoms.append(ChemicalAtom(
-            atom_id=atom["id"], element=atom["element"],
-            formal_charge=atom.get("formal_charge"),
-            explicit_hydrogens=atom.get("explicit_hydrogens"),
-        ))
+        atoms.append(
+            ChemicalAtom(
+                atom_id=atom["id"],
+                element=atom["element"],
+                formal_charge=atom.get("formal_charge"),
+                explicit_hydrogens=atom.get("explicit_hydrogens"),
+            )
+        )
         if "coordinates_A" in atom:
-            coordinates.append((atom["id"], tuple(float(x) for x in atom["coordinates_A"])))
+            coordinates.append(
+                (atom["id"], tuple(float(x) for x in atom["coordinates_A"]))
+            )
     embedding = Embedding(tuple(coordinates)) if coordinates else None
     bonds = []
     for edge in case["bonds"]:
@@ -87,16 +99,22 @@ def fixture_entity(case: dict[str, Any]):
             kind = BondKind(edge.get("input_kind", "unknown"))
         except ValueError:
             kind = BondKind.UNKNOWN
-        bonds.append(ChemicalBond(
-            atom1_id=edge["a"], atom2_id=edge["b"],
-            # Gold ``order`` is truth, never an input assertion.  A fixture
-            # may opt into a source-explicit order with ``input_order``.
-            order=edge.get("input_order"), kind=kind,
-            aromatic=bool(edge.get("input_aromatic", False)),
-            atom2_image_shift=tuple(edge.get("image_shift", (0, 0, 0))),
-        ))
+        bonds.append(
+            ChemicalBond(
+                atom1_id=edge["a"],
+                atom2_id=edge["b"],
+                # Gold ``order`` is truth, never an input assertion.  A fixture
+                # may opt into a source-explicit order with ``input_order``.
+                order=edge.get("input_order"),
+                kind=kind,
+                aromatic=bool(edge.get("input_aromatic", False)),
+                atom2_image_shift=tuple(edge.get("image_shift", (0, 0, 0))),
+            )
+        )
     return FiniteChemicalEntity(
-        entity_id=case["case_id"], atoms=tuple(atoms), bonds=tuple(bonds),
+        entity_id=case["case_id"],
+        atoms=tuple(atoms),
+        bonds=tuple(bonds),
         embedding=embedding,
     )
 
@@ -105,29 +123,46 @@ def _edge_key(a: str, b: str) -> str:
     return f"{a}--{b}"
 
 
+def _bond_records(candidate: Any) -> list[Any] | None:
+    """Return ``candidate`` when it is a sequence of bond records.
+
+    ``BondOrderResult.bond_evidence`` is a provenance tuple, not an edge list.
+    Treating it as bonds drops every predicted order while the run stays ``ok``.
+    """
+    if not isinstance(candidate, (list, tuple)) or not candidate:
+        return None
+    first = candidate[0]
+    if isinstance(first, dict) and ("atom1_id" in first or "a" in first):
+        return list(candidate)
+    if hasattr(first, "atom1_id") and hasattr(first, "atom2_id"):
+        return list(candidate)
+    return None
+
+
 def _extract_bonds(value: Any) -> list[Any] | None:
     if value is None:
         return None
     if isinstance(value, dict):
-        for key in ("bonds", "bond_evidence", "predicted_bonds"):
-            if key in value and isinstance(value[key], (list, tuple)):
-                return list(value[key])
+        for key in ("bonds", "predicted_bonds", "bond_evidence"):
+            found = _bond_records(value.get(key))
+            if found is not None:
+                return found
         if "bond_orders" in value:
             return value["bond_orders"]
-    for attr in ("bonds", "bond_evidence"):
-        candidate = getattr(value, attr, None)
-        if candidate is not None:
-            return list(candidate)
     entity = getattr(value, "entity", None)
     if entity is not None:
-        candidate = getattr(entity, "bonds", None)
-        if candidate is not None:
-            return list(candidate)
+        found = _bond_records(getattr(entity, "bonds", None))
+        if found is not None:
+            return found
+    for attr in ("bonds", "bond_evidence"):
+        found = _bond_records(getattr(value, attr, None))
+        if found is not None:
+            return found
     components = getattr(value, "components", None)
     if components:
-        candidate = getattr(components[0], "bonds", None)
-        if candidate is not None:
-            return list(candidate)
+        found = _bond_records(getattr(components[0], "bonds", None))
+        if found is not None:
+            return found
     return None
 
 
@@ -135,11 +170,21 @@ def normalise_prediction(value: Any, case: dict[str, Any]) -> dict[str, Any]:
     """Turn common engine result shapes into a lossless JSON prediction."""
     if isinstance(value, dict) and "bond_orders" in value:
         out = {"bond_orders": {}, "bond_kinds": {}, "aromatic_bonds": []}
-        out["bond_orders"].update({str(k): v for k, v in value.get("bond_orders", {}).items()})
-        out["bond_kinds"].update({str(k): v for k, v in value.get("bond_kinds", {}).items()})
+        out["bond_orders"].update(
+            {str(k): v for k, v in value.get("bond_orders", {}).items()}
+        )
+        out["bond_kinds"].update(
+            {str(k): v for k, v in value.get("bond_kinds", {}).items()}
+        )
         out["aromatic_bonds"] = list(value.get("aromatic_bonds", []))
-        for key in ("formal_charges", "implicit_hydrogens", "resonance_class", "status"):
-            if key in value: out[key] = value[key]
+        for key in (
+            "formal_charges",
+            "implicit_hydrogens",
+            "resonance_class",
+            "status",
+        ):
+            if key in value:
+                out[key] = value[key]
         return out
     bonds = _extract_bonds(value)
     if bonds is None:
@@ -147,20 +192,35 @@ def normalise_prediction(value: Any, case: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {"bond_orders": {}, "bond_kinds": {}, "aromatic_bonds": []}
     for edge in bonds:
         if isinstance(edge, dict):
-            a, b = edge.get("atom1_id", edge.get("a")), edge.get("atom2_id", edge.get("b"))
-            order, kind, aromatic = edge.get("order"), edge.get("kind", "unknown"), edge.get("aromatic", False)
+            a, b = (
+                edge.get("atom1_id", edge.get("a")),
+                edge.get("atom2_id", edge.get("b")),
+            )
+            order, kind, aromatic = (
+                edge.get("order"),
+                edge.get("kind", "unknown"),
+                edge.get("aromatic", False),
+            )
         else:
             a, b = getattr(edge, "atom1_id", None), getattr(edge, "atom2_id", None)
-            order, kind, aromatic = getattr(edge, "order", None), getattr(edge, "kind", "unknown"), getattr(edge, "aromatic", False)
+            order, kind, aromatic = (
+                getattr(edge, "order", None),
+                getattr(edge, "kind", "unknown"),
+                getattr(edge, "aromatic", False),
+            )
             kind = getattr(kind, "value", kind)
-        if a is None or b is None: continue
+        if a is None or b is None:
+            continue
         key = _edge_key(a, b)
         out["bond_orders"][key] = order
         out["bond_kinds"][key] = getattr(kind, "value", kind)
-        if aromatic: out["aromatic_bonds"].append(key)
+        if aromatic:
+            out["aromatic_bonds"].append(key)
     atoms = None
-    if hasattr(value, "entity"): atoms = getattr(value.entity, "atoms", None)
-    if atoms is None and hasattr(value, "atoms"): atoms = value.atoms
+    if hasattr(value, "entity"):
+        atoms = getattr(value.entity, "atoms", None)
+    if atoms is None and hasattr(value, "atoms"):
+        atoms = value.atoms
     if atoms:
         out["formal_charges"] = {a.atom_id: a.formal_charge for a in atoms}
         out["implicit_hydrogens"] = {a.atom_id: a.implicit_hydrogens for a in atoms}
@@ -169,15 +229,27 @@ def normalise_prediction(value: Any, case: dict[str, Any]) -> dict[str, Any]:
         classes = getattr(value, "resonance_classes", None)
         if classes:
             resonance = classes[0] if isinstance(classes, (list, tuple)) else classes
-    if resonance is not None: out["resonance_class"] = getattr(resonance, "class_id", getattr(resonance, "value", resonance))
+    if resonance is not None:
+        out["resonance_class"] = getattr(
+            resonance, "class_id", getattr(resonance, "value", resonance)
+        )
     status = getattr(value, "status", None)
-    if status is not None: out["status"] = getattr(status, "value", status)
+    if status is not None:
+        out["status"] = getattr(status, "value", status)
     return out
 
 
 def environment(*, processes: int = 1, command: str | None = None) -> dict[str, Any]:
     try:
-        git_commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout.strip() or None
+        git_commit = (
+            subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.strip()
+            or None
+        )
     except OSError:
         git_commit = None
     return {
@@ -200,11 +272,15 @@ def call_mck(case: dict[str, Any]) -> dict[str, Any]:
         module = importlib.import_module("molcrys_kit.chemistry")
         fn = getattr(module, "infer_bond_orders")
     except (ImportError, AttributeError) as exc:
-        return {"status": "unavailable", "reason": f"infer_bond_orders API unavailable: {exc}"}
+        return {
+            "status": "unavailable",
+            "reason": f"infer_bond_orders API unavailable: {exc}",
+        }
     try:
         entity = fixture_entity(case)
         kwargs: dict[str, Any] = {"total_charge": None}
-        if "cell_A" in case: kwargs["cell"] = case["cell_A"]
+        if "cell_A" in case:
+            kwargs["cell"] = case["cell_A"]
         try:
             result = fn(entity, **kwargs)
         except TypeError:
@@ -228,18 +304,44 @@ def call_ob_cpp(case: dict[str, Any]) -> dict[str, Any]:
     """
     binary = obabel_binary()
     if not binary:
-        return {"status": "unavailable", "reason": "Open Babel 3.2.1 executable not found (set OBABEL_BIN)"}
+        return {
+            "status": "unavailable",
+            "reason": "Open Babel 3.2.1 executable not found (set OBABEL_BIN)",
+        }
     smiles = case.get("smiles")
     if not smiles:
-        return {"status": "unavailable", "reason": "fixture has no line notation for Open Babel adapter"}
+        return {
+            "status": "unavailable",
+            "reason": "fixture has no line notation for Open Babel adapter",
+        }
     try:
-        proc = subprocess.run([binary, f"-:{smiles}", "-osdf", "-O", "-"], capture_output=True, text=True, timeout=30, check=False)
+        proc = subprocess.run(
+            [binary, f"-:{smiles}", "-osdf", "-O", "-"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
         if proc.returncode:
-            return {"status": "error", "reason": f"obabel exit {proc.returncode}: {proc.stderr.strip()}"}
+            return {
+                "status": "error",
+                "reason": f"obabel exit {proc.returncode}: {proc.stderr.strip()}",
+            }
         # Parsing atom-ID mapping from a SMILES-only OB output is intentionally
         # conservative.  Report availability but incomplete comparability.
-        version = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=10, check=False).stdout.strip()
-        return {"status": "incomplete", "reason": "native OB output lacks fixture stable-ID mapping; provide source-aware adapter", "version": version, "raw_stdout": proc.stdout}
+        version = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout.strip()
+        return {
+            "status": "incomplete",
+            "reason": "native OB output lacks fixture stable-ID mapping; provide source-aware adapter",
+            "version": version,
+            "raw_stdout": proc.stdout,
+        }
     except Exception as exc:
         return {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
 
@@ -248,38 +350,58 @@ def call_ob_python(case: dict[str, Any]) -> dict[str, Any]:
     try:
         pybel = importlib.import_module("openbabel.pybel")
     except ImportError as exc:
-        return {"status": "unavailable", "reason": f"Open Babel Python bindings unavailable: {exc}"}
+        return {
+            "status": "unavailable",
+            "reason": f"Open Babel Python bindings unavailable: {exc}",
+        }
     smiles = case.get("smiles")
     if not smiles:
-        return {"status": "unavailable", "reason": "fixture has no line notation for Open Babel adapter"}
+        return {
+            "status": "unavailable",
+            "reason": "fixture has no line notation for Open Babel adapter",
+        }
     try:
         mol = pybel.readstring("smi", smiles)
         # Explicitly exercise the pinned comparator operations where bindings
         # expose them. Stable-ID mapping remains incomplete for omitted H.
         if hasattr(mol.OBMol, "PerceiveBondOrders"):
             mol.OBMol.PerceiveBondOrders()
-        return {"status": "incomplete", "reason": "OB Python SMILES adapter cannot prove fixture atom-ID mapping", "raw_formula": mol.formula}
+        return {
+            "status": "incomplete",
+            "reason": "OB Python SMILES adapter cannot prove fixture atom-ID mapping",
+            "raw_formula": mol.formula,
+        }
     except Exception as exc:
         return {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
 
 
 ENGINE_CALLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "mck": call_mck, "ob_cpp": call_ob_cpp, "ob_python": call_ob_python,
+    "mck": call_mck,
+    "ob_cpp": call_ob_cpp,
+    "ob_python": call_ob_python,
 }
 
 
-def timed_case(engine: str, case: dict[str, Any], repeats: int = 1, timeout_s: float | None = None) -> dict[str, Any]:
+def timed_case(
+    engine: str, case: dict[str, Any], repeats: int = 1, timeout_s: float | None = None
+) -> dict[str, Any]:
     fn = ENGINE_CALLS[engine]
+
     def invoke() -> dict[str, Any]:
         if timeout_s is None or timeout_s <= 0 or not hasattr(signal, "setitimer"):
             return fn(case)
-        def alarm(_signum, _frame): raise TimeoutError(f"case exceeded {timeout_s:g}s timeout")
+
+        def alarm(_signum, _frame):
+            raise TimeoutError(f"case exceeded {timeout_s:g}s timeout")
+
         previous = signal.signal(signal.SIGALRM, alarm)
         signal.setitimer(signal.ITIMER_REAL, timeout_s)
-        try: return fn(case)
+        try:
+            return fn(case)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous)
+
     runs = []
     result: dict[str, Any] | None = None
     for _ in range(max(1, repeats)):
@@ -290,7 +412,9 @@ def timed_case(engine: str, case: dict[str, Any], repeats: int = 1, timeout_s: f
             result = {"status": "timeout", "reason": str(exc)}
         elapsed = time.perf_counter_ns() - start
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None
-        runs.append({"elapsed_ns": elapsed, "status": result.get("status"), "peak_rss_kb": rss})
+        runs.append(
+            {"elapsed_ns": elapsed, "status": result.get("status"), "peak_rss_kb": rss}
+        )
         if result.get("status") in {"unavailable", "error", "incomplete"}:
             break
     assert result is not None

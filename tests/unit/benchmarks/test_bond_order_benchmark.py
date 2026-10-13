@@ -1,5 +1,6 @@
 """Contract tests for the auditable #174 benchmark package."""
-from benchmarks.bond_order.common import load_manifest, verify_manifest
+
+from benchmarks.bond_order.common import call_mck, load_manifest, verify_manifest
 from benchmarks.bond_order.score import score_prediction, score_results
 
 
@@ -8,8 +9,27 @@ def test_frozen_manifest_verifies_and_has_required_named_cases():
     ok, _ = verify_manifest(manifest)
     assert ok
     ids = {case["case_id"] for case in manifest["cases"]}
-    assert {"c13h28_long_chain", "first_64_premature_cut", "input_order_invariance", "missing_charge_and_h", "shifted_pbc_cc"} <= ids
-    assert manifest["openbabel_baseline"]["commit"] == "0e94434fa75c9f61095023e3c12e0d5f2ac035ff"
+    assert {
+        "c13h28_long_chain",
+        "first_64_premature_cut",
+        "input_order_invariance",
+        "missing_charge_and_h",
+        "shifted_pbc_cc",
+    } <= ids
+    assert (
+        manifest["openbabel_baseline"]["commit"]
+        == "0e94434fa75c9f61095023e3c12e0d5f2ac035ff"
+    )
+
+
+def test_mck_adapter_scores_entity_bonds_not_provenance():
+    """``bond_evidence`` is provenance and must not hide predicted orders."""
+    manifest = load_manifest()
+    case = next(c for c in manifest["cases"] if c["case_id"] == "ethane_c2h6")
+    result = call_mck(case)
+    assert result["status"] == "ok"
+    assert result["prediction"]["bond_orders"]["C1--C2"] == 1.0
+    assert result["prediction"]["bond_orders"]["C1--H1"] == 1.0
 
 
 def test_unknown_truth_is_not_counted_as_correct_order():
@@ -25,11 +45,26 @@ def test_unknown_truth_is_not_counted_as_correct_order():
 def test_incomplete_comparison_cannot_pass_strict_scorecard():
     manifest = load_manifest()
     result = {
-        "suite": "ci", "manifest_sha256": manifest["manifest_sha256"], "engines": ["mck", "ob_cpp"],
-        "selected_case_count": 1, "environment": {"processes": 1, "python": "test"},
+        "suite": "ci",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "engines": ["mck", "ob_cpp"],
+        "selected_case_count": 1,
+        "environment": {"processes": 1, "python": "test"},
         "raw_results": [
-            {"case_id": "ethane_c2h6", "family": "aliphatic", "engine": "mck", "status": "unavailable", "reason": "missing"},
-            {"case_id": "ethane_c2h6", "family": "aliphatic", "engine": "ob_cpp", "status": "incomplete", "reason": "mapping"},
+            {
+                "case_id": "ethane_c2h6",
+                "family": "aliphatic",
+                "engine": "mck",
+                "status": "unavailable",
+                "reason": "missing",
+            },
+            {
+                "case_id": "ethane_c2h6",
+                "family": "aliphatic",
+                "engine": "ob_cpp",
+                "status": "incomplete",
+                "reason": "mapping",
+            },
         ],
     }
     report = score_results(manifest, result)
