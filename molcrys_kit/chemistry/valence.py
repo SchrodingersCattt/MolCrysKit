@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from ..constants.config import CHEMISTRY_PERCEPTION_CONFIG
 from .models import ChemicalAtom
 
 # Ordinary main-group valence states.  Keeping this table in one module makes
@@ -83,13 +84,39 @@ def inferred_charge(atom: ChemicalAtom, valence_sum: int) -> int | None:
     return CHARGE_BY_VALENCE.get(atom.element, {}).get(int(valence_sum))
 
 
+def valence_offset(atom: ChemicalAtom) -> int:
+    """Hydrogens and one radical slot already stored on the atom.
+
+    Explicit and implicit counts are different inventories. Each is added
+    once. A caller that has already drawn those hydrogens as edges must leave
+    both fields unset, or the same hydrogen would be counted twice.
+    """
+    return (
+        int(atom.explicit_hydrogens or 0)
+        + int(atom.implicit_hydrogens or 0)
+        + int(atom.radical_electrons > 0)
+    )
+
+
+def integral_bond_order(order: float | None) -> int | None:
+    """Integer covalent order, or None when the order is absent or delocalized.
+
+    OpenSMILES aromatic bonds are stored as 1.5. Rounding that value to 2
+    turns a Kekulé variable into six fixed double bonds.
+    """
+    if order is None:
+        return None
+    value = float(order)
+    rounded = int(round(value))
+    tolerance = float(CHEMISTRY_PERCEPTION_CONFIG["BOND_ORDER_INTEGRAL_TOLERANCE"])
+    if rounded <= 0 or abs(value - rounded) > tolerance:
+        return None
+    return rounded
+
+
 def atom_valence_target(atom: ChemicalAtom, value: int) -> int:
     """Convert a bond-order sum into the atom's valence accounting baseline."""
-    # Explicit hydrogens are represented in the atom record when no H edge is
-    # present.  Radical electrons consume one valence slot conservatively.
-    return (
-        int(value) + int(atom.explicit_hydrogens or 0) + int(atom.radical_electrons > 0)
-    )
+    return int(value) + valence_offset(atom)
 
 
 def feasible_valence(atom: ChemicalAtom, bond_sum: int) -> bool:
@@ -112,6 +139,8 @@ __all__ = [
     "CHARGE_BY_VALENCE",
     "allowed_valences",
     "inferred_charge",
+    "valence_offset",
+    "integral_bond_order",
     "atom_valence_target",
     "feasible_valence",
     "charge_sum",

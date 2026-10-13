@@ -3,8 +3,8 @@
 A ring is aromatic when it is a chordless 5-, 6-, or 7-membered cycle of
 C/N/O/S and its pi-electron count is 4n+2. Geometry can rank Kekulé forms.
 It does not grant or revoke this flag. Thiophene sulfur and furan/pyrrole
-heteroatoms contribute a lone pair; pyridine nitrogen and carbon contribute
-one pi electron.
+heteroatoms contribute a lone pair; pyridine nitrogen, pyridinium N–H+,
+and carbon contribute one pi electron.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def _aromatic_bond_indices(atoms, bonds) -> tuple[set[int], int]:
 def _pi_electrons(atom: ChemicalAtom, degree: int) -> int | None:
     """Return the Hückel contribution, or None when the atom is saturated.
 
-    A carbon with four sigma neighbors (explicit atoms or an explicit hydrogen
+    A carbon with four sigma neighbors (drawn atoms or a stored hydrogen
     count) has no p orbital, so a ring that contains it is not aromatic.
     Unknown hydrogen counts stay eligible only while the drawn degree is at
     most three; that is the benzene drawing, not cyclohexane. A positive
@@ -121,10 +121,11 @@ def _pi_electrons(atom: ChemicalAtom, degree: int) -> int | None:
     if atom.element not in _PI_ELEMENTS:
         return None
     explicit = atom.explicit_hydrogens
+    stored_h = int(explicit or 0) + int(atom.implicit_hydrogens or 0)
     if degree > 3:
         return None
     if atom.element == "C":
-        if explicit is not None and degree + int(explicit) >= 4:
+        if stored_h and degree + stored_h >= 4:
             return None
         if atom.formal_charge is not None and int(atom.formal_charge) > 0:
             return 0
@@ -132,9 +133,12 @@ def _pi_electrons(atom: ChemicalAtom, degree: int) -> int | None:
             return 2
         return 1
     if atom.element == "N":
-        # Three-coordinate nitrogen (pyrrole, indole) donates a lone pair.
-        # Two-coordinate nitrogen (pyridine) donates one pi electron.
-        if degree >= 3 or int(explicit or 0) > 0:
+        # Pyridinium N–H+ keeps one pi electron: protonation uses the lone
+        # pair, not the p contribution. Neutral or anionic N–H (pyrrole)
+        # donates that lone pair. Bare pyridine nitrogen donates one.
+        if atom.formal_charge is not None and int(atom.formal_charge) > 0:
+            return 1
+        if degree >= 3 or stored_h > 0:
             return 2
         return 1
     if atom.element in {"O", "S"}:
@@ -160,7 +164,12 @@ def _implicit_hydrogens(atoms, bonds) -> dict[str, int]:
     implied: dict[str, int] = {}
     for atom_id in aromatic_atoms:
         atom = atom_by_id.get(atom_id)
-        if atom is None or atom.element != "C" or atom.explicit_hydrogens is not None:
+        if (
+            atom is None
+            or atom.element != "C"
+            or atom.explicit_hydrogens is not None
+            or atom.implicit_hydrogens is not None
+        ):
             continue
         attached = neighbors.get(atom_id, [])
         if len(attached) != 2:

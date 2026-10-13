@@ -1,8 +1,8 @@
 """Source precedence for bond-order and aromaticity constraints.
 
 User-confirmed evidence outranks an explicit file value, which outranks
-inference. A contradiction at the winning rank is retained and does not lock
-an order. A lower-ranked value that disagrees is flagged and left unused.
+inference. A contradiction at the winning rank clears a pre-populated order and does
+not lock one. A lower-ranked value that disagrees is flagged and left unused.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from .models import ChemicalAtom, ChemicalBond, Evidence, EvidenceSource
+from .valence import integral_bond_order
 
 # Higher rank wins. Explicit file-like sources share one rank so two CIF
 # types that disagree are a real contradiction rather than a silent override.
@@ -166,7 +167,7 @@ def apply_published_bond_types(
             warnings.append(
                 f"contradictory CIF bond types for {left}-{right}; order left unlocked"
             )
-            updated.append(replace(bond, evidence=tuple(evidence)))
+            updated.append(replace(bond, order=None, evidence=tuple(evidence)))
             continue
         order = float(next(iter(orders))) if len(orders) == 1 else bond.order
         updated.append(
@@ -191,8 +192,11 @@ def _resolve_bond(bond: ChemicalBond) -> tuple[ChemicalBond, str | None, bool, b
     aromatics = {item.aromatic for item in winners if item.aromatic is not None}
     pair = f"{bond.atom1_id}--{bond.atom2_id}"
     if len(orders) > 1 or len(aromatics) > 1:
+        # A pre-populated numeric order is not a higher-priority source. Leaving
+        # it in place would keep the bond out of the variable graph.
+        cleared = replace(bond, order=None) if len(orders) > 1 else bond
         return (
-            bond,
+            cleared,
             f"contradictory {winners[0].source.value} constraints on {pair}; bond left unlocked",
             False,
             True,
@@ -228,8 +232,9 @@ def _constraints(bond: ChemicalBond) -> list[BondConstraint]:
             item.order is not None for item in parsed
         ):
             user_order_recorded = True
+    recorded_order = integral_bond_order(bond.order)
     if (
-        bond.order is not None
+        recorded_order is not None
         and not user_order_recorded
         and any(
             evidence.source is EvidenceSource.USER_CONFIRMED
@@ -239,7 +244,7 @@ def _constraints(bond: ChemicalBond) -> list[BondConstraint]:
         found.append(
             BondConstraint(
                 EvidenceSource.USER_CONFIRMED,
-                order=int(round(bond.order)),
+                order=recorded_order,
                 detail="bond.order",
             )
         )

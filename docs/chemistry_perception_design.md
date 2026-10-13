@@ -74,8 +74,9 @@ not overwrite either value.
 Variable bonds are decomposed into connected components. Forests are solved
 by tree dynamic programming with the same valence rules as the bounded
 search. Cyclic components stay on that search. A requested total charge is
-checked after the pieces are merged; if the independent optima miss it, the
-joint search runs. Geometry scores are squared bond-length residuals and
+checked after the pieces are merged. Independent optima that miss it are
+recombined from each component's charge frontier. The whole graph is not
+searched again. Geometry scores are squared bond-length residuals and
 never create an order by themselves.
 
 Functional acceptance for issue #174 is this engine: aromaticity, source

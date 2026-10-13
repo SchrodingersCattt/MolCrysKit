@@ -109,21 +109,47 @@ def _entity_from_arrays(
                 shifts.append(tuple(int(round(value)) for value in raw))
         else:
             shifts = [(0, 0, 0)] * len(pairs)
+        # Detected pairs have no caller-supplied order. The placeholder has
+        # to exist before the record loop; it used to be created only in the
+        # explicit-bonds branch.
+        source_orders = [None] * len(pairs)
+        source_kinds = [BondKind.UNKNOWN] * len(pairs)
+        source_aromatic = [False] * len(pairs)
+        source_stereo: list[str | None] = [None] * len(pairs)
+        source_evidence = [()] * len(pairs)
     else:
         if hasattr(bonds, "pairs"):
             bonds = bonds.pairs
         pairs = []
         shifts = []
-        source_orders: list[float | None] = []
+        source_orders = []
+        source_kinds = []
+        source_aromatic = []
+        source_stereo = []
+        source_evidence = []
         for raw in bonds:
             if isinstance(raw, ChemicalBond):
                 first, second = raw.atom1_id, raw.atom2_id
                 shift = tuple(int(v) for v in raw.atom2_image_shift)
                 source_orders.append(raw.order)
+                source_kinds.append(raw.kind)
+                source_aromatic.append(raw.aromatic)
+                source_stereo.append(raw.stereochemistry)
+                source_evidence.append(raw.evidence)
             elif isinstance(raw, dict):
                 first, second = raw["atom1_id"], raw["atom2_id"]
                 shift = tuple(int(v) for v in raw.get("atom2_image_shift", (0, 0, 0)))
                 source_orders.append(raw.get("order"))
+                kind = raw.get("kind", BondKind.UNKNOWN)
+                if isinstance(kind, str):
+                    try:
+                        kind = BondKind(kind)
+                    except ValueError:
+                        kind = BondKind.UNKNOWN
+                source_kinds.append(kind)
+                source_aromatic.append(bool(raw.get("aromatic", False)))
+                source_stereo.append(raw.get("stereochemistry"))
+                source_evidence.append(tuple(raw.get("evidence") or ()))
             else:
                 values = tuple(raw)
                 if len(values) < 2:
@@ -135,6 +161,10 @@ def _entity_from_arrays(
                     else (0, 0, 0)
                 )
                 source_orders.append(None)
+                source_kinds.append(BondKind.UNKNOWN)
+                source_aromatic.append(False)
+                source_stereo.append(None)
+                source_evidence.append(())
             if first in ids:
                 first = ids.index(first)
             if second in ids:
@@ -156,8 +186,11 @@ def _entity_from_arrays(
                 if bond_orders is None or bond_orders[index] is None
                 else float(bond_orders[index])
             ),
-            kind=BondKind.UNKNOWN,
+            kind=source_kinds[index],
+            aromatic=source_aromatic[index],
             atom2_image_shift=shifts[index],
+            stereochemistry=source_stereo[index],
+            evidence=source_evidence[index],
         )
         for index, (first, second) in enumerate(pairs)
     )

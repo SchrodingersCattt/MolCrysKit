@@ -12,7 +12,13 @@ from dataclasses import dataclass
 from typing import Callable, Collection, Mapping, Sequence
 
 from .models import BondKind, ChemicalAtom, ChemicalBond
-from .valence import allowed_valences, atom_valence_target, inferred_charge
+from .valence import (
+    allowed_valences,
+    atom_valence_target,
+    inferred_charge,
+    integral_bond_order,
+    valence_offset,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +42,8 @@ def _possible(
 ) -> bool:
     if states is None:
         return True
-    # Explicit H/radicals are part of the valence target, not graph edges.
-    offset = int(atom.explicit_hydrogens or 0) + int(atom.radical_electrons > 0)
+    # Stored H/radicals are part of the valence target, not graph edges.
+    offset = valence_offset(atom)
     lower = current + remaining_min + offset
     upper = current + remaining_max + offset
     return any(lower <= state <= upper for state in states)
@@ -81,11 +87,15 @@ def search_bond_orders(
 
     # Fixed source orders seed the residual sums and are never rewritten.
     sums = {atom.atom_id: 0 for atom in atoms}
-    fixed = {
-        idx: int(round(bonds[idx].order))
-        for idx in range(len(bonds))
-        if bonds[idx].order is not None and bonds[idx].kind is BondKind.COVALENT
-    }
+    fixed = {}
+    for idx, bond in enumerate(bonds):
+        if bond.kind is not BondKind.COVALENT:
+            continue
+        # 1.5 is an aromatic Kekulé placeholder, not a fixed double bond.
+        order = integral_bond_order(bond.order)
+        if order is None:
+            continue
+        fixed[idx] = order
     for idx, order in fixed.items():
         bond = bonds[idx]
         sums[bond.atom1_id] += order

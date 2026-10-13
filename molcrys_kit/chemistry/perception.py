@@ -27,6 +27,7 @@ from .valence import (
     VALENCES_FOR_CHARGE,
     allowed_valences,
     inferred_charge,
+    integral_bond_order,
 )
 
 _VALENCES = VALENCES
@@ -175,13 +176,15 @@ def _infer_entity(entity, total_charge, cell, options):
         replace(atom, explicit_hydrogens=aromaticity.implicit_hydrogens[atom.atom_id])
         if atom.atom_id in aromaticity.implicit_hydrogens
         and atom.explicit_hydrogens is None
+        and atom.implicit_hydrogens is None
         else atom
         for atom in entity.atoms
     )
     variable = []
     choices = {}
     for i, bond in enumerate(bonds):
-        if bond.kind is BondKind.COVALENT and bond.order is None:
+        # A missing order and a delocalized aromatic order are both variables.
+        if bond.kind is BondKind.COVALENT and integral_bond_order(bond.order) is None:
             domain = _bond_order_choices(bond, atom_by_id)
             if domain:
                 variable.append(i)
@@ -388,12 +391,15 @@ def _entity_with_orders(
 ):
     sums = {a.atom_id: 0 for a in entity.atoms}
     for b in bonds:
-        if b.kind is BondKind.COVALENT and b.order is not None:
-            value = int(round(b.order))
+        if b.kind is BondKind.COVALENT:
+            value = integral_bond_order(b.order)
+            if value is None:
+                continue
+            # Identical endpoints are incremented twice, which is the valence
+            # contribution of one periodic self-edge. A third copy disagrees
+            # with the solver and can report the wrong charge.
             sums[b.atom1_id] += value
             sums[b.atom2_id] += value
-            if b.atom1_id == b.atom2_id:
-                sums[b.atom1_id] += value
     atoms = tuple(
         replace(
             a,
@@ -437,10 +443,15 @@ def _entity_with_orders(
 
 def _charge_valence(atom, bond_sum: int, implicit_hydrogens) -> int:
     """Valence used for formal charge, including hydrogens the solver counted."""
-    hydrogens = atom.explicit_hydrogens
-    if hydrogens is None and implicit_hydrogens:
-        hydrogens = implicit_hydrogens.get(atom.atom_id) or 0
-    return int(bond_sum) + int(hydrogens or 0) + int(atom.radical_electrons > 0)
+    if atom.explicit_hydrogens is not None or atom.implicit_hydrogens is not None:
+        hydrogens = int(atom.explicit_hydrogens or 0) + int(
+            atom.implicit_hydrogens or 0
+        )
+    elif implicit_hydrogens:
+        hydrogens = int(implicit_hydrogens.get(atom.atom_id) or 0)
+    else:
+        hydrogens = 0
+    return int(bond_sum) + hydrogens + int(atom.radical_electrons > 0)
 
 
 def _resonance_classes(entities):

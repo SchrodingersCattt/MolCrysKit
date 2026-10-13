@@ -54,6 +54,9 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     "AROMATIC_RING_SEARCH_LIMIT": 20_000,
     "HUCKEL_ELECTRON_MODULUS": 4,
     "HUCKEL_ELECTRON_RESIDUE": 2,
+    # A source order this close to an integer is that integer. Farther values,
+    # including an OpenSMILES aromatic 1.5, stay unresolved Kekulé variables.
+    "BOND_ORDER_INTEGRAL_TOLERANCE": 1.0e-8,
 }
 
 STEREOCHEMISTRY_CONFIG = {
