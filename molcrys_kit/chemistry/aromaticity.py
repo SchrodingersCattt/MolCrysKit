@@ -135,10 +135,21 @@ def _aromatic_bond_indices(atoms, bonds, *, embedding=None, cell=None) -> tuple[
         residue = int(CHEMISTRY_PERCEPTION_CONFIG["HUCKEL_ELECTRON_RESIDUE"])
         if total % modulus != residue:
             continue
+        fused_circuit = (
+            len(atom_ids) == 10
+            and _fused_five_seven_circuit(
+                atom_ids, ring_graph, frozenset(bond_indices)
+            )
+        )
+        # Only azulene's fused five/seven perimeter is allowed above the
+        # ordinary seven-membered aromatic ring limit.  A chordless C8--C10
+        # cycle has the right Hückel residue on paper, but it is not the
+        # fused circuit this graph authority is meant to recognize.
+        if len(atom_ids) > 7 and not fused_circuit:
+            continue
         fused_chords = (
             _fused_chord_indices(atom_ids, ring_graph, frozenset(bond_indices))
-            if len(atom_ids) == 10
-            and _fused_five_seven_circuit(atom_ids, ring_graph, frozenset(bond_indices))
+            if fused_circuit
             else set()
         )
         if any(_locked(bonds[index]) for index in fused_chords):
@@ -180,23 +191,9 @@ def _geometry_supports_unspecified_carbon_ring(
     for index in bond_indices:
         bond = bonds[index]
         try:
-            vector = embedding.vector(bond.atom1_id, bond.atom2_id, bond.atom2_image_shift)
+            vector = _embedding_vector(embedding, bond, cell)
         except (AttributeError, KeyError, ValueError, TypeError):
-            try:
-                left = embedding.position(bond.atom1_id)
-                right = embedding.position(bond.atom2_id)
-                if cell is not None and any(bond.atom2_image_shift):
-                    right = tuple(
-                        float(right[axis])
-                        + sum(
-                            int(bond.atom2_image_shift[row]) * float(cell[row][axis])
-                            for row in range(3)
-                        )
-                        for axis in range(3)
-                    )
-                vector = tuple(float(r) - float(l) for l, r in zip(left, right))
-            except (AttributeError, KeyError, ValueError, TypeError):
-                return True
+            return True
         if math.sqrt(sum(float(value) ** 2 for value in vector)) > maximum:
             return False
     return True
@@ -208,10 +205,10 @@ def _unspecified_saturated_ring_atoms(atoms, bonds, embedding, cell):
         return ()
     atom_by_id = {atom.atom_id: atom for atom in atoms}
     explicit_h_edge_atoms: set[str] = set()
-    adjacency: dict[str, list[tuple[str, ChemicalBond]]] = {
+    adjacency: dict[str, list[tuple[str, int, ChemicalBond]]] = {
         atom.atom_id: [] for atom in atoms
     }
-    for bond in bonds:
+    for index, bond in enumerate(bonds):
         if bond.kind not in {BondKind.COVALENT, BondKind.UNKNOWN}:
             continue
         if bond.atom1_id == bond.atom2_id:
@@ -222,52 +219,127 @@ def _unspecified_saturated_ring_atoms(atoms, bonds, embedding, cell):
             explicit_h_edge_atoms.add(bond.atom2_id)
         if right is not None and right.element in _HYDROGEN:
             explicit_h_edge_atoms.add(bond.atom1_id)
-        adjacency.setdefault(bond.atom1_id, []).append((bond.atom2_id, bond))
-        adjacency.setdefault(bond.atom2_id, []).append((bond.atom1_id, bond))
-    pending = {atom_id for atom_id, neighbors in adjacency.items() if len(neighbors) < 2}
-    while pending:
-        atom_id = pending.pop()
-        for neighbor, _bond in adjacency.pop(atom_id, []):
-            adjacency[neighbor] = [
-                item for item in adjacency.get(neighbor, ()) if item[0] != atom_id
-            ]
-            if len(adjacency[neighbor]) < 2:
-                pending.add(neighbor)
+        adjacency.setdefault(bond.atom1_id, []).append((bond.atom2_id, index, bond))
+        adjacency.setdefault(bond.atom2_id, []).append((bond.atom1_id, index, bond))
     if not adjacency:
         return ()
+
+    # A branch between two rings survives leaf stripping even though it is not
+    # part of either cycle.  Remove graph bridges first so one long connecting
+    # edge cannot make an otherwise unambiguous ring look saturated.
+    ring_indices = _non_bridge_indices(adjacency)
+    ring_adjacency: dict[str, list[tuple[str, int, ChemicalBond]]] = {
+        atom_id: [item for item in neighbors if item[1] in ring_indices]
+        for atom_id, neighbors in adjacency.items()
+    }
     maximum = float(CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH"])
-    uncertain = []
-    for atom_id, neighbors in adjacency.items():
-        atom = atom_by_id[atom_id]
-        if (
-            atom.element != "C"
-            or atom.explicit_hydrogens is not None
-            or atom.implicit_hydrogens is not None
-            or atom_id in explicit_h_edge_atoms
-        ):
+    uncertain: set[str] = set()
+    seen: set[str] = set()
+    for start in sorted(ring_adjacency):
+        if start in seen or not ring_adjacency[start]:
             continue
-        if not all(
-            atom_by_id.get(other) is not None
-            and atom_by_id[other].element == "C"
-            for other, _ in neighbors
+        component: set[str] = set()
+        stack = [start]
+        while stack:
+            atom_id = stack.pop()
+            if atom_id in component:
+                continue
+            component.add(atom_id)
+            seen.add(atom_id)
+            stack.extend(
+                other
+                for other, _index, _bond in ring_adjacency.get(atom_id, ())
+                if other not in component
+            )
+        if len(component) < 3 or not all(
+            atom_by_id.get(atom_id) is not None
+            and atom_by_id[atom_id].element == "C"
+            for atom_id in component
         ):
             continue
         long_edge = False
-        for _other, bond in neighbors:
-            try:
-                vector = embedding.vector(bond.atom1_id, bond.atom2_id, bond.atom2_image_shift)
-                if bond.atom1_id != atom_id:
-                    vector = tuple(-float(value) for value in vector)
-                length = math.sqrt(sum(float(value) ** 2 for value in vector))
-            except (AttributeError, KeyError, ValueError, TypeError):
-                continue
-            if length > maximum:
-                long_edge = True
+        for atom_id in component:
+            for other, _index, bond in ring_adjacency[atom_id]:
+                if other not in component or atom_id > other:
+                    continue
+                try:
+                    vector = _embedding_vector(embedding, bond, cell)
+                    length = math.sqrt(sum(float(value) ** 2 for value in vector))
+                except (AttributeError, KeyError, ValueError, TypeError):
+                    continue
+                if length > maximum:
+                    long_edge = True
+                    break
+            if long_edge:
                 break
-        if long_edge:
-            uncertain.append(atom_id)
-    # Only report a boundary when an actual ring survived leaf stripping.
+        if not long_edge:
+            continue
+        uncertain.update(
+            atom_id
+            for atom_id in component
+            if atom_id not in explicit_h_edge_atoms
+            and atom_by_id[atom_id].explicit_hydrogens is None
+            and atom_by_id[atom_id].implicit_hydrogens is None
+        )
+    # Only report a boundary when an actual ring survived bridge removal.
     return tuple(sorted(uncertain)) if len(uncertain) >= 3 else ()
+
+
+def _embedding_vector(embedding, bond, cell=None):
+    """Return an edge vector, including an image shift when a cell is given."""
+    try:
+        return tuple(
+            float(value)
+            for value in embedding.vector(
+                bond.atom1_id, bond.atom2_id, bond.atom2_image_shift
+            )
+        )
+    except (AttributeError, KeyError, ValueError, TypeError):
+        left = embedding.position(bond.atom1_id)
+        right = embedding.position(bond.atom2_id)
+        if cell is not None and any(bond.atom2_image_shift):
+            right = tuple(
+                float(right[axis])
+                + sum(
+                    int(bond.atom2_image_shift[row]) * float(cell[row][axis])
+                    for row in range(3)
+                )
+                for axis in range(3)
+            )
+        return tuple(float(r) - float(l) for l, r in zip(left, right))
+
+
+def _non_bridge_indices(adjacency):
+    """Return edge indices that participate in an undirected cycle."""
+    discovery: dict[str, int] = {}
+    low: dict[str, int] = {}
+    bridges: set[int] = set()
+    tick = 0
+
+    def visit(node, parent_edge=None):
+        nonlocal tick
+        tick += 1
+        discovery[node] = low[node] = tick
+        for neighbor, edge_index, _bond in adjacency.get(node, ()):
+            if edge_index == parent_edge:
+                continue
+            if neighbor not in discovery:
+                visit(neighbor, edge_index)
+                low[node] = min(low[node], low[neighbor])
+                if low[neighbor] > discovery[node]:
+                    bridges.add(edge_index)
+            else:
+                low[node] = min(low[node], discovery[neighbor])
+
+    for node in sorted(adjacency):
+        if node not in discovery:
+            visit(node)
+    return {
+        edge_index
+        for neighbors in adjacency.values()
+        for _neighbor, edge_index, _bond in neighbors
+        if edge_index not in bridges
+    }
 
 
 def _pi_electrons(atom: ChemicalAtom, degree: int) -> int | None:

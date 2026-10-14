@@ -258,6 +258,115 @@ def test_geometry_disambiguates_an_h_omitted_saturated_ring():
     assert all(bond.order is None and not bond.aromatic for bond in result.entity.bonds)
 
 
+def test_uncertain_saturated_ring_does_not_abort_an_aromatic_fragment():
+    def ring(prefix, count, side, z):
+        radius = side / (2 * math.sin(math.pi / count))
+        atoms = tuple(ChemicalAtom(f"{prefix}{i}", "C") for i in range(count))
+        bonds = tuple(
+            ChemicalBond(
+                f"{prefix}{i}",
+                f"{prefix}{(i + 1) % count}",
+                kind=BondKind.COVALENT,
+            )
+            for i in range(count)
+        )
+        coordinates = tuple(
+            (
+                f"{prefix}{i}",
+                (
+                    radius * math.cos(i * 2 * math.pi / count),
+                    radius * math.sin(i * 2 * math.pi / count),
+                    z,
+                ),
+            )
+            for i in range(count)
+        )
+        return atoms, bonds, coordinates
+
+    aromatic_atoms, aromatic_bonds, aromatic_coordinates = ring("A", 6, 1.40, 0.0)
+    saturated_atoms, saturated_bonds, saturated_coordinates = ring(
+        "S", 6, 1.54, 4.0
+    )
+    connecting = ChemicalBond("A0", "S0", kind=BondKind.COVALENT)
+    result = infer_bond_orders(
+        FiniteChemicalEntity(
+            "phenyl-cyclohexane-boundary",
+            aromatic_atoms + saturated_atoms,
+            aromatic_bonds + saturated_bonds + (connecting,),
+            embedding=Embedding(aromatic_coordinates + saturated_coordinates),
+        )
+    )
+
+    assert result.status is InferenceStatus.PROVISIONAL
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
+        f"S{i}" for i in range(6)
+    )
+    aromatic = result.entity.bonds[:6]
+    saturated = result.entity.bonds[6:12]
+    assert all(bond.aromatic and bond.order in {1.0, 2.0} for bond in aromatic)
+    assert all(not bond.aromatic and bond.order is None for bond in saturated)
+    assert result.entity.bonds[-1].order == 1.0
+
+
+def test_plain_eight_to_ten_membered_carbon_cycles_are_not_aromatic():
+    for count in (8, 9, 10):
+        atoms = tuple(ChemicalAtom(f"C{count}_{i}", "C") for i in range(count))
+        bonds = tuple(
+            ChemicalBond(
+                f"C{count}_{i}",
+                f"C{count}_{(i + 1) % count}",
+                kind=BondKind.COVALENT,
+            )
+            for i in range(count)
+        )
+        result = infer_bond_orders(
+            FiniteChemicalEntity(f"plain-c{count}", atoms, bonds)
+        )
+        assert result.diagnostics["aromatic_rings"] == 0
+        assert all(not bond.aromatic for bond in result.entity.bonds)
+
+
+def test_periodic_hydrogen_boundary_uses_the_supplied_cell_fallback():
+    class PositionOnlyEmbedding:
+        def __init__(self, positions):
+            self._positions = dict(positions)
+
+        def position(self, atom_id):
+            return self._positions[atom_id]
+
+    count = 6
+    atoms = tuple(ChemicalAtom(f"P{i}", "C") for i in range(count))
+    bonds = tuple(
+        ChemicalBond(
+            f"P{i}",
+            f"P{(i + 1) % count}",
+            kind=BondKind.COVALENT,
+            atom2_image_shift=(1, 0, 0) if i == count - 1 else (0, 0, 0),
+        )
+        for i in range(count)
+    )
+    embedding = PositionOnlyEmbedding(
+        [(f"P{i}", (1.54 * i, 0.0, 0.0)) for i in range(count)]
+    )
+    result = infer_bond_orders(
+        PeriodicChemicalEntity(
+            "periodic-unknown-cyclohexane",
+            atoms,
+            bonds,
+            periodic_rank=1,
+            translation_generators=((1, 0, 0),),
+            embedding=embedding,
+        ),
+        cell=((10.0, 0.0, 0.0), (0.0, 10.0, 0.0), (0.0, 0.0, 10.0)),
+    )
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
+        f"P{i}" for i in range(count)
+    )
+
+
 def test_periodic_winding_cycle_is_not_a_finite_aromatic_ring():
     atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(6))
     bonds = tuple(

@@ -21,6 +21,7 @@ from .models import (
 from .aromaticity import apply_aromaticity
 from .source import apply_source_precedence
 from .tree_dp import decompose_and_solve
+from .solver import search_bond_orders
 from .valence import (
     CHARGE_BY_VALENCE,
     VALENCES,
@@ -177,16 +178,37 @@ def _infer_entity(entity, total_charge, cell, options):
         cell=cell,
     )
     bonds = aromaticity.bonds
-    if aromaticity.uncertain_hydrogen_atoms:
-        evidence = Evidence(
-            source=EvidenceSource.INFERRED,
-            method="aromaticity_hydrogen_boundary",
-            detail="ring hydrogen inventory is unspecified and geometry is saturated",
-        )
-        warning = (
-            f"{entity.entity_id}: aromaticity and hydrogen inventory are indeterminate "
-            "for a geometry-confirmed saturated ring"
-        )
+    uncertain_atoms = frozenset(aromaticity.uncertain_hydrogen_atoms)
+    boundary_evidence = Evidence(
+        source=EvidenceSource.INFERRED,
+        method="aromaticity_hydrogen_boundary",
+        detail="ring hydrogen inventory is unspecified and geometry is saturated",
+    )
+    boundary_warning = (
+        f"{entity.entity_id}: aromaticity and hydrogen inventory are indeterminate "
+        "for a geometry-confirmed saturated ring"
+        if uncertain_atoms
+        else None
+    )
+    # A geometry-confirmed saturated ring with omitted H atoms is a local
+    # abstention.  Exclude the uncertain component from solving, while keeping
+    # every independent fragment eligible for normal valence inference.
+    solver_indices = tuple(range(len(bonds)))
+    solver_bonds = bonds
+    solver_atoms = tuple(
+        replace(atom, explicit_hydrogens=aromaticity.implicit_hydrogens[atom.atom_id])
+        if atom.atom_id in aromaticity.implicit_hydrogens
+        and atom.explicit_hydrogens is None
+        and atom.implicit_hydrogens is None
+        else atom
+        for atom in entity.atoms
+    )
+    if uncertain_atoms and not any(
+        not (bond.atom1_id in uncertain_atoms and bond.atom2_id in uncertain_atoms)
+        for bond in bonds
+    ):
+        # Preserve the historical all-uncertain result: there is no
+        # independently solvable chemistry to report in this entity.
         diagnostics = {
             "aromatic_rings": aromaticity.ring_count,
             "uncertain_hydrogen_atoms": aromaticity.uncertain_hydrogen_atoms,
@@ -198,55 +220,90 @@ def _infer_entity(entity, total_charge, cell, options):
             entity,
             bonds,
             status=InferenceStatus.INDETERMINATE,
-            warnings=(warning,),
-            evidence=evidence,
+            warnings=(boundary_warning,),
+            evidence=boundary_evidence,
             implicit_hydrogens=aromaticity.implicit_hydrogens,
         )
-        return unresolved_entity, (), diagnostics, (evidence,)
-    solver_atoms = tuple(
-        replace(atom, explicit_hydrogens=aromaticity.implicit_hydrogens[atom.atom_id])
-        if atom.atom_id in aromaticity.implicit_hydrogens
-        and atom.explicit_hydrogens is None
-        and atom.implicit_hydrogens is None
-        else atom
-        for atom in entity.atoms
-    )
+        return unresolved_entity, (), diagnostics, (boundary_evidence,)
+
+    atom_by_id = {a.atom_id: a for a in solver_atoms}
     variable = []
     choices = {}
-    for i, bond in enumerate(bonds):
+    for i, bond in enumerate(solver_bonds):
         # A missing order and a delocalized aromatic order are both variables.
-        if bond.kind is BondKind.COVALENT and integral_bond_order(bond.order) is None:
+        if (
+            bond.kind is BondKind.COVALENT
+            and integral_bond_order(bond.order) is None
+            and not (
+                bond.atom1_id in uncertain_atoms
+                and bond.atom2_id in uncertain_atoms
+            )
+        ):
             domain = _bond_order_choices(bond, atom_by_id)
             if domain:
                 variable.append(i)
                 choices[i] = domain
     unresolved = [
         a.atom_id
-        for a in entity.atoms
+        for a in solver_atoms
         if allowed_valences(a) is None and not is_metal_element(a.element)
     ]
     metal_edges = sum(
-        1 for bond in bonds if bond.kind in {BondKind.COORDINATION, BondKind.METALLIC}
+        1
+        for bond in bonds
+        if bond.kind in {BondKind.COORDINATION, BondKind.METALLIC}
     )
 
     def score(assign):
-        return _assignment_score(bonds, assign, atom_by_id, entity.embedding, cell)
+        return _assignment_score(
+            solver_bonds, assign, atom_by_id, entity.embedding, cell
+        )
 
-    outcome, decomposition = decompose_and_solve(
-        solver_atoms,
-        bonds,
-        variable,
-        choices,
-        score=score,
-        total_charge=total_charge,
-        max_search_states=options.max_search_states,
-        max_candidates=options.max_candidates,
-    )
+    if uncertain_atoms:
+        # The general component solver validates every atom.  For this local
+        # abstention, the lower-level search can validate only the known
+        # boundary while still assigning a bridge bond that connects it to the
+        # unresolved ring.
+        outcome = search_bond_orders(
+            solver_atoms,
+            solver_bonds,
+            variable,
+            choices,
+            score=score,
+            total_charge=None,
+            max_search_states=options.max_search_states,
+            max_candidates=options.max_candidates,
+            valence_atom_ids=set(atom_by_id).difference(uncertain_atoms),
+        )
+        decomposition = {
+            "components": 1 if variable else 0,
+            "tree_components": 0,
+            "cyclic_components": 1 if variable else 0,
+            "solver": "local_search",
+        }
+    else:
+        outcome, decomposition = decompose_and_solve(
+            solver_atoms,
+            solver_bonds,
+            variable,
+            choices,
+            score=score,
+            total_charge=total_charge,
+            max_search_states=options.max_search_states,
+            max_candidates=options.max_candidates,
+        )
     evidence = Evidence(
         source=EvidenceSource.INFERRED,
         method="propagating_valence_and_geometry_solver",
         detail="Residual-valence propagation with bounded deterministic search.",
     )
+
+    def restore(candidate_bonds):
+        restored = list(bonds)
+        for original_index, candidate in zip(solver_indices, candidate_bonds):
+            restored[original_index] = candidate
+        return tuple(restored)
+
     diagnostics = {
         "search_states": outcome.states,
         "search_complete": outcome.complete,
@@ -257,6 +314,7 @@ def _infer_entity(entity, total_charge, cell, options):
         "max_candidates": options.max_candidates,
         "candidate_scores": tuple(float(score) for score, _ in outcome.candidates),
         "unresolved_atoms": tuple(unresolved),
+        "uncertain_hydrogen_atoms": aromaticity.uncertain_hydrogen_atoms,
         "aromatic_rings": aromaticity.ring_count,
         "aromatic_implicit_hydrogens": tuple(sorted(aromaticity.implicit_hydrogens)),
         "source_locked_orders": source.locked_orders,
@@ -279,6 +337,8 @@ def _infer_entity(entity, total_charge, cell, options):
             f"{entity.entity_id}: no complete valence-consistent bond-order assignment"
             + ("; search budget exhausted" if not outcome.complete else "")
         )
+        if boundary_warning:
+            warning = f"{boundary_warning}; {warning}"
         if diagnostics["total_charge_unsatisfied"]:
             warning += (
                 f"; requested total charge {int(total_charge)} is not satisfied "
@@ -295,21 +355,26 @@ def _infer_entity(entity, total_charge, cell, options):
             ),
             (),
             diagnostics,
-            (evidence,),
+            (evidence, boundary_evidence) if boundary_warning else (evidence,),
         )
-    candidates = outcome.candidates
+    candidates = tuple(
+        (score_value, restore(candidate))
+        for score_value, candidate in outcome.candidates
+    )
     entities = tuple(
         _entity_with_orders(
             entity,
-            b,
+            candidate_bonds,
             status=InferenceStatus.INFERRED,
             warnings=(),
             evidence=evidence,
             implicit_hydrogens=aromaticity.implicit_hydrogens,
         )
-        for _, b in candidates
+        for _, candidate_bonds in candidates
     )
     warnings = []
+    if boundary_warning:
+        warnings.append(boundary_warning)
     if not outcome.complete:
         warnings.append(
             f"{entity.entity_id}: search budget exhausted; result is bounded"
@@ -345,7 +410,7 @@ def _infer_entity(entity, total_charge, cell, options):
         replace(competitive[0], status=status, warnings=tuple(warnings)),
         tuple(competitive[1:]),
         diagnostics,
-        (evidence,),
+        (evidence, boundary_evidence) if boundary_warning else (evidence,),
     )
 
 
