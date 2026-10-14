@@ -1,6 +1,12 @@
 """Contract tests for the auditable #174 benchmark package."""
 
-from benchmarks.bond_order.common import call_mck, load_manifest, verify_manifest
+from benchmarks.bond_order.common import (
+    _edge_key,
+    call_mck,
+    load_manifest,
+    normalise_prediction,
+    verify_manifest,
+)
 from benchmarks.bond_order.score import score_prediction, score_results
 
 
@@ -166,3 +172,83 @@ def test_false_assertion_fails_functional_strict_gate():
     assert gates["mck_observations"] == "PASS"
     assert gates["mck_false_assertions"] == "FAIL"
     assert report["strict_pass"] is False
+
+
+def test_strict_gate_rejects_missing_selected_mck_cases():
+    manifest = load_manifest()
+    result = {
+        "suite": "ci",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "engines": ["mck"],
+        "selected_case_count": 2,
+        "environment": {"processes": 1, "python": "test"},
+        "raw_results": [
+            {
+                "case_id": "ethane_c2h6",
+                "engine": "mck",
+                "status": "ok",
+                "prediction": {
+                    "bond_orders": dict(
+                        next(c for c in manifest["cases"] if c["case_id"] == "ethane_c2h6")["expected"]["bond_orders"]
+                    )
+                },
+            }
+        ],
+    }
+    report = score_results(manifest, result)
+    gates = {gate["metric"]: gate["status"] for gate in report["functional_gates"]}
+    assert gates["mck_case_coverage"] == "FAIL"
+    assert report["strict_pass"] is False
+
+
+def test_strict_gate_rejects_all_abstention_known_truth_run():
+    manifest = load_manifest()
+    case = next(c for c in manifest["cases"] if c["case_id"] == "ethane_c2h6")
+    result = {
+        "suite": "ci",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "engines": ["mck"],
+        "selected_case_count": 1,
+        "environment": {"processes": 1, "python": "test"},
+        "raw_results": [
+            {
+                "case_id": case["case_id"],
+                "engine": "mck",
+                "status": "ok",
+                "prediction": {"bond_orders": {key: None for key in case["expected"]["bond_orders"]}},
+            }
+        ],
+    }
+    report = score_results(manifest, result)
+    gates = {gate["metric"]: gate["status"] for gate in report["functional_gates"]}
+    assert gates["mck_known_truth"] == "FAIL"
+    assert report["strict_pass"] is False
+
+
+def test_periodic_multiedges_keep_distinct_prediction_keys():
+    bonds = [
+        {"atom1_id": "C1", "atom2_id": "C2", "order": 1, "atom2_image_shift": (0, 0, 0)},
+        {"atom1_id": "C1", "atom2_id": "C2", "order": 2, "atom2_image_shift": (1, 0, 0)},
+    ]
+    value = type("Result", (), {"entity": type("Entity", (), {"bonds": bonds, "atoms": ()})(), "status": "inferred"})()
+    prediction = normalise_prediction(value, {"bonds": []})
+    assert set(prediction["bond_orders"]) == {
+        _edge_key("C1", "C2"),
+        _edge_key("C1", "C2", (1, 0, 0)),
+    }
+
+
+def test_periodic_multiedges_are_scored_independently():
+    zero = _edge_key("C1", "C2")
+    image = _edge_key("C1", "C2", (1, 0, 0))
+    case = {
+        "bonds": [
+            {"a": "C1", "b": "C2", "image_shift": [0, 0, 0]},
+            {"a": "C1", "b": "C2", "image_shift": [1, 0, 0]},
+        ],
+        "expected": {"bond_orders": {zero: 1, image: 2}},
+    }
+    result = score_prediction(case, {"bond_orders": {zero: 1, image: 2}})
+    assert result["known_total"] == 2
+    assert result["known_correct"] == 2
+    assert result["edge_exact"] is True

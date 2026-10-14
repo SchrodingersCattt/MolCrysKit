@@ -94,7 +94,7 @@ def valence_offset(atom: ChemicalAtom) -> int:
     return (
         int(atom.explicit_hydrogens or 0)
         + int(atom.implicit_hydrogens or 0)
-        + int(atom.radical_electrons > 0)
+        + int(atom.radical_electrons)
     )
 
 

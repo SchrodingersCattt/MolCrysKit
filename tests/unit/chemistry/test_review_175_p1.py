@@ -4,6 +4,7 @@ from molcrys_kit.chemistry import (
     BondKind,
     ChemicalAtom,
     ChemicalBond,
+    Embedding,
     Evidence,
     EvidenceSource,
     FiniteChemicalEntity,
@@ -14,6 +15,7 @@ from molcrys_kit.chemistry import (
     infer_bond_orders_array,
 )
 from molcrys_kit.chemistry.source import apply_source_precedence
+import math
 
 
 def test_default_array_connectivity_does_not_crash():
@@ -226,3 +228,134 @@ def test_disconnected_charge_coupling_stays_inside_the_search_budget():
     assert orders.count(2.0) == 1
     assert orders.count(3.0) == count - 1
     assert result.entity.net_charge == -2
+
+
+def test_geometry_disambiguates_an_h_omitted_saturated_ring():
+    side = 1.54
+    radius = side / (2 * math.sin(math.pi / 6))
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(6))
+    bonds = tuple(
+        ChemicalBond(f"C{i}", f"C{(i + 1) % 6}", kind=BondKind.COVALENT)
+        for i in range(6)
+    )
+    embedding = Embedding(
+        tuple(
+            (
+                f"C{i}",
+                (
+                    radius * math.cos(i * math.pi / 3),
+                    radius * math.sin(i * math.pi / 3),
+                    0.0,
+                ),
+            )
+            for i in range(6)
+        )
+    )
+    result = infer_bond_orders(FiniteChemicalEntity("cyclohexane-unknown", atoms, bonds, embedding=embedding))
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(f"C{i}" for i in range(6))
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert all(bond.order is None and not bond.aromatic for bond in result.entity.bonds)
+
+
+def test_periodic_winding_cycle_is_not_a_finite_aromatic_ring():
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(6))
+    bonds = tuple(
+        ChemicalBond(
+            f"C{i}",
+            f"C{(i + 1) % 6}",
+            kind=BondKind.COVALENT,
+            atom2_image_shift=(1, 0, 0) if i == 5 else (0, 0, 0),
+        )
+        for i in range(6)
+    )
+    result = infer_bond_orders(FiniteChemicalEntity("winding-chain", atoms, bonds))
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert all(not bond.aromatic for bond in result.entity.bonds)
+
+
+def test_zero_winding_periodic_ring_can_be_aromatic():
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(6))
+    bonds = tuple(
+        ChemicalBond(f"C{i}", f"C{(i + 1) % 6}", kind=BondKind.COVALENT)
+        for i in range(6)
+    )
+    result = infer_bond_orders(FiniteChemicalEntity("finite-ring", atoms, bonds))
+    assert result.diagnostics["aromatic_rings"] == 1
+
+
+def test_confirmed_kekule_order_does_not_block_aromaticity():
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(6))
+    bonds = []
+    for i in range(6):
+        evidence = (
+            (Evidence(EvidenceSource.USER_CONFIRMED, "user", "order:1"),)
+            if i == 0
+            else ()
+        )
+        bonds.append(
+            ChemicalBond(
+                f"C{i}",
+                f"C{(i + 1) % 6}",
+                order=1.0 if i == 0 else None,
+                kind=BondKind.COVALENT,
+                evidence=evidence,
+            )
+        )
+    result = infer_bond_orders(FiniteChemicalEntity("kekule-authority", atoms, tuple(bonds)))
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert all(bond.aromatic for bond in result.entity.bonds)
+
+
+def test_azulene_perimeter_is_a_ten_pi_aromatic_circuit():
+    pairs = [
+        (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
+        (1, 5), (5, 6), (6, 7), (7, 8), (8, 9), (9, 0),
+    ]
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(10))
+    bonds = tuple(
+        ChemicalBond(f"C{left}", f"C{right}", kind=BondKind.COVALENT)
+        for left, right in pairs
+    )
+    result = infer_bond_orders(FiniteChemicalEntity("azulene", atoms, bonds))
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert all(bond.aromatic for bond in result.entity.bonds)
+
+
+def test_radical_electron_count_is_not_collapsed_to_a_boolean():
+    oxygen = infer_bond_orders(
+        FiniteChemicalEntity(
+            "triplet-oxygen",
+            (ChemicalAtom("O", "O", radical_electrons=2),),
+            (),
+        )
+    )
+    methylene = infer_bond_orders(
+        FiniteChemicalEntity(
+            "triplet-methylene",
+            (ChemicalAtom("C", "C", explicit_hydrogens=2, radical_electrons=2),),
+            (),
+        )
+    )
+    assert oxygen.status is InferenceStatus.INFERRED
+    assert oxygen.entity.atoms[0].formal_charge == 0
+    assert methylene.status is InferenceStatus.INFERRED
+    assert methylene.entity.atoms[0].formal_charge == 0
+
+
+def test_tree_dp_retains_equal_scoring_carboxylate_resonance_forms():
+    atoms = (
+        ChemicalAtom("C0", "C", explicit_hydrogens=3),
+        ChemicalAtom("C1", "C"),
+        ChemicalAtom("O1", "O"),
+        ChemicalAtom("O2", "O"),
+    )
+    bonds = (
+        ChemicalBond("C0", "C1", kind=BondKind.COVALENT),
+        ChemicalBond("C1", "O1", kind=BondKind.COVALENT),
+        ChemicalBond("C1", "O2", kind=BondKind.COVALENT),
+    )
+    result = infer_bond_orders(FiniteChemicalEntity("acetate", atoms, bonds))
+    assert result.status is InferenceStatus.INFERRED
+    assert len(result.alternatives) == 1
+    assert result.resonance_classes == ((0, 1),)

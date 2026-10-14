@@ -332,8 +332,14 @@ def _solve_tree(
                     return "EXHAUSTED"
                 if child is None:
                     continue
-                for current in partials:
-                    nxt.append(_combine(current, child, order))
+                child_options = (
+                    child
+                    if isinstance(child, list)
+                    else [child]
+                )
+                for child_option in child_options:
+                    for current in partials:
+                        nxt.append(_combine(current, child_option, order))
             partials = _keep_best_by_sum(nxt)
             if not partials:
                 memo[key] = None
@@ -416,12 +422,25 @@ def _combine(current, child, order: int):
 
 
 def _keep_best_by_sum(partials):
-    best = {}
+    """Keep the best score for each residual sum, including equal ties.
+
+    Equal-scoring alternatives are chemically meaningful resonance forms.  A
+    single representative per sum made the DP claim a complete search while
+    silently dropping the second carboxylate placement.  Distinct ties are
+    retained; strictly worse paths remain safely pruned for optimality.
+    """
+    best: dict[int, list] = {}
     for item in partials:
-        previous = best.get(item[0])
-        if previous is None or (item[1], item[2]) < (previous[1], previous[2]):
-            best[item[0]] = item
-    return list(best.values())
+        previous = best.setdefault(item[0], [])
+        if not previous or item[1] < previous[0][1]:
+            best[item[0]] = [item]
+            continue
+        if item[1] != previous[0][1]:
+            continue
+        signature = item[2]
+        if all(candidate[2] != signature for candidate in previous):
+            previous.append(item)
+    return [item for items in best.values() for item in items]
 
 
 def _finish_node(
@@ -432,7 +451,7 @@ def _finish_node(
     partials,
     edge_cost,
 ):
-    best = None
+    candidates = []
     for order_sum, path_score, signature, assignment, charge, known in partials:
         bond_sum = fixed_sum + incoming_order + order_sum
         target = atom_valence_target(atom, bond_sum)
@@ -451,16 +470,19 @@ def _finish_node(
                 sorted(signature + ((incoming_index, incoming_order),))
             )
             node_score = path_score + edge_cost(incoming_index, incoming_order)
-        candidate = (
+        candidates.append(
+            (
             node_score,
             node_signature,
             node_assignment,
             node_charge,
             node_known,
+            )
         )
-        if best is None or (candidate[0], candidate[1]) < (best[0], best[1]):
-            best = candidate
-    return best
+    if not candidates:
+        return None
+    best_score = min(candidate[0] for candidate in candidates)
+    return [candidate for candidate in candidates if candidate[0] == best_score]
 
 
 def _feasible_from_partials(

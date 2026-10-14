@@ -50,8 +50,15 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     # 4n+2 uses residue 2 modulo 4. The path cap stops dense fused systems
     # from turning ring discovery into an unbounded search.
     "AROMATIC_MIN_RING_SIZE": 5,
-    "AROMATIC_MAX_RING_SIZE": 7,
+    # Include the ten-membered perimeter circuit of fused 5/7 systems such as
+    # azulene.  The chordless and winding checks in the aromaticity authority
+    # still bound the candidate graph before applying Hückel's rule.
+    "AROMATIC_MAX_RING_SIZE": 10,
     "AROMATIC_RING_SEARCH_LIMIT": 20_000,
+    # When a carbon ring has no hydrogen metadata, a supplied embedding can
+    # distinguish a short conjugated ring from a saturated C--C ring.  Missing
+    # geometry remains a graph-only provisional inference for compatibility.
+    "AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH": 1.48,
     "HUCKEL_ELECTRON_MODULUS": 4,
     "HUCKEL_ELECTRON_RESIDUE": 2,
     # A source order this close to an integer is that integer. Farther values,

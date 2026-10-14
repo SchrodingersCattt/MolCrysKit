@@ -170,8 +170,39 @@ def _infer_entity(entity, total_charge, cell, options):
     bonds = tuple(_classify_bond(b, atom_by_id) for b in entity.bonds)
     source = apply_source_precedence(bonds)
     bonds = source.bonds
-    aromaticity = apply_aromaticity(entity.atoms, bonds)
+    aromaticity = apply_aromaticity(
+        entity.atoms,
+        bonds,
+        embedding=entity.embedding,
+        cell=cell,
+    )
     bonds = aromaticity.bonds
+    if aromaticity.uncertain_hydrogen_atoms:
+        evidence = Evidence(
+            source=EvidenceSource.INFERRED,
+            method="aromaticity_hydrogen_boundary",
+            detail="ring hydrogen inventory is unspecified and geometry is saturated",
+        )
+        warning = (
+            f"{entity.entity_id}: aromaticity and hydrogen inventory are indeterminate "
+            "for a geometry-confirmed saturated ring"
+        )
+        diagnostics = {
+            "aromatic_rings": aromaticity.ring_count,
+            "uncertain_hydrogen_atoms": aromaticity.uncertain_hydrogen_atoms,
+            "total_charge_requested": (
+                None if total_charge is None else int(total_charge)
+            ),
+        }
+        unresolved_entity = _entity_with_orders(
+            entity,
+            bonds,
+            status=InferenceStatus.INDETERMINATE,
+            warnings=(warning,),
+            evidence=evidence,
+            implicit_hydrogens=aromaticity.implicit_hydrogens,
+        )
+        return unresolved_entity, (), diagnostics, (evidence,)
     solver_atoms = tuple(
         replace(atom, explicit_hydrogens=aromaticity.implicit_hydrogens[atom.atom_id])
         if atom.atom_id in aromaticity.implicit_hydrogens
@@ -296,7 +327,13 @@ def _infer_entity(entity, total_charge, cell, options):
     competitive = [
         e for (s, _), e in zip(candidates, entities) if s - candidates[0][0] <= gap
     ]
-    if len(_resonance_classes(competitive)) > 1:
+    # Aromatic Kekule placements are expected equivalent forms.  A warning is
+    # reserved for genuinely competing non-aromatic classes (for example an
+    # unresolved carboxylate charge state), while keeping every tied aromatic
+    # alternative available to callers.
+    if len(_resonance_classes(competitive)) > 1 and not all(
+        all(bond.aromatic for bond in candidate.bonds) for candidate in competitive
+    ):
         warnings.append(
             f"{entity.entity_id}: competitive assignments fall in more than one resonance class"
         )
@@ -451,18 +488,47 @@ def _charge_valence(atom, bond_sum: int, implicit_hydrogens) -> int:
         hydrogens = int(implicit_hydrogens.get(atom.atom_id) or 0)
     else:
         hydrogens = 0
-    return int(bond_sum) + hydrogens + int(atom.radical_electrons > 0)
+    return int(bond_sum) + hydrogens + int(atom.radical_electrons)
 
 
 def _resonance_classes(entities):
     groups = {}
     for i, e in enumerate(entities):
-        # Aromatic 1/2 Kekule choices are equivalent; retain numeric orders on
-        # bonds but canonicalize them into one resonance class key.
-        key = tuple(
-            1.5 if b.aromatic else (0.0 if b.order is None else float(b.order))
-            for b in e.bonds
+        # Aromatic 1/2 Kekule choices and non-aromatic resonance placements
+        # (for example the two equivalent carboxylate C--O assignments) are
+        # equivalent classes.  Preserve the concrete bond order in each
+        # alternative, but canonicalize the class by the multiset of typed
+        # edges and charge states rather than stable atom labels.
+        atom_by_id = {atom.atom_id: atom for atom in e.atoms}
+        edge_key = []
+        for bond in e.bonds:
+            left = atom_by_id.get(bond.atom1_id)
+            right = atom_by_id.get(bond.atom2_id)
+            elements = tuple(
+                sorted(
+                    (
+                        left.element if left is not None else "?",
+                        right.element if right is not None else "?",
+                    )
+                )
+            )
+            edge_key.append(
+                (
+                    elements,
+                    bond.kind.value,
+                    bool(bond.aromatic),
+                    1.5 if bond.aromatic else (0.0 if bond.order is None else float(bond.order)),
+                    tuple(int(value) for value in bond.atom2_image_shift),
+                )
+            )
+        charges = tuple(
+            sorted(
+                (atom.element, atom.formal_charge)
+                for atom in e.atoms
+                if atom.formal_charge is not None
+            )
         )
+        key = (tuple(sorted(edge_key)), charges)
         groups.setdefault(key, []).append(i)
     return tuple(tuple(v) for _, v in sorted(groups.items(), key=lambda x: x[0]))
 

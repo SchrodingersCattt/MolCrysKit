@@ -119,8 +119,32 @@ def fixture_entity(case: dict[str, Any]):
     )
 
 
-def _edge_key(a: str, b: str) -> str:
-    return f"{a}--{b}"
+def _edge_key(
+    a: str,
+    b: str,
+    image_shift: tuple[int, int, int] | list[int] = (0, 0, 0),
+    occurrence: int = 1,
+) -> str:
+    """Return a canonical, periodic-safe edge identity.
+
+    Zero-image edges retain the historical ``a--b`` spelling.  A non-zero
+    image is part of the identity and reverse traversal negates that image;
+    repeated records receive a deterministic ``#N`` suffix.
+    """
+    shift = tuple(int(value) for value in image_shift)
+    left, right = str(a), str(b)
+    if shift != (0, 0, 0) and (right, left, tuple(-value for value in shift)) < (
+        left,
+        right,
+        shift,
+    ):
+        left, right, shift = right, left, tuple(-value for value in shift)
+    key = f"{left}--{right}"
+    if shift != (0, 0, 0):
+        key += "@[" + ",".join(str(value) for value in shift) + "]"
+    if occurrence > 1:
+        key += f"#{occurrence}"
+    return key
 
 
 def _bond_records(candidate: Any) -> list[Any] | None:
@@ -180,6 +204,7 @@ def normalise_prediction(value: Any, case: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "formal_charges",
             "implicit_hydrogens",
+            "attached_hydrogens",
             "resonance_class",
             "status",
         ):
@@ -211,7 +236,14 @@ def normalise_prediction(value: Any, case: dict[str, Any]) -> dict[str, Any]:
             kind = getattr(kind, "value", kind)
         if a is None or b is None:
             continue
-        key = _edge_key(a, b)
+        shift = (
+            tuple(int(value) for value in edge.get("atom2_image_shift", (0, 0, 0)))
+            if isinstance(edge, dict)
+            else tuple(int(value) for value in getattr(edge, "atom2_image_shift", (0, 0, 0)))
+        )
+        base = _edge_key(a, b, shift)
+        occurrence = sum(key == base or key.startswith(base + "#") for key in out["bond_orders"]) + 1
+        key = _edge_key(a, b, shift, occurrence)
         out["bond_orders"][key] = order
         out["bond_kinds"][key] = getattr(kind, "value", kind)
         if aromatic:
@@ -223,7 +255,24 @@ def normalise_prediction(value: Any, case: dict[str, Any]) -> dict[str, Any]:
         atoms = value.atoms
     if atoms:
         out["formal_charges"] = {a.atom_id: a.formal_charge for a in atoms}
-        out["implicit_hydrogens"] = {a.atom_id: a.implicit_hydrogens for a in atoms}
+        attached: dict[str, int] = {a.atom_id: 0 for a in atoms}
+        for edge in bonds:
+            if isinstance(edge, dict):
+                left = edge.get("atom1_id", edge.get("a"))
+                right = edge.get("atom2_id", edge.get("b"))
+            else:
+                left = getattr(edge, "atom1_id", None)
+                right = getattr(edge, "atom2_id", None)
+            by_id = {a.atom_id: a for a in atoms}
+            if left in by_id and by_id[left].element in {"H", "D"} and right in attached:
+                attached[right] += 1
+            if right in by_id and by_id[right].element in {"H", "D"} and left in attached:
+                attached[left] += 1
+        out["attached_hydrogens"] = attached
+        out["implicit_hydrogens"] = {
+            a.atom_id: (0 if a.implicit_hydrogens is None and attached[a.atom_id] else a.implicit_hydrogens)
+            for a in atoms
+        }
     resonance = getattr(value, "resonance_class", None)
     if resonance is None:
         classes = getattr(value, "resonance_classes", None)
@@ -286,7 +335,15 @@ def call_mck(case: dict[str, Any]) -> dict[str, Any]:
         except TypeError:
             # Compatibility with early API prototypes; no chemistry fallback is used.
             result = fn(entity)
-        return {"status": "ok", "prediction": normalise_prediction(result, case)}
+        prediction = normalise_prediction(result, case)
+        result_status = getattr(getattr(result, "status", None), "value", getattr(result, "status", None))
+        if result_status == "indeterminate":
+            return {
+                "status": "incomplete",
+                "reason": "MolCrysKit returned INDETERMINATE",
+                "prediction": prediction,
+            }
+        return {"status": "ok", "prediction": prediction}
     except Exception as exc:  # candidate failures are data, not fabricated wins
         return {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
 

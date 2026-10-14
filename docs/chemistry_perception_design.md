@@ -86,7 +86,9 @@ the independent micro manifest and records unknowns, timeouts, and missing
 comparisons. Open Babel 3.2.1 paired runs, the section 5 superiority gates,
 latency, throughput, RSS, QM9, and the curated external and CIF corpora are
 issue #176. They stay visible on the scorecard and do not change
-`score --strict-gates`.
+`score --strict-gates`. Functional strict mode also requires complete selected
+MolCrysKit coverage and at least one known-truth order with no incorrect known
+orders; abstention or omitted rows cannot pass it.
 
 ```mermaid
 flowchart LR

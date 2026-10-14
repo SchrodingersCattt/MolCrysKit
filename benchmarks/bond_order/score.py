@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from .common import load_manifest, verify_manifest
+from .common import _edge_key, load_manifest, verify_manifest
 
 
 def _same_edge(key: str, mapping: dict[str, Any] | None) -> Any:
@@ -22,7 +22,35 @@ def _same_edge(key: str, mapping: dict[str, Any] | None) -> Any:
     a, sep, b = key.partition("--")
     if sep and f"{b}--{a}" in mapping:
         return mapping[f"{b}--{a}"]
+    # Periodic keys are canonically oriented, but accept a reverse spelling
+    # with the negated image shift for hand-authored comparator output.
+    if sep and "@[" in b:
+        left, right, shift, occurrence = _split_edge_key(key)
+        reverse = _edge_key(right, left, tuple(-v for v in shift), occurrence)
+        if reverse in mapping:
+            return mapping[reverse]
     return None
+
+
+def _split_edge_key(key: str) -> tuple[str, str, tuple[int, int, int], int]:
+    left, _sep, right = key.partition("--")
+    occurrence = 1
+    if "#" in right:
+        right, suffix = right.rsplit("#", 1)
+        try:
+            occurrence = int(suffix)
+        except ValueError:
+            occurrence = 1
+    shift = (0, 0, 0)
+    if "@[" in right:
+        right, text = right.split("@[", 1)
+        try:
+            shift = tuple(int(v) for v in text.rstrip("]").split(","))
+            if len(shift) != 3:
+                raise ValueError
+        except ValueError:
+            shift = (0, 0, 0)
+    return left, right, shift, occurrence
 
 
 def score_prediction(
@@ -70,7 +98,8 @@ def score_prediction(
     for key, truth in expected.get("bond_orders", {}).items():
         value = _same_edge(key, got)
         present = (
-            key in got
+            value is not None
+            or key in got
             or key.split("--")[::-1]
             and f"{key.split('--')[1]}--{key.split('--')[0]}" in got
         )
@@ -144,10 +173,13 @@ def score_prediction(
     h_scores = _score_mapping(
         expected.get("implicit_hydrogens"), prediction.get("implicit_hydrogens")
     )
+    hydrogen_conservation = _hydrogen_conservation(case, prediction)
 
     def canonical_aromatic(key: str) -> str:
-        a, sep, b = key.partition("--")
-        return "--".join(sorted((a, b))) if sep else key
+        left, right, shift, occurrence = _split_edge_key(key)
+        if shift == (0, 0, 0) and right < left:
+            left, right = right, left
+        return _edge_key(left, right, shift, occurrence)
 
     truth_arom = {canonical_aromatic(k) for k in expected.get("aromatic_bonds", [])}
     pred_arom = {canonical_aromatic(k) for k in prediction.get("aromatic_bonds", [])}
@@ -183,8 +215,29 @@ def score_prediction(
         "resonance": {"total": int(resonance_known), "correct": int(resonance_correct)},
         "charge": charge_scores,
         "implicit_hydrogen": h_scores,
+        "hydrogen_conservation": hydrogen_conservation,
         "aromatic": {"tp": arom_tp, "fp": arom_fp, "fn": arom_fn},
     }
+
+
+def _hydrogen_conservation(case: dict[str, Any], prediction: dict[str, Any]) -> dict[str, int]:
+    """Check explicit-attached plus implicit H without double-counting either."""
+    expected = case.get("expected", {})
+    implicit_truth = expected.get("implicit_hydrogens") or {}
+    attached_truth = expected.get("attached_hydrogens") or {}
+    implicit_pred = prediction.get("implicit_hydrogens") or {}
+    attached_pred = prediction.get("attached_hydrogens") or attached_truth
+    total = correct = 0
+    for atom_id, implicit in implicit_truth.items():
+        if implicit is None:
+            continue
+        total += 1
+        truth_total = int(attached_truth.get(atom_id, 0) or 0) + int(implicit)
+        pred_total = int(attached_pred.get(atom_id, 0) or 0) + int(
+            implicit_pred.get(atom_id, 0) or 0
+        )
+        correct += int(truth_total == pred_total)
+    return {"total": total, "correct": correct}
 
 
 def _kekule_equivalent(expected: dict[str, Any], predicted: dict[str, Any]) -> bool:
@@ -265,6 +318,13 @@ def _aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     charge_correct = sum(r["score"]["charge"]["correct"] for r in scored)
     h_total = sum(r["score"]["implicit_hydrogen"]["total"] for r in scored)
     h_correct = sum(r["score"]["implicit_hydrogen"]["correct"] for r in scored)
+    conservation_total = sum(
+        r["score"].get("hydrogen_conservation", {}).get("total", 0) for r in scored
+    )
+    conservation_correct = sum(
+        r["score"].get("hydrogen_conservation", {}).get("correct", 0)
+        for r in scored
+    )
     complete_rows = [r for r in rows if r.get("status") == "ok"]
     times = [
         r["elapsed_ns"] / 1e6
@@ -294,6 +354,9 @@ def _aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "false_assertions": sum(r["score"]["false_assertions"] for r in scored),
         "charge_accuracy": _rate(charge_correct, charge_total),
         "implicit_hydrogen_accuracy": _rate(h_correct, h_total),
+        "hydrogen_conservation_accuracy": _rate(
+            conservation_correct, conservation_total
+        ),
         "aromatic_f1": _f1(arom["tp"], arom["fp"], arom["fn"]),
         "latency_ms": _quantiles(times),
         "raw_latency_ms": _quantiles(raw_times),
@@ -512,8 +575,9 @@ def score_results(manifest: dict[str, Any], result: dict[str, Any]) -> dict[str,
             "peak_rss_ratio", m.get("peak_rss_kb"), o.get("peak_rss_kb"), 0.90, "lower"
         ),
     ]
-    # Completeness stays visible. Superiority, corpora, and process count do not
-    # change strict_pass; those gates belong to issue #176.
+    # Completeness of the selected MCK cases is a functional gate.  Comparator
+    # rows may remain unavailable, but a reduced MCK run must never pass by
+    # omitting cases or returning only abstentions.
     expected_rows = result.get("selected_case_count", 0) * len(
         result.get("engines", [])
     )
@@ -550,7 +614,18 @@ def score_results(manifest: dict[str, Any], result: dict[str, Any]) -> dict[str,
         gate["scope"] = "deferred-superiority"
         gate["blocks_strict_pass"] = False
     mck_rows = [row for row in detailed if row.get("engine") == "mck"]
-    mck_ok = bool(mck_rows) and all(row.get("status") == "ok" for row in mck_rows)
+    mck_case_ids = [row.get("case_id") for row in mck_rows]
+    mck_coverage = bool(
+        mck_rows
+        and len(mck_rows) == int(result.get("selected_case_count", 0))
+        and len(set(mck_case_ids)) == len(mck_case_ids)
+        and all(row.get("status") == "ok" for row in mck_rows)
+    )
+    mck_scored = [row for row in mck_rows if row["score"].get("status") == "scored"]
+    mck_known_total = sum(row["score"].get("known_total", 0) for row in mck_scored)
+    mck_known_correct = sum(row["score"].get("known_correct", 0) for row in mck_scored)
+    mck_known_truth = bool(mck_known_total and mck_known_correct == mck_known_total)
+    mck_ok = mck_coverage
     false_assertions = sum(
         row["score"].get("false_assertions", 0)
         for row in mck_rows
@@ -560,7 +635,21 @@ def score_results(manifest: dict[str, Any], result: dict[str, Any]) -> dict[str,
         {
             "metric": "mck_observations",
             "status": "PASS" if mck_ok else "FAIL",
-            "reason": "every MolCrysKit row must run to completion",
+            "reason": "every selected MolCrysKit case must run exactly once to completion",
+            "observed": len(mck_rows),
+            "expected": result.get("selected_case_count", 0),
+        },
+        {
+            "metric": "mck_case_coverage",
+            "status": "PASS" if mck_coverage else "FAIL",
+            "reason": "selected-case coverage cannot be bypassed by omitting rows",
+        },
+        {
+            "metric": "mck_known_truth",
+            "status": "PASS" if mck_known_truth else "FAIL",
+            "known_correct": mck_known_correct,
+            "known_total": mck_known_total,
+            "reason": "at least one known order is required and every known order must be correct",
         },
         {
             "metric": "mck_false_assertions",
@@ -583,6 +672,7 @@ def score_results(manifest: dict[str, Any], result: dict[str, Any]) -> dict[str,
         "detailed": detailed,
         "strict_pass": bool(
             mck_ok
+            and mck_known_truth
             and false_assertions == 0
             and completeness["manifest_checksum"]
             and completeness["environment_reproducible"]
