@@ -174,11 +174,12 @@ def _aromatic_bond_indices(atoms, bonds, *, embedding=None, cell=None) -> tuple[
 def _geometry_supports_unspecified_carbon_ring(
     atom_ids, bond_indices, atoms, bonds, embedding, cell
 ) -> bool:
-    """Refuse a geometry-confirmed saturated all-carbon ring.
+    """Refuse a geometry-confirmed saturated ring with omitted H data.
 
-    A six-carbon graph with all hydrogen fields absent is otherwise compatible
-    with both benzene and cyclohexane.  When coordinates are available, long
-    C--C edges provide decisive evidence against aromaticity.  Without
+    A six-membered graph with all hydrogen fields absent is otherwise
+    compatible with both an aromatic ring and a saturated ring.  When
+    coordinates are available, an edge longer than the element-pair aromatic
+    limit provides decisive local evidence against aromaticity.  Without
     coordinates the historical graph-only behavior is retained and the caller
     can expose the unresolved hydrogen metadata as provisional.
     """
@@ -186,23 +187,16 @@ def _geometry_supports_unspecified_carbon_ring(
         return True
     atom_by_id = {atom.atom_id: atom for atom in atoms}
     ring_atoms = [atom_by_id[atom_id] for atom_id in atom_ids]
-    if not ring_atoms or not all(atom.element == "C" for atom in ring_atoms):
+    if not ring_atoms:
         return True
     if any(
         atom.explicit_hydrogens is not None or atom.implicit_hydrogens is not None
         for atom in ring_atoms
     ):
         return True
-    maximum = float(CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH"])
-    for index in bond_indices:
-        bond = bonds[index]
-        try:
-            vector = _embedding_vector(embedding, bond, cell)
-        except (AttributeError, KeyError, ValueError, TypeError):
-            return True
-        if math.sqrt(sum(float(value) ** 2 for value in vector)) > maximum:
-            return False
-    return True
+    return not _ring_has_long_single_bond(
+        bond_indices, atom_by_id, bonds, embedding, cell
+    )
 
 
 def _unspecified_saturated_ring_atoms(
@@ -250,58 +244,83 @@ def _unspecified_saturated_ring_atoms(
         atom_id: [item for item in neighbors if item[1] in ring_indices]
         for atom_id, neighbors in adjacency.items()
     }
-    maximum = float(CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH"])
-    uncertain: set[str] = set()
-    seen: set[str] = set()
-    for start in sorted(ring_adjacency):
-        if start in seen or not ring_adjacency[start]:
-            continue
-        component: set[str] = set()
-        stack = [start]
-        while stack:
-            atom_id = stack.pop()
-            if atom_id in component:
-                continue
-            component.add(atom_id)
-            seen.add(atom_id)
-            stack.extend(
-                other
-                for other, _index, _bond in ring_adjacency.get(atom_id, ())
-                if other not in component
+    minimum = int(CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_MIN_RING_SIZE"])
+    maximum = int(CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_MAX_RING_SIZE"])
+    limit = int(CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_RING_SEARCH_LIMIT"])
+    ring_graph = {
+        atom_id: [
+            (
+                other,
+                index,
+                # Hydrogen-boundary discovery is a local saturation check.
+                # Unlike aromatic ring authority, it must still report an
+                # H-unspecified quotient cycle when a periodic image shift
+                # prevents treating that cycle as a finite aromatic ring.
+                (0, 0, 0),
             )
-        if len(component) < 3 or not all(
-            atom_by_id.get(atom_id) is not None
-            and atom_by_id[atom_id].element == "C"
-            for atom_id in component
+            for other, index, _bond in neighbors
+        ]
+        for atom_id, neighbors in ring_adjacency.items()
+    }
+    # Keep the boundary local to each chordless cycle.  A fused aromatic ring
+    # can share a 2-edge-connected component with a saturated heterocycle, so
+    # a component-wide carbon test either over-abstains or misses the boundary.
+    rings = _chordless_rings(ring_graph, minimum, maximum, limit)
+    uncertain: set[str] = set()
+    for atom_ids, bond_indices in rings:
+        ring_atoms = [atom_by_id.get(atom_id) for atom_id in atom_ids]
+        if any(atom is None for atom in ring_atoms):
+            continue
+        if any(
+            atom.explicit_hydrogens is not None or atom.implicit_hydrogens is not None
+            for atom in ring_atoms
         ):
             continue
-        long_edge = False
-        for atom_id in component:
-            for other, _index, bond in ring_adjacency[atom_id]:
-                if other not in component or atom_id > other:
-                    continue
-                try:
-                    vector = _embedding_vector(embedding, bond, cell)
-                    length = math.sqrt(sum(float(value) ** 2 for value in vector))
-                except (AttributeError, KeyError, ValueError, TypeError):
-                    continue
-                if length > maximum:
-                    long_edge = True
-                    break
-            if long_edge:
-                break
-        if not long_edge:
+        if not _ring_has_long_single_bond(
+            bond_indices, atom_by_id, bonds, embedding, cell
+        ):
             continue
         uncertain.update(
             atom_id
-            for atom_id in component
+            for atom_id in atom_ids
             if atom_id not in aromatic_atoms
             if atom_id not in explicit_h_edge_atoms
             and atom_by_id[atom_id].explicit_hydrogens is None
             and atom_by_id[atom_id].implicit_hydrogens is None
         )
-    # Only report a boundary when an actual ring survived bridge removal.
+    # Only report a boundary when an actual ring has at least three unresolved
+    # atoms.  The threshold prevents a single uncertain substituent from
+    # turning an otherwise solvable entity into a local abstention.
     return tuple(sorted(uncertain)) if len(uncertain) >= 3 else ()
+
+
+def _ring_has_long_single_bond(
+    bond_indices, atom_by_id, bonds, embedding, cell
+) -> bool:
+    """Return whether a ring edge exceeds its element-pair aromatic limit."""
+    limits = CHEMISTRY_PERCEPTION_CONFIG[
+        "AROMATIC_MAX_UNSPECIFIED_SINGLE_BOND_LENGTHS"
+    ]
+    for index in bond_indices:
+        bond = bonds[index]
+        left = atom_by_id.get(bond.atom1_id)
+        right = atom_by_id.get(bond.atom2_id)
+        if left is None or right is None:
+            continue
+        pair = tuple(sorted((left.element, right.element)))
+        threshold = limits.get(pair)
+        if threshold is None:
+            continue
+        try:
+            vector = _embedding_vector(embedding, bond, cell)
+            length = math.sqrt(sum(float(value) ** 2 for value in vector))
+        except (AttributeError, KeyError, ValueError, TypeError):
+            # An incomplete embedding cannot establish saturation, so retain
+            # the graph-only aromaticity decision.
+            return False
+        if length > float(threshold):
+            return True
+    return False
 
 
 def _embedding_vector(embedding, bond, cell=None):

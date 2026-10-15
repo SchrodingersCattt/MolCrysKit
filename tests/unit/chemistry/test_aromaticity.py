@@ -1,9 +1,12 @@
 """Graph aromaticity is independent of bond-length windows."""
 
+import math
+
 from molcrys_kit.chemistry import (
     BondKind,
     ChemicalAtom,
     ChemicalBond,
+    Embedding,
     Evidence,
     EvidenceSource,
     FiniteChemicalEntity,
@@ -105,6 +108,39 @@ def test_thiophene_sulfur_lone_pair_makes_the_ring_aromatic():
     ]
     assert sum(sulfur_orders) == 2.0
     assert sulfur.order in {1.0, 2.0}
+
+
+def test_geometry_allows_long_c_s_edges_in_a_valid_heteroaromatic_ring():
+    atoms = tuple(ChemicalAtom(f"A{i}", "S" if i == 4 else "C") for i in range(5))
+    coordinates = {
+        "A0": (0.0, 0.0, 0.0),
+        "A1": (1.4, 0.0, 0.0),
+        "A2": (2.8, 0.0, 0.0),
+        "A3": (2.8, 1.4, 0.0),
+    }
+    diagonal = math.hypot(2.8, 1.4)
+    offset = math.sqrt(1.7**2 - (diagonal / 2) ** 2)
+    coordinates["A4"] = (
+        2.8 / 2 - offset * 1.4 / diagonal,
+        1.4 / 2 + offset * 2.8 / diagonal,
+        0.0,
+    )
+    bonds = tuple(
+        ChemicalBond(f"A{i}", f"A{(i + 1) % 5}", kind=BondKind.COVALENT)
+        for i in range(5)
+    )
+    result = infer_bond_orders(
+        FiniteChemicalEntity(
+            "thiophene-geometry",
+            atoms,
+            bonds,
+            embedding=Embedding(tuple(coordinates.items())),
+        )
+    )
+    assert result.status is InferenceStatus.INFERRED
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == ()
+    assert all(bond.aromatic for bond in result.entity.bonds)
 
 
 def test_naphthalene_bridge_is_aromatic_and_bridgeheads_sum_to_four():

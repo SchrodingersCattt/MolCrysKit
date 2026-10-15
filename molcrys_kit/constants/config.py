@@ -59,6 +59,23 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     # distinguish a short conjugated ring from a saturated C--C ring.  Missing
     # geometry remains a graph-only provisional inference for compatibility.
     "AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH": 1.48,
+    # Per-pair upper limits for treating an H-unspecified ring edge as
+    # aromatic-like.  These sit below the ordinary single-bond lengths while
+    # allowing the longer C--S and S--S bonds found in valid heteroaromatics.
+    # A ring edge above its pair limit is evidence for a saturated ring, not a
+    # reason to reject the whole connected fused system.
+    "AROMATIC_MAX_UNSPECIFIED_SINGLE_BOND_LENGTHS": {
+        ("C", "C"): 1.48,
+        ("C", "N"): 1.44,
+        ("C", "O"): 1.40,
+        ("C", "S"): 1.75,
+        ("N", "N"): 1.40,
+        ("N", "O"): 1.40,
+        ("N", "S"): 1.75,
+        ("O", "O"): 1.45,
+        ("O", "S"): 1.75,
+        ("S", "S"): 1.95,
+    },
     "HUCKEL_ELECTRON_MODULUS": 4,
     "HUCKEL_ELECTRON_RESIDUE": 2,
     # A source order this close to an integer is that integer. Farther values,

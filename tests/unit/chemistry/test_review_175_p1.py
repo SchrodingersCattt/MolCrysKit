@@ -1,5 +1,9 @@
 """Counterexamples for the eight merge-blocking findings on b6558df."""
 
+from dataclasses import replace
+
+import pytest
+
 from molcrys_kit.chemistry import (
     BondKind,
     ChemicalAtom,
@@ -325,6 +329,37 @@ def test_fused_aromatic_and_saturated_rings_keep_the_aromatic_fragment_solved():
         for bond in result.entity.bonds[:6]
     )
     assert all(bond.order is None for bond in result.entity.bonds[7:10])
+    assert result.entity.bonds[6].order == result.entity.bonds[10].order == 1.0
+
+
+@pytest.mark.parametrize("atom_id, element", (("A3", "N"), ("S2", "N"), ("S3", "O")))
+def test_heteroatom_substitutions_keep_the_saturated_boundary_local(atom_id, element):
+    entity = _tetralin_unknown_h()
+    atoms = tuple(
+        replace(atom, element=element) if atom.atom_id == atom_id else atom
+        for atom in entity.atoms
+    )
+    entity = replace(entity, atoms=atoms)
+
+    result = infer_bond_orders(entity)
+
+    assert result.status is InferenceStatus.PROVISIONAL
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == (
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+    )
+    assert all(
+        bond.aromatic and bond.order in {1.0, 2.0}
+        for bond in result.entity.bonds[:6]
+    )
+    assert all(
+        not result.entity.bonds[index].aromatic
+        and result.entity.bonds[index].order is None
+        for index in (7, 8, 9)
+    )
     assert result.entity.bonds[6].order == result.entity.bonds[10].order == 1.0
 
 
