@@ -2,6 +2,8 @@
 
 import math
 
+import pytest
+
 from molcrys_kit.chemistry import (
     BondKind,
     ChemicalAtom,
@@ -31,6 +33,40 @@ def _ring(elements, *, hydrogens=()):
 
 def _orders(result):
     return {(bond.atom1_id, bond.atom2_id): bond.order for bond in result.entity.bonds}
+
+
+def _geometry_ring(elements, side, *, radial_extensions=()):
+    radius = side / (2 * math.sin(math.pi / len(elements)))
+    coordinates = [
+        (
+            f"A{i}",
+            (
+                radius * math.cos(i * 2 * math.pi / len(elements)),
+                radius * math.sin(i * 2 * math.pi / len(elements)),
+                0.0,
+            ),
+        )
+        for i in range(len(elements))
+    ]
+    for atom_index, extension in radial_extensions:
+        anchor = coordinates[(atom_index - 1) % len(elements)][1]
+        point = coordinates[atom_index][1]
+        vector = tuple(point[axis] - anchor[axis] for axis in range(3))
+        length = math.sqrt(sum(value * value for value in vector))
+        coordinates[atom_index] = (
+            coordinates[atom_index][0],
+            tuple(
+                point[axis] + extension * vector[axis] / length for axis in range(3)
+            ),
+        )
+    atoms = tuple(ChemicalAtom(f"A{i}", element) for i, element in enumerate(elements))
+    bonds = tuple(
+        ChemicalBond(f"A{i}", f"A{(i + 1) % len(elements)}", kind=BondKind.COVALENT)
+        for i in range(len(elements))
+    )
+    return FiniteChemicalEntity(
+        "geometry-ring", atoms, bonds, embedding=Embedding(coordinates)
+    )
 
 
 def test_pyridine_and_pyrrole_follow_huckel_not_bond_lengths():
@@ -141,6 +177,29 @@ def test_geometry_allows_long_c_s_edges_in_a_valid_heteroaromatic_ring():
     assert result.diagnostics["aromatic_rings"] == 1
     assert result.diagnostics["uncertain_hydrogen_atoms"] == ()
     assert all(bond.aromatic for bond in result.entity.bonds)
+
+
+def test_isoxazole_n_o_edge_at_1_415_angstrom_stays_aromatic():
+    # Start from a 1.39 Å pentagon and extend O away from N by 0.025 Å. This
+    # gives N--O = 1.415 Å while keeping the adjacent C--O edge below 1.40 Å.
+    result = infer_bond_orders(
+        _geometry_ring("NOCCC", 1.39, radial_extensions=((1, 0.025),))
+    )
+
+    assert result.status is InferenceStatus.INFERRED
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == ()
+    assert all(bond.aromatic and bond.order in {1.0, 2.0} for bond in result.entity.bonds)
+
+
+@pytest.mark.parametrize("side", (1.37, 1.38, 1.39))
+def test_short_c_o_edges_remain_aromatic(side):
+    result = infer_bond_orders(_geometry_ring("OCCCC", side))
+
+    assert result.status is InferenceStatus.INFERRED
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == ()
+    assert all(bond.aromatic and bond.order in {1.0, 2.0} for bond in result.entity.bonds)
 
 
 def test_naphthalene_bridge_is_aromatic_and_bridgeheads_sum_to_four():

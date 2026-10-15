@@ -70,7 +70,8 @@ CHEMISTRY_PERCEPTION_CONFIG = {
         ("C", "O"): 1.40,
         ("C", "S"): 1.75,
         ("N", "N"): 1.40,
-        ("N", "O"): 1.40,
+        # Ordinary aromatic N--O edges in isoxazole are typically ~1.41--1.42 Å.
+        ("N", "O"): 1.45,
         ("N", "S"): 1.75,
         ("O", "O"): 1.45,
         ("O", "S"): 1.75,
