@@ -310,6 +310,25 @@ def test_uncertain_saturated_ring_does_not_abort_an_aromatic_fragment():
 
 
 def test_fused_aromatic_and_saturated_rings_keep_the_aromatic_fragment_solved():
+    result = infer_bond_orders(_tetralin_unknown_h())
+
+    assert result.status is InferenceStatus.PROVISIONAL
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == (
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+    )
+    assert all(
+        bond.aromatic and bond.order in {1.0, 2.0}
+        for bond in result.entity.bonds[:6]
+    )
+    assert all(bond.order is None for bond in result.entity.bonds[7:10])
+    assert result.entity.bonds[6].order == result.entity.bonds[10].order == 1.0
+
+
+def _tetralin_unknown_h() -> FiniteChemicalEntity:
     side = 1.40
     radius = side / (2 * math.sin(math.pi / 6))
     aromatic_coordinates = tuple(
@@ -347,29 +366,37 @@ def test_fused_aromatic_and_saturated_rings_keep_the_aromatic_fragment_solved():
             ("S5", "A0"),
         )
     )
-    result = infer_bond_orders(
-        FiniteChemicalEntity(
-            "tetralin-unknown-h",
-            atoms,
-            aromatic_bonds + saturated_bonds,
-            embedding=Embedding(aromatic_coordinates + saturated_coordinates),
-        )
+    return FiniteChemicalEntity(
+        "tetralin-unknown-h",
+        atoms,
+        aromatic_bonds + saturated_bonds,
+        embedding=Embedding(aromatic_coordinates + saturated_coordinates),
     )
 
+
+def test_consistent_total_charge_is_provisional_when_hydrogen_boundary_is_unverified():
+    result = infer_bond_orders(_tetralin_unknown_h(), total_charge=0)
+
     assert result.status is InferenceStatus.PROVISIONAL
-    assert result.diagnostics["aromatic_rings"] == 1
-    assert result.diagnostics["uncertain_hydrogen_atoms"] == (
-        "S2",
-        "S3",
-        "S4",
-        "S5",
-    )
+    assert result.diagnostics["total_charge_unsatisfied"] is False
+    assert result.diagnostics["total_charge_unverified"] is True
     assert all(
         bond.aromatic and bond.order in {1.0, 2.0}
         for bond in result.entity.bonds[:6]
     )
-    assert all(bond.order is None for bond in result.entity.bonds[7:10])
-    assert result.entity.bonds[6].order == result.entity.bonds[10].order == 1.0
+    assert "total charge 0 is unverified" in " ".join(result.entity.warnings)
+
+
+def test_contradictory_total_charge_still_fails_with_unverified_hydrogen_boundary():
+    result = infer_bond_orders(_tetralin_unknown_h(), total_charge=1)
+
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["total_charge_unsatisfied"] is True
+    assert result.diagnostics["total_charge_unverified"] is False
+    assert result.diagnostics["charge_constraint_rejected"] > 0
+    assert "requested total charge 1 is not satisfied" in " ".join(
+        result.entity.warnings
+    )
 
 
 def test_local_search_keeps_an_explicit_total_charge_constraint():

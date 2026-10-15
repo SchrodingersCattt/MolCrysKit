@@ -118,10 +118,12 @@ def _json_value(value):
 def infer_bond_orders(entity, *, total_charge=None, cell=None, options=None):
     """Infer covalent orders without mutating an entity.
 
-    When ``total_charge`` is an integer, every retained assignment must have a
-    complete per-atom formal charge that sums to that total.  An atom whose
-    charge cannot be inferred does not waive the constraint: the assignment is
-    rejected and, if none remain, the result is indeterminate.
+    When ``total_charge`` is an integer, every retained assignment must satisfy
+    that charge over the atoms covered by the valence solver.  A locally
+    abstained uncertain-hydrogen region may leave the whole-entity charge
+    unverified; such a consistent result is retained as provisional and marked
+    in the diagnostics.  An unresolved charge in the ordinary full-entity
+    solver, or a contradiction in the solved region, rejects the assignment.
     """
     options = options or BondOrderOptions()
     if total_charge is not None and (not isinstance(total_charge, (int, np.integer))):
@@ -333,6 +335,7 @@ def _infer_entity(entity, total_charge, cell, options):
             and outcome.charge_rejected
             and not outcome.candidates
         ),
+        "total_charge_unverified": bool(outcome.charge_unverified),
     }
     if not outcome.candidates:
         warning = (
@@ -384,6 +387,12 @@ def _infer_entity(entity, total_charge, cell, options):
     if unresolved:
         warnings.append(
             f"{entity.entity_id}: unsupported atom valence states remain indeterminate"
+        )
+    if diagnostics["total_charge_unverified"]:
+        warnings.append(
+            f"{entity.entity_id}: requested total charge {int(total_charge)} "
+            "is unverified because the locally abstained atoms have unresolved "
+            "formal charges"
         )
     if metal_edges:
         warnings.append(

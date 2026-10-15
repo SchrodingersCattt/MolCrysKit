@@ -29,8 +29,13 @@ class SearchOutcome:
     states: int
     complete: bool
     rejected: int
-    # Assignments dropped because a requested total charge was missing or wrong.
+    # Assignments dropped because a requested total charge was missing or
+    # contradicted by the charges that could be verified.
     charge_rejected: int = 0
+    # At least one retained assignment has a requested charge that is
+    # consistent with the solved atoms, but cannot be verified for atoms
+    # intentionally outside a locally scoped valence search.
+    charge_unverified: bool = False
 
 
 def _possible(
@@ -65,9 +70,10 @@ def search_bond_orders(
 
     ``max_search_states`` bounds visited nodes only.  ``max_candidates`` caps
     retained output and therefore never changes search completeness.
-    ``valence_atom_ids`` limits valence checks to one component; a requested
-    total charge always checks every atom so a locally scoped search cannot
-    waive an entity-level charge constraint.
+    ``valence_atom_ids`` limits valence checks to one component.  When a
+    requested charge is checked in that locally scoped mode, atoms outside the
+    scope are treated as unverified unless they carry an explicit charge; they
+    cannot make a contradictory charge acceptable.
     """
     if max_search_states < 1:
         raise ValueError("max_search_states must be positive")
@@ -142,6 +148,7 @@ def search_bond_orders(
     states = 0
     rejected = 0
     charge_rejected = 0
+    charge_unverified = False
     exhausted = False
 
     def retain(candidate: tuple[float, tuple[ChemicalBond, ...]]) -> None:
@@ -152,7 +159,7 @@ def search_bond_orders(
             results.pop()
 
     def visit(remaining: set[int], assignment: dict[int, int]) -> None:
-        nonlocal states, rejected, charge_rejected, exhausted
+        nonlocal states, rejected, charge_rejected, charge_unverified, exhausted
         if exhausted:
             return
         states += 1
@@ -175,13 +182,22 @@ def search_bond_orders(
                 if target not in states_for_atom:
                     rejected += 1
                     return
-            # A requested total charge is a hard constraint.  It is checked
-            # even when one or more atoms have no inferred formal charge:
-            # an incomplete charge vector cannot be treated as a match.
+            # A requested total charge is a hard constraint.  A locally scoped
+            # search intentionally skips the uncertain region, however, so a
+            # charge that cannot be inferred there is different from a charge
+            # contradicted by the atoms we did solve.  Keep the former as an
+            # auditable provisional result and reject the latter.
             if total_charge is not None:
                 charges: list[int] = []
                 charge_known = True
+                skipped_charge = False
                 for atom in atoms:
+                    if active is not None and atom.atom_id not in active:
+                        if atom.formal_charge is None:
+                            skipped_charge = True
+                        else:
+                            charges.append(int(atom.formal_charge))
+                        continue
                     value = inferred_charge(
                         atom, atom_valence_target(atom, sums[atom.atom_id])
                     )
@@ -193,6 +209,8 @@ def search_bond_orders(
                     rejected += 1
                     charge_rejected += 1
                     return
+                if skipped_charge:
+                    charge_unverified = True
             assigned = list(bonds)
             for idx, order in assignment.items():
                 assigned[idx] = assigned[idx].__class__(
@@ -235,7 +253,12 @@ def search_bond_orders(
     all_indices = set(variable)
     visit(all_indices, {})
     return SearchOutcome(
-        tuple(results), states, not exhausted, rejected, charge_rejected
+        tuple(results),
+        states,
+        not exhausted,
+        rejected,
+        charge_rejected,
+        charge_unverified,
     )
 
 
