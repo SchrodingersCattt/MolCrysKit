@@ -263,14 +263,16 @@ def _infer_entity(entity, total_charge, cell, options):
         # The general component solver validates every atom.  For this local
         # abstention, the lower-level search can validate only the known
         # boundary while still assigning a bridge bond that connects it to the
-        # unresolved ring.
+        # unresolved ring.  Keep the requested charge here: the search checks
+        # it against every atom, so an unresolved charge in the abstained
+        # region cannot be mistaken for a valid whole-entity total.
         outcome = search_bond_orders(
             solver_atoms,
             solver_bonds,
             variable,
             choices,
             score=score,
-            total_charge=None,
+            total_charge=total_charge,
             max_search_states=options.max_search_states,
             max_candidates=options.max_candidates,
             valence_atom_ids=set(atom_by_id).difference(uncertain_atoms),

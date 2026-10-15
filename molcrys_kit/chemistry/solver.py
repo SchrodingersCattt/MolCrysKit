@@ -65,8 +65,9 @@ def search_bond_orders(
 
     ``max_search_states`` bounds visited nodes only.  ``max_candidates`` caps
     retained output and therefore never changes search completeness.
-    ``valence_atom_ids`` limits the valence and charge checks to one
-    component; the default still checks every atom.
+    ``valence_atom_ids`` limits valence checks to one component; a requested
+    total charge always checks every atom so a locally scoped search cannot
+    waive an entity-level charge constraint.
     """
     if max_search_states < 1:
         raise ValueError("max_search_states must be positive")
@@ -181,8 +182,6 @@ def search_bond_orders(
                 charges: list[int] = []
                 charge_known = True
                 for atom in atoms:
-                    if not relevant(atom):
-                        continue
                     value = inferred_charge(
                         atom, atom_valence_target(atom, sums[atom.atom_id])
                     )

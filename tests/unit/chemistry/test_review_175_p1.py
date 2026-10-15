@@ -309,6 +309,113 @@ def test_uncertain_saturated_ring_does_not_abort_an_aromatic_fragment():
     assert result.entity.bonds[-1].order == 1.0
 
 
+def test_fused_aromatic_and_saturated_rings_keep_the_aromatic_fragment_solved():
+    side = 1.40
+    radius = side / (2 * math.sin(math.pi / 6))
+    aromatic_coordinates = tuple(
+        (
+            f"A{i}",
+            (
+                radius * math.cos(i * math.pi / 3),
+                radius * math.sin(i * math.pi / 3),
+                0.0,
+            ),
+        )
+        for i in range(6)
+    )
+    a0, a1 = aromatic_coordinates[0][1], aromatic_coordinates[1][1]
+    saturated_coordinates = (
+        ("S2", (a1[0] + 1.54, a1[1], 0.0)),
+        ("S3", (a1[0] + 1.54, a1[1] + 1.54, 0.0)),
+        ("S4", (a0[0] + 1.54, a0[1] + 1.54, 0.0)),
+        ("S5", (a0[0], a0[1] + 1.54, 0.0)),
+    )
+    atoms = tuple(ChemicalAtom(f"A{i}", "C") for i in range(6)) + tuple(
+        ChemicalAtom(f"S{i}", "C") for i in range(2, 6)
+    )
+    aromatic_bonds = tuple(
+        ChemicalBond(f"A{i}", f"A{(i + 1) % 6}", kind=BondKind.COVALENT)
+        for i in range(6)
+    )
+    saturated_bonds = tuple(
+        ChemicalBond(left, right, kind=BondKind.COVALENT)
+        for left, right in (
+            ("A1", "S2"),
+            ("S2", "S3"),
+            ("S3", "S4"),
+            ("S4", "S5"),
+            ("S5", "A0"),
+        )
+    )
+    result = infer_bond_orders(
+        FiniteChemicalEntity(
+            "tetralin-unknown-h",
+            atoms,
+            aromatic_bonds + saturated_bonds,
+            embedding=Embedding(aromatic_coordinates + saturated_coordinates),
+        )
+    )
+
+    assert result.status is InferenceStatus.PROVISIONAL
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == (
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+    )
+    assert all(
+        bond.aromatic and bond.order in {1.0, 2.0}
+        for bond in result.entity.bonds[:6]
+    )
+    assert all(bond.order is None for bond in result.entity.bonds[7:10])
+    assert result.entity.bonds[6].order == result.entity.bonds[10].order == 1.0
+
+
+def test_local_search_keeps_an_explicit_total_charge_constraint():
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(6)) + (
+        ChemicalAtom("N", "N"),
+        *(ChemicalAtom(f"H{i}", "H") for i in range(4)),
+    )
+    ring_bonds = tuple(
+        ChemicalBond(f"C{i}", f"C{(i + 1) % 6}", kind=BondKind.COVALENT)
+        for i in range(6)
+    )
+    ammonium_bonds = tuple(
+        ChemicalBond("N", f"H{i}", kind=BondKind.COVALENT) for i in range(4)
+    )
+    radius = 1.54 / (2 * math.sin(math.pi / 6))
+    embedding = Embedding(
+        tuple(
+            (
+                f"C{i}",
+                (
+                    radius * math.cos(i * math.pi / 3),
+                    radius * math.sin(i * math.pi / 3),
+                    0.0,
+                ),
+            )
+            for i in range(6)
+        )
+        + (("N", (10.0, 0.0, 0.0)),)
+        + tuple((f"H{i}", (10.0, 0.0, 1.0 + i)) for i in range(4))
+    )
+    result = infer_bond_orders(
+        FiniteChemicalEntity(
+            "unknown-cyclohexane-plus-ammonium",
+            atoms,
+            ring_bonds + ammonium_bonds,
+            embedding=embedding,
+        ),
+        total_charge=0,
+    )
+
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["total_charge_requested"] == 0
+    assert result.diagnostics["total_charge_unsatisfied"] is True
+    assert result.diagnostics["charge_constraint_rejected"] > 0
+
+
 def test_plain_eight_to_ten_membered_carbon_cycles_are_not_aromatic():
     for count in (8, 9, 10):
         atoms = tuple(ChemicalAtom(f"C{count}_{i}", "C") for i in range(count))

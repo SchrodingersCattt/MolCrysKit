@@ -65,7 +65,13 @@ def apply_aromaticity(
         updated_bonds,
         _implicit_hydrogens(atoms, updated_bonds),
         ring_count,
-        _unspecified_saturated_ring_atoms(atoms, bonds, embedding, cell),
+        _unspecified_saturated_ring_atoms(
+            atoms,
+            bonds,
+            embedding,
+            cell,
+            aromatic_bond_indices=aromatic_bonds,
+        ),
     )
 
 
@@ -199,11 +205,23 @@ def _geometry_supports_unspecified_carbon_ring(
     return True
 
 
-def _unspecified_saturated_ring_atoms(atoms, bonds, embedding, cell):
+def _unspecified_saturated_ring_atoms(
+    atoms,
+    bonds,
+    embedding,
+    cell,
+    *,
+    aromatic_bond_indices=frozenset(),
+):
     """Return atoms in a geometry-confirmed ring with unknown H inventory."""
     if embedding is None:
         return ()
     atom_by_id = {atom.atom_id: atom for atom in atoms}
+    aromatic_atoms = {
+        atom_id
+        for index in aromatic_bond_indices
+        for atom_id in (bonds[index].atom1_id, bonds[index].atom2_id)
+    }
     explicit_h_edge_atoms: set[str] = set()
     adjacency: dict[str, list[tuple[str, int, ChemicalBond]]] = {
         atom.atom_id: [] for atom in atoms
@@ -277,6 +295,7 @@ def _unspecified_saturated_ring_atoms(atoms, bonds, embedding, cell):
         uncertain.update(
             atom_id
             for atom_id in component
+            if atom_id not in aromatic_atoms
             if atom_id not in explicit_h_edge_atoms
             and atom_by_id[atom_id].explicit_hydrogens is None
             and atom_by_id[atom_id].implicit_hydrogens is None
@@ -306,7 +325,10 @@ def _embedding_vector(embedding, bond, cell=None):
                 )
                 for axis in range(3)
             )
-        return tuple(float(r) - float(l) for l, r in zip(left, right))
+        return tuple(
+            float(right_value) - float(left_value)
+            for left_value, right_value in zip(left, right)
+        )
 
 
 def _non_bridge_indices(adjacency):
