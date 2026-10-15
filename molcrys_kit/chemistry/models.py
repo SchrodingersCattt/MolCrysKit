@@ -7,9 +7,11 @@ without conflating a molecular graph with one particular periodic embedding.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Union
+
+import numpy as np
 
 
 Vector3 = tuple[float, float, float]
@@ -148,6 +150,12 @@ class Embedding:
     coordinates_A: tuple[tuple[str, Vector3], ...]
     coordinate_system: str = "cartesian"
     evidence: tuple[Evidence, ...] = ()
+    # Optional row-vector lattice.  Keeping this on the embedding makes the
+    # pure chemistry API usable for periodic graphs without importing ASE.
+    cell_A: tuple[Vector3, Vector3, Vector3] | None = None
+    _index: dict[str, int] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         ids = [atom_id for atom_id, _ in self.coordinates_A]
@@ -155,16 +163,42 @@ class Embedding:
             raise ValueError("embedding atom identities must be unique")
         if any(len(vector) != 3 for _, vector in self.coordinates_A):
             raise ValueError("embedding coordinates must be three-dimensional")
+        if self.cell_A is not None:
+            if len(self.cell_A) != 3 or any(len(vector) != 3 for vector in self.cell_A):
+                raise ValueError("cell_A must be a 3x3 row-vector lattice")
+            if abs(float(np.linalg.det(np.asarray(self.cell_A, dtype=float)))) < 1e-12:
+                raise ValueError("cell_A must be nonsingular")
+        object.__setattr__(
+            self,
+            "_index",
+            {atom_id: i for i, (atom_id, _) in enumerate(self.coordinates_A)},
+        )
 
     def position(self, atom_id: str) -> Vector3:
         """Return coordinates for one stable atom identity."""
-        for candidate, vector in self.coordinates_A:
-            if candidate == atom_id:
-                return vector
-        raise KeyError(atom_id)
+        index = self._index.get(atom_id) if self._index is not None else None
+        if index is None:
+            raise KeyError(atom_id)
+        return self.coordinates_A[index][1]
+
+    def vector(
+        self, atom1_id: str, atom2_id: str, image_shift: ImageShift = (0, 0, 0)
+    ) -> Vector3:
+        """Return ``r2 + shift @ cell - r1`` using the row-vector convention."""
+        left = np.asarray(self.position(atom1_id), dtype=float)
+        right = np.asarray(self.position(atom2_id), dtype=float)
+        if image_shift != (0, 0, 0):
+            if self.cell_A is None:
+                raise ValueError("image_shift requires a periodic cell")
+            right = right + np.asarray(image_shift, dtype=float) @ np.asarray(
+                self.cell_A, dtype=float
+            )
+        return tuple(float(value) for value in right - left)
 
 
-def _validate_graph(atoms: tuple[ChemicalAtom, ...], bonds: tuple[ChemicalBond, ...]) -> None:
+def _validate_graph(
+    atoms: tuple[ChemicalAtom, ...], bonds: tuple[ChemicalBond, ...]
+) -> None:
     atom_ids = [atom.atom_id for atom in atoms]
     if len(atom_ids) != len(set(atom_ids)):
         raise ValueError("chemical entity atom identities must be unique")
@@ -270,7 +304,9 @@ class CrystalChemistry:
     @property
     def component_dimensions(self) -> tuple[int | None, ...]:
         """Chemical dimensionality of each component in stable order."""
-        return tuple(getattr(component, "dimension", None) for component in self.components)
+        return tuple(
+            getattr(component, "dimension", None) for component in self.components
+        )
 
     @property
     def is_molecular_crystal(self) -> bool:

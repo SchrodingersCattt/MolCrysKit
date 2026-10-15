@@ -1,27 +1,16 @@
-"""Self-contained bond-order and formal-charge perception.
-
-This module treats coordinate-derived connectivity as evidence rather than
-truth. It classifies edge semantics, solves bounded valence constraints, ranks
-chemically valid bond-order assignments by observed lengths, and retains
-equally plausible alternatives instead of silently choosing one resonance or
-charge representation.
-"""
+"""Pure bond-order and charge perception plus the legacy crystal adapter."""
 
 from __future__ import annotations
-
-from dataclasses import replace
-from itertools import product
-from math import prod
-
+from dataclasses import dataclass, field, replace
+from enum import Enum
+from types import MappingProxyType
+from typing import Any, Mapping
 import numpy as np
-
 from ..constants import is_metal_element
 from ..constants.config import CHEMISTRY_PERCEPTION_CONFIG
 from .annotation import ChemistryIndeterminateError, annotate_chemistry
 from .models import (
     BondKind,
-    ChemicalAtom,
-    ChemicalBond,
     CrystalChemistry,
     Evidence,
     EvidenceSource,
@@ -29,268 +18,430 @@ from .models import (
     InferenceStatus,
     PeriodicChemicalEntity,
 )
+from .aromaticity import apply_aromaticity
+from .source import apply_source_precedence
+from .tree_dp import decompose_and_solve
+from .solver import search_bond_orders
+from .valence import (
+    CHARGE_BY_VALENCE,
+    VALENCES,
+    VALENCES_FOR_CHARGE,
+    allowed_valences,
+    inferred_charge,
+    integral_bond_order,
+)
 
-
-_VALENCES: dict[str, tuple[int, ...]] = {
-    "H": (1,),
-    "D": (1,),
-    "B": (3, 4),
-    "C": (4,),
-    "N": (2, 3, 4),
-    "O": (1, 2, 3),
-    "F": (1,),
-    "Si": (4,),
-    "P": (3, 5),
-    "S": (2, 4, 6),
-    "Se": (2, 4, 6),
-    "Cl": (0, 1),
-    "Br": (0, 1),
-    "I": (0, 1),
-}
-
-_VALENCE_FOR_EXPLICIT_CHARGE: dict[tuple[str, int], tuple[int, ...]] = {
-    ("B", -1): (4,),
-    ("C", -1): (3,),
-    ("C", 1): (3,),
-    ("N", -1): (2,),
-    ("N", 1): (4,),
-    ("O", -1): (1,),
-    ("O", 1): (3,),
-    ("F", -1): (0,),
-    ("Cl", -1): (0,),
-    ("Br", -1): (0,),
-    ("I", -1): (0,),
-}
-
-_CHARGE_BY_VALENCE: dict[str, dict[int, int]] = {
-    "B": {3: 0, 4: -1},
-    "C": {3: 0, 4: 0},
-    "N": {2: -1, 3: 0, 4: 1},
-    "O": {1: -1, 2: 0, 3: 1},
-    "F": {0: -1, 1: 0},
-    "Cl": {0: -1, 1: 0},
-    "Br": {0: -1, 1: 0},
-    "I": {0: -1, 1: 0},
-    "Si": {4: 0},
-    "P": {3: 0, 5: 0},
-    "S": {2: 0, 4: 0, 6: 0},
-    "Se": {2: 0, 4: 0, 6: 0},
-    "H": {1: 0},
-    "D": {1: 0},
-}
-
-_EXPECTED_LENGTHS: dict[tuple[str, str], dict[int, float]] = {
+_VALENCES = VALENCES
+_VALENCE_FOR_EXPLICIT_CHARGE = VALENCES_FOR_CHARGE
+_CHARGE_BY_VALENCE = CHARGE_BY_VALENCE
+_EXPECTED_LENGTHS = {
+    ("B", "B"): {1: 1.70, 2: 1.55, 3: 1.40},
+    ("B", "C"): {1: 1.58, 2: 1.40, 3: 1.25},
     ("C", "C"): {1: 1.54, 2: 1.34, 3: 1.20},
     ("C", "N"): {1: 1.47, 2: 1.28, 3: 1.16},
     ("C", "O"): {1: 1.43, 2: 1.23},
+    ("C", "P"): {1: 1.84, 2: 1.65},
     ("N", "N"): {1: 1.45, 2: 1.25, 3: 1.10},
     ("N", "O"): {1: 1.40, 2: 1.21},
     ("O", "O"): {1: 1.48, 2: 1.21},
+    ("C", "S"): {1: 1.82, 2: 1.61},
+    ("C", "Cl"): {1: 1.77},
+    ("O", "S"): {1: 1.64, 2: 1.48},
+    ("O", "P"): {1: 1.60, 2: 1.48},
 }
 
-def infer_chemistry(
-    structure,
-    *,
-    strict: bool = False,
-    max_candidates: int = 64,
-) -> CrystalChemistry:
-    """Infer edge semantics, bond orders, and atomic formal charges.
 
-    The input crystal is annotated in place only after the complete result has
-    been constructed. ``strict=True`` therefore fails atomically when any
-    component remains provisional or indeterminate.
-    """
-    previous_chemistry = structure.chemistry
-    previous_entities = tuple(
-        molecule.chemical_entity for molecule in structure.molecules
-    )
-    if previous_chemistry is None:
-        base = annotate_chemistry(structure)
-        # Annotation currently provides the public graph-to-atom-id bridge and
-        # attaches its provisional result. Restore the caller's state while
-        # perception is running so strict failure remains atomic.
-        structure._set_chemistry(previous_chemistry)
-        for molecule, previous_entity in zip(structure.molecules, previous_entities):
-            molecule.chemical_entity = previous_entity
-    else:
-        base = previous_chemistry
-    components: list[FiniteChemicalEntity | PeriodicChemicalEntity] = []
-    all_alternatives: list[
-        tuple[FiniteChemicalEntity | PeriodicChemicalEntity, ...]
-    ] = []
-    warnings: list[str] = []
+@dataclass(frozen=True, slots=True)
+class BondOrderOptions:
+    mode: str = "auto"
+    strict: bool = False
+    max_candidates: int = 64
+    max_search_states: int = 100_000
+    infer_charges: bool = True
 
-    for component in base.components:
-        if not isinstance(component, (FiniteChemicalEntity, PeriodicChemicalEntity)):
-            warnings.append(
-                f"{component.entity_id}: bond-order perception for this entity type is unavailable"
-            )
-            continue
-        perceived, alternatives = _perceive_finite_entity(
-            component,
-            max_candidates=max_candidates,
+    def __post_init__(self):
+        if self.mode not in {"auto", "valence", "geometry"}:
+            raise ValueError("mode must be 'auto', 'valence', or 'geometry'")
+        if self.max_candidates < 1 or self.max_search_states < 1:
+            raise ValueError("search limits must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class BondOrderResult:
+    entity: Any
+    status: InferenceStatus
+    bond_evidence: tuple[Evidence, ...] = ()
+    resonance_classes: tuple[tuple[int, ...], ...] = ()
+    alternatives: tuple[Any, ...] = ()
+    # ``default_factory`` is required: a ``mappingproxy`` default is rejected
+    # by dataclasses on Python 3.11 because that type sets ``__hash__ = None``.
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(
+            self, "diagnostics", MappingProxyType(dict(self.diagnostics))
         )
-        components.append(perceived)
-        all_alternatives.append(alternatives)
-        warnings.extend(perceived.warnings)
 
-    status = _combined_status(components)
-    if strict and status in {InferenceStatus.PROVISIONAL, InferenceStatus.INDETERMINATE}:
-        detail = warnings[0] if warnings else "chemistry perception is indeterminate"
-        raise ChemistryIndeterminateError(detail)
+    def to_dict(self):
+        return {
+            "schema_version": 1,
+            "status": self.status.value,
+            "entity": _json_value(self.entity),
+            "bond_evidence": _json_value(self.bond_evidence),
+            "resonance_classes": [list(x) for x in self.resonance_classes],
+            "alternatives": [_json_value(x) for x in self.alternatives],
+            "diagnostics": _json_value(dict(self.diagnostics)),
+        }
 
-    result = CrystalChemistry(
-        components=tuple(components),
-        atom_ids_by_global_index=base.atom_ids_by_global_index,
-        status=status,
-        evidence=tuple(evidence for component in components for evidence in component.evidence),
-        warnings=tuple(dict.fromkeys(warnings)),
-        alternatives=tuple(all_alternatives),
+    def to_json(self) -> str:
+        import json
+
+        return json.dumps(self.to_dict(), sort_keys=True)
+
+
+def _json_value(value):
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {str(k): _json_value(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return [_json_value(v) for v in value.tolist()]
+    if isinstance(value, np.generic):
+        return value.item()
+    if hasattr(value, "__dataclass_fields__"):
+        return {k: _json_value(getattr(value, k)) for k in value.__dataclass_fields__}
+    return value
+
+
+def infer_bond_orders(entity, *, total_charge=None, cell=None, options=None):
+    """Infer covalent orders without mutating an entity.
+
+    When ``total_charge`` is an integer, every retained assignment must satisfy
+    that charge over the atoms covered by the valence solver.  A locally
+    abstained uncertain-hydrogen region may leave the whole-entity charge
+    unverified; such a consistent result is retained as provisional and marked
+    in the diagnostics.  An unresolved charge in the ordinary full-entity
+    solver, or a contradiction in the solved region, rejects the assignment.
+    """
+    options = options or BondOrderOptions()
+    if total_charge is not None and (not isinstance(total_charge, (int, np.integer))):
+        raise ValueError("total_charge must be an integer or None")
+    if not isinstance(entity, (FiniteChemicalEntity, PeriodicChemicalEntity)):
+        result = BondOrderResult(
+            entity,
+            InferenceStatus.INDETERMINATE,
+            diagnostics={"reason": "unsupported_entity_type"},
+        )
+        if options.strict:
+            raise ChemistryIndeterminateError(
+                "bond-order perception unavailable for this entity type"
+            )
+        return result
+    if total_charge is None:
+        total_charge = (
+            entity.net_charge
+            if isinstance(entity, FiniteChemicalEntity)
+            else entity.net_charge_per_repeat
+        )
+    perceived, alternatives, diagnostics, evidence = _infer_entity(
+        entity, total_charge, cell, options
     )
-    for molecule, entity in zip(structure.molecules, components):
-        molecule.chemical_entity = entity
-    structure._set_chemistry(result)
+    result = BondOrderResult(
+        perceived,
+        perceived.status,
+        evidence,
+        _resonance_classes((perceived, *alternatives)),
+        alternatives,
+        diagnostics,
+    )
+    if options.strict and perceived.status in {
+        InferenceStatus.PROVISIONAL,
+        InferenceStatus.INDETERMINATE,
+    }:
+        raise ChemistryIndeterminateError(
+            perceived.warnings[0]
+            if perceived.warnings
+            else "bond-order perception unresolved"
+        )
     return result
 
 
-def _perceive_finite_entity(
-    entity: FiniteChemicalEntity | PeriodicChemicalEntity,
-    *,
-    max_candidates: int,
-) -> tuple[
-    FiniteChemicalEntity | PeriodicChemicalEntity,
-    tuple[FiniteChemicalEntity | PeriodicChemicalEntity, ...],
-]:
-    atom_by_id = {atom.atom_id: atom for atom in entity.atoms}
-    classified = tuple(_classify_bond(bond, atom_by_id) for bond in entity.bonds)
-    order_candidates, search_exhaustive = _solve_bond_orders(
+def _infer_entity(entity, total_charge, cell, options):
+    atom_by_id = {a.atom_id: a for a in entity.atoms}
+    bonds = tuple(_classify_bond(b, atom_by_id) for b in entity.bonds)
+    source = apply_source_precedence(bonds)
+    bonds = source.bonds
+    aromaticity = apply_aromaticity(
         entity.atoms,
-        classified,
-        entity.embedding,
-        max_candidates=max_candidates,
+        bonds,
+        embedding=entity.embedding,
+        cell=cell,
     )
+    bonds = aromaticity.bonds
+    uncertain_atoms = frozenset(aromaticity.uncertain_hydrogen_atoms)
+    boundary_evidence = Evidence(
+        source=EvidenceSource.INFERRED,
+        method="aromaticity_hydrogen_boundary",
+        detail="ring hydrogen inventory is unspecified and geometry is saturated",
+    )
+    boundary_warning = (
+        f"{entity.entity_id}: aromaticity and hydrogen inventory are indeterminate "
+        "for a geometry-confirmed saturated ring"
+        if uncertain_atoms
+        else None
+    )
+    # A geometry-confirmed saturated ring with omitted H atoms is a local
+    # abstention.  Exclude the uncertain component from solving, while keeping
+    # every independent fragment eligible for normal valence inference.
+    solver_indices = tuple(range(len(bonds)))
+    solver_bonds = bonds
+    solver_atoms = tuple(
+        replace(atom, explicit_hydrogens=aromaticity.implicit_hydrogens[atom.atom_id])
+        if atom.atom_id in aromaticity.implicit_hydrogens
+        and atom.explicit_hydrogens is None
+        and atom.implicit_hydrogens is None
+        else atom
+        for atom in entity.atoms
+    )
+    if uncertain_atoms and not any(
+        not (bond.atom1_id in uncertain_atoms and bond.atom2_id in uncertain_atoms)
+        for bond in bonds
+    ):
+        # Preserve the historical all-uncertain result: there is no
+        # independently solvable chemistry to report in this entity.
+        diagnostics = {
+            "aromatic_rings": aromaticity.ring_count,
+            "uncertain_hydrogen_atoms": aromaticity.uncertain_hydrogen_atoms,
+            "total_charge_requested": (
+                None if total_charge is None else int(total_charge)
+            ),
+        }
+        unresolved_entity = _entity_with_orders(
+            entity,
+            bonds,
+            status=InferenceStatus.INDETERMINATE,
+            warnings=(boundary_warning,),
+            evidence=boundary_evidence,
+            implicit_hydrogens=aromaticity.implicit_hydrogens,
+        )
+        return unresolved_entity, (), diagnostics, (boundary_evidence,)
+
+    atom_by_id = {a.atom_id: a for a in solver_atoms}
+    variable = []
+    choices = {}
+    for i, bond in enumerate(solver_bonds):
+        # A missing order and a delocalized aromatic order are both variables.
+        if (
+            bond.kind is BondKind.COVALENT
+            and integral_bond_order(bond.order) is None
+            and not (
+                bond.atom1_id in uncertain_atoms
+                and bond.atom2_id in uncertain_atoms
+            )
+        ):
+            domain = _bond_order_choices(bond, atom_by_id)
+            if domain:
+                variable.append(i)
+                choices[i] = domain
+    unresolved = [
+        a.atom_id
+        for a in solver_atoms
+        if allowed_valences(a) is None and not is_metal_element(a.element)
+    ]
+    metal_edges = sum(
+        1
+        for bond in bonds
+        if bond.kind in {BondKind.COORDINATION, BondKind.METALLIC}
+    )
+
+    def score(assign):
+        return _assignment_score(
+            solver_bonds, assign, atom_by_id, entity.embedding, cell
+        )
+
+    if uncertain_atoms:
+        # The general component solver validates every atom.  For this local
+        # abstention, the lower-level search can validate only the known
+        # boundary while still assigning a bridge bond that connects it to the
+        # unresolved ring.  Keep the requested charge here: the search checks
+        # it against every atom, so an unresolved charge in the abstained
+        # region cannot be mistaken for a valid whole-entity total.
+        outcome = search_bond_orders(
+            solver_atoms,
+            solver_bonds,
+            variable,
+            choices,
+            score=score,
+            total_charge=total_charge,
+            max_search_states=options.max_search_states,
+            max_candidates=options.max_candidates,
+            valence_atom_ids=set(atom_by_id).difference(uncertain_atoms),
+        )
+        decomposition = {
+            "components": 1 if variable else 0,
+            "tree_components": 0,
+            "cyclic_components": 1 if variable else 0,
+            "solver": "local_search",
+        }
+    else:
+        outcome, decomposition = decompose_and_solve(
+            solver_atoms,
+            solver_bonds,
+            variable,
+            choices,
+            score=score,
+            total_charge=total_charge,
+            max_search_states=options.max_search_states,
+            max_candidates=options.max_candidates,
+        )
     evidence = Evidence(
         source=EvidenceSource.INFERRED,
-        method="bounded_valence_and_bond_length_solver",
+        method="propagating_valence_and_geometry_solver",
+        detail="Residual-valence propagation with bounded deterministic search.",
     )
 
-    if not order_candidates:
-        fallback = tuple(
-            replace(bond, order=1.0, evidence=bond.evidence + (evidence,))
-            if bond.kind is BondKind.COVALENT
-            else bond
-            for bond in classified
-        )
-        reason = (
-            "no complete valence-consistent bond-order assignment"
-            if search_exhaustive
-            else "bond-order search space exceeds the exhaustive-search limit"
-        )
-        warning = f"{entity.entity_id}: {reason}; single-bond fallback is provisional"
-        perceived = _entity_with_orders(
-            entity,
-            fallback,
-            status=InferenceStatus.INDETERMINATE,
-            warnings=(warning,),
-            evidence=evidence,
-        )
-        return perceived, ()
+    def restore(candidate_bonds):
+        restored = list(bonds)
+        for original_index, candidate in zip(solver_indices, candidate_bonds):
+            restored[original_index] = candidate
+        return tuple(restored)
 
-    candidate_entities = tuple(
+    diagnostics = {
+        "search_states": outcome.states,
+        "search_complete": outcome.complete,
+        "truncated": not outcome.complete,
+        "candidates_found": len(outcome.candidates),
+        "candidates_rejected": outcome.rejected,
+        "max_search_states": options.max_search_states,
+        "max_candidates": options.max_candidates,
+        "candidate_scores": tuple(float(score) for score, _ in outcome.candidates),
+        "unresolved_atoms": tuple(unresolved),
+        "uncertain_hydrogen_atoms": aromaticity.uncertain_hydrogen_atoms,
+        "aromatic_rings": aromaticity.ring_count,
+        "aromatic_implicit_hydrogens": tuple(sorted(aromaticity.implicit_hydrogens)),
+        "source_locked_orders": source.locked_orders,
+        "source_contradictions": source.contradictions,
+        "source_warnings": source.warnings,
+        "bond_components": decomposition["components"],
+        "tree_components": decomposition["tree_components"],
+        "cyclic_components": decomposition["cyclic_components"],
+        "solver": decomposition["solver"],
+        "total_charge_requested": (None if total_charge is None else int(total_charge)),
+        "charge_constraint_rejected": outcome.charge_rejected,
+        "total_charge_unsatisfied": bool(
+            total_charge is not None
+            and outcome.charge_rejected
+            and not outcome.candidates
+        ),
+        "total_charge_unverified": bool(outcome.charge_unverified),
+    }
+    if not outcome.candidates:
+        warning = (
+            f"{entity.entity_id}: no complete valence-consistent bond-order assignment"
+            + ("; search budget exhausted" if not outcome.complete else "")
+        )
+        if boundary_warning:
+            warning = f"{boundary_warning}; {warning}"
+        if diagnostics["total_charge_unsatisfied"]:
+            warning += (
+                f"; requested total charge {int(total_charge)} is not satisfied "
+                "by a complete atomic-charge assignment"
+            )
+        return (
+            _entity_with_orders(
+                entity,
+                bonds,
+                status=InferenceStatus.INDETERMINATE,
+                warnings=(warning, *source.warnings),
+                evidence=evidence,
+                implicit_hydrogens=aromaticity.implicit_hydrogens,
+            ),
+            (),
+            diagnostics,
+            (evidence, boundary_evidence) if boundary_warning else (evidence,),
+        )
+    candidates = tuple(
+        (score_value, restore(candidate))
+        for score_value, candidate in outcome.candidates
+    )
+    entities = tuple(
         _entity_with_orders(
             entity,
-            candidate,
+            candidate_bonds,
             status=InferenceStatus.INFERRED,
             warnings=(),
             evidence=evidence,
+            implicit_hydrogens=aromaticity.implicit_hydrogens,
         )
-        for _, candidate in order_candidates
+        for _, candidate_bonds in candidates
     )
-    best_score = order_candidates[0][0]
-    competitive = tuple(
-        candidate_entity
-        for (score, _), candidate_entity in zip(order_candidates, candidate_entities)
-        if score - best_score
-        <= CHEMISTRY_PERCEPTION_CONFIG["COMPETITIVE_SCORE_GAP"]
-    )
-    if len(competitive) == 1:
-        return competitive[0], ()
-
-    warning = (
-        f"{entity.entity_id}: {len(competitive)} bond-order assignments are chemically "
-        "competitive; showing the deterministic best candidate"
-    )
-    best = replace(
-        competitive[0],
-        status=InferenceStatus.PROVISIONAL,
-        warnings=(warning,),
-    )
-    return best, competitive[1:]
-
-
-def _classify_bond(
-    bond: ChemicalBond,
-    atom_by_id: dict[str, ChemicalAtom],
-) -> ChemicalBond:
-    left_metal = is_metal_element(atom_by_id[bond.atom1_id].element)
-    right_metal = is_metal_element(atom_by_id[bond.atom2_id].element)
-    if left_metal and right_metal:
-        kind = BondKind.METALLIC
-    elif left_metal or right_metal:
-        kind = BondKind.COORDINATION
-    else:
-        kind = BondKind.COVALENT
-    return replace(bond, kind=kind)
-
-
-def _solve_bond_orders(
-    atoms: tuple[ChemicalAtom, ...],
-    bonds: tuple[ChemicalBond, ...],
-    embedding,
-    *,
-    max_candidates: int,
-) -> tuple[list[tuple[float, tuple[ChemicalBond, ...]]], bool]:
-    atom_by_id = {atom.atom_id: atom for atom in atoms}
-    covalent_indices = [
-        index for index, bond in enumerate(bonds) if bond.kind is BondKind.COVALENT
+    warnings = []
+    if boundary_warning:
+        warnings.append(boundary_warning)
+    if not outcome.complete:
+        warnings.append(
+            f"{entity.entity_id}: search budget exhausted; result is bounded"
+        )
+    if unresolved:
+        warnings.append(
+            f"{entity.entity_id}: unsupported atom valence states remain indeterminate"
+        )
+    if diagnostics["total_charge_unverified"]:
+        warnings.append(
+            f"{entity.entity_id}: requested total charge {int(total_charge)} "
+            "is unverified because the locally abstained atoms have unresolved "
+            "formal charges"
+        )
+    if metal_edges:
+        warnings.append(
+            f"{entity.entity_id}: {metal_edges} metal edge(s) retained as coordination/metallic evidence"
+        )
+    warnings.extend(source.warnings)
+    gap = float(CHEMISTRY_PERCEPTION_CONFIG.get("COMPETITIVE_SCORE_GAP", 1.0))
+    competitive = [
+        e for (s, _), e in zip(candidates, entities) if s - candidates[0][0] <= gap
     ]
-    choices = [
-        _bond_order_choices(bonds[index], atom_by_id, embedding)
-        for index in covalent_indices
-    ]
-    if not choices:
-        return [(0.0, bonds)], True
-    if (
-        prod(len(options) for options in choices)
-        > CHEMISTRY_PERCEPTION_CONFIG["MAX_EXHAUSTIVE_ASSIGNMENTS"]
+    # Aromatic Kekule placements are expected equivalent forms.  A warning is
+    # reserved for genuinely competing non-aromatic classes (for example an
+    # unresolved carboxylate charge state), while keeping every tied aromatic
+    # alternative available to callers.
+    if len(_resonance_classes(competitive)) > 1 and not all(
+        all(bond.aromatic for bond in candidate.bonds) for candidate in competitive
     ):
-        return [], False
-
-    candidates: list[tuple[float, tuple[ChemicalBond, ...]]] = []
-    # TODO: carry valence sums incrementally if profiling shows this bounded
-    # exhaustive path dominates large-ring perception.
-    for assignment in product(*choices):
-        valence_sums = {atom.atom_id: 0 for atom in atoms}
-        for bond_index, order in zip(covalent_indices, assignment):
-            bond = bonds[bond_index]
-            valence_sums[bond.atom1_id] += order
-            valence_sums[bond.atom2_id] += order
-        if not _valid_valence_sums(atoms, valence_sums):
-            continue
-        assigned = list(bonds)
-        for bond_index, order in zip(covalent_indices, assignment):
-            assigned[bond_index] = replace(assigned[bond_index], order=float(order))
-        score = _assignment_score(tuple(assigned), atom_by_id, embedding)
-        candidates.append((score, tuple(assigned)))
-        if len(candidates) >= max_candidates:
-            break
-    candidates.sort(key=lambda item: (item[0], _order_signature(item[1])))
-    return candidates, True
+        warnings.append(
+            f"{entity.entity_id}: competitive assignments fall in more than one resonance class"
+        )
+    # ``max_candidates`` is an output-retention limit.  It must not change the
+    # selected best assignment or resolution status; retained alternatives are
+    # a view onto the complete bounded search result.
+    status = InferenceStatus.PROVISIONAL if warnings else InferenceStatus.INFERRED
+    return (
+        replace(competitive[0], status=status, warnings=tuple(warnings)),
+        tuple(competitive[1:]),
+        diagnostics,
+        (evidence, boundary_evidence) if boundary_warning else (evidence,),
+    )
 
 
-def _bond_order_choices(bond, atom_by_id, embedding) -> tuple[int, ...]:
-    left = atom_by_id[bond.atom1_id].element
-    right = atom_by_id[bond.atom2_id].element
+def _classify_bond(bond, atom_by_id):
+    if bond.kind is not BondKind.UNKNOWN:
+        return bond
+    lm = is_metal_element(atom_by_id[bond.atom1_id].element)
+    rm = is_metal_element(atom_by_id[bond.atom2_id].element)
+    return replace(
+        bond,
+        kind=BondKind.METALLIC
+        if lm and rm
+        else BondKind.COORDINATION
+        if lm or rm
+        else BondKind.COVALENT,
+    )
+
+
+def _bond_order_choices(bond, atom_by_id):
+    left, right = atom_by_id[bond.atom1_id].element, atom_by_id[bond.atom2_id].element
     if left in {"H", "D", "F", "Cl", "Br", "I"} or right in {
         "H",
         "D",
@@ -301,107 +452,237 @@ def _bond_order_choices(bond, atom_by_id, embedding) -> tuple[int, ...]:
     }:
         return (1,)
     pair = tuple(sorted((left, right)))
-    max_order = 3 if pair in {("C", "C"), ("C", "N"), ("N", "N")} else 2
-    if embedding is not None:
-        distance = _bond_distance(bond, embedding)
-        if distance > CHEMISTRY_PERCEPTION_CONFIG["SINGLE_BOND_DISTANCE"]:
-            max_order = 1
-        elif distance > CHEMISTRY_PERCEPTION_CONFIG["TRIPLE_BOND_DISTANCE"]:
-            max_order = min(max_order, 2)
-    return tuple(range(1, max_order + 1))
+    if bond.aromatic:
+        return (1, 2)
+    return (1, 2, 3) if pair in {("C", "C"), ("C", "N"), ("N", "N")} else (1, 2)
 
 
-def _valid_valence_sums(atoms, sums: dict[str, int]) -> bool:
-    for atom in atoms:
-        if is_metal_element(atom.element):
-            continue
-        allowed = _allowed_valences(atom)
-        if allowed is not None and sums[atom.atom_id] not in allowed:
-            return False
-    return True
-
-
-def _allowed_valences(atom: ChemicalAtom) -> tuple[int, ...] | None:
-    if atom.formal_charge is not None:
-        explicit = _VALENCE_FOR_EXPLICIT_CHARGE.get((atom.element, atom.formal_charge))
-        if explicit is not None:
-            return explicit
-    return _VALENCES.get(atom.element)
-
-
-def _assignment_score(bonds, atom_by_id, embedding) -> float:
+def _assignment_score(bonds, assignment, atom_by_id, embedding, cell):
     if embedding is None:
         return 0.0
     score = 0.0
-    for bond in bonds:
-        if bond.kind is not BondKind.COVALENT or bond.order is None:
-            continue
-        pair = tuple(sorted((atom_by_id[bond.atom1_id].element, atom_by_id[bond.atom2_id].element)))
-        expected = _EXPECTED_LENGTHS.get(pair, {}).get(int(bond.order))
-        if expected is None:
-            continue
-        score += (
-            (_bond_distance(bond, embedding) - expected)
-            / CHEMISTRY_PERCEPTION_CONFIG["BOND_LENGTH_SIGMA"]
-        ) ** 2
+    for i, order in assignment.items():
+        b = bonds[i]
+        pair = tuple(
+            sorted((atom_by_id[b.atom1_id].element, atom_by_id[b.atom2_id].element))
+        )
+        expected = _EXPECTED_LENGTHS.get(pair, {}).get(int(order))
+        if expected is not None:
+            sigma = float(CHEMISTRY_PERCEPTION_CONFIG.get("BOND_LENGTH_SIGMA", 0.08))
+            score += ((_bond_distance(b, embedding, cell) - expected) / sigma) ** 2
     return float(score)
 
 
-def _bond_distance(bond: ChemicalBond, embedding) -> float:
-    left = np.asarray(embedding.position(bond.atom1_id), dtype=float)
-    right = np.asarray(embedding.position(bond.atom2_id), dtype=float)
+def _bond_distance(bond, embedding, cell=None):
+    if hasattr(embedding, "position"):
+        left = np.asarray(embedding.position(bond.atom1_id), dtype=float)
+        right = np.asarray(embedding.position(bond.atom2_id), dtype=float)
+    else:
+        positions = {i: np.asarray(p, dtype=float) for i, p in embedding.coordinates_A}
+        left = np.asarray(positions[bond.atom1_id], dtype=float)
+        right = np.asarray(positions[bond.atom2_id], dtype=float)
+    if cell is not None and any(bond.atom2_image_shift):
+        right = right + np.asarray(bond.atom2_image_shift, dtype=float) @ np.asarray(
+            cell, dtype=float
+        )
+        return float(np.linalg.norm(right - left))
+    if hasattr(embedding, "vector"):
+        try:
+            vector = embedding.vector(
+                bond.atom1_id, bond.atom2_id, bond.atom2_image_shift
+            )
+        except TypeError:
+            vector = embedding.vector(
+                bond.atom1_id, bond.atom2_id, bond.atom2_image_shift, cell
+            )
+        return float(np.linalg.norm(np.asarray(vector, dtype=float)))
     return float(np.linalg.norm(right - left))
 
 
-def _entity_with_orders(entity, bonds, *, status, warnings, evidence):
-    valence_sums = {atom.atom_id: 0 for atom in entity.atoms}
-    for bond in bonds:
-        if bond.kind is BondKind.COVALENT and bond.order is not None:
-            valence_sums[bond.atom1_id] += int(bond.order)
-            valence_sums[bond.atom2_id] += int(bond.order)
+def _entity_with_orders(
+    entity, bonds, *, status, warnings, evidence, implicit_hydrogens=None
+):
+    sums = {a.atom_id: 0 for a in entity.atoms}
+    for b in bonds:
+        if b.kind is BondKind.COVALENT:
+            value = integral_bond_order(b.order)
+            if value is None:
+                continue
+            # Identical endpoints are incremented twice, which is the valence
+            # contribution of one periodic self-edge. A third copy disagrees
+            # with the solver and can report the wrong charge.
+            sums[b.atom1_id] += value
+            sums[b.atom2_id] += value
     atoms = tuple(
         replace(
-            atom,
-            formal_charge=(
-                atom.formal_charge
-                if atom.formal_charge is not None
-                else _CHARGE_BY_VALENCE.get(atom.element, {}).get(valence_sums[atom.atom_id])
+            a,
+            formal_charge=a.formal_charge
+            if a.formal_charge is not None
+            else inferred_charge(
+                a, _charge_valence(a, sums[a.atom_id], implicit_hydrogens)
             ),
-            evidence=atom.evidence + (evidence,),
+            implicit_hydrogens=(
+                a.implicit_hydrogens
+                if a.implicit_hydrogens is not None
+                else None
+                if implicit_hydrogens is None
+                else implicit_hydrogens.get(a.atom_id)
+            ),
+            evidence=a.evidence + (evidence,),
         )
-        for atom in entity.atoms
+        for a in entity.atoms
     )
-    charges = [atom.formal_charge for atom in atoms]
-    charges_resolved = bool(charges) and all(value is not None for value in charges)
-    if not charges_resolved and status is InferenceStatus.INFERRED:
+    charges = [a.formal_charge for a in atoms]
+    charge = sum(charges) if charges and all(v is not None for v in charges) else None
+    warnings = tuple(warnings)
+    if charge is None and status is InferenceStatus.INFERRED:
         status = InferenceStatus.PROVISIONAL
-        warnings = (*warnings, "Atomic formal charges remain unresolved.")
-    replacement = dict(
+        warnings += ("Atomic formal charges remain unresolved.",)
+    updated = tuple(replace(b, evidence=b.evidence + (evidence,)) for b in bonds)
+    kw = dict(
         atoms=atoms,
-        bonds=tuple(
-            replace(bond, evidence=bond.evidence + (evidence,)) for bond in bonds
-        ),
+        bonds=updated,
         status=status,
-        evidence=entity.evidence + (evidence,),
         warnings=warnings,
+        evidence=entity.evidence + (evidence,),
     )
-    charge = sum(charges) if charges_resolved else None
-    if isinstance(entity, PeriodicChemicalEntity):
-        return replace(entity, **replacement, net_charge_per_repeat=charge)
-    return replace(entity, **replacement, net_charge=charge)
+    kw[
+        "net_charge_per_repeat"
+        if isinstance(entity, PeriodicChemicalEntity)
+        else "net_charge"
+    ] = charge
+    return replace(entity, **kw)
 
 
-def _order_signature(bonds) -> tuple[float, ...]:
-    return tuple(0.0 if bond.order is None else bond.order for bond in bonds)
+def _charge_valence(atom, bond_sum: int, implicit_hydrogens) -> int:
+    """Valence used for formal charge, including hydrogens the solver counted."""
+    if atom.explicit_hydrogens is not None or atom.implicit_hydrogens is not None:
+        hydrogens = int(atom.explicit_hydrogens or 0) + int(
+            atom.implicit_hydrogens or 0
+        )
+    elif implicit_hydrogens:
+        hydrogens = int(implicit_hydrogens.get(atom.atom_id) or 0)
+    else:
+        hydrogens = 0
+    return int(bond_sum) + hydrogens + int(atom.radical_electrons)
 
 
-def _combined_status(components) -> InferenceStatus:
-    statuses = {component.status for component in components}
+def _resonance_classes(entities):
+    groups = {}
+    for i, e in enumerate(entities):
+        # Aromatic 1/2 Kekule choices and non-aromatic resonance placements
+        # (for example the two equivalent carboxylate C--O assignments) are
+        # equivalent classes.  Preserve the concrete bond order in each
+        # alternative, but canonicalize the class by the multiset of typed
+        # edges and charge states rather than stable atom labels.
+        atom_by_id = {atom.atom_id: atom for atom in e.atoms}
+        edge_key = []
+        for bond in e.bonds:
+            left = atom_by_id.get(bond.atom1_id)
+            right = atom_by_id.get(bond.atom2_id)
+            elements = tuple(
+                sorted(
+                    (
+                        left.element if left is not None else "?",
+                        right.element if right is not None else "?",
+                    )
+                )
+            )
+            edge_key.append(
+                (
+                    elements,
+                    bond.kind.value,
+                    bool(bond.aromatic),
+                    1.5 if bond.aromatic else (0.0 if bond.order is None else float(bond.order)),
+                    tuple(int(value) for value in bond.atom2_image_shift),
+                )
+            )
+        charges = tuple(
+            sorted(
+                (atom.element, atom.formal_charge)
+                for atom in e.atoms
+                if atom.formal_charge is not None
+            )
+        )
+        key = (tuple(sorted(edge_key)), charges)
+        groups.setdefault(key, []).append(i)
+    return tuple(tuple(v) for _, v in sorted(groups.items(), key=lambda x: x[0]))
+
+
+def infer_chemistry(structure, *, strict=False, max_candidates=64):
+    previous = structure.chemistry
+    previous_entities = tuple(m.chemical_entity for m in structure.molecules)
+    if previous is None:
+        base = annotate_chemistry(structure)
+        structure._set_chemistry(previous)
+        for m, e in zip(structure.molecules, previous_entities):
+            m.chemical_entity = e
+    else:
+        base = previous
+    components = []
+    alternatives = []
+    warnings = []
+    unsupported = False
+    for component in base.components:
+        if not isinstance(component, (FiniteChemicalEntity, PeriodicChemicalEntity)):
+            unsupported = True
+            warnings.append(
+                f"{component.entity_id}: bond-order perception for this entity type is unavailable"
+            )
+            continue
+        result = infer_bond_orders(
+            component,
+            cell=getattr(structure, "lattice", None),
+            options=BondOrderOptions(max_candidates=max_candidates),
+        )
+        components.append(result.entity)
+        alternatives.append(tuple(result.alternatives))
+        warnings.extend(result.entity.warnings)
+    status = (
+        InferenceStatus.INDETERMINATE if unsupported else _combined_status(components)
+    )
+    if strict and status in {
+        InferenceStatus.PROVISIONAL,
+        InferenceStatus.INDETERMINATE,
+    }:
+        raise ChemistryIndeterminateError(
+            warnings[0] if warnings else "chemistry perception is indeterminate"
+        )
+    result = CrystalChemistry(
+        components=tuple(components),
+        atom_ids_by_global_index=base.atom_ids_by_global_index,
+        status=status,
+        evidence=tuple(ev for c in components for ev in c.evidence),
+        warnings=tuple(dict.fromkeys(warnings)),
+        alternatives=tuple(alternatives),
+    )
+    for m, e in zip(structure.molecules, components):
+        m.chemical_entity = e
+    structure._set_chemistry(result)
+    return result
+
+
+def _combined_status(components):
+    statuses = {c.status for c in components}
     if not components or InferenceStatus.INDETERMINATE in statuses:
         return InferenceStatus.INDETERMINATE
-    if InferenceStatus.PROVISIONAL in statuses:
-        return InferenceStatus.PROVISIONAL
-    return InferenceStatus.INFERRED
+    return (
+        InferenceStatus.PROVISIONAL
+        if InferenceStatus.PROVISIONAL in statuses
+        else InferenceStatus.INFERRED
+    )
 
 
-__all__ = ["infer_chemistry"]
+def _perceive_finite_entity(entity, *, max_candidates, cell=None):
+    result = infer_bond_orders(
+        entity, cell=cell, options=BondOrderOptions(max_candidates=max_candidates)
+    )
+    return result.entity, tuple(result.alternatives)
+
+
+__all__ = [
+    "BondOrderOptions",
+    "BondOrderResult",
+    "infer_bond_orders",
+    "infer_chemistry",
+]

@@ -59,7 +59,7 @@ Repository = "https://github.com/SchrodingersCattt/MolCrysKit"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["molcrys*"]
+include = ["molcrys*", "benchmarks*"]
 
 [tool.setuptools]
 include-package-data = true

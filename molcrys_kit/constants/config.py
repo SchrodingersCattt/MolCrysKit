@@ -46,6 +46,42 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     "SINGLE_BOND_DISTANCE": 1.75,
     "TRIPLE_BOND_DISTANCE": 1.58,
     "BOND_LENGTH_SIGMA": 0.08,
+    # Chordless rings in this size window are the aromaticity candidates.
+    # 4n+2 uses residue 2 modulo 4. The path cap stops dense fused systems
+    # from turning ring discovery into an unbounded search.
+    "AROMATIC_MIN_RING_SIZE": 5,
+    # Include the ten-membered perimeter circuit of fused 5/7 systems such as
+    # azulene.  The chordless and winding checks in the aromaticity authority
+    # still bound the candidate graph before applying Hückel's rule.
+    "AROMATIC_MAX_RING_SIZE": 10,
+    "AROMATIC_RING_SEARCH_LIMIT": 20_000,
+    # When a carbon ring has no hydrogen metadata, a supplied embedding can
+    # distinguish a short conjugated ring from a saturated C--C ring.  Missing
+    # geometry remains a graph-only provisional inference for compatibility.
+    "AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH": 1.48,
+    # Per-pair upper limits for treating an H-unspecified ring edge as
+    # aromatic-like.  These sit below the ordinary single-bond lengths while
+    # allowing the longer C--S and S--S bonds found in valid heteroaromatics.
+    # A ring edge above its pair limit is evidence for a saturated ring, not a
+    # reason to reject the whole connected fused system.
+    "AROMATIC_MAX_UNSPECIFIED_SINGLE_BOND_LENGTHS": {
+        ("C", "C"): 1.48,
+        ("C", "N"): 1.44,
+        ("C", "O"): 1.40,
+        ("C", "S"): 1.75,
+        ("N", "N"): 1.40,
+        # Ordinary aromatic N--O edges in isoxazole are typically ~1.41--1.42 Å.
+        ("N", "O"): 1.45,
+        ("N", "S"): 1.75,
+        ("O", "O"): 1.45,
+        ("O", "S"): 1.75,
+        ("S", "S"): 1.95,
+    },
+    "HUCKEL_ELECTRON_MODULUS": 4,
+    "HUCKEL_ELECTRON_RESIDUE": 2,
+    # A source order this close to an integer is that integer. Farther values,
+    # including an OpenSMILES aromatic 1.5, stay unresolved Kekulé variables.
+    "BOND_ORDER_INTEGRAL_TOLERANCE": 1.0e-8,
 }
 
 STEREOCHEMISTRY_CONFIG = {
