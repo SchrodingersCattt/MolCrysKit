@@ -23,6 +23,8 @@
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
 | Attach chemistry-domain records | `annotate_chemistry` | `MolecularCrystal` | `CrystalChemistry` | source docstring |
 | Infer bond orders and formal charges | `infer_chemistry` | `MolecularCrystal` | `CrystalChemistry` with alternatives/warnings | source docstring |
+| Infer bond orders for one entity | `infer_bond_orders` | `FiniteChemicalEntity` / `PeriodicChemicalEntity` | `BondOrderResult` with Hückel aromaticity, source locks, diagnostics, and alternatives | source docstring |
+| Infer bond orders from arrays | `infer_bond_orders_array`, `infer_bond_orders_batch` | coordinates, elements, optional bond pairs | `BondOrderResult` / tuple of results | source docstring |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
@@ -85,9 +87,9 @@ Independent immutable chemistry records and crystal-to-chemistry mapping.
 Implemented rule families and strict refusal boundaries are tracked in
 [Chemistry coverage and release gates](chemistry_coverage.md).
 
-- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`
+- Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`, `BondOrderOptions`, `BondOrderResult`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
-- Analysis and conversion: `annotate_chemistry`, `infer_chemistry`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `from_iupac_name`, `iupac_to_smiles`, `smiles_to_iupac`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`, `NamingParseError`
+- Analysis and conversion: `annotate_chemistry`, `infer_chemistry`, `infer_bond_orders`, `infer_bond_orders_array`, `infer_bond_orders_arrays`, `infer_bond_orders_from_arrays`, `infer_bond_orders_batch`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `from_iupac_name`, `iupac_to_smiles`, `smiles_to_iupac`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`, `NamingParseError`
 
 ### `mck.io`
 Read/write interfaces.

@@ -138,6 +138,78 @@ def interactions(input: Path, as_json: bool) -> None:
             click.echo(f"  {key}: {value}")
 
 
+@click.command("bond-orders")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, help="Print the auditable result as JSON.")
+@click.option("--strict", is_flag=True, help="Fail when a complete, unambiguous assignment is unavailable.")
+@click.option("--charge", type=int, default=None, help="Require this total formal charge per component.")
+def bond_orders(input: Path, as_json: bool, strict: bool, charge: int | None) -> None:
+    """Infer covalent bond orders and formal charges for INPUT.
+
+    Perception runs on a copy after connectivity has been annotated, so this
+    reporting command never changes the loaded structure.  It calls the same
+    immutable entity solver exposed through ``mck.chemistry``.
+    """
+    import json as json_mod
+
+    from molcrys_kit.chemistry import BondOrderOptions, annotate_chemistry, infer_bond_orders
+
+    try:
+        # ``MolecularCrystal.copy`` preserves stable atom IDs while isolating
+        # the chemistry attachment performed by annotate_chemistry.
+        crystal = load_crystal(input).copy()
+        chemistry = annotate_chemistry(crystal)
+        options = BondOrderOptions(strict=strict)
+        reports = [
+            infer_bond_orders(
+                component,
+                total_charge=charge,
+                options=options,
+            )
+            for component in chemistry.components
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    statuses = [_status_value(report) for report in reports]
+    payload = {
+        "file": str(input),
+        "status": "indeterminate" if not statuses else (statuses[0] if len(set(statuses)) == 1 else "mixed"),
+        "components": [report.to_dict() if hasattr(report, "to_dict") else report for report in reports],
+    }
+    if as_json:
+        click.echo(json_mod.dumps(payload, indent=2, default=_json_default))
+        return
+
+    click.echo(f"Bond-order perception: {input}")
+    click.echo(f"  Components: {len(reports)}")
+    for index, report in enumerate(reports):
+        entity = getattr(report, "entity", None)
+        status = _status_value(report)
+        bonds = getattr(entity, "bonds", ()) if entity is not None else ()
+        orders = ", ".join(
+            f"{bond.atom1_id}-{bond.atom2_id}:{bond.order:g}"
+            for bond in bonds
+            if getattr(bond, "order", None) is not None
+        )
+        click.echo(f"  [{index}] status={status}; bonds={orders or 'none'}")
+
+
+def _status_value(value) -> str:
+    status = getattr(value, "status", value)
+    return str(getattr(status, "value", status))
+
+
+def _json_default(value):
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    if hasattr(value, "value"):
+        return value.value
+    if hasattr(value, "__dict__"):
+        return value.__dict__
+    return str(value)
+
+
 @click.command("cell-integrity")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a summary.")
@@ -330,6 +402,7 @@ def register_analyze_commands(group: click.Group) -> None:
     group.add_command(summary)
     group.add_command(bfdh)
     group.add_command(interactions)
+    group.add_command(bond_orders)
     group.add_command(cell_integrity)
     group.add_command(polyhedra)
     group.add_command(sanity_check_cmd)
