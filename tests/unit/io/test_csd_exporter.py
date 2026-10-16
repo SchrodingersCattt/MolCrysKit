@@ -19,6 +19,12 @@ class _Coords:
         self.x, self.y, self.z = x, y, z
 
 
+class _BrokenCoords:
+    @property
+    def x(self):
+        raise RuntimeError("null TSite component")
+
+
 class _Atom:
     def __init__(self, label: str, symbol: str, coords: _Coords | None, occupancy: float = 1.0):
         self.label = label
@@ -148,6 +154,23 @@ def test_exporter_falls_back_from_null_disordered_molecule_and_skips_null_bonds(
     assert "H1       H" not in output.text
     assert any("omitted because fractional coordinates are unavailable" in warning for warning in result["warnings"])
     assert any("Bond export skipped" in warning for warning in result["warnings"])
+
+
+def test_exporter_treats_component_level_null_coordinates_as_missing():
+    """A null TSite can fail while reading x/y/z, not only at property access."""
+    c = _Atom("C1", "C", _Coords(0.1, 0.2, 0.3))
+    h = _Atom("H1", "H", _BrokenCoords())
+    output = _MemoryPath()
+
+    result = MODULE.export_full_cif_from_csd(
+        _Reader(_Crystal(_Molecule([c, h], [_Bond(c, h)]))),
+        "NULLCOMP",
+        output,
+    )
+
+    assert result["n_written_atoms"] == 1
+    assert "H1" not in output.text
+    assert any("fractional coordinates are unavailable" in warning for warning in result["warnings"])
 
 
 def test_exporter_drops_bonds_and_aniso_rows_for_omitted_atoms():
