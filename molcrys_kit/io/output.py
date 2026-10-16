@@ -271,10 +271,15 @@ def write_cif(
     # Transform provenance belongs to the crystal itself, while the optional
     # metadata argument remains available for operation-specific annotations.
     metadata = dict(metadata or {})
+    crystal_metadata = getattr(crystal, "metadata", {}) or {}
     if "cell_transform" not in metadata:
-        transform = getattr(crystal, "metadata", {}).get("cell_transform")
+        transform = crystal_metadata.get("cell_transform")
         if transform is not None:
             metadata["cell_transform"] = transform
+    if "termination_info" not in metadata:
+        termination_info = crystal_metadata.get("termination_info")
+        if termination_info is not None:
+            metadata["termination_info"] = termination_info
 
     lines = []
     lines.append("data_crystal")
@@ -326,15 +331,43 @@ def write_cif(
     if metadata is not None:
         ti = metadata.get("termination_info")
         if ti is not None:
-            lines.append(f"_molcrys_termination_shift        {ti.shift:.6f}")
-            lines.append(f"_molcrys_termination_index        {ti.termination_index}")
-            lines.append(f"_molcrys_tasker_type              '{ti.tasker_type}'")
-            lines.append(f"_molcrys_tasker_polar             {ti.is_polar}")
-            lines.append(
-                f"_molcrys_tasker_dipole_per_area   {ti.dipole_per_area:.6e}"
+            get_ti = (
+                ti.get
+                if isinstance(ti, dict)
+                else lambda key, default=None: getattr(ti, key, default)
             )
-            lines.append(f"_molcrys_charge_source            '{ti.charge_source}'")
-            lines.append(f"_molcrys_tasker2_corrected        {ti.tasker2_corrected}")
+            shift = get_ti("shift")
+            termination_index = get_ti("termination_index")
+            tasker_type = get_ti("tasker_type")
+            is_polar = get_ti("is_polar")
+            dipole_per_area = get_ti("dipole_per_area")
+            charge_source = get_ti("charge_source")
+            tasker2_corrected = get_ti("tasker2_corrected")
+            if shift is not None:
+                lines.append(
+                    f"_molcrys_termination_shift        {float(shift):.6f}"
+                )
+            if termination_index is not None:
+                lines.append(
+                    f"_molcrys_termination_index        {int(termination_index)}"
+                )
+            if tasker_type is not None:
+                escaped = str(tasker_type).replace(chr(39), chr(39) * 2)
+                lines.append(f"_molcrys_tasker_type              '{escaped}'")
+            if is_polar is not None:
+                lines.append(f"_molcrys_tasker_polar             {is_polar}")
+            if dipole_per_area is not None:
+                lines.append(
+                    "_molcrys_tasker_dipole_per_area   "
+                    f"{float(dipole_per_area):.6e}"
+                )
+            if charge_source is not None:
+                escaped = str(charge_source).replace(chr(39), chr(39) * 2)
+                lines.append(f"_molcrys_charge_source            '{escaped}'")
+            if tasker2_corrected is not None:
+                lines.append(
+                    f"_molcrys_tasker2_corrected        {tasker2_corrected}"
+                )
             lines.append("")
 
         transform = metadata.get("cell_transform")

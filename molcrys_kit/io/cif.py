@@ -1112,6 +1112,39 @@ def _extract_cif_chemistry(data_block: dict) -> dict:
     bond_source = _clean_cif_text_value(data_block.get("_molcrys_bond_table_source"))
     if bond_source is not None:
         metadata["molcrys_bond_table_source"] = bond_source
+
+    # Surface writers encode termination provenance as scalar CIF tags. Keep
+    # these values together so a CIF round-trip does not silently discard the
+    # selected termination (or its Tasker classification).
+    termination_tags = {
+        "shift": "_molcrys_termination_shift",
+        "termination_index": "_molcrys_termination_index",
+        "tasker_type": "_molcrys_tasker_type",
+        "is_polar": "_molcrys_tasker_polar",
+        "dipole_per_area": "_molcrys_tasker_dipole_per_area",
+        "charge_source": "_molcrys_charge_source",
+        "tasker2_corrected": "_molcrys_tasker2_corrected",
+    }
+    termination_info: dict = {}
+    for key, tag in termination_tags.items():
+        value = _clean_cif_text_value(data_block.get(tag))
+        if value is None:
+            continue
+        if key in {"shift", "dipole_per_area"}:
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                continue
+        elif key == "termination_index":
+            try:
+                value = int(float(value))
+            except (TypeError, ValueError):
+                continue
+        elif key in {"is_polar", "tasker2_corrected"}:
+            value = str(value).strip().casefold() in {"1", "true", "yes", "y"}
+        termination_info[key] = value
+    if termination_info:
+        metadata["termination_info"] = termination_info
     text_tags = {
         "chemical_name_systematic": "_chemical_name_systematic",
         "chemical_name_common": "_chemical_name_common",
@@ -2282,10 +2315,13 @@ def read_mol_crystal(
             resolved = crystals[0]
             cif_chemistry = dict(disorder_info.cif_chemistry)
             cell_transform = cif_chemistry.pop("cell_transform", None)
+            termination_info = cif_chemistry.pop("termination_info", None)
             resolved.metadata["cif_chemistry"] = cif_chemistry
             resolved.metadata["crystal_symmetry"] = disorder_info.crystal_symmetry
             if cell_transform is not None:
                 resolved.metadata["cell_transform"] = cell_transform
+            if termination_info is not None:
+                resolved.metadata["termination_info"] = termination_info
             if attach_chemistry:
                 from ..chemistry import infer_chemistry
 
@@ -2394,6 +2430,7 @@ def read_mol_crystal(
     pbc = (True, True, True)
     cif_chemistry = dict(disorder_info.cif_chemistry)
     cell_transform = cif_chemistry.pop("cell_transform", None)
+    termination_info = cif_chemistry.pop("termination_info", None)
     metadata = {
         "cif_chemistry": cif_chemistry,
         "crystal_symmetry": disorder_info.crystal_symmetry,
@@ -2401,6 +2438,8 @@ def read_mol_crystal(
     }
     if cell_transform is not None:
         metadata["cell_transform"] = cell_transform
+    if termination_info is not None:
+        metadata["termination_info"] = termination_info
     # Reconstruct the validated forward context written by expanded-P1
     # exports.  ASU exports use their declared operation loop directly;
     # expanded-P1 exports carry the physical source operation loop in the
