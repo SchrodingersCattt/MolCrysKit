@@ -39,6 +39,7 @@
 | Transform periodic cell | `MolecularCrystal.transform_cell` | target lattice or row-basis matrix | molecule-safe `MolecularCrystal` copy | source docstring |
 | Audit periodic cell | `check_cell_integrity` | `MolecularCrystal` (+ optional reference) | integrity report with hashes and seam contacts | source docstring |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
+| Forward crystal construction | `prepare_construction_context`, `analyze_molecular_pose`, `construct_molecular_crystal`, `construct_statistical_disorder` | cell + validated symmetry + complete rigid pose(s) | ordered `MolecularCrystal` / explicit disorder model | Issue #172 forward contract |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
 | Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
 | Add hydrogens | `add_hydrogens` | `MolecularCrystal` | `MolecularCrystal` | [Tutorials](tutorials.md) |
@@ -97,7 +98,7 @@ Read/write interfaces.
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
   - It preserves CIF chemical names, published bond rows, isotopes/site charges, and absolute-structure values with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`, then attaches a provisional chemistry snapshot automatically. Geometry-only callers can pass `attach_chemistry=False` to skip the perception pass.
-- Write: `write_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
+- Write: `write_cif`, `write_cif_p1`, `write_cif_asu`, `write_disorder_cif`, `write_forward_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
 
 ### `mck.operations`
@@ -116,6 +117,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 - Internal DOF interpolation: `interpolate_molecule_with_internal_dofs`
 - Reactive paths: `RigidGroup`, `BondChange`, `ReactivePathConfig`, `ReactivePathResult`, `interpolate_reactive_path`
+- Forward construction: `MolecularTemplate`, `MolecularPose`, `ForwardConstructionContext`, `CrystalConstructionContext`, `prepare_construction_context`, `prepare_context_from_cif`, `SiteSymmetryAnalysis`, `analyze_molecular_pose`, `analyze_site_symmetry`, `construct_molecular_crystal`, `build_molecular_crystal`, `build_symmetry_complete_crystal`, `MolecularAlternative`, `AverageAtomSite`, `StatisticalDisorderModel`, `construct_statistical_disorder`, `build_orientational_disorder`, `select_ordered_realization`, `ConstructionValidationError`, `InvalidOrientationError`, `InvalidSymmetryError`, `IncompatibleSiteError`
 
 Compatibility note: the former **create_defect_structure()** placeholder has been
 removed because it returned its input unchanged. Use `generate_vacancy` for a
@@ -132,6 +134,7 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`; `sanity_check` accepts `profile="complete-crystal"` or `profile="fragment"`, and skipped checks are reported with `CheckResult.status == "skipped"`.
 - Cell integrity: `CellIntegrityReport`, `check_cell_integrity`
 - Periodic bundle validation: `validate_periodic_bundle`
+- Site symmetry: `SiteSymmetryAnalysis`, `analyze_molecular_pose`, `analyze_site_symmetry`
 - Structure summary: `summarize_structure`
 
 ### `mck.analysis.volume`

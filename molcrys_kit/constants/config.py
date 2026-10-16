@@ -16,6 +16,17 @@ PERIODIC_NEIGHBOR_TOLERANCE_A = 1e-8
 # Occupancy tolerance shared by disorder predicates and summary reporting.
 PARTIAL_OCCUPANCY_TOLERANCE = 1e-6
 
+# Fractional-coordinate tolerance for deciding whether a CIF symmetry image is
+# the same crystallographic site.  This is deliberately a coordinate-space
+# tolerance: a small Cartesian distance alone does not make a general-position
+# site special (for example, a site just off a mirror plane).
+CIF_SYMMETRY_TOLERANCE = 1e-7
+
+# Legacy full-cell CIFs sometimes repeat refined atom rows from the same orbit
+# with sub-milliangstrom coordinate noise.  Keep their established canonical
+# representative selection; true-ASU exports use CIF_SYMMETRY_TOLERANCE above.
+CIF_LEGACY_COINCIDENCE_TOLERANCE_A = 0.01
+
 # Minimum positive 3D cell volume accepted for symmetry analysis, in Angstrom^3.
 MIN_PERIODIC_CELL_VOLUME_A3 = 1e-8
 

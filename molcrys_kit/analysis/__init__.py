@@ -91,6 +91,7 @@ from .volume import (
     calculate_total_volume,
     min_distance_to_boundary,
 )
+from .site_symmetry import SiteSymmetryAnalysis, analyze_molecular_pose, analyze_site_symmetry
 
 __all__ = [
     "DEFAULT_CENTROID_OFFSET_FRAC",
@@ -167,6 +168,9 @@ __all__ = [
     "hull_encloses_center",
     "match_molecule_to_fragment",
     "min_distance_to_boundary",
+    "SiteSymmetryAnalysis",
+    "analyze_molecular_pose",
+    "analyze_site_symmetry",
     "parse_moiety_string",
     "planarity_analysis",
     "puckering_coordinates",

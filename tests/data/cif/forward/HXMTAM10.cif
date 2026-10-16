@@ -1,0 +1,126 @@
+data_forward_fixture
+_cell_length_a 6.9274
+_cell_length_b 6.9274
+_cell_length_c 6.9274
+_cell_angle_alpha 90.00
+_cell_angle_beta 90.00
+_cell_angle_gamma 90.00
+_cell_volume 332.44
+_cell_formula_units_Z 2
+_space_group_name_H-M_alt 'I-43m'
+_space_group_IT_number 217
+_space_group_setting 1
+_space_group_name_Hall '?'
+
+loop_
+_symmetry_equiv_pos_as_xyz
+'x,y,z'
+'y,-x,-z'
+'x,-y,-z'
+'z,x,y'
+'-x,-y,z'
+'-y,-x,z'
+'x,-z,-y'
+'-y,x,-z'
+'-x,y,-z'
+'-z,-x,y'
+'y,x,z'
+'-x,z,-y'
+'z,-x,-y'
+'x,z,y'
+'-z,x,-y'
+'-x,-z,y'
+'y,z,x'
+'z,-y,-x'
+'-z,-y,x'
+'y,-z,-x'
+'z,y,x'
+'-y,z,-x'
+'-y,-z,x'
+'-z,y,-x'
+'1/2+x,1/2+y,1/2+z'
+'1/2+y,1/2-x,1/2-z'
+'1/2+x,1/2-y,1/2-z'
+'1/2+z,1/2+x,1/2+y'
+'1/2-x,1/2-y,1/2+z'
+'1/2-y,1/2-x,1/2+z'
+'1/2+x,1/2-z,1/2-y'
+'1/2-y,1/2+x,1/2-z'
+'1/2-x,1/2+y,1/2-z'
+'1/2-z,1/2-x,1/2+y'
+'1/2+y,1/2+x,1/2+z'
+'1/2-x,1/2+z,1/2-y'
+'1/2+z,1/2-x,1/2-y'
+'1/2+x,1/2+z,1/2+y'
+'1/2-z,1/2+x,1/2-y'
+'1/2-x,1/2-z,1/2+y'
+'1/2+y,1/2+z,1/2+x'
+'1/2+z,1/2-y,1/2-x'
+'1/2-z,1/2-y,1/2+x'
+'1/2+y,1/2-z,1/2-x'
+'1/2+z,1/2+y,1/2+x'
+'1/2-y,1/2+z,1/2-x'
+'1/2-y,1/2-z,1/2+x'
+'1/2-z,1/2+y,1/2-x'
+
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_U_iso_or_equiv
+_atom_site_thermal_displace_type
+C1 C 0.243100 0.000000 0.000000 1.0000 ? ?
+N1 N 0.125100 0.125100 0.125100 1.0000 ? ?
+H1 H 0.333100 -0.092200 0.092200 1.0000 ? ?
+C1G C 0.000000 0.243100 0.000000 1.0000 ? ?
+N1G N -0.125100 0.125100 -0.125100 1.0000 ? ?
+C1D C -0.243100 0.000000 0.000000 1.0000 ? ?
+N1D N -0.125100 -0.125100 0.125100 1.0000 ? ?
+C1A C 0.000000 -0.243100 0.000000 1.0000 ? ?
+N1A N 0.125100 -0.125100 -0.125100 1.0000 ? ?
+H1B H 0.333100 0.092200 -0.092200 1.0000 ? ?
+C1Q C 0.000000 0.000000 -0.243100 1.0000 ? ?
+H1Q H 0.092200 0.092200 -0.333100 1.0000 ? ?
+H1W H -0.092200 -0.092200 -0.333100 1.0000 ? ?
+H1A H -0.092200 -0.333100 -0.092200 1.0000 ? ?
+H1E H 0.092200 -0.333100 0.092200 1.0000 ? ?
+C1V C 0.000000 0.000000 0.243100 1.0000 ? ?
+H1V H 0.092200 -0.092200 0.333100 1.0000 ? ?
+H1P H -0.092200 0.092200 0.333100 1.0000 ? ?
+H1D H -0.333100 0.092200 0.092200 1.0000 ? ?
+H1H H -0.333100 -0.092200 -0.092200 1.0000 ? ?
+H1G H 0.092200 0.333100 -0.092200 1.0000 ? ?
+H1J H -0.092200 0.333100 0.092200 1.0000 ? ?
+
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_type
+C1 N1 1.4732 Single
+N1 C1G 1.4732 Single
+H1 C1 1.0975 Single
+C1G N1G 1.4732 Single
+N1G C1D 1.4732 Single
+C1D N1D 1.4732 Single
+N1D C1A 1.4732 Single
+C1A N1A 1.4732 Single
+N1A C1 1.4732 Single
+H1B C1 1.0975 Single
+C1Q N1G 1.4732 Single
+H1Q C1Q 1.0975 Single
+H1W C1Q 1.0975 Single
+H1A C1A 1.0975 Single
+H1E C1A 1.0975 Single
+C1V N1 1.4732 Single
+H1V C1V 1.0975 Single
+H1P C1V 1.0975 Single
+H1D C1D 1.0975 Single
+H1H C1D 1.0975 Single
+H1G C1G 1.0975 Single
+H1J C1G 1.0975 Single
+N1D C1V 1.4732 Single
+N1A C1Q 1.4732 Single

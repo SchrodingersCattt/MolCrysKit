@@ -33,7 +33,11 @@ from ..constants import (
     has_atomic_radius,
     is_metal_element,
 )
-from ..utils.geometry import minimum_image_distance, unwrap_positions_along_bonds
+from ..constants.config import (
+    CIF_LEGACY_COINCIDENCE_TOLERANCE_A,
+    CIF_SYMMETRY_TOLERANCE,
+)
+from ..utils.geometry import unwrap_positions_along_bonds
 
 
 logger = logging.getLogger(__name__)
@@ -248,6 +252,42 @@ def _extract_custom_molcrys_provenance_rows(
     return rows
 
 
+def _extract_custom_molcrys_atom_ids(text: str) -> Dict[int, str]:
+    """Read the optional atom-identity side table emitted by MolCrysKit."""
+    lines = text.splitlines()
+    result: Dict[int, str] = {}
+    for index, line in enumerate(lines):
+        if line.strip().lower() != "loop_":
+            continue
+        cursor = index + 1
+        tags = []
+        while cursor < len(lines) and lines[cursor].lstrip().startswith("_"):
+            tags.append(lines[cursor].strip().split()[0])
+            cursor += 1
+        if "_molcrys_atom_index" not in tags or "_molcrys_atom_id" not in tags:
+            continue
+        tag_to_index = {tag: position for position, tag in enumerate(tags)}
+        while cursor < len(lines):
+            stripped = lines[cursor].strip()
+            if not stripped:
+                cursor += 1
+                continue
+            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+                break
+            # IDs are quoted by the writer; shlex handles both quoted and
+            # unquoted legacy values without changing embedded punctuation.
+            import shlex
+            tokens = shlex.split(stripped)
+            if len(tokens) == len(tags):
+                try:
+                    atom_index = int(tokens[tag_to_index["_molcrys_atom_index"]])
+                    result[atom_index] = tokens[tag_to_index["_molcrys_atom_id"]]
+                except (TypeError, ValueError, IndexError):
+                    pass
+            cursor += 1
+    return result
+
+
 def _pymatgen_cif_parser(
     filepath: Optional[str] = None,
     *,
@@ -277,6 +317,7 @@ def _build_molecule_graph(
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
+    explicit_bonds: Optional[List[Tuple[int, int]]] = None,
 ) -> nx.Graph:
     """Build molecule membership and periodic-image bond provenance.
 
@@ -373,6 +414,16 @@ def _build_molecule_graph(
                 != sym_op_indices[j_list].astype(int, copy=False)
             )
         compatible &= ~incompatible
+    # Forward/ASU CIFs carry complete explicit connectivity.  A geometric
+    # contact between different symmetry images is not an additional bond: a
+    # general-position atom close to a mirror plane can otherwise form a
+    # spurious ultra-short self-image edge.  Keep ordinary geometry within one
+    # image and add the authoritative cross-image edges below.
+    if explicit_bonds and sym_op_indices is not None:
+        compatible &= (
+            sym_op_indices[i_list].astype(int, copy=False)
+            == sym_op_indices[j_list].astype(int, copy=False)
+        )
 
     i_list = i_list[compatible]
     j_list = j_list[compatible]
@@ -436,6 +487,66 @@ def _build_molecule_graph(
                 image_shift=image_shift,
             )
 
+    # Published/forward connectivity is authoritative when present.  It is
+    # additive within each symmetry image, while a long or unusual template
+    # bond cannot disappear merely because it exceeds the heuristic cutoff.
+    if explicit_bonds:
+        for raw_left, raw_right in explicit_bonds:
+            try:
+                left, right = int(raw_left), int(raw_right)
+            except (TypeError, ValueError):
+                continue
+            if not (
+                0 <= left < len(atoms)
+                and 0 <= right < len(atoms)
+                and left != right
+                and left not in excluded
+                and right not in excluded
+            ):
+                continue
+            if left > right:
+                left, right = right, left
+            if disorder_groups is not None:
+                group_left = int(disorder_groups[left])
+                group_right = int(disorder_groups[right])
+                if group_left and group_right and group_left != group_right:
+                    continue
+                if (
+                    sym_op_indices is not None
+                    and group_left
+                    and group_right
+                    and int(sym_op_indices[left]) != int(sym_op_indices[right])
+                ):
+                    continue
+            vector = np.asarray(
+                atoms.get_distance(left, right, mic=True, vector=True),
+                dtype=float,
+            )
+            raw_vector = np.asarray(
+                atoms.positions[right] - atoms.positions[left], dtype=float
+            )
+            cell = np.asarray(atoms.get_cell(), dtype=float)
+            if cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1.0e-12:
+                image_shift = np.rint((vector - raw_vector) @ np.linalg.inv(cell)).astype(int)
+            else:
+                image_shift = np.zeros(3, dtype=int)
+            crystal_graph.add_edge(
+                left,
+                right,
+                vector=vector,
+                image_shift=image_shift,
+            )
+            key = (min(left, right), max(left, right), tuple(int(value) for value in image_shift))
+            canonical_records.setdefault(
+                key,
+                {
+                    "left": key[0],
+                    "right": key[1],
+                    "right_image_shift": list(key[2]),
+                    "vector": [float(value) for value in vector],
+                },
+            )
+
     crystal_graph.graph["bond_records"] = [
         canonical_records[key] for key in sorted(canonical_records)
     ]
@@ -465,6 +576,7 @@ def identify_molecule_indices(
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
+    explicit_bonds: Optional[List[Tuple[int, int]]] = None,
 ) -> List[List[int]]:
     """
     Identify discrete molecular units and return their original atom indices.
@@ -480,6 +592,7 @@ def identify_molecule_indices(
         bond_thresholds=bond_thresholds,
         exclude_indices=exclude_indices,
         bond_scale=bond_scale,
+        explicit_bonds=explicit_bonds,
     )
     return _component_atom_indices(
         crystal_graph,
@@ -494,6 +607,7 @@ def identify_molecules(
     max_atoms: Optional[int] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
+    explicit_bonds: Optional[List[Tuple[int, int]]] = None,
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -517,6 +631,7 @@ def identify_molecules(
         KEY_LABEL,
         KEY_OCCUPANCY,
         KEY_SYM_OP_INDEX,
+        KEY_ATOM_ID,
     )
 
     crystal_graph = _build_molecule_graph(
@@ -524,6 +639,7 @@ def identify_molecules(
         bond_thresholds=bond_thresholds,
         exclude_indices=exclude_indices,
         bond_scale=bond_scale,
+        explicit_bonds=explicit_bonds,
     )
     components = _component_atom_indices(
         crystal_graph,
@@ -575,6 +691,8 @@ def identify_molecules(
             KEY_ASSEMBLY,
             KEY_LABEL,
             KEY_SYM_OP_INDEX,
+            KEY_ATOM_ID,
+            "mck_molecule_id",
         ]:
             if key in atoms.arrays:
                 original_array = atoms.arrays[key]
@@ -661,6 +779,9 @@ class DisorderInfo:
     site_formal_charges: List[Optional[int]] = None  # Explicit per-site charge
     cif_chemistry: dict = None  # Names, absolute-structure evidence, bond table
     crystal_symmetry: CrystalSymmetry = None  # Validated affine operation set
+    atom_ids: List[str] = None  # Stable MolCrysKit atom identities
+    molecule_ids: List[int] = None  # Optional writer-side molecule provenance
+    source_symmetry: CrystalSymmetry = None  # Provenance symmetry for expanded-P1 output
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -687,6 +808,10 @@ class DisorderInfo:
             self.isotopes = [0] * len(self.labels)
         if self.site_formal_charges is None:
             self.site_formal_charges = [None] * len(self.labels)
+        if self.atom_ids is None:
+            self.atom_ids = [""] * len(self.labels)
+        if self.molecule_ids is None:
+            self.molecule_ids = [-1] * len(self.labels)
         if self.cif_chemistry is None:
             self.cif_chemistry = {}
         # lattice_matrix stays None when not available (e.g. legacy callers);
@@ -741,6 +866,7 @@ class DisorderInfo:
             KEY_FORMAL_CHARGE,
             KEY_FORMAL_CHARGE_KNOWN,
             KEY_ISOTOPE,
+            KEY_ATOM_ID,
         )
 
         atoms = crystal.to_ase()
@@ -750,6 +876,14 @@ class DisorderInfo:
 
         labels_arr = atoms.arrays.get(KEY_LABEL)
         labels = list(labels_arr) if labels_arr is not None else list(symbols)
+        atom_ids_arr = atoms.arrays.get(KEY_ATOM_ID)
+        atom_ids = list(atom_ids_arr) if atom_ids_arr is not None else [""] * n
+        molecule_ids_arr = atoms.arrays.get("mck_molecule_id")
+        molecule_ids = (
+            [int(value) for value in molecule_ids_arr]
+            if molecule_ids_arr is not None
+            else [-1] * n
+        )
 
         # Always recompute fractional coordinates from Cartesian positions
         # and the current lattice.  Stored frac_x/y/z arrays are CIF-origin
@@ -837,6 +971,11 @@ class DisorderInfo:
             site_formal_charges=site_formal_charges,
             cif_chemistry=dict(crystal.metadata.get("cif_chemistry", {})),
             crystal_symmetry=crystal.metadata.get("crystal_symmetry"),
+            atom_ids=atom_ids,
+            molecule_ids=molecule_ids,
+            source_symmetry=crystal.metadata.get("forward_context", None).symmetry
+            if crystal.metadata.get("forward_context") is not None
+            else None,
         )
 
     def summary(self) -> str:
@@ -967,6 +1106,45 @@ def _clean_cif_text_value(value) -> str | None:
 def _extract_cif_chemistry(data_block: dict) -> dict:
     """Preserve chemistry and absolute-structure fields from one CIF block."""
     metadata: dict = {}
+    representation = _clean_cif_text_value(data_block.get("_molcrys_representation"))
+    if representation is not None:
+        metadata["molcrys_representation"] = representation
+    bond_source = _clean_cif_text_value(data_block.get("_molcrys_bond_table_source"))
+    if bond_source is not None:
+        metadata["molcrys_bond_table_source"] = bond_source
+
+    # Surface writers encode termination provenance as scalar CIF tags. Keep
+    # these values together so a CIF round-trip does not silently discard the
+    # selected termination (or its Tasker classification).
+    termination_tags = {
+        "shift": "_molcrys_termination_shift",
+        "termination_index": "_molcrys_termination_index",
+        "tasker_type": "_molcrys_tasker_type",
+        "is_polar": "_molcrys_tasker_polar",
+        "dipole_per_area": "_molcrys_tasker_dipole_per_area",
+        "charge_source": "_molcrys_charge_source",
+        "tasker2_corrected": "_molcrys_tasker2_corrected",
+    }
+    termination_info: dict = {}
+    for key, tag in termination_tags.items():
+        value = _clean_cif_text_value(data_block.get(tag))
+        if value is None:
+            continue
+        if key in {"shift", "dipole_per_area"}:
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                continue
+        elif key == "termination_index":
+            try:
+                value = int(float(value))
+            except (TypeError, ValueError):
+                continue
+        elif key in {"is_polar", "tasker2_corrected"}:
+            value = str(value).strip().casefold() in {"1", "true", "yes", "y"}
+        termination_info[key] = value
+    if termination_info:
+        metadata["termination_info"] = termination_info
     text_tags = {
         "chemical_name_systematic": "_chemical_name_systematic",
         "chemical_name_common": "_chemical_name_common",
@@ -1265,6 +1443,18 @@ def _crystal_symmetry_from_data_block(
     declared_sg = _declared_space_group(data_block)
     expanded = False
     if (
+        strict
+        and declared_sg is not None
+        and declared_sg.int_number > 1
+        and len(parsed_pairs) < len(declared_sg.symmetry_ops)
+    ):
+        raise ValueError(
+            "incomplete non-P1 symmetry operation loop: CIF declares "
+            f"space group #{declared_sg.int_number} ({declared_sg.symbol}) with "
+            f"{len(declared_sg.symmetry_ops)} operations but provides "
+            f"only {len(parsed_pairs)}"
+        )
+    if (
         expand_symmetry
         and declared_sg is not None
         and declared_sg.int_number > 1
@@ -1346,28 +1536,20 @@ def read_cif_symmetry(
     )
 
 
-def _are_coords_close(
-    coord1: np.ndarray, coord2: np.ndarray, lattice: Lattice, tol: float = 0.01
+def _fractional_sites_equivalent(
+    coord1: np.ndarray,
+    coord2: np.ndarray,
+    tolerance: float = CIF_SYMMETRY_TOLERANCE,
 ) -> bool:
-    """
-    Check if two fractional coordinates represent the same position in the unit cell.
+    """Return whether two fractional coordinates are the same site modulo PBC.
 
-    Parameters
-    ----------
-    coord1, coord2 : np.ndarray
-        Fractional coordinates to compare.
-    lattice : Lattice
-        The crystal lattice for distance calculation.
-    tol : float
-        Tolerance for considering coordinates as the same (in Angstroms).
-
-    Returns
-    -------
-    bool
-        True if the coordinates are close enough to be considered the same.
+    Symmetry expansion may remove an image only when the coordinates agree in
+    fractional space, up to an integer lattice translation.  A Cartesian
+    distance cutoff would incorrectly turn a general-position site very close
+    to a mirror or rotation axis into a special-position site.
     """
-    distance = minimum_image_distance(coord1, coord2, lattice.matrix)
-    return distance < tol
+    delta = np.asarray(coord1, dtype=float) - np.asarray(coord2, dtype=float)
+    return bool(np.allclose(delta, np.rint(delta), atol=tolerance, rtol=0.0))
 
 
 def scan_cif_disorder(
@@ -1428,6 +1610,28 @@ def scan_cif_disorder(
         expand_symmetry=expand_symmetry,
         strict=False,
     )
+    representation = str(
+        _first_cif_value(data_block.get("_molcrys_representation")) or ""
+    ).strip().casefold()
+    is_true_asu_export = representation == "ordered_asymmetric_unit"
+    source_symmetry = None
+    source_xyz = _as_cif_list(data_block.get("_molcrys_source_symop_xyz"))
+    if source_xyz:
+        source_block = dict(data_block)
+        source_block["_symmetry_equiv_pos_as_xyz"] = source_xyz
+        if "_molcrys_source_space_group_number" in data_block:
+            source_block["_symmetry_Int_Tables_number"] = data_block[
+                "_molcrys_source_space_group_number"
+            ]
+        if "_molcrys_source_space_group_name_H-M" in data_block:
+            source_block["_symmetry_space_group_name_H-M"] = data_block[
+                "_molcrys_source_space_group_name_H-M"
+            ]
+        source_symmetry = _crystal_symmetry_from_data_block(
+            source_block,
+            expand_symmetry=False,
+            strict=False,
+        )
     sym_ops = [
         SymmOp.from_rotation_and_translation(
             operation.rotation,
@@ -1454,6 +1658,9 @@ def scan_cif_disorder(
     # Extract raw data fields
     labels = _as_cif_list(data_block.get("_atom_site_label"))
     symbols = _as_cif_list(data_block.get("_atom_site_type_symbol"))
+    raw_atom_ids = [str(value) for value in _as_cif_list(data_block.get("_molcrys_atom_id"))]
+    raw_molecule_ids = _as_cif_list(data_block.get("_molcrys_molecule_id"))
+    side_atom_ids = _extract_custom_molcrys_atom_ids(raw_text or "")
     raw_type_symbols = list(symbols)
 
     # If type symbols are missing, try to extract them from labels
@@ -1493,6 +1700,16 @@ def scan_cif_disorder(
 
     # Convert fractional coordinates to numpy array
     n_atoms = len(labels)
+    atom_ids = [
+        (raw_atom_ids[index] if index < len(raw_atom_ids) else side_atom_ids.get(index, ""))
+        for index in range(n_atoms)
+    ]
+    molecule_ids = []
+    for index in range(n_atoms):
+        try:
+            molecule_ids.append(int(_extract_numeric_value(raw_molecule_ids[index])))
+        except (IndexError, TypeError, ValueError):
+            molecule_ids.append(-1)
     frac_coords = np.zeros((n_atoms, 3))
 
     for i in range(n_atoms):
@@ -1610,6 +1827,13 @@ def scan_cif_disorder(
     _have_custom_soi = len(_raw_molcrys_soi) >= n_atoms or bool(_side_table)
     _have_custom_aid = len(_raw_molcrys_aid) >= n_atoms or bool(_side_table)
     _have_custom_sso = len(_raw_molcrys_sso) >= n_atoms or bool(_side_table)
+    # Standard CSD CIFs often contain a published ``_geom_bond`` table,
+    # but those bonds are descriptive and must not override the caller's
+    # bond-scale perception threshold.  MolCrysKit forward exports carry one
+    # of the custom provenance tables above; mark that distinction so only
+    # those authoritative connectivity records are re-applied on read-back.
+    if _have_custom_soi or _have_custom_aid or _have_custom_sso:
+        cif_chemistry["molcrys_provenance"] = True
 
     molcrys_sym_op_indices = []
     molcrys_asym_ids = []
@@ -1677,30 +1901,50 @@ def scan_cif_disorder(
     all_raw_type_symbols = []
     all_isotopes = []
     all_site_formal_charges = []
+    all_atom_ids = []
+    all_molecule_ids = []
 
     # Per-element buckets canonicalise symmetry-equivalent ASU rows (some CSD
     # exports contain multiple labelled rows from the same orbit).  Distinct
     # labelled sources that are already coincident in the ASU are the important
     # exception: they represent separate provenance/disorder alternatives and
-    # must both survive, including in P1.
+    # must both survive, including in P1.  Equivalence is tested in fractional
+    # space below; a Cartesian distance cutoff would collapse valid sites just
+    # off a special-position plane.
     coords_by_symbol: dict[str, list[np.ndarray]] = {}
     sources_by_symbol: dict[str, list[int]] = {}
     lattice_matrix = lattice.matrix
-    tol_sq = 0.01 * 0.01  # match _are_coords_close default (Å)
+    legacy_tol_sq = CIF_LEGACY_COINCIDENCE_TOLERANCE_A**2
+    legacy_shifts_frac = np.array(
+        list(itertools.product([-1, 0, 1], repeat=3)), dtype=float
+    )
 
     protected_source_mask = np.zeros((len(labels), len(labels)), dtype=bool)
     for left in range(len(labels)):
         for right in range(left + 1, len(labels)):
             if symbols[left] != symbols[right] or labels[left] == labels[right]:
                 continue
-            if _are_coords_close(frac_coords[left], frac_coords[right], lattice):
+            if is_true_asu_export:
+                protected = _fractional_sites_equivalent(
+                    frac_coords[left], frac_coords[right]
+                )
+            else:
+                fractional_delta = frac_coords[left] - frac_coords[right]
+                fractional_delta -= np.rint(fractional_delta)
+                candidate_cartesian = (
+                    fractional_delta[None, :] + legacy_shifts_frac
+                ) @ lattice_matrix
+                protected = (
+                    np.min(
+                        np.einsum(
+                            "ij,ij->i", candidate_cartesian, candidate_cartesian
+                        )
+                    )
+                    < legacy_tol_sq
+                )
+            if protected:
                 protected_source_mask[left, right] = True
                 protected_source_mask[right, left] = True
-
-    # Pre-compute the 27 lattice-shift integer offsets used by the
-    # minimum-image convention, plus their Cartesian counterparts.  We
-    # reuse them on every comparison to avoid rebuilding the shift table.
-    _shifts_frac = np.array(list(itertools.product([-1, 0, 1], repeat=3)), dtype=float)
 
     # For each original atom, apply each symmetry operation
     for i in range(len(labels)):
@@ -1720,18 +1964,31 @@ def scan_cif_disorder(
             # Wrap to unit cell (between 0 and 1)
             new_coord = np.mod(new_coord, 1.0)
 
-            # Vectorised dedup against every existing image of this
-            # element.  Equivalent to running `_are_coords_close` against
-            # each one but ~100x faster on large unit cells (e.g. PAP-4).
+            # Vectorised dedup against every existing image of this element.
+            # Only fractional-coordinate equivalence is a crystallographic
+            # coincidence; nearby Cartesian positions remain distinct sites.
             if bucket:
                 existing = np.asarray(bucket)
-                deltas = existing - new_coord  # (N, 3)
-                deltas -= np.round(deltas)  # bring into [-0.5, 0.5]
-                # 27 candidate vectors per existing atom: (N, 27, 3)
-                cand_frac = deltas[:, None, :] + _shifts_frac[None, :, :]
-                cand_cart = cand_frac @ lattice_matrix  # (N, 27, 3)
-                dists_sq = np.einsum("ijk,ijk->ij", cand_cart, cand_cart)
-                coincident = np.min(dists_sq, axis=1) < tol_sq
+                deltas = existing - new_coord
+                if is_true_asu_export:
+                    coincident = np.all(
+                        np.isclose(
+                            deltas,
+                            np.rint(deltas),
+                            atol=CIF_SYMMETRY_TOLERANCE,
+                            rtol=0.0,
+                        ),
+                        axis=1,
+                    )
+                else:
+                    candidate_fractional = (
+                        deltas[:, None, :] + legacy_shifts_frac[None, :, :]
+                    )
+                    candidate_cartesian = candidate_fractional @ lattice_matrix
+                    distance_squared = np.einsum(
+                        "ijk,ijk->ij", candidate_cartesian, candidate_cartesian
+                    )
+                    coincident = np.min(distance_squared, axis=1) < legacy_tol_sq
                 existing_sources = np.asarray(bucket_sources, dtype=int)
                 protected = protected_source_mask[i, existing_sources]
                 if np.any(coincident & ~protected):
@@ -1749,13 +2006,18 @@ def scan_cif_disorder(
             all_raw_type_symbols.append(str(raw_type_symbols[i]))
             all_isotopes.append(int(isotopes[i]))
             all_site_formal_charges.append(site_formal_charges[i])
+            source_atom_id = atom_ids[i] if i < len(atom_ids) else ""
+            if source_atom_id and len(sym_ops) > 1 and op_idx:
+                source_atom_id = f"{source_atom_id}@op{op_idx}"
+            all_atom_ids.append(source_atom_id)
+            all_molecule_ids.append(molecule_ids[i] if i < len(molecule_ids) else -1)
 
             # Use custom _molcrys_* provenance when available (CIF round-trip
             # for slabs/supercells where symmetry expansion is P1 identity).
             # Otherwise fall back to symmetry-expansion-based defaults.
             # (Bounds checks are safe because the lists are built for n_atoms;
             # this is defense-in-depth against edge-case CIF corruption.)
-            if _have_custom_soi:
+            if _have_custom_soi and not is_true_asu_export:
                 all_sym_op_indices.append(molcrys_sym_op_indices[i])
             else:
                 all_sym_op_indices.append(op_idx)
@@ -1794,8 +2056,11 @@ def scan_cif_disorder(
         raw_type_symbols=all_raw_type_symbols,
         isotopes=all_isotopes,
         site_formal_charges=all_site_formal_charges,
+        atom_ids=all_atom_ids,
+        molecule_ids=all_molecule_ids,
         cif_chemistry=cif_chemistry,
         crystal_symmetry=crystal_symmetry,
+        source_symmetry=source_symmetry,
     )
 
 
@@ -1854,7 +2119,180 @@ def read_mol_crystal(
         KEY_FORMAL_CHARGE,
         KEY_FORMAL_CHARGE_KNOWN,
         KEY_ISOTOPE,
+        KEY_ATOM_ID,
     )
+
+    # A full molecular-crystal read must never silently expand an identity-only
+    # loop from a non-P1 declaration.  That fallback is retained for the
+    # explicitly permissive ``scan_cif_disorder`` compatibility API, while the
+    # structure reader rejects the incomplete source before any atoms are
+    # materialized with a wrong multiplicity.
+    read_cif_symmetry(
+        filepath,
+        cif_text=cif_text,
+        expand_symmetry=False,
+        strict=True,
+    )
+
+    def _published_bond_pairs(
+        atoms_obj: Atoms,
+        records,
+        *,
+        operations=(),
+        lattice_matrix=None,
+    ) -> list[tuple[int, int]]:
+        """Map CIF bond-loop labels back to the expanded atom indices.
+
+        ``_geom_bond_site_symmetry_2`` is essential for ASU rows whose bond
+        endpoint is exchanged by a site stabilizer.  In that case both CIF
+        labels are intentionally the same and a distance-only label match
+        would either discard the edge or select the wrong image.
+        """
+        if not records:
+            return []
+        labels_arr = np.asarray(atoms_obj.arrays.get(KEY_LABEL, []), dtype=str)
+        by_label: dict[str, list[int]] = {}
+        for index, label in enumerate(labels_arr):
+            by_label.setdefault(str(label), []).append(index)
+        fractional = np.asarray(atoms_obj.get_scaled_positions(wrap=False), dtype=float)
+        sym_op_indices = np.asarray(
+            atoms_obj.arrays.get(KEY_SYM_OP_INDEX, ()), dtype=int
+        )
+
+        def _identity_operation_index() -> int | None:
+            for index, operation in enumerate(operations):
+                if np.allclose(
+                    operation.rotation,
+                    np.eye(3),
+                    atol=CIF_SYMMETRY_TOLERANCE,
+                    rtol=0.0,
+                ) and np.allclose(
+                    operation.translation,
+                    np.rint(operation.translation),
+                    atol=CIF_SYMMETRY_TOLERANCE,
+                    rtol=0.0,
+                ):
+                    return index
+            return None
+
+        identity_index = _identity_operation_index()
+
+        def _matching_candidates(expected, candidates):
+            matches = []
+            expected = np.asarray(expected, dtype=float)
+            for candidate in candidates:
+                delta = fractional[int(candidate)] - expected
+                delta -= np.rint(delta)
+                cartesian_delta = delta @ np.asarray(lattice_matrix, dtype=float)
+                if float(np.linalg.norm(cartesian_delta)) <= 1.0e-4:
+                    matches.append(int(candidate))
+            return matches
+
+        pairs: list[tuple[int, int]] = []
+        for record in records:
+            left_candidates = by_label.get(str(record.get("atom1_label", "")), ())
+            right_candidates = by_label.get(str(record.get("atom2_label", "")), ())
+            if not left_candidates or not right_candidates:
+                continue
+            site_symmetry = str(record.get("site_symmetry_2") or "").strip().strip("'\"")
+            symmetry_match = re.fullmatch(r"(?P<index>\d+)(?:_(?P<shift>[1-9]{3}))?", site_symmetry)
+            if (
+                symmetry_match is not None
+                and operations
+                and lattice_matrix is not None
+            ):
+                operation_index = int(symmetry_match.group("index")) - 1
+                if 0 <= operation_index < len(operations):
+                    shift_token = symmetry_match.group("shift")
+                    image_shift = np.zeros(3, dtype=int)
+                    if shift_token is not None:
+                        image_shift = np.asarray(
+                            [int(value) - 5 for value in shift_token], dtype=int
+                        )
+                    operation = operations[operation_index]
+                    # CIF's site-symmetry code describes atom site 2.  Start
+                    # from the two untransformed ASU endpoints, map the right
+                    # endpoint by that code, and then apply every group
+                    # operation to both endpoints.  This keeps the symmetry
+                    # image provenance in both directions and reconstructs
+                    # every mate of a cross-image bond.
+                    if identity_index is not None and len(sym_op_indices) == len(fractional):
+                        asu_left_candidates = [
+                            int(index)
+                            for index in left_candidates
+                            if int(sym_op_indices[int(index)]) == identity_index
+                        ]
+                        asu_right_candidates = [
+                            int(index)
+                            for index in right_candidates
+                            if int(sym_op_indices[int(index)]) == identity_index
+                        ]
+                        # A special-position site may be deduplicated before
+                        # the identity operation is visited.  Its retained
+                        # coordinate is still a valid ASU representative.
+                        if not asu_left_candidates:
+                            asu_left_candidates = list(map(int, left_candidates))
+                        if not asu_right_candidates:
+                            asu_right_candidates = list(map(int, right_candidates))
+                    else:
+                        asu_left_candidates = list(map(int, left_candidates))
+                        asu_right_candidates = list(map(int, right_candidates))
+                    for asu_left in asu_left_candidates:
+                        for asu_right in asu_right_candidates:
+                            transformed_right = np.asarray(
+                                operation.apply(fractional[asu_right], wrap=False),
+                                dtype=float,
+                            ) + image_shift
+                            for group_operation in operations:
+                                expected_left = group_operation.apply(
+                                    fractional[asu_left], wrap=False
+                                )
+                                expected_right = group_operation.apply(
+                                    transformed_right, wrap=False
+                                )
+                                for left in _matching_candidates(
+                                    expected_left, left_candidates
+                                ):
+                                    for right in _matching_candidates(
+                                        expected_right, right_candidates
+                                    ):
+                                        if left == right:
+                                            continue
+                                        pair = tuple(sorted((left, right)))
+                                        if pair not in pairs:
+                                            pairs.append(pair)
+                    # A valid symmetry-coded row is authoritative even when
+                    # the endpoint is the same label; do not fall through to
+                    # ambiguous distance matching.
+                    continue
+            try:
+                raw_expected = record.get("distance_A")
+                if isinstance(raw_expected, dict):
+                    raw_expected = raw_expected.get("value")
+                expected = float(raw_expected)
+            except (TypeError, ValueError):
+                expected = float("nan")
+            candidates = []
+            for left in left_candidates:
+                for right in right_candidates:
+                    if left == right:
+                        continue
+                    distance = float(atoms_obj.get_distance(left, right, mic=True))
+                    error = abs(distance - expected) if np.isfinite(expected) else 0.0
+                    candidates.append((error, left, right))
+            if not candidates:
+                continue
+            # A P1 forward export has unique labels.  For an ASU export with
+            # repeated labels, retain every symmetry image at the published
+            # distance so connectivity is replicated along with the atoms.
+            best_error = min(item[0] for item in candidates)
+            cutoff = max(0.15, best_error + 1.0e-6)
+            for error, left, right in candidates:
+                if error <= cutoff:
+                    pair = tuple(sorted((int(left), int(right))))
+                    if pair not in pairs:
+                        pairs.append(pair)
+        return pairs
 
     # Extract disorder info — this is now the SOLE authority for atomic
     # positions, elements, and all disorder metadata.  We no longer use
@@ -1877,10 +2315,13 @@ def read_mol_crystal(
             resolved = crystals[0]
             cif_chemistry = dict(disorder_info.cif_chemistry)
             cell_transform = cif_chemistry.pop("cell_transform", None)
+            termination_info = cif_chemistry.pop("termination_info", None)
             resolved.metadata["cif_chemistry"] = cif_chemistry
             resolved.metadata["crystal_symmetry"] = disorder_info.crystal_symmetry
             if cell_transform is not None:
                 resolved.metadata["cell_transform"] = cell_transform
+            if termination_info is not None:
+                resolved.metadata["termination_info"] = termination_info
             if attach_chemistry:
                 from ..chemistry import infer_chemistry
 
@@ -1917,6 +2358,12 @@ def read_mol_crystal(
     )
     atoms.set_array(KEY_ASSEMBLY, np.array(disorder_info.assemblies))
     atoms.set_array(KEY_LABEL, np.array(disorder_info.labels))
+    if disorder_info.atom_ids:
+        atoms.set_array(KEY_ATOM_ID, np.asarray(disorder_info.atom_ids, dtype=str))
+    if disorder_info.molecule_ids and len(disorder_info.molecule_ids) == n:
+        atoms.set_array(
+            "mck_molecule_id", np.asarray(disorder_info.molecule_ids, dtype=int)
+        )
     if disorder_info.sym_op_indices:
         atoms.set_array(
             KEY_SYM_OP_INDEX, np.array(disorder_info.sym_op_indices, dtype=int)
@@ -1962,28 +2409,63 @@ def read_mol_crystal(
     formula_moiety = disorder_info.formula_moiety
 
     # Identify molecular units using graph-based approach
+    explicit_bonds = _published_bond_pairs(
+        atoms,
+        disorder_info.cif_chemistry.get("published_bonds", ())
+        if disorder_info.cif_chemistry.get("molcrys_provenance")
+        else (),
+        operations=disorder_info.crystal_symmetry.operations
+        if disorder_info.crystal_symmetry is not None
+        else (),
+        lattice_matrix=disorder_info.lattice_matrix,
+    )
     molecules = identify_molecules(
         atoms,
         bond_thresholds=bond_thresholds,
         max_atoms=max_atoms,
         bond_scale=bond_scale,
+        explicit_bonds=explicit_bonds,
     )
 
     pbc = (True, True, True)
     cif_chemistry = dict(disorder_info.cif_chemistry)
     cell_transform = cif_chemistry.pop("cell_transform", None)
-    crystal_metadata = {
+    termination_info = cif_chemistry.pop("termination_info", None)
+    metadata = {
         "cif_chemistry": cif_chemistry,
         "crystal_symmetry": disorder_info.crystal_symmetry,
+        "cif_molecule_ids": tuple(disorder_info.molecule_ids),
     }
     if cell_transform is not None:
-        crystal_metadata["cell_transform"] = cell_transform
+        metadata["cell_transform"] = cell_transform
+    if termination_info is not None:
+        metadata["termination_info"] = termination_info
+    # Reconstruct the validated forward context written by expanded-P1
+    # exports.  ASU exports use their declared operation loop directly;
+    # expanded-P1 exports carry the physical source operation loop in the
+    # provenance fields above the atom table.
+    source_symmetry = disorder_info.source_symmetry or disorder_info.crystal_symmetry
+    if source_symmetry is not None and (
+        disorder_info.source_symmetry is not None
+        or any(str(value) for value in disorder_info.atom_ids)
+    ):
+        try:
+            from ..operations.forward import prepare_construction_context
+
+            metadata["forward_context"] = prepare_construction_context(
+                lattice,
+                source_symmetry,
+                chemistry_policy="unspecified",
+            )
+            metadata["source_symmetry"] = metadata["forward_context"].to_metadata()
+        except Exception as error:
+            metadata["source_symmetry_error"] = str(error)
     crystal = MolecularCrystal(
         lattice,
         molecules,
         pbc,
         formula_moiety=formula_moiety,
-        metadata=crystal_metadata,
+        metadata=metadata,
     )
     if attach_chemistry:
         from ..chemistry import infer_chemistry

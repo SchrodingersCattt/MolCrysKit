@@ -58,6 +58,12 @@ def test_strict_parser_rejects_malformed_operation():
         read_cif_symmetry(cif_text=text, expand_symmetry=False, strict=True)
 
 
+def test_strict_parser_rejects_incomplete_non_p1_operation_loop():
+    text = cif("'x,y,z'", number=14, symbol="P 21/c")
+    with pytest.raises(ValueError, match="incomplete non-P1 symmetry operation loop"):
+        read_cif_symmetry(cif_text=text, expand_symmetry=False, strict=True)
+
+
 def test_non_strict_parser_skips_malformed_operation():
     text = cif("'x,y,z'\n'not-an-operation'", number=1)
     parsed = read_cif_symmetry(cif_text=text, expand_symmetry=False, strict=False)

@@ -1,0 +1,102 @@
+data_forward_fixture
+_cell_length_a 14.6670
+_cell_length_b 7.8860
+_cell_length_c 10.7300
+_cell_angle_alpha 90.00
+_cell_angle_beta 99.36
+_cell_angle_gamma 90.00
+_cell_volume 1224.54
+_cell_formula_units_Z 4
+_space_group_name_H-M_alt 'P21/c'
+_space_group_IT_number 14
+_space_group_setting 1
+_space_group_name_Hall '?'
+
+loop_
+_symmetry_equiv_pos_as_xyz
+'x,y,z'
+'-x,1/2+y,1/2-z'
+'-x,-y,-z'
+'x,1/2-y,1/2+z'
+
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_U_iso_or_equiv
+_atom_site_thermal_displace_type
+C1 C 0.416700 0.346600 0.398200 1.0000 ? ?
+C2 C 0.173600 -0.135600 0.700400 1.0000 ? ?
+C3 C 0.098500 -0.260400 0.642900 1.0000 ? ?
+C4 C 0.042400 -0.320000 0.742300 1.0000 ? ?
+C5 C 0.138100 -0.409700 0.581800 1.0000 ? ?
+C6 C 0.350800 0.221400 0.325300 1.0000 ? ?
+C7 C 0.401400 0.109100 0.243600 1.0000 ? ?
+C8 C 0.304300 0.125200 0.421100 1.0000 ? ?
+C9 C 0.218600 0.174100 0.446000 1.0000 ? ?
+C10 C 0.177100 0.090200 0.535100 1.0000 ? ?
+C11 C 0.219800 -0.045100 0.603500 1.0000 ? ?
+C12 C 0.306000 -0.091900 0.579800 1.0000 ? ?
+C13 C 0.347600 -0.008500 0.490000 1.0000 ? ?
+H1 H 0.431000 0.564500 0.471500 1.0000 ? ?
+H2 H 0.218300 -0.204300 0.764200 1.0000 ? ?
+H3 H 0.145000 -0.057300 0.749500 1.0000 ? ?
+H4 H 0.054900 -0.201100 0.575500 1.0000 ? ?
+H5 H 0.086500 -0.388700 0.806600 1.0000 ? ?
+H6 H 0.018300 -0.226000 0.782100 1.0000 ? ?
+H7 H -0.004500 -0.399400 0.702900 1.0000 ? ?
+H8 H 0.179800 -0.374800 0.519800 1.0000 ? ?
+H9 H 0.085100 -0.481400 0.541700 1.0000 ? ?
+H10 H 0.176900 -0.470800 0.652000 1.0000 ? ?
+H11 H 0.306100 0.289800 0.273300 1.0000 ? ?
+H12 H 0.450400 0.043000 0.297400 1.0000 ? ?
+H13 H 0.422400 0.181200 0.180800 1.0000 ? ?
+H14 H 0.361000 0.031400 0.194600 1.0000 ? ?
+H15 H 0.189600 0.266500 0.397000 1.0000 ? ?
+H16 H 0.117000 0.126700 0.552400 1.0000 ? ?
+H17 H 0.340400 -0.189300 0.633300 1.0000 ? ?
+H18 H 0.407600 -0.047300 0.476200 1.0000 ? ?
+O1 O 0.380200 0.493700 0.416300 1.0000 ? ?
+O2 O 0.497000 0.312000 0.440200 1.0000 ? ?
+
+loop_
+_geom_bond_atom_site_label_1
+_geom_bond_atom_site_label_2
+_geom_bond_distance
+_geom_bond_type
+C1 C6 1.5083 Single
+C2 C3 1.5302 Single
+C3 C4 1.5235 Single
+C4 H5 1.0211 Single
+C5 C3 1.5091 Single
+C6 C7 1.5216 Single
+C7 H12 0.9932 Single
+C8 C6 1.5249 Single
+C9 C8 1.3818 Aromatic
+C10 C9 1.3826 Aromatic
+C11 C2 1.5096 Single
+C12 C11 1.3798 Aromatic
+C13 C8 1.3816 Aromatic
+H1 O1 1.0364 Single
+H2 C2 1.0227 Single
+H3 C2 0.9522 Single
+H4 C3 1.0001 Single
+H6 C4 0.9518 Single
+H7 C4 0.9744 Single
+H8 C5 1.0123 Single
+H9 C5 1.0001 Single
+H10 C5 0.9919 Single
+H11 C6 0.9556 Single
+H13 C7 0.9694 Single
+H14 C7 0.9495 Single
+H15 C9 0.9568 Single
+H16 C10 0.9734 Single
+H17 C12 1.0392 Single
+H18 C13 0.9656 Single
+O1 C1 1.3053 Single
+O2 C1 1.2215 Double
+C10 C11 1.3856 Aromatic
+C12 C13 1.3873 Aromatic

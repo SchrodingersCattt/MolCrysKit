@@ -1,0 +1,105 @@
+{
+  "schema": "molcrys-kit.forward-fixtures.v1",
+  "source": {
+    "database": "Cambridge Structural Database (CSD)",
+    "database_name": "as601be_CIP",
+    "release": "CSD 6.01 (as601be_CIP; November 2025)",
+    "api_version": "3.7.2",
+    "retrieved_utc": "2026-10-11T00:11:05Z",
+    "paths": null,
+    "redistribution_policy": {
+      "status": "derived_fixture_only",
+      "source_license": "CCDC source coordinates remain subject to the applicable CCDC licence; refcodes are retained for provenance.",
+      "ci_policy": "pinned_files_only_no_live_download"
+    }
+  },
+  "fixtures": [
+    {
+      "fixture_id": "IBPRAC",
+      "source_refcode": "IBPRAC",
+      "file": "IBPRAC.cif",
+      "sha256": "f1b46330aa82e98a57ad1fee701ad367651a7e3480758cf48a9e14594595c9eb",
+      "space_group": "P21/c",
+      "space_group_it_number": 14,
+      "space_group_setting": 1,
+      "space_group_hall": null,
+      "n_symmetry_operations": 4,
+      "n_atom_sites": 33,
+      "n_partial_occupancy_sites": 0,
+      "n_disorder_sites": 0,
+      "disorder_group_mapping": [],
+      "n_anisotropic_sites": 0,
+      "n_bonds": 33
+    },
+    {
+      "fixture_id": "BENZEN02",
+      "source_refcode": "BENZEN02",
+      "file": "BENZEN02.cif",
+      "sha256": "dfa9f01b358837205996fb00044c914226991507dcbf9265dfb8bcd63b52a99f",
+      "space_group": "Pbca",
+      "space_group_it_number": 61,
+      "space_group_setting": 1,
+      "space_group_hall": null,
+      "n_symmetry_operations": 8,
+      "n_atom_sites": 6,
+      "n_partial_occupancy_sites": 0,
+      "n_disorder_sites": 0,
+      "disorder_group_mapping": [],
+      "n_anisotropic_sites": 0,
+      "n_bonds": 6,
+      "notes": [
+        "The licensed CCDC record exposed six hydrogen sites without fractional coordinates; the sanitized fixture retains the six carbon reference sites.",
+        "Forward-construction tests must supply an explicit hydrogen-placement policy rather than infer missing coordinates."
+      ]
+    },
+    {
+      "fixture_id": "HXMTAM10",
+      "source_refcode": "HXMTAM10",
+      "file": "HXMTAM10.cif",
+      "sha256": "3322de32b59be9a86b078007308e20d34c911c79e78f3ce61e7184ddc3fb3ecf",
+      "space_group": "I-43m",
+      "space_group_it_number": 217,
+      "space_group_setting": 1,
+      "space_group_hall": null,
+      "n_symmetry_operations": 48,
+      "n_atom_sites": 22,
+      "n_partial_occupancy_sites": 0,
+      "n_disorder_sites": 0,
+      "disorder_group_mapping": [],
+      "n_anisotropic_sites": 0,
+      "n_bonds": 24
+    },
+    {
+      "fixture_id": "IQUHUY",
+      "source_refcode": "IQUHUY",
+      "file": "IQUHUY.cif",
+      "sha256": "c5add90a353faba452a1b13c6980335942689d619333f7d374c4f70a146f6cf2",
+      "space_group": "C2/m",
+      "space_group_it_number": 12,
+      "space_group_setting": 1,
+      "space_group_hall": null,
+      "n_symmetry_operations": 8,
+      "n_atom_sites": 18,
+      "n_partial_occupancy_sites": 4,
+      "n_disorder_sites": 6,
+      "disorder_group_mapping": [
+        {
+          "assembly": "0",
+          "source_group": "0",
+          "fixture_group": 1
+        },
+        {
+          "assembly": "0",
+          "source_group": "1",
+          "fixture_group": 2
+        }
+      ],
+      "n_anisotropic_sites": 12,
+      "n_bonds": 18
+    }
+  ],
+  "notes": [
+    "CIFs are minimal derived fixtures; CSD audit/name/R-factor fields and machine paths were removed.",
+    "Coordinates remain subject to the applicable CCDC licence; retain the source refcodes for provenance."
+  ]
+}
