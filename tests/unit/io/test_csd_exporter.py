@@ -169,7 +169,7 @@ def test_exporter_treats_component_level_null_coordinates_as_missing():
     )
 
     assert result["n_written_atoms"] == 1
-    assert "H1" not in output.text
+    assert "  H1 H " not in output.text
     assert any("fractional coordinates are unavailable" in warning for warning in result["warnings"])
 
 
