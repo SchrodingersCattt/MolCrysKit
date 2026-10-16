@@ -150,8 +150,12 @@ def export_full_cif_from_csd(
         label = str(atom.label) if atom.label else "?"
         try:
             fractional = atom.fractional_coordinates
+            if fractional is None:
+                raise ValueError("null fractional coordinates")
+            coordinates = tuple(float(getattr(fractional, axis)) for axis in ("x", "y", "z"))
         except Exception as exc:  # CCDC null TSite handles (e.g. BENZEN02 H)
             fractional = None
+            coordinates = (None, None, None)
             warnings.append(f"{label}: fractional coordinates unavailable ({type(exc).__name__}: {exc})")
         occupancy = 1.0
         try:
@@ -188,9 +192,9 @@ def export_full_cif_from_csd(
             {
                 "label": label,
                 "symbol": str(atom.atomic_symbol) if atom.atomic_symbol else "?",
-                "x": float(fractional.x) if fractional is not None else None,
-                "y": float(fractional.y) if fractional is not None else None,
-                "z": float(fractional.z) if fractional is not None else None,
+                "x": coordinates[0],
+                "y": coordinates[1],
+                "z": coordinates[2],
                 "occupancy": occupancy,
                 "u_iso": u_iso,
                 "adp_type": adp_type,
