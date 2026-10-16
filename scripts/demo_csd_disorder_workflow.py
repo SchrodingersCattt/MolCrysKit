@@ -116,11 +116,12 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
         symbol = str(atom.atomic_symbol) if atom.atomic_symbol else "?"
         try:
             frac = atom.fractional_coordinates
+            if frac is None:
+                raise ValueError("null fractional coordinates")
+            fx, fy, fz = (float(getattr(frac, axis)) for axis in ("x", "y", "z"))
         except Exception:
             frac = None
-        fx = float(frac.x) if frac else None
-        fy = float(frac.y) if frac else None
-        fz = float(frac.z) if frac else None
+            fx = fy = fz = None
 
         occ = 1.0
         try:
