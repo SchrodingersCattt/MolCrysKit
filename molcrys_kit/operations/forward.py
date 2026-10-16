@@ -164,14 +164,17 @@ def _validate_orientation(value: Any, tolerance: float) -> np.ndarray:
 
 
 def _atom_identity_key(atoms: Atoms, index: int) -> tuple[Any, ...]:
+    """Return every supplied chemical annotation for one template atom.
+
+    Stabilizer matching must preserve the complete atom identity.  Keeping
+    only the first optional annotation (the previous behavior) allowed a
+    mapping to ignore a second tag, for example a custom chemical identity
+    attached alongside a CIP label.
+    """
     symbol = atoms.get_chemical_symbols()[index]
     isotope = atoms.arrays.get("isotope")
     charge = atoms.arrays.get("formal_charge")
-    # Stereochemical labels are part of molecular identity.  They are
-    # optional because ordinary ASE templates do not carry them, but when a
-    # template does provide the annotation a symmetry operation may only map
-    # atoms with the same annotation.
-    stereo = None
+    annotations: list[tuple[str, str]] = []
     for key in (
         "stereochemistry",
         "stereo",
@@ -181,13 +184,12 @@ def _atom_identity_key(atoms: Atoms, index: int) -> tuple[Any, ...]:
     ):
         values = atoms.arrays.get(key)
         if values is not None and len(values) > index:
-            stereo = str(values[index])
-            break
+            annotations.append((key, str(values[index])))
     return (
         symbol,
         int(isotope[index]) if isotope is not None else 0,
         float(charge[index]) if charge is not None else 0.0,
-        stereo,
+        tuple(annotations),
     )
 
 
