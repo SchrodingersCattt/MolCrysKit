@@ -352,7 +352,7 @@ def write_cif(
                     f"_molcrys_termination_index        {int(termination_index)}"
                 )
             if tasker_type is not None:
-                escaped = str(tasker_type).replace(chr(39), chr(39) * 2)
+                escaped = str(tasker_type)
                 lines.append(f"_molcrys_tasker_type              '{escaped}'")
             if is_polar is not None:
                 lines.append(f"_molcrys_tasker_polar             {is_polar}")
@@ -362,7 +362,7 @@ def write_cif(
                     f"{float(dipole_per_area):.6e}"
                 )
             if charge_source is not None:
-                escaped = str(charge_source).replace(chr(39), chr(39) * 2)
+                escaped = str(charge_source)
                 lines.append(f"_molcrys_charge_source            '{escaped}'")
             if tasker2_corrected is not None:
                 lines.append(
@@ -1067,7 +1067,7 @@ def write_cif_asu(
             if value is None:
                 continue
             if isinstance(value, str):
-                value = f"'{value.replace(chr(39), chr(39) * 2)}'"
+                value = f"'{value}'"
             lines.append(f"{name} {value}")
         lines.append("")
     lines.extend([
