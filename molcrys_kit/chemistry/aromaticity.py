@@ -312,7 +312,12 @@ def _unspecified_saturated_ring_atoms(
 
 
 def _ring_huckel_eligible(atom_ids, atom_by_id, degree) -> bool:
-    """Return whether a ring's graph/electron accounting can be aromatic."""
+    """Return whether a ring's graph/electron accounting can be aromatic.
+
+    Geometry is only a candidate signal.  If a planar, short-bond ring fails
+    the 4n+2 test, retain the local hydrogen abstention so the valence solver
+    cannot turn a non-Hückel ring into an all-double-bond cumulene.
+    """
     electrons = [
         _pi_electrons(atom_by_id[atom_id], degree.get(atom_id, 0))
         for atom_id in atom_ids
