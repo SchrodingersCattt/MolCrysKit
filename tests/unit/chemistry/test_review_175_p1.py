@@ -262,6 +262,38 @@ def test_geometry_disambiguates_an_h_omitted_saturated_ring():
     assert all(bond.order is None and not bond.aromatic for bond in result.entity.bonds)
 
 
+def test_all_abstained_ring_marks_requested_charge_unverified():
+    count = 6
+    side = 1.54
+    radius = side / (2 * math.sin(math.pi / count))
+    atoms = tuple(ChemicalAtom(f"C{i}", "C") for i in range(count))
+    bonds = tuple(
+        ChemicalBond(f"C{i}", f"C{(i + 1) % count}", kind=BondKind.COVALENT)
+        for i in range(count)
+    )
+    embedding = Embedding(
+        tuple(
+            (
+                f"C{i}",
+                (
+                    radius * math.cos(i * math.pi / 3),
+                    radius * math.sin(i * math.pi / 3),
+                    0.0,
+                ),
+            )
+            for i in range(count)
+        )
+    )
+    result = infer_bond_orders(
+        FiniteChemicalEntity("charge-unknown-ring", atoms, bonds, embedding=embedding),
+        total_charge=1,
+    )
+
+    assert result.diagnostics["total_charge_unsatisfied"] is False
+    assert result.diagnostics["total_charge_unverified"] is True
+    assert "is unverified" in " ".join(result.entity.warnings)
+
+
 def test_uncertain_saturated_ring_does_not_abort_an_aromatic_fragment():
     def ring(prefix, count, side, z):
         radius = side / (2 * math.sin(math.pi / count))

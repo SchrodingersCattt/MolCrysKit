@@ -217,12 +217,26 @@ def _infer_entity(entity, total_charge, cell, options):
             "total_charge_requested": (
                 None if total_charge is None else int(total_charge)
             ),
+            # No valence search is possible when the whole entity is the
+            # geometry-abstained region.  A requested charge is therefore
+            # unverified, rather than contradicted by an implicit neutral
+            # assignment (the P3 charge-semantics distinction).
+            "charge_constraint_rejected": 0,
+            "total_charge_unsatisfied": False,
+            "total_charge_unverified": total_charge is not None,
         }
+        unresolved_warnings = [boundary_warning]
+        if total_charge is not None:
+            unresolved_warnings.append(
+                f"{entity.entity_id}: requested total charge {int(total_charge)} "
+                "is unverified because all atoms are in the locally abstained "
+                "region"
+            )
         unresolved_entity = _entity_with_orders(
             entity,
             bonds,
             status=InferenceStatus.INDETERMINATE,
-            warnings=(boundary_warning,),
+            warnings=tuple(unresolved_warnings),
             evidence=boundary_evidence,
             implicit_hydrogens=aromaticity.implicit_hydrogens,
         )
