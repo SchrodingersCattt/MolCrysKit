@@ -10,8 +10,9 @@ and carbon contribute one pi electron.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import itertools
 import math
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -478,7 +479,7 @@ def _ring_geometry_metrics(
             if len(values) < 4:
                 continue
             ordered = sorted(values)
-            gaps = [right - left for left, right in zip(ordered, ordered[1:])]
+            gaps = [right - left for left, right in itertools.pairwise(ordered)]
             split = max(range(len(gaps)), key=gaps.__getitem__)
             low = ordered[: split + 1]
             high = ordered[split + 1 :]
