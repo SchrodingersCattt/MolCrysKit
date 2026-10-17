@@ -386,8 +386,10 @@ def test_planar_alternating_o_benzoquinone_is_not_aromatic():
             "CCCCCC",
             (1.54, 1.47, 1.35, 1.46, 1.34, 1.47),
             extra_atoms=(
-                ("O0", "O", (0.0, 1.22, 0.0), "A0"),
-                ("O3", "O", (0.0, -1.22, 0.0), "A3"),
+                # Place each exocyclic oxygen 1.22 Å radially beyond its
+                # carbon, matching a carbonyl bond in this polygon.
+                ("O0", "O", (2.65891385, 0.0, 0.0), "A0"),
+                ("O3", "O", (-2.657, -0.097, 0.0), "A3"),
             ),
         )
     )
