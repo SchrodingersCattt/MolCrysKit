@@ -68,19 +68,19 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     "AROMATIC_RING_SEARCH_LIMIT": 20_000,
     # Geometry used to distinguish a graphically aromatic ring from a
     # saturated ring when hydrogen metadata are absent.  These are ring-level
-    # tolerances, rather than per-edge bond cutoffs: planarity is the RMS
-    # distance from the best-fit plane divided by the mean edge length,
-    # ``sp2`` is the mean deviation from the regular polygon angle, and the
-    # bond metric is the mean edge length normalised by the expected single
-    # bond length for that element pair.  The two metric limits deliberately
-    # leave a published ambiguous band in which we abstain.
-    "AROMATIC_RING_PLANARITY_MAX": 0.08,
-    # Heteroaromatics can have one compressed/expanded ring angle (especially
-    # in a low-resolution embedding); allow a generous local deviation while
-    # still requiring a planar polygon rather than a puckered saturated ring.
-    "AROMATIC_RING_SP2_ANGLE_DEVIATION_MAX_DEG": 45.0,
+    # tolerances, rather than per-edge bond cutoffs: planarity is the maximum
+    # distance from the best-fit plane divided by the mean edge length, and
+    # the bond metric is the mean edge length normalised by the expected
+    # single-bond length for that element pair.  The limits and references are
+    # provisional organic-subset defaults; deriving them from CSD statistics
+    # is deferred to a follow-up rather than presented as a published band.
+    "AROMATIC_RING_PLANARITY_MAX": 0.05,
     "AROMATIC_RING_BOND_METRIC_AROMATIC_MAX": 0.96,
     "AROMATIC_RING_BOND_METRIC_SATURATED_MIN": 0.98,
+    # Normalised spread large enough to identify two short and two long edges
+    # in a ring.  A plain mean would hide that alternation and misclassify
+    # cyclohexadienes, cyclopentadiene, or p-benzoquinone as aromatic.
+    "AROMATIC_RING_BOND_ALTERNATION_MAX": 0.08,
     # Neutral single-bond references used only to normalise the ring-wide
     # metric.  They are deliberately not classification cutoffs; unknown
     # pairs simply contribute no metric evidence.
@@ -92,7 +92,7 @@ CHEMISTRY_PERCEPTION_CONFIG = {
         ("N", "N"): 1.45,
         # Aromatic N--O has an ordinary-looking single-bond length; use the
         # observed heteroaromatic reference so it does not dominate the
-        # ring-wide metric (the planarity and sp2 checks remain independent).
+        # ring-wide metric (the planarity check remains independent).
         ("N", "O"): 1.45,
         ("N", "S"): 1.75,
         ("O", "O"): 1.48,
