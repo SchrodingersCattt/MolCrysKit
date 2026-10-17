@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+import numpy as np
+
 from ..constants.config import CHEMISTRY_PERCEPTION_CONFIG
 from .models import BondKind, ChemicalAtom, ChemicalBond, EvidenceSource
 
@@ -176,10 +178,10 @@ def _geometry_supports_unspecified_carbon_ring(
 ) -> bool:
     """Refuse a geometry-confirmed saturated ring with omitted H data.
 
-    A six-membered graph with all hydrogen fields absent is otherwise
-    compatible with both an aromatic ring and a saturated ring.  When
-    coordinates are available, an edge longer than the element-pair aromatic
-    limit provides decisive local evidence against aromaticity.  Without
+    A ring graph with all hydrogen fields absent is otherwise compatible with
+    both an aromatic and a saturated interpretation.  Coordinates therefore
+    go through the ring-level planarity, sp2-angle, and bond-metric authority;
+    an ambiguous geometry is deliberately left unresolved.  Without
     coordinates the historical graph-only behavior is retained and the caller
     can expose the unresolved hydrogen metadata as provisional.
     """
@@ -194,9 +196,14 @@ def _geometry_supports_unspecified_carbon_ring(
         for atom in ring_atoms
     ):
         return True
-    return not _ring_has_long_single_bond(
-        bond_indices, atom_by_id, bonds, embedding, cell
-    )
+    # A single edge is not a reliable aromaticity authority.  Thermal motion,
+    # heteroatom substitution, and the two N--O bond populations all overlap
+    # at the old pair-specific cutoffs.  Evaluate the complete ring instead:
+    # planar/sp2 geometry and a ring-wide bond metric must agree before we
+    # infer aromaticity.  ``ambiguous`` intentionally abstains.
+    return _ring_geometry_state(
+        atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
+    ) == "aromatic"
 
 
 def _unspecified_saturated_ring_atoms(
@@ -276,9 +283,10 @@ def _unspecified_saturated_ring_atoms(
             for atom in ring_atoms
         ):
             continue
-        if not _ring_has_long_single_bond(
-            bond_indices, atom_by_id, bonds, embedding, cell
-        ):
+        state = _ring_geometry_state(
+            atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
+        )
+        if state == "aromatic":
             continue
         uncertain.update(
             atom_id
@@ -294,33 +302,144 @@ def _unspecified_saturated_ring_atoms(
     return tuple(sorted(uncertain)) if len(uncertain) >= 3 else ()
 
 
-def _ring_has_long_single_bond(
-    bond_indices, atom_by_id, bonds, embedding, cell
-) -> bool:
-    """Return whether a ring edge exceeds its element-pair aromatic limit."""
-    limits = CHEMISTRY_PERCEPTION_CONFIG[
-        "AROMATIC_MAX_UNSPECIFIED_SINGLE_BOND_LENGTHS"
-    ]
-    for index in bond_indices:
-        bond = bonds[index]
-        left = atom_by_id.get(bond.atom1_id)
-        right = atom_by_id.get(bond.atom2_id)
-        if left is None or right is None:
-            continue
-        pair = tuple(sorted((left.element, right.element)))
-        threshold = limits.get(pair)
-        if threshold is None:
-            continue
-        try:
-            vector = _embedding_vector(embedding, bond, cell)
-            length = math.sqrt(sum(float(value) ** 2 for value in vector))
-        except (AttributeError, KeyError, ValueError, TypeError):
-            # An incomplete embedding cannot establish saturation, so retain
-            # the graph-only aromaticity decision.
-            return False
-        if length > float(threshold):
-            return True
-    return False
+def _ring_geometry_state(
+    atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
+) -> str:
+    """Classify an H-unspecified ring from whole-ring geometry.
+
+    Returns ``"aromatic"``, ``"saturated"`` or ``"ambiguous"``.  The
+    ambiguous band is explicit: a ring whose mean bond metric lies between the
+    aromatic and saturated limits is left unresolved even when one edge happens
+    to fall on one side of an element-pair reference.  This is intentionally a
+    conservative local decision used only when all ring hydrogen metadata are
+    absent; explicit H counts and source bond assertions retain precedence.
+    """
+    metrics = _ring_geometry_metrics(
+        atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
+    )
+    if metrics is None:
+        # Preserve the historical graph-only behaviour when an embedding is
+        # incomplete.  The caller already ensures ``embedding`` is present.
+        return "aromatic"
+    planarity, angle_deviation, bond_metric = metrics
+    config = CHEMISTRY_PERCEPTION_CONFIG
+    planar = planarity <= float(config["AROMATIC_RING_PLANARITY_MAX"])
+    sp2 = angle_deviation <= float(
+        config["AROMATIC_RING_SP2_ANGLE_DEVIATION_MAX_DEG"]
+    )
+    aromatic_limit = float(config["AROMATIC_RING_BOND_METRIC_AROMATIC_MAX"])
+    saturated_limit = float(config["AROMATIC_RING_BOND_METRIC_SATURATED_MIN"])
+    if planar and sp2 and bond_metric <= aromatic_limit:
+        return "aromatic"
+    if (not planar or not sp2) and bond_metric >= aromatic_limit:
+        return "saturated"
+    if bond_metric >= saturated_limit:
+        return "saturated"
+    return "ambiguous"
+
+
+def _ring_geometry_metrics(
+    atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
+):
+    """Return normalized planarity, sp2-angle deviation, and bond metric."""
+    if embedding is None or len(atom_ids) < 3:
+        return None
+    try:
+        # Walk the cycle in the order returned by ``_chordless_rings``.  Using
+        # bond vectors (rather than only atom coordinates) preserves periodic
+        # image shifts in a zero-winding cycle.
+        points = [
+            np.asarray(embedding.position(atom_ids[0]), dtype=float)
+        ]
+        edge_lengths: list[float] = []
+        for position, index in enumerate(bond_indices[:-1]):
+            left_id = atom_ids[position]
+            right_id = atom_ids[position + 1]
+            bond = bonds[index]
+            vector = np.asarray(_embedding_vector(embedding, bond, cell), dtype=float)
+            if bond.atom1_id == left_id and bond.atom2_id == right_id:
+                oriented = vector
+            elif bond.atom1_id == right_id and bond.atom2_id == left_id:
+                oriented = -vector
+            else:
+                # A malformed ring record should not make chemistry
+                # indeterminate; fall back to the direct embedding vector.
+                oriented = np.asarray(
+                    embedding.vector(left_id, right_id), dtype=float
+                )
+            length = float(np.linalg.norm(oriented))
+            if not math.isfinite(length) or length <= 1e-8:
+                return None
+            edge_lengths.append(length)
+            points.append(points[-1] + oriented)
+        # The closing edge is needed for the metric and angle calculation but
+        # must not add a duplicate point to the plane fit.
+        last_index = bond_indices[-1]
+        last_bond = bonds[last_index]
+        left_id = atom_ids[-1]
+        right_id = atom_ids[0]
+        vector = np.asarray(_embedding_vector(embedding, last_bond, cell), dtype=float)
+        if last_bond.atom1_id == left_id and last_bond.atom2_id == right_id:
+            oriented = vector
+        elif last_bond.atom1_id == right_id and last_bond.atom2_id == left_id:
+            oriented = -vector
+        else:
+            oriented = np.asarray(embedding.vector(left_id, right_id), dtype=float)
+        closing_length = float(np.linalg.norm(oriented))
+        if not math.isfinite(closing_length) or closing_length <= 1e-8:
+            return None
+        edge_lengths.append(closing_length)
+        points = np.asarray(points, dtype=float)
+        if len(points) != len(atom_ids):
+            return None
+        center = points.mean(axis=0)
+        centered = points - center
+        covariance = centered.T @ centered / float(len(points))
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+        normal = eigenvectors[:, int(np.argmin(eigenvalues))]
+        deviations = centered @ normal
+        mean_edge = float(np.mean(edge_lengths))
+        planarity = float(np.sqrt(np.mean(deviations * deviations)) / mean_edge)
+
+        angles = []
+        for index, point in enumerate(points):
+            previous = points[(index - 1) % len(points)] - point
+            following = points[(index + 1) % len(points)] - point
+            denominator = float(np.linalg.norm(previous) * np.linalg.norm(following))
+            if denominator <= 1e-12:
+                return None
+            cosine = float(np.dot(previous, following) / denominator)
+            cosine = max(-1.0, min(1.0, cosine))
+            angles.append(math.degrees(math.acos(cosine)))
+        # Interior angle of a regular n-gon (the angle between the two
+        # in-ring sigma vectors), which is the local sp2 reference for a
+        # planar aromatic ring.
+        ideal = 180.0 - 360.0 / float(len(points))
+        angle_deviation = float(np.mean([abs(value - ideal) for value in angles]))
+
+        references = CHEMISTRY_PERCEPTION_CONFIG.get(
+            "AROMATIC_RING_SINGLE_BOND_LENGTHS", {}
+        )
+        ratios = []
+        for index, length in enumerate(edge_lengths):
+            bond = bonds[bond_indices[index]]
+            left = atom_by_id.get(bond.atom1_id)
+            right = atom_by_id.get(bond.atom2_id)
+            if left is None or right is None:
+                continue
+            pair = tuple(sorted((left.element, right.element)))
+            reference = references.get(pair)
+            if reference is None or float(reference) <= 0:
+                continue
+            ratios.append(length / float(reference))
+        if not ratios:
+            return None
+        bond_metric = float(np.mean(ratios))
+        if not all(math.isfinite(value) for value in (planarity, angle_deviation, bond_metric)):
+            return None
+        return planarity, angle_deviation, bond_metric
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError, FloatingPointError):
+        return None
 
 
 def _embedding_vector(embedding, bond, cell=None):
