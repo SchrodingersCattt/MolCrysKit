@@ -35,7 +35,7 @@ def _orders(result):
     return {(bond.atom1_id, bond.atom2_id): bond.order for bond in result.entity.bonds}
 
 
-def _geometry_ring(elements, side, *, radial_extensions=()):
+def _geometry_ring(elements, side, *, radial_extensions=(), z_offsets=()):
     radius = side / (2 * math.sin(math.pi / len(elements)))
     coordinates = [
         (
@@ -59,6 +59,9 @@ def _geometry_ring(elements, side, *, radial_extensions=()):
                 point[axis] + extension * vector[axis] / length for axis in range(3)
             ),
         )
+    for atom_index, offset in z_offsets:
+        atom_id, point = coordinates[atom_index]
+        coordinates[atom_index] = (atom_id, (*point[:2], point[2] + offset))
     atoms = tuple(ChemicalAtom(f"A{i}", element) for i, element in enumerate(elements))
     bonds = tuple(
         ChemicalBond(f"A{i}", f"A{(i + 1) % len(elements)}", kind=BondKind.COVALENT)
@@ -200,6 +203,89 @@ def test_short_c_o_edges_remain_aromatic(side):
     assert result.diagnostics["aromatic_rings"] == 1
     assert result.diagnostics["uncertain_hydrogen_atoms"] == ()
     assert all(bond.aromatic and bond.order in {1.0, 2.0} for bond in result.entity.bonds)
+
+
+@pytest.mark.parametrize(
+    ("elements", "side"),
+    (("NOCCC", 1.415), ("ONCCC", 1.39), ("OCCCC", 1.37)),
+)
+def test_planar_heteroaromatics_use_ring_metric_near_pair_boundaries(elements, side):
+    result = infer_bond_orders(_geometry_ring(elements, side))
+
+    assert result.status is InferenceStatus.INFERRED
+    assert result.diagnostics["aromatic_rings"] == 1
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == ()
+    assert all(bond.aromatic for bond in result.entity.bonds)
+
+
+@pytest.mark.parametrize(("elements", "side"), (("NOCCC", 1.45), ("OCCCC", 1.46)))
+def test_saturated_heterocycles_are_abstained_in_the_explicit_ambiguous_band(
+    elements, side
+):
+    result = infer_bond_orders(_geometry_ring(elements, side))
+
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
+        f"A{i}" for i in range(len(elements))
+    )
+    assert result.status is InferenceStatus.INDETERMINATE
+
+
+def test_puckered_thf_does_not_become_aromatic_from_short_edges():
+    result = infer_bond_orders(
+        _geometry_ring(
+            "OCCCC",
+            1.43,
+            radial_extensions=((2, 0.40), (4, -0.30)),
+            z_offsets=((2, 0.40), (4, -0.30)),
+        )
+    )
+
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"]
+
+
+def test_benzofuran_keeps_both_planar_rings_aromatic():
+    coordinates = {
+        "C0": (0.0, 0.0, 0.0),
+        "C1": (1.4, 0.0, 0.0),
+        "C2": (2.1, -1.2, 0.0),
+        "C3": (1.4, -2.4, 0.0),
+        "C4": (0.0, -2.4, 0.0),
+        "C5": (-0.7, -1.2, 0.0),
+        "O": (-0.4, 1.0, 0.0),
+        "C6": (0.7, 1.8, 0.0),
+        "C7": (2.1, 1.2, 0.0),
+    }
+    atoms = tuple(
+        ChemicalAtom(atom_id, "O" if atom_id == "O" else "C")
+        for atom_id in coordinates
+    )
+    pairs = (
+        ("C0", "C1"),
+        ("C1", "C2"),
+        ("C2", "C3"),
+        ("C3", "C4"),
+        ("C4", "C5"),
+        ("C5", "C0"),
+        ("O", "C0"),
+        ("C1", "C7"),
+        ("C7", "C6"),
+        ("C6", "O"),
+    )
+    bonds = tuple(ChemicalBond(left, right, kind=BondKind.COVALENT) for left, right in pairs)
+    result = infer_bond_orders(
+        FiniteChemicalEntity(
+            "benzofuran-geometry",
+            atoms,
+            bonds,
+            embedding=Embedding(tuple(coordinates.items())),
+        )
+    )
+
+    assert result.status is InferenceStatus.INFERRED
+    assert result.diagnostics["aromatic_rings"] == 2
+    assert all(bond.aromatic for bond in result.entity.bonds)
 
 
 def test_naphthalene_bridge_is_aromatic_and_bridgeheads_sum_to_four():
