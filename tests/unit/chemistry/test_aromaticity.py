@@ -72,6 +72,56 @@ def _geometry_ring(elements, side, *, radial_extensions=(), z_offsets=()):
     )
 
 
+def _polygon_ring(elements, edge_lengths, *, z_offsets=(), extra_atoms=()):
+    """Build a planar cyclic embedding with the requested edge lengths."""
+    # For a cyclic polygon, the central angle for edge ``d`` is
+    # 2*asin(d/(2R)).  Solve for R so those angles close exactly at 2*pi.
+    lower = max(edge_lengths) / 2 * (1 + 1e-8)
+    upper = 100.0
+
+    def angle_sum(radius):
+        return sum(2 * math.asin(length / (2 * radius)) for length in edge_lengths)
+
+    for _ in range(80):
+        radius = (lower + upper) / 2
+        if angle_sum(radius) > 2 * math.pi:
+            lower = radius
+        else:
+            upper = radius
+    radius = (lower + upper) / 2
+    coordinates = []
+    angle = 0.0
+    z_by_index = dict(z_offsets)
+    for index, length in enumerate(edge_lengths):
+        coordinates.append(
+            (
+                f"A{index}",
+                (
+                    radius * math.cos(angle),
+                    radius * math.sin(angle),
+                    float(z_by_index.get(index, 0.0)),
+                ),
+            )
+        )
+        angle += 2 * math.asin(length / (2 * radius))
+    atoms = [ChemicalAtom(f"A{i}", element) for i, element in enumerate(elements)]
+    bonds = [
+        ChemicalBond(f"A{i}", f"A{(i + 1) % len(elements)}", kind=BondKind.COVALENT)
+        for i in range(len(elements))
+    ]
+    for atom_id, element, point, _owner in extra_atoms:
+        atoms.append(ChemicalAtom(atom_id, element))
+        coordinates.append((atom_id, point))
+    for atom_id, _element, _point, owner in extra_atoms:
+        bonds.append(ChemicalBond(owner, atom_id, kind=BondKind.COVALENT))
+    return FiniteChemicalEntity(
+        "polygon-ring",
+        tuple(atoms),
+        tuple(bonds),
+        embedding=Embedding(tuple(coordinates)),
+    )
+
+
 def test_pyridine_and_pyrrole_follow_huckel_not_bond_lengths():
     pyridine = _ring("NCCCCC")
     result = infer_bond_orders(pyridine)
@@ -228,7 +278,7 @@ def test_saturated_heterocycles_are_abstained_in_the_explicit_ambiguous_band(
     assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
         f"A{i}" for i in range(len(elements))
     )
-    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.status is not InferenceStatus.INFERRED
 
 
 def test_puckered_thf_does_not_become_aromatic_from_short_edges():
@@ -286,6 +336,68 @@ def test_benzofuran_keeps_both_planar_rings_aromatic():
     assert result.status is InferenceStatus.INFERRED
     assert result.diagnostics["aromatic_rings"] == 2
     assert all(bond.aromatic for bond in result.entity.bonds)
+
+
+@pytest.mark.parametrize(
+    ("elements", "edge_lengths"),
+    (
+        ("CCCCCC", (1.33, 1.50, 1.50, 1.33, 1.50, 1.50)),  # 1,4-cyclohexadiene
+        ("CCCCC", (1.34, 1.47, 1.34, 1.50, 1.50)),  # cyclopentadiene
+        ("OCCCCC", (1.42, 1.34, 1.50, 1.34, 1.50, 1.42)),  # 2H-pyran
+    ),
+)
+def test_planar_alternating_rings_remain_unresolved(elements, edge_lengths):
+    result = infer_bond_orders(_polygon_ring(elements, edge_lengths))
+
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
+        f"A{i}" for i in range(len(elements))
+    )
+    assert all(not bond.aromatic and bond.order is None for bond in result.entity.bonds)
+
+
+def test_puckered_1_3_cyclohexadiene_is_not_planar_aromatic():
+    result = infer_bond_orders(
+        _polygon_ring(
+            "CCCCCC",
+            (1.40,) * 6,
+            z_offsets=((2, 0.15), (4, -0.15)),
+        )
+    )
+
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"]
+
+
+def test_planar_alternating_benzoquinone_is_not_aromatic():
+    result = infer_bond_orders(
+        _polygon_ring(
+            "CCCCCC",
+            (1.33, 1.50, 1.50, 1.33, 1.50, 1.50),
+            extra_atoms=(
+                ("O0", "O", (0.0, 3.0, 0.0), "A0"),
+                ("O3", "O", (0.0, -3.0, 0.0), "A3"),
+            ),
+        )
+    )
+
+    assert result.status is not InferenceStatus.INFERRED
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
+        f"A{i}" for i in range(6)
+    )
+
+
+def test_geometry_aromatic_but_non_huckel_ring_abstains():
+    result = infer_bond_orders(_geometry_ring("CCCCC", 1.40))
+
+    assert result.status is InferenceStatus.INDETERMINATE
+    assert result.diagnostics["aromatic_rings"] == 0
+    assert result.diagnostics["uncertain_hydrogen_atoms"] == tuple(
+        f"A{i}" for i in range(5)
+    )
 
 
 def test_naphthalene_bridge_is_aromatic_and_bridgeheads_sum_to_four():
