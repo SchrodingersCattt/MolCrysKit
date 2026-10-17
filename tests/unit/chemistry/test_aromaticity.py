@@ -344,8 +344,16 @@ def test_benzofuran_keeps_both_planar_rings_aromatic():
         ("CCCCCC", (1.33, 1.50, 1.50, 1.33, 1.50, 1.50)),  # 1,4-cyclohexadiene
         ("CCCCC", (1.34, 1.47, 1.34, 1.50, 1.50)),  # cyclopentadiene
         ("OCCCCC", (1.42, 1.34, 1.50, 1.34, 1.50, 1.42)),  # 2H-pyran
+        ("CCCCCC", (1.34, 1.46, 1.34, 1.50, 1.53, 1.50)),  # 1,3-cyclohexadiene
+        ("NCCCCC", (1.47, 1.50, 1.34, 1.45, 1.35, 1.38)),  # 1,2-dihydropyridine
     ),
-    ids=("1,4-cyclohexadiene", "cyclopentadiene", "2H-pyran"),
+    ids=(
+        "1,4-cyclohexadiene",
+        "cyclopentadiene",
+        "2H-pyran",
+        "1,3-cyclohexadiene",
+        "1,2-dihydropyridine",
+    ),
 )
 def test_planar_alternating_rings_remain_unresolved(elements, edge_lengths):
     result = infer_bond_orders(_polygon_ring(elements, edge_lengths))
@@ -372,14 +380,14 @@ def test_puckered_1_3_cyclohexadiene_is_not_planar_aromatic():
     assert result.diagnostics["uncertain_hydrogen_atoms"]
 
 
-def test_planar_alternating_benzoquinone_is_not_aromatic():
+def test_planar_alternating_o_benzoquinone_is_not_aromatic():
     result = infer_bond_orders(
         _polygon_ring(
             "CCCCCC",
-            (1.33, 1.50, 1.50, 1.33, 1.50, 1.50),
+            (1.54, 1.47, 1.35, 1.46, 1.34, 1.47),
             extra_atoms=(
-                ("O0", "O", (0.0, 3.0, 0.0), "A0"),
-                ("O3", "O", (0.0, -3.0, 0.0), "A3"),
+                ("O0", "O", (0.0, 1.22, 0.0), "A0"),
+                ("O3", "O", (0.0, -1.22, 0.0), "A3"),
             ),
         )
     )
