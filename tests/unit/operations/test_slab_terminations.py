@@ -406,3 +406,61 @@ def test_cif_metadata_includes_tasker2_corrected(tmp_path):
     slab, info = results[0]
     cif_text = write_cif(slab, filename=None, metadata={"termination_info": info})
     assert "_molcrys_tasker2_corrected" in cif_text
+
+
+# ---------------------------------------------------------------------------
+# CIF termination provenance round trips
+# ---------------------------------------------------------------------------
+
+def test_termination_metadata_round_trip_preserves_types_and_tags():
+    crystal = load_example_crystal()
+    results = generate_slabs_with_terminations(
+        structure_or_crystal=crystal,
+        miller_index=(1, 0, 0),
+        min_slab_size=8.0,
+        min_vacuum_size=12.0,
+        center_slab=True,
+        unique_terminations="topo",
+        term_selection="by_index",
+        termination_indices=[0],
+    )
+    assert results
+    slab, info = results[0]
+
+    # Use a mapping so the test also exercises the reader's documented
+    # dict representation rather than relying on TerminationInfo attrs.
+    metadata = {
+        "termination_info": {
+            "shift": info.shift,
+            "termination_index": info.termination_index,
+            "tasker_type": "Type'I_like",
+            "is_polar": info.is_polar,
+            "dipole_per_area": info.dipole_per_area,
+            "charge_source": "charge'source",
+            "tasker2_corrected": info.tasker2_corrected,
+        }
+    }
+    cif_text = write_cif(slab, metadata=metadata)
+    restored = read_mol_crystal(cif_text=cif_text, attach_chemistry=False)
+    termination = restored.metadata["termination_info"]
+
+    assert isinstance(termination["shift"], float)
+    assert isinstance(termination["termination_index"], int)
+    assert isinstance(termination["is_polar"], bool)
+    assert isinstance(termination["tasker2_corrected"], bool)
+    assert termination["tasker_type"] == "Type'I_like"
+    assert termination["charge_source"] == "charge'source"
+
+    # Metadata on a read crystal is picked up when no explicit metadata
+    # argument is supplied, and all seven provenance tags survive unchanged.
+    rewritten = write_cif(restored)
+    for tag in (
+        "_molcrys_termination_shift",
+        "_molcrys_termination_index",
+        "_molcrys_tasker_type",
+        "_molcrys_tasker_polar",
+        "_molcrys_tasker_dipole_per_area",
+        "_molcrys_charge_source",
+        "_molcrys_tasker2_corrected",
+    ):
+        assert tag in rewritten
