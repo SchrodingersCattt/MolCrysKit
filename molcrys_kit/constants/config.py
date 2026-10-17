@@ -73,14 +73,17 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     # the bond metric is the mean edge length normalised by the expected
     # single-bond length for that element pair.  The limits and references are
     # provisional organic-subset defaults; deriving them from CSD statistics
-    # is deferred to a follow-up rather than presented as a published band.
+    # is deferred to follow-up issue #182 rather than presented as a published
+    # band.
     "AROMATIC_RING_PLANARITY_MAX": 0.05,
     "AROMATIC_RING_BOND_METRIC_AROMATIC_MAX": 0.96,
     "AROMATIC_RING_BOND_METRIC_SATURATED_MIN": 0.98,
     # Normalised spread large enough to identify two short and two long edges
     # in a ring.  A plain mean would hide that alternation and misclassify
     # cyclohexadienes, cyclopentadiene, or p-benzoquinone as aromatic.
-    "AROMATIC_RING_BOND_ALTERNATION_MAX": 0.08,
+    # Keep this deliberately conservative until the element-pair distributions
+    # are calibrated against the Cambridge Structural Database (issue #182).
+    "AROMATIC_RING_BOND_ALTERNATION_MAX": 0.06,
     # Neutral single-bond references used only to normalise the ring-wide
     # metric.  They are deliberately not classification cutoffs; unknown
     # pairs simply contribute no metric evidence.
