@@ -536,3 +536,21 @@ def test_selected_realization_retains_forward_context_for_asu_export():
         cif_text=write_cif_asu(selected), attach_chemistry=False
     )
     assert len(restored.molecules) == 2
+
+
+
+def test_stabilizer_identity_uses_all_atom_annotations():
+    """Matching one annotation must not ignore a conflicting second tag."""
+    context = _pminus1_context()
+    atoms = Atoms("CC", positions=[[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+    atoms.set_array("cip_code", np.asarray(["R", "R"], dtype=str))
+    atoms.set_array("chemical_identity", np.asarray(["left", "right"], dtype=str))
+    template = MolecularTemplate(
+        atoms,
+        identifier="multi-annotation",
+        anchor_cartesian=np.zeros(3),
+        connectivity=((0, 1),),
+    )
+    analysis = analyze_molecular_pose(context, MolecularPose(template, [0.0, 0.0, 0.0]))
+    assert not analysis.ordered_compatible
+    assert "molecular_stabilizer_incomplete" in analysis.reason_codes
