@@ -66,26 +66,37 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     # still bound the candidate graph before applying Hückel's rule.
     "AROMATIC_MAX_RING_SIZE": 10,
     "AROMATIC_RING_SEARCH_LIMIT": 20_000,
-    # When a carbon ring has no hydrogen metadata, a supplied embedding can
-    # distinguish a short conjugated ring from a saturated C--C ring.  Missing
-    # geometry remains a graph-only provisional inference for compatibility.
-    "AROMATIC_MAX_UNSPECIFIED_CC_BOND_LENGTH": 1.48,
-    # Per-pair upper limits for treating an H-unspecified ring edge as
-    # aromatic-like.  These sit below the ordinary single-bond lengths while
-    # allowing the longer C--S and S--S bonds found in valid heteroaromatics.
-    # A ring edge above its pair limit is evidence for a saturated ring, not a
-    # reason to reject the whole connected fused system.
-    "AROMATIC_MAX_UNSPECIFIED_SINGLE_BOND_LENGTHS": {
-        ("C", "C"): 1.48,
-        ("C", "N"): 1.44,
-        ("C", "O"): 1.40,
-        ("C", "S"): 1.75,
-        ("N", "N"): 1.40,
-        # Ordinary aromatic N--O edges in isoxazole are typically ~1.41--1.42 Å.
+    # Geometry used to distinguish a graphically aromatic ring from a
+    # saturated ring when hydrogen metadata are absent.  These are ring-level
+    # tolerances, rather than per-edge bond cutoffs: planarity is the RMS
+    # distance from the best-fit plane divided by the mean edge length,
+    # ``sp2`` is the mean deviation from the regular polygon angle, and the
+    # bond metric is the mean edge length normalised by the expected single
+    # bond length for that element pair.  The two metric limits deliberately
+    # leave a published ambiguous band in which we abstain.
+    "AROMATIC_RING_PLANARITY_MAX": 0.08,
+    # Heteroaromatics can have one compressed/expanded ring angle (especially
+    # in a low-resolution embedding); allow a generous local deviation while
+    # still requiring a planar polygon rather than a puckered saturated ring.
+    "AROMATIC_RING_SP2_ANGLE_DEVIATION_MAX_DEG": 45.0,
+    "AROMATIC_RING_BOND_METRIC_AROMATIC_MAX": 0.96,
+    "AROMATIC_RING_BOND_METRIC_SATURATED_MIN": 0.98,
+    # Neutral single-bond references used only to normalise the ring-wide
+    # metric.  They are deliberately not classification cutoffs; unknown
+    # pairs simply contribute no metric evidence.
+    "AROMATIC_RING_SINGLE_BOND_LENGTHS": {
+        ("C", "C"): 1.54,
+        ("C", "N"): 1.47,
+        ("C", "O"): 1.43,
+        ("C", "S"): 1.82,
+        ("N", "N"): 1.45,
+        # Aromatic N--O has an ordinary-looking single-bond length; use the
+        # observed heteroaromatic reference so it does not dominate the
+        # ring-wide metric (the planarity and sp2 checks remain independent).
         ("N", "O"): 1.45,
         ("N", "S"): 1.75,
-        ("O", "O"): 1.45,
-        ("O", "S"): 1.75,
+        ("O", "O"): 1.48,
+        ("O", "S"): 1.64,
         ("S", "S"): 1.95,
     },
     "HUCKEL_ELECTRON_MODULUS": 4,
