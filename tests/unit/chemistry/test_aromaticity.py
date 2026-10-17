@@ -345,6 +345,7 @@ def test_benzofuran_keeps_both_planar_rings_aromatic():
         ("CCCCC", (1.34, 1.47, 1.34, 1.50, 1.50)),  # cyclopentadiene
         ("OCCCCC", (1.42, 1.34, 1.50, 1.34, 1.50, 1.42)),  # 2H-pyran
     ),
+    ids=("1,4-cyclohexadiene", "cyclopentadiene", "2H-pyran"),
 )
 def test_planar_alternating_rings_remain_unresolved(elements, edge_lengths):
     result = infer_bond_orders(_polygon_ring(elements, edge_lengths))
