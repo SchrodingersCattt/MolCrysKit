@@ -180,8 +180,8 @@ def _geometry_supports_unspecified_carbon_ring(
 
     A ring graph with all hydrogen fields absent is otherwise compatible with
     both an aromatic and a saturated interpretation.  Coordinates therefore
-    go through the ring-level planarity, sp2-angle, and bond-metric authority;
-    an ambiguous geometry is deliberately left unresolved.  Without
+    go through the ring-level planarity and bond-metric authority; an
+    ambiguous geometry is deliberately left unresolved.  Without
     coordinates the historical graph-only behavior is retained and the caller
     can expose the unresolved hydrogen metadata as provisional.
     """
@@ -199,8 +199,8 @@ def _geometry_supports_unspecified_carbon_ring(
     # A single edge is not a reliable aromaticity authority.  Thermal motion,
     # heteroatom substitution, and the two N--O bond populations all overlap
     # at the old pair-specific cutoffs.  Evaluate the complete ring instead:
-    # planar/sp2 geometry and a ring-wide bond metric must agree before we
-    # infer aromaticity.  ``ambiguous`` intentionally abstains.
+    # Planarity and a ring-wide bond metric must agree before we infer
+    # aromaticity.  ``ambiguous`` intentionally abstains.
     return _ring_geometry_state(
         atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
     ) == "aromatic"
@@ -269,6 +269,7 @@ def _unspecified_saturated_ring_atoms(
         ]
         for atom_id, neighbors in ring_adjacency.items()
     }
+    degree = {atom_id: len(neighbors) for atom_id, neighbors in adjacency.items()}
     # Keep the boundary local to each chordless cycle.  A fused aromatic ring
     # can share a 2-edge-connected component with a saturated heterocycle, so
     # a component-wide carbon test either over-abstains or misses the boundary.
@@ -286,7 +287,14 @@ def _unspecified_saturated_ring_atoms(
         state = _ring_geometry_state(
             atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
         )
-        if state == "aromatic":
+        # Geometry is only a candidate authority.  If Hückel accounting for
+        # the same ring rejects it (for example a regular C5 polygon), keep the
+        # local abstention boundary so the valence solver cannot invent a
+        # cumulene fallback.  This is also where a metric with unknown pairs
+        # deliberately remains unresolved.
+        if state == "aromatic" and _ring_huckel_eligible(
+            atom_ids, atom_by_id, degree
+        ):
             continue
         uncertain.update(
             atom_id
@@ -300,6 +308,19 @@ def _unspecified_saturated_ring_atoms(
     # atoms.  The threshold prevents a single uncertain substituent from
     # turning an otherwise solvable entity into a local abstention.
     return tuple(sorted(uncertain)) if len(uncertain) >= 3 else ()
+
+
+def _ring_huckel_eligible(atom_ids, atom_by_id, degree) -> bool:
+    """Return whether a ring's graph/electron accounting can be aromatic."""
+    electrons = [
+        _pi_electrons(atom_by_id[atom_id], degree.get(atom_id, 0))
+        for atom_id in atom_ids
+    ]
+    if any(value is None for value in electrons):
+        return False
+    modulus = int(CHEMISTRY_PERCEPTION_CONFIG["HUCKEL_ELECTRON_MODULUS"])
+    residue = int(CHEMISTRY_PERCEPTION_CONFIG["HUCKEL_ELECTRON_RESIDUE"])
+    return sum(electrons) % modulus == residue
 
 
 def _ring_geometry_state(
@@ -318,20 +339,22 @@ def _ring_geometry_state(
         atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
     )
     if metrics is None:
-        # Preserve the historical graph-only behaviour when an embedding is
-        # incomplete.  The caller already ensures ``embedding`` is present.
-        return "aromatic"
-    planarity, angle_deviation, bond_metric = metrics
+        # An embedding with no calibrated edge evidence cannot distinguish a
+        # conjugated ring from a saturated one.  Do not silently fall back to
+        # graph-only aromaticity: this helper is called only for H-unspecified
+        # rings, where that would invent hydrogen counts and bond orders.
+        return "ambiguous"
+    planarity, bond_metric, alternating = metrics
     config = CHEMISTRY_PERCEPTION_CONFIG
     planar = planarity <= float(config["AROMATIC_RING_PLANARITY_MAX"])
-    sp2 = angle_deviation <= float(
-        config["AROMATIC_RING_SP2_ANGLE_DEVIATION_MAX_DEG"]
-    )
     aromatic_limit = float(config["AROMATIC_RING_BOND_METRIC_AROMATIC_MAX"])
     saturated_limit = float(config["AROMATIC_RING_BOND_METRIC_SATURATED_MIN"])
-    if planar and sp2 and bond_metric <= aromatic_limit:
+    # A mean bond ratio is insufficient: a short C=C and a long C--C edge
+    # average to a benzene-like value in cyclohexadienes and quinones.  Keep
+    # the local abstention conservative when the ring has clear alternation.
+    if planar and not alternating and bond_metric <= aromatic_limit:
         return "aromatic"
-    if (not planar or not sp2) and bond_metric >= aromatic_limit:
+    if (not planar or alternating) and bond_metric >= aromatic_limit:
         return "saturated"
     if bond_metric >= saturated_limit:
         return "saturated"
@@ -341,7 +364,13 @@ def _ring_geometry_state(
 def _ring_geometry_metrics(
     atom_ids, bond_indices, atom_by_id, bonds, embedding, cell
 ):
-    """Return normalized planarity, sp2-angle deviation, and bond metric."""
+    """Return normalized planarity, bond metric, and alternation evidence.
+
+    Planarity is the maximum distance from a best-fit plane divided by the
+    mean edge length.  The previous mean-angle ``sp2`` test was effectively a
+    no-op for ordinary saturated rings, so geometry authority intentionally
+    uses planarity plus an alternation-aware bond metric instead.
+    """
     if embedding is None or len(atom_ids) < 3:
         return None
     try:
@@ -399,23 +428,9 @@ def _ring_geometry_metrics(
         normal = eigenvectors[:, int(np.argmin(eigenvalues))]
         deviations = centered @ normal
         mean_edge = float(np.mean(edge_lengths))
-        planarity = float(np.sqrt(np.mean(deviations * deviations)) / mean_edge)
-
-        angles = []
-        for index, point in enumerate(points):
-            previous = points[(index - 1) % len(points)] - point
-            following = points[(index + 1) % len(points)] - point
-            denominator = float(np.linalg.norm(previous) * np.linalg.norm(following))
-            if denominator <= 1e-12:
-                return None
-            cosine = float(np.dot(previous, following) / denominator)
-            cosine = max(-1.0, min(1.0, cosine))
-            angles.append(math.degrees(math.acos(cosine)))
-        # Interior angle of a regular n-gon (the angle between the two
-        # in-ring sigma vectors), which is the local sp2 reference for a
-        # planar aromatic ring.
-        ideal = 180.0 - 360.0 / float(len(points))
-        angle_deviation = float(np.mean([abs(value - ideal) for value in angles]))
+        # The maximum residual catches a modestly twisted ring that an RMS
+        # residual can hide (for example a +/-0.15 A 1,3-cyclohexadiene).
+        planarity = float(np.max(np.abs(deviations)) / mean_edge)
 
         references = CHEMISTRY_PERCEPTION_CONFIG.get(
             "AROMATIC_RING_SINGLE_BOND_LENGTHS", {}
@@ -432,12 +447,51 @@ def _ring_geometry_metrics(
             if reference is None or float(reference) <= 0:
                 continue
             ratios.append(length / float(reference))
-        if not ratios:
+        # A metric based on only one or two known pairs is not evidence for a
+        # whole ring.  Unknown element pairs therefore abstain when fewer than
+        # half of the edges have a calibrated reference.
+        if len(ratios) * 2 < len(edge_lengths):
             return None
         bond_metric = float(np.mean(ratios))
-        if not all(math.isfinite(value) for value in (planarity, angle_deviation, bond_metric)):
+        grouped: dict[tuple[str, str], list[float]] = {}
+        for index, length in enumerate(edge_lengths):
+            bond = bonds[bond_indices[index]]
+            left = atom_by_id.get(bond.atom1_id)
+            right = atom_by_id.get(bond.atom2_id)
+            if left is None or right is None:
+                continue
+            pair = tuple(sorted((left.element, right.element)))
+            reference = references.get(pair)
+            if reference is not None and float(reference) > 0:
+                grouped.setdefault(pair, []).append(length / float(reference))
+        alternation_limit = float(
+            CHEMISTRY_PERCEPTION_CONFIG["AROMATIC_RING_BOND_ALTERNATION_MAX"]
+        )
+        alternating = False
+        for values in grouped.values():
+            # Require at least two edges in each population.  Split at the
+            # largest internal gap rather than at a median: repeated long
+            # edges (the 2+4 pattern in 1,4-cyclohexadiene) otherwise put the
+            # median on the long population and hide the alternation.  The
+            # same rule is insensitive to tiny coordinate round-off around
+            # equal bond lengths.
+            if len(values) < 4:
+                continue
+            ordered = sorted(values)
+            gaps = [right - left for left, right in zip(ordered, ordered[1:])]
+            split = max(range(len(gaps)), key=gaps.__getitem__)
+            low = ordered[: split + 1]
+            high = ordered[split + 1 :]
+            if (
+                len(low) >= 2
+                and len(high) >= 2
+                and gaps[split] >= alternation_limit
+            ):
+                alternating = True
+                break
+        if not all(math.isfinite(value) for value in (planarity, bond_metric)):
             return None
-        return planarity, angle_deviation, bond_metric
+        return planarity, bond_metric, alternating
     except (AttributeError, KeyError, IndexError, TypeError, ValueError, FloatingPointError):
         return None
 
