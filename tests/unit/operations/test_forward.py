@@ -366,6 +366,43 @@ def test_asu_metadata_and_site_provenance_survive_round_trip():
     )
 
 
+@pytest.mark.parametrize(
+    "value",
+    ("Type'I", "it's ok", "Smiths' method", "trailing'", 'both\' bad" value'),
+)
+def test_asu_termination_and_atom_id_text_survive_round_trip(value):
+    """True-ASU output preserves quoted metadata and atom identities."""
+    context = _pminus1_context()
+    atoms = Atoms("C", positions=[[1.3, 2.1, 3.7]])
+    atoms.set_array(KEY_ATOM_ID, np.asarray([value], dtype=str))
+    molecule = CrystalMolecule(atoms, check_pbc=False)
+    crystal = MolecularCrystal(
+        context.lattice,
+        [molecule],
+        metadata={"forward_context": context},
+    )
+
+    asu = write_cif_asu(
+        crystal,
+        metadata={
+            "termination_info": {
+                "tasker_type": value,
+                "charge_source": value,
+            }
+        },
+    )
+    restored = read_mol_crystal(cif_text=asu, attach_chemistry=False)
+    termination = restored.metadata["termination_info"]
+    assert termination["tasker_type"] == value
+    assert termination["charge_source"] == value
+    restored_ids = [
+        str(atom_id)
+        for restored_molecule in restored.molecules
+        for atom_id in restored_molecule.arrays[KEY_ATOM_ID]
+    ]
+    assert restored_ids[0] == value
+
+
 def test_forward_molecules_preserve_site_symmetry_order_provenance():
     context = _pminus1_context()
     template = MolecularTemplate(

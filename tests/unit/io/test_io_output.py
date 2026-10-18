@@ -8,7 +8,10 @@ import numpy as np
 import pytest
 from ase import Atoms
 
+from molcrys_kit.constants.config import KEY_ATOM_ID
+from molcrys_kit.io.cif import read_mol_crystal
 from molcrys_kit.io.output import (
+    _cif_quote,
     write_xyz,
     write_cif,
     write_vesta,
@@ -100,6 +103,85 @@ class TestWriteCif:
         cif = write_cif(crystal_single_water)
         assert "_atom_site_fract_x" in cif
         assert "_atom_site_type_symbol" in cif
+
+    @pytest.mark.parametrize(
+        "value",
+        ("Type'I", "it's ok", "Smiths' method", "trailing'"),
+    )
+    def test_termination_text_round_trip_preserves_apostrophes(
+        self, crystal_single_water, value
+    ):
+        cif = write_cif(
+            crystal_single_water,
+            metadata={
+                "termination_info": {
+                    "tasker_type": value,
+                    "charge_source": value,
+                }
+            },
+        )
+        restored = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+        termination = restored.metadata["termination_info"]
+        assert termination["tasker_type"] == value
+        assert termination["charge_source"] == value
+
+    def test_termination_text_falls_back_to_semicolon_field(
+        self, crystal_single_water
+    ):
+        value = 'both\' bad" value'
+        cif = write_cif(
+            crystal_single_water,
+            metadata={
+                "termination_info": {
+                    "tasker_type": value,
+                    "charge_source": value,
+                }
+            },
+        )
+        assert ";\nboth' bad\" value\n;" in cif
+        restored = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+        termination = restored.metadata["termination_info"]
+        assert termination["tasker_type"] == value
+        assert termination["charge_source"] == value
+
+    @pytest.mark.parametrize(
+        "atom_ids",
+        (
+            ("Type'I", "it's ok"),
+            ("Smiths' atom", "trailing'"),
+            ('both\' bad" value', "plain"),
+        ),
+    )
+    def test_atom_id_text_round_trip_preserves_quotes_and_whitespace(
+        self, cubic_lattice_10, atom_ids
+    ):
+        atoms = Atoms("CC", positions=[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+        atoms.set_array(KEY_ATOM_ID, np.asarray(atom_ids, dtype=str))
+        molecule = CrystalMolecule(atoms, check_pbc=False)
+        crystal = MolecularCrystal(cubic_lattice_10, [molecule])
+
+        restored = read_mol_crystal(
+            cif_text=write_cif(crystal), attach_chemistry=False
+        )
+        actual = [
+            str(atom_id)
+            for molecule in restored.molecules
+            for atom_id in molecule.arrays[KEY_ATOM_ID]
+        ]
+        assert actual == list(atom_ids)
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        (
+            ("Type'I", "'Type'I'"),
+            ("it's ok", "'it's ok'"),
+            ("Smiths' method", '"Smiths\' method"'),
+            ("trailing'", '"trailing\'"'),
+            ('both\' bad" value', ';\nboth\' bad" value\n;'),
+        ),
+    )
+    def test_cif_quote_uses_cif_safe_form(self, value, expected):
+        assert _cif_quote(value) == expected
 
 
 class TestWriteVesta:
