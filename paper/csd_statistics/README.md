@@ -77,7 +77,11 @@ python ../../scripts/calibrate_aromaticity.py rings.jsonl aromaticity_geometry.j
   --source csd-2024-sample.json
 ```
 
-The calibrator requires coverage for all C/N/O/S element pairs and separated
-aromatic/non-aromatic tails. It refuses to produce a snapshot when either
-condition is not met. The PR #179 runtime values remain the conservative
-fallback until a licensed CSD export has passed review.
+The calibrator requires coverage for all C/N/O/S element pairs, ring rows
+labelled `aromatic`, `saturated`, or `conjugated_non_aromatic`, and separated
+tails for the metric each runtime decision uses. Every ring row carries the
+`references_A` values used to normalise its metrics; the calibrator refuses a
+snapshot when those values differ from the source-confirmed medians. It also
+refuses metric gaps, unknown rows, or overlapping tails. The PR #179 runtime
+values remain the conservative fallback until a licensed CSD export has passed
+review.
