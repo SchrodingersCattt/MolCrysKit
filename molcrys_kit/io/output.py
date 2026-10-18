@@ -53,11 +53,16 @@ def _cif_quote(value: object) -> str:
         return f"'{text}'"
     if not _contains_terminating_quote('"'):
         return f'"{text}"'
-    return f";\n{text}\n;"
+    # A line beginning with ``;`` terminates a CIF text field.  Prefix a
+    # leading semicolon with one space so a value such as ``;a' b\" c``
+    # remains data rather than closing the field immediately.  Readers strip
+    # the field's incidental indentation when returning scalar metadata.
+    text_line = f" {text}" if text.startswith(";") else text
+    return f";\n{text_line}\n;"
 
 
 def _append_cif_text(lines: list[str], tag: str, value: object) -> None:
-    """Append one scalar CIF tag, including multiline text-field values."""
+    """Append one scalar CIF tag, including semicolon-delimited text values."""
     token = _cif_quote(value)
     if token.startswith(";\n"):
         lines.append(tag)
@@ -69,7 +74,7 @@ def _append_cif_text(lines: list[str], tag: str, value: object) -> None:
 def _append_cif_loop_text(
     lines: list[str], prefix: str, value: object, suffix: str = ""
 ) -> None:
-    """Append one loop row containing a quoted or multiline text value."""
+    """Append one loop row containing a quoted or semicolon-delimited value."""
     token = _cif_quote(value)
     if token.startswith(";\n"):
         # CIF requires a semicolon text field to start in column one.  Keep
