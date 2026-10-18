@@ -144,12 +144,31 @@ class TestWriteCif:
         assert termination["tasker_type"] == value
         assert termination["charge_source"] == value
 
+    def test_semicolon_prefixed_text_round_trip_preserves_value(
+        self, crystal_single_water
+    ):
+        value = ';a\' b" c'
+        cif = write_cif(
+            crystal_single_water,
+            metadata={
+                "termination_info": {
+                    "tasker_type": value,
+                    "charge_source": value,
+                }
+            },
+        )
+        assert ";\n ;a' b\" c\n;" in cif
+        restored = read_mol_crystal(cif_text=cif, attach_chemistry=False)
+        termination = restored.metadata["termination_info"]
+        assert termination["tasker_type"] == value
+        assert termination["charge_source"] == value
+
     @pytest.mark.parametrize(
         "atom_ids",
         (
             ("Type'I", "it's ok"),
             ("Smiths' atom", "trailing'"),
-            ('both\' bad" value', "plain"),
+            ('both\' bad" value', ';a\' b" c'),
         ),
     )
     def test_atom_id_text_round_trip_preserves_quotes_and_whitespace(
@@ -178,6 +197,13 @@ class TestWriteCif:
             ("Smiths' method", '"Smiths\' method"'),
             ("trailing'", '"trailing\'"'),
             ('both\' bad" value', ';\nboth\' bad" value\n;'),
+            (';a\' b" c', ';\n ;a\' b" c\n;'),
+            # CIF scalar values cannot contain physical line breaks.  They
+            # are normalized before quote selection, including a line that
+            # begins with ``;`` (which would otherwise terminate a text field).
+            ("first\n;second", "'first ;second'"),
+            ("first\r\nsecond", "'first second'"),
+            ("first\rsecond", "'first second'"),
         ),
     )
     def test_cif_quote_uses_cif_safe_form(self, value, expected):
