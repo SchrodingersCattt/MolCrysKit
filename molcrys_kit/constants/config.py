@@ -71,10 +71,9 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     # tolerances, rather than per-edge bond cutoffs: planarity is the maximum
     # distance from the best-fit plane divided by the mean edge length, and
     # the bond metric is the mean edge length normalised by the expected
-    # single-bond length for that element pair.  The limits and references are
-    # provisional organic-subset defaults; deriving them from CSD statistics
-    # is deferred to follow-up issue #182 rather than presented as a published
-    # band.
+    # single-bond length for that element pair.  These defaults are deliberately
+    # conservative until a reviewed CSD snapshot is promoted with
+    # ``runtime_overrides`` from ``chemistry.aromaticity_calibration``.
     "AROMATIC_RING_PLANARITY_MAX": 0.05,
     "AROMATIC_RING_BOND_METRIC_AROMATIC_MAX": 0.96,
     "AROMATIC_RING_BOND_METRIC_SATURATED_MIN": 0.98,
@@ -82,7 +81,7 @@ CHEMISTRY_PERCEPTION_CONFIG = {
     # in a ring.  A plain mean would hide that alternation and misclassify
     # cyclohexadienes, cyclopentadiene, or p-benzoquinone as aromatic.
     # Keep this deliberately conservative until the element-pair distributions
-    # are calibrated against the Cambridge Structural Database (issue #182).
+    # are calibrated against a reviewed Cambridge Structural Database export.
     "AROMATIC_RING_BOND_ALTERNATION_MAX": 0.06,
     # Neutral single-bond references used only to normalise the ring-wide
     # metric.  They are deliberately not classification cutoffs; unknown

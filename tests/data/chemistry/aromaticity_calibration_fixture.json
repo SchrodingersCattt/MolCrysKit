@@ -1,0 +1,232 @@
+[
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "C"
+    ],
+    "length_A": 1.5
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "C"
+    ],
+    "length_A": 1.51
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "N"
+    ],
+    "length_A": 1.51
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "N"
+    ],
+    "length_A": 1.52
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "O"
+    ],
+    "length_A": 1.52
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "O"
+    ],
+    "length_A": 1.53
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "S"
+    ],
+    "length_A": 1.53
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "C",
+      "S"
+    ],
+    "length_A": 1.54
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "N",
+      "N"
+    ],
+    "length_A": 1.54
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "N",
+      "N"
+    ],
+    "length_A": 1.55
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "N",
+      "O"
+    ],
+    "length_A": 1.55
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "N",
+      "O"
+    ],
+    "length_A": 1.56
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "N",
+      "S"
+    ],
+    "length_A": 1.56
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "N",
+      "S"
+    ],
+    "length_A": 1.57
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "O",
+      "O"
+    ],
+    "length_A": 1.57
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "O",
+      "O"
+    ],
+    "length_A": 1.58
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "O",
+      "S"
+    ],
+    "length_A": 1.58
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "O",
+      "S"
+    ],
+    "length_A": 1.59
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "S",
+      "S"
+    ],
+    "length_A": 1.59
+  },
+  {
+    "bond_class": "single",
+    "pair": [
+      "S",
+      "S"
+    ],
+    "length_A": 1.6
+  },
+  {
+    "ring_class": "aromatic",
+    "ring_id": "aromatic-0",
+    "planarity": 0.01,
+    "bond_metric": 0.9,
+    "alternation_gap": 0.01
+  },
+  {
+    "ring_class": "aromatic",
+    "ring_id": "aromatic-1",
+    "planarity": 0.012,
+    "bond_metric": 0.904,
+    "alternation_gap": 0.012
+  },
+  {
+    "ring_class": "aromatic",
+    "ring_id": "aromatic-2",
+    "planarity": 0.014,
+    "bond_metric": 0.908,
+    "alternation_gap": 0.014
+  },
+  {
+    "ring_class": "aromatic",
+    "ring_id": "aromatic-3",
+    "planarity": 0.016,
+    "bond_metric": 0.912,
+    "alternation_gap": 0.016
+  },
+  {
+    "ring_class": "aromatic",
+    "ring_id": "aromatic-4",
+    "planarity": 0.018000000000000002,
+    "bond_metric": 0.916,
+    "alternation_gap": 0.018000000000000002
+  },
+  {
+    "ring_class": "non_aromatic",
+    "ring_id": "non-aromatic-0",
+    "planarity": 0.12,
+    "bond_metric": 1.04,
+    "alternation_gap": 0.16
+  },
+  {
+    "ring_class": "non_aromatic",
+    "ring_id": "non-aromatic-1",
+    "planarity": 0.13,
+    "bond_metric": 1.048,
+    "alternation_gap": 0.17
+  },
+  {
+    "ring_class": "non_aromatic",
+    "ring_id": "non-aromatic-2",
+    "planarity": 0.13999999999999999,
+    "bond_metric": 1.056,
+    "alternation_gap": 0.18
+  },
+  {
+    "ring_class": "non_aromatic",
+    "ring_id": "non-aromatic-3",
+    "planarity": 0.15,
+    "bond_metric": 1.064,
+    "alternation_gap": 0.19
+  },
+  {
+    "ring_class": "non_aromatic",
+    "ring_id": "non-aromatic-4",
+    "planarity": 0.16,
+    "bond_metric": 1.072,
+    "alternation_gap": 0.2
+  }
+]

@@ -79,6 +79,36 @@ recombined from each component's charge frontier. The whole graph is not
 searched again. Geometry scores are squared bond-length residuals and
 never create an order by themselves.
 
+### CSD calibration of ring geometry
+
+The ring resolver has a separate calibration hand-off for laboratories that
+have access to the licensed Cambridge Structural Database (CSD) Python API.
+`molcrys_kit.chemistry.aromaticity_calibration` consumes a JSON or JSONL export
+so the production package and its tests do not need the CCDC dependency. Each
+source-confirmed single-bond edge is exported as, for example,
+`{"bond_class": "single", "pair": ["C", "C"], "length_A": 1.536}`.
+Each ring summary carries `ring_class` (`aromatic` or `non_aromatic`) and the
+three resolver metrics: `planarity`, `bond_metric`, and `alternation_gap`.
+
+The calibrator reports the number of observations for every C/N/O/S element
+pair, quantile summaries, and explicit uncertainty bands between the aromatic
+and non-aromatic tails. It refuses to emit a snapshot when any requested pair
+or metric lacks the minimum coverage, or when the tails overlap. This keeps a
+small or biased CSD sample from silently changing chemistry perception. A
+licensed CSD run can be reproduced with:
+
+```bash
+python scripts/calibrate_aromaticity.py rings.jsonl aromaticity_geometry.json \
+  --source csd-2024-sample.json
+```
+
+The checked-in PR #179 thresholds remain the conservative runtime fallback;
+the generated snapshot is a review artifact and should only replace those
+defaults after its coverage and validation fixtures have been reviewed.
+Call `runtime_overrides(snapshot)` to obtain the exact
+`CHEMISTRY_PERCEPTION_CONFIG` keys for that reviewed promotion; no import-time
+environment variable can silently change a running application's thresholds.
+
 Functional acceptance for issue #174 is this engine: aromaticity, source
 precedence, component decomposition, tree dynamic programming, geometry
 ranking, and the section 4.1 micro-family tests. The benchmark package freezes
