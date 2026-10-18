@@ -62,3 +62,26 @@ cmd /c "D:\CCDC\ccdc-software\csd-python-api\miniconda\Scripts\activate.bat && p
 # Generate figure (standard Python with matplotlib)
 python plot_csd_results.py
 ```
+
+## Aromaticity geometry calibration
+
+The disorder sample above is independent from aromaticity calibration. A
+licensed CSD Python API job should export source-confirmed single-bond edges
+and ring summaries as JSONL, using the schema documented in
+[`docs/chemistry_perception_design.md`](../../docs/chemistry_perception_design.md).
+The export can then be reduced to pair references and geometry uncertainty
+bands without importing CCDC into MolCrysKit:
+
+```bash
+python ../../scripts/calibrate_aromaticity.py rings.jsonl aromaticity_geometry.json \
+  --source csd-2024-sample.json
+```
+
+The calibrator requires coverage for all C/N/O/S element pairs, ring rows
+labelled `aromatic`, `saturated`, or `conjugated_non_aromatic`, and separated
+tails for the metric each runtime decision uses. Every ring row carries the
+`references_A` values used to normalise its metrics; the calibrator refuses a
+snapshot when those values differ from the source-confirmed medians. It also
+refuses metric gaps, unknown rows, or overlapping tails. The PR #179 runtime
+values remain the conservative fallback until a licensed CSD export has passed
+review.

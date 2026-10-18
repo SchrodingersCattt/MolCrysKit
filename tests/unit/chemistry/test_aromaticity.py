@@ -366,6 +366,22 @@ def test_planar_alternating_rings_remain_unresolved(elements, edge_lengths):
     assert all(not bond.aromatic and bond.order is None for bond in result.entity.bonds)
 
 
+def test_single_outlier_edge_does_not_count_as_alternation():
+    # One short edge versus five similar edges creates a large sorted gap, but
+    # it is not a two-population alternation.  The largest-gap split therefore
+    # fails the two-edges-per-side requirement and the planar Hückel ring can
+    # still be classified as aromatic.
+    entity = _polygon_ring("CCCCCC", (1.54 * 0.80,) + (1.54 * 0.90,) * 5)
+    assignment = apply_aromaticity(
+        entity.atoms,
+        entity.bonds,
+        embedding=entity.embedding,
+    )
+
+    assert assignment.ring_count == 1
+    assert all(bond.aromatic for bond in assignment.bonds)
+
+
 def test_puckered_1_3_cyclohexadiene_is_not_planar_aromatic():
     result = infer_bond_orders(
         _polygon_ring(

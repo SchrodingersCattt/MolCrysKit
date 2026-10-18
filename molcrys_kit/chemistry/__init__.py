@@ -1,6 +1,15 @@
 """Public chemistry-domain models and analysis entry points."""
 
 from .annotation import ChemistryIndeterminateError, annotate_chemistry
+from .aromaticity_calibration import (
+    CalibrationError,
+    CalibrationPolicy,
+    RING_CLASSES,
+    calibrate_aromaticity_geometry,
+    read_records,
+    runtime_overrides,
+    write_snapshot,
+)
 from .crystal_stereo import (
     AbsoluteStructureParameter,
     CrystalStereoClass,
@@ -62,6 +71,9 @@ __all__ = [
     "BondKind",
     "BondOrderOptions",
     "BondOrderResult",
+    "CalibrationError",
+    "CalibrationPolicy",
+    "RING_CLASSES",
     "ChemicalAtom",
     "ChemicalBond",
     "ChemicalEntity",
@@ -96,6 +108,7 @@ __all__ = [
     "annotate_chemistry",
     "assign_stereochemistry",
     "classify_entity_relationship",
+    "calibrate_aromaticity_geometry",
     "from_line_notation",
     "from_iupac_name",
     "infer_chemistry",
@@ -108,6 +121,9 @@ __all__ = [
     "name_crystal",
     "name_entity",
     "notations_equivalent",
+    "read_records",
+    "runtime_overrides",
     "smiles_to_iupac",
     "to_line_notation",
+    "write_snapshot",
 ]
