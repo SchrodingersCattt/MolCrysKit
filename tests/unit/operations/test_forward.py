@@ -367,10 +367,20 @@ def test_asu_metadata_and_site_provenance_survive_round_trip():
 
 
 @pytest.mark.parametrize(
-    "value",
-    ("Type'I", "it's ok", "Smiths' method", "trailing'", 'both\' bad" value'),
+    ("value", "expected"),
+    (
+        ("Type'I", "Type'I"),
+        ("it's ok", "it's ok"),
+        ("Smiths' method", "Smiths' method"),
+        ("trailing'", "trailing'"),
+        ('both\' bad" value', 'both\' bad" value'),
+        # Embedded line breaks are normalized to spaces by the CIF writer so
+        # even a line beginning with ``;`` cannot break a text field.
+        ("first\n;second", "first ;second"),
+        ("first\r\nsecond", "first second"),
+    ),
 )
-def test_asu_termination_and_atom_id_text_survive_round_trip(value):
+def test_asu_termination_and_atom_id_text_survive_round_trip(value, expected):
     """True-ASU output preserves quoted metadata and atom identities."""
     context = _pminus1_context()
     atoms = Atoms("C", positions=[[1.3, 2.1, 3.7]])
@@ -393,14 +403,14 @@ def test_asu_termination_and_atom_id_text_survive_round_trip(value):
     )
     restored = read_mol_crystal(cif_text=asu, attach_chemistry=False)
     termination = restored.metadata["termination_info"]
-    assert termination["tasker_type"] == value
-    assert termination["charge_source"] == value
+    assert termination["tasker_type"] == expected
+    assert termination["charge_source"] == expected
     restored_ids = [
         str(atom_id)
         for restored_molecule in restored.molecules
         for atom_id in restored_molecule.arrays[KEY_ATOM_ID]
     ]
-    assert restored_ids[0] == value
+    assert restored_ids[0] == expected
 
 
 def test_forward_molecules_preserve_site_symmetry_order_provenance():

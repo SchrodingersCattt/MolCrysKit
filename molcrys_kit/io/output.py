@@ -35,10 +35,12 @@ def _cif_quote(value: object) -> str:
     """
     text = str(value)
 
-    # A scalar quoted value cannot span a physical line.  Treat newlines like
-    # the case where both quote styles are unsafe and use a text field.
-    if any(character in text for character in "\r\n"):
-        return f";\n{text}\n;"
+    # Scalar CIF values cannot span physical lines.  A semicolon text field
+    # is not safe for arbitrary values because a line in the value beginning
+    # with ``;`` terminates the field.  Normalize line endings to spaces so
+    # metadata and atom IDs remain valid, single-token CIF values even when
+    # supplied with embedded CR/LF characters.
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
     def _contains_terminating_quote(quote: str) -> bool:
         return any(
