@@ -29,12 +29,12 @@ def main() -> int:
     parser.add_argument(
         "--min-pair-observations",
         type=int,
-        default=CalibrationPolicy.min_pair_observations,
+        default=CalibrationPolicy().min_pair_observations,
     )
     parser.add_argument(
         "--min-ring-observations",
         type=int,
-        default=CalibrationPolicy.min_ring_observations,
+        default=CalibrationPolicy().min_ring_observations,
     )
     args = parser.parse_args()
 

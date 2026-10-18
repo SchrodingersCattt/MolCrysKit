@@ -2,6 +2,9 @@
 
 import json
 from pathlib import Path
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -37,6 +40,9 @@ def test_calibration_reports_pair_coverage_and_explicit_metric_bands():
     assert snapshot["status"] == "calibrated"
     quality = snapshot["quality"]
     assert quality["invalid_rows"] == 0
+    assert quality["aromatic_rings"] == 5
+    assert quality["saturated_rings"] == 5
+    assert quality["conjugated_non_aromatic_rings"] == 5
     assert set(quality["pair_coverage"]) == {"-".join(pair) for pair in ELEMENT_PAIRS}
     assert all(count == 2 for count in quality["pair_coverage"].values())
 
@@ -60,6 +66,7 @@ def test_calibration_reports_pair_coverage_and_explicit_metric_bands():
     assert overrides["AROMATIC_RING_PLANARITY_MAX"] == bands["planarity"]["aromatic_max"]
     assert overrides["AROMATIC_RING_BOND_METRIC_AROMATIC_MAX"] == bond_metric["aromatic_max"]
     assert overrides["AROMATIC_RING_SINGLE_BOND_LENGTHS"][("C", "C")] == 1.505
+    assert snapshot["references_A"]["C-C"] == 1.505
 
 
 def test_calibration_snapshot_round_trips_as_deterministic_json(tmp_path):
@@ -93,7 +100,58 @@ def test_missing_pair_refuses_to_emit_a_snapshot():
 def test_overlapping_ring_metric_tails_refuse_calibration():
     records = _fixture_records()
     for record in records:
-        if record.get("ring_class") == "non_aromatic":
+        if record.get("ring_class") == "saturated":
             record["bond_metric"] = 0.92
     with pytest.raises(CalibrationError, match="bond metrics overlap"):
         calibrate_aromaticity_geometry(records, policy=_policy())
+
+
+def test_metricless_and_unknown_rows_are_counted_and_excluded():
+    records = _fixture_records()
+    records[20].pop("bond_metric")
+    records.append({"ring_class": "typo", "planarity": 0.2})
+    snapshot = calibrate_aromaticity_geometry(records, policy=_policy())
+    assert snapshot["quality"]["invalid_rows"] == 2
+    assert snapshot["quality"]["aromatic_rings"] == 4
+
+
+def test_insufficient_valid_ring_metrics_are_refused():
+    records = _fixture_records()
+    aromatic = [r for r in records if r.get("ring_class") == "aromatic"]
+    for record in aromatic[:3]:
+        record.pop("alternation_gap")
+    with pytest.raises(CalibrationError, match=r"insufficient ring metrics \(n < 3\)"):
+        calibrate_aromaticity_geometry(records, policy=_policy())
+
+
+def test_runtime_overrides_rejects_reference_mismatch_and_missing_pair():
+    snapshot = calibrate_aromaticity_geometry(_fixture_records(), policy=_policy())
+    mismatch = json.loads(json.dumps(snapshot))
+    mismatch["references_A"]["C-C"] = 1.6
+    with pytest.raises(CalibrationError, match="references_A"):
+        runtime_overrides(mismatch)
+    missing = json.loads(json.dumps(snapshot))
+    del missing["element_pair_references_A"]["S-S"]
+    with pytest.raises(CalibrationError, match="missing element-pair references"):
+        runtime_overrides(missing)
+
+
+def test_cli_smoke_uses_policy_instance_defaults(tmp_path):
+    fixture_rows = _fixture_records()
+    single_rows = [row for row in fixture_rows if row.get("bond_class") == "single"]
+    ring_rows = [row for row in fixture_rows if row.get("ring_class")]
+    rows = single_rows * 10 + ring_rows * 5
+    input_path = tmp_path / "rows.json"
+    output_path = tmp_path / "snapshot.json"
+    input_path.write_text(json.dumps(rows), encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).parents[3]))
+    result = subprocess.run(
+        [sys.executable, "scripts/calibrate_aromaticity.py", str(input_path), str(output_path)],
+        cwd=Path(__file__).parents[3],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output_path.read_text(encoding="utf-8"))["status"] == "calibrated"

@@ -87,13 +87,24 @@ have access to the licensed Cambridge Structural Database (CSD) Python API.
 so the production package and its tests do not need the CCDC dependency. Each
 source-confirmed single-bond edge is exported as, for example,
 `{"bond_class": "single", "pair": ["C", "C"], "length_A": 1.536}`.
-Each ring summary carries `ring_class` (`aromatic` or `non_aromatic`) and the
-three resolver metrics: `planarity`, `bond_metric`, and `alternation_gap`.
+Each ring summary carries `ring_class` (`aromatic`, `saturated`, or
+`conjugated_non_aromatic`) and the three resolver metrics: `planarity`,
+`bond_metric`, and `alternation_gap`. It also carries a `references_A` object
+with the single-bond reference length for every supported element pair. The
+calibrator checks that this object matches the medians of the source-confirmed
+single-bond rows before accepting any ring metric; this keeps promoted runtime
+references and exported metrics on the same scale. A legacy `non_aromatic`
+class is accepted as an alias for `conjugated_non_aromatic`, but snapshots use
+the explicit classes.
 
 The calibrator reports the number of observations for every C/N/O/S element
-pair, quantile summaries, and explicit uncertainty bands between the aromatic
-and non-aromatic tails. It refuses to emit a snapshot when any requested pair
-or metric lacks the minimum coverage, or when the tails overlap. This keeps a
+pair, quantile summaries, and explicit uncertainty bands between the relevant
+tails. Bond-metric separation is calibrated from `aromatic` versus `saturated`,
+while alternation separation is calibrated from `aromatic` versus
+`conjugated_non_aromatic`; saturated rings therefore do not make an
+alternation sample look ambiguous. It refuses to emit a snapshot when any
+requested pair or valid metric lacks the minimum coverage, when unknown rows
+are encountered without being counted, or when any tails overlap. This keeps a
 small or biased CSD sample from silently changing chemistry perception. A
 licensed CSD run can be reproduced with:
 

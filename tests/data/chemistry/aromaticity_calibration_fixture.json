@@ -164,69 +164,284 @@
     "ring_id": "aromatic-0",
     "planarity": 0.01,
     "bond_metric": 0.9,
-    "alternation_gap": 0.01
+    "alternation_gap": 0.01,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
     "ring_class": "aromatic",
     "ring_id": "aromatic-1",
     "planarity": 0.012,
     "bond_metric": 0.904,
-    "alternation_gap": 0.012
+    "alternation_gap": 0.012,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
     "ring_class": "aromatic",
     "ring_id": "aromatic-2",
     "planarity": 0.014,
     "bond_metric": 0.908,
-    "alternation_gap": 0.014
+    "alternation_gap": 0.014,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
     "ring_class": "aromatic",
     "ring_id": "aromatic-3",
     "planarity": 0.016,
     "bond_metric": 0.912,
-    "alternation_gap": 0.016
+    "alternation_gap": 0.016,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
     "ring_class": "aromatic",
     "ring_id": "aromatic-4",
     "planarity": 0.018000000000000002,
     "bond_metric": 0.916,
-    "alternation_gap": 0.018000000000000002
+    "alternation_gap": 0.018000000000000002,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
-    "ring_class": "non_aromatic",
+    "ring_class": "saturated",
     "ring_id": "non-aromatic-0",
+    "planarity": 0.08,
+    "bond_metric": 1.02,
+    "alternation_gap": 0.01,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
+  },
+  {
+    "ring_class": "saturated",
+    "ring_id": "non-aromatic-1",
+    "planarity": 0.088,
+    "bond_metric": 1.024,
+    "alternation_gap": 0.011,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
+  },
+  {
+    "ring_class": "saturated",
+    "ring_id": "non-aromatic-2",
+    "planarity": 0.096,
+    "bond_metric": 1.028,
+    "alternation_gap": 0.012,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
+  },
+  {
+    "ring_class": "saturated",
+    "ring_id": "non-aromatic-3",
+    "planarity": 0.10400000000000001,
+    "bond_metric": 1.032,
+    "alternation_gap": 0.013000000000000001,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
+  },
+  {
+    "ring_class": "saturated",
+    "ring_id": "non-aromatic-4",
+    "planarity": 0.112,
+    "bond_metric": 1.036,
+    "alternation_gap": 0.014,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
+  },
+  {
+    "ring_class": "conjugated_non_aromatic",
+    "ring_id": "conjugated-0",
     "planarity": 0.12,
     "bond_metric": 1.04,
-    "alternation_gap": 0.16
+    "alternation_gap": 0.16,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
-    "ring_class": "non_aromatic",
-    "ring_id": "non-aromatic-1",
+    "ring_class": "conjugated_non_aromatic",
+    "ring_id": "conjugated-1",
     "planarity": 0.13,
     "bond_metric": 1.048,
-    "alternation_gap": 0.17
+    "alternation_gap": 0.17,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
-    "ring_class": "non_aromatic",
-    "ring_id": "non-aromatic-2",
+    "ring_class": "conjugated_non_aromatic",
+    "ring_id": "conjugated-2",
     "planarity": 0.13999999999999999,
     "bond_metric": 1.056,
-    "alternation_gap": 0.18
+    "alternation_gap": 0.18,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
-    "ring_class": "non_aromatic",
-    "ring_id": "non-aromatic-3",
+    "ring_class": "conjugated_non_aromatic",
+    "ring_id": "conjugated-3",
     "planarity": 0.15,
     "bond_metric": 1.064,
-    "alternation_gap": 0.19
+    "alternation_gap": 0.19,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   },
   {
-    "ring_class": "non_aromatic",
-    "ring_id": "non-aromatic-4",
+    "ring_class": "conjugated_non_aromatic",
+    "ring_id": "conjugated-4",
     "planarity": 0.16,
     "bond_metric": 1.072,
-    "alternation_gap": 0.2
+    "alternation_gap": 0.2,
+    "references_A": {
+      "C-C": 1.505,
+      "C-N": 1.5150000000000001,
+      "C-O": 1.525,
+      "C-S": 1.5350000000000001,
+      "N-N": 1.545,
+      "N-O": 1.5550000000000002,
+      "N-S": 1.565,
+      "O-O": 1.5750000000000002,
+      "O-S": 1.585,
+      "S-S": 1.5950000000000002
+    }
   }
 ]

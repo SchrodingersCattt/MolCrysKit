@@ -4,6 +4,7 @@ from .annotation import ChemistryIndeterminateError, annotate_chemistry
 from .aromaticity_calibration import (
     CalibrationError,
     CalibrationPolicy,
+    RING_CLASSES,
     calibrate_aromaticity_geometry,
     read_records,
     runtime_overrides,
@@ -72,6 +73,7 @@ __all__ = [
     "BondOrderResult",
     "CalibrationError",
     "CalibrationPolicy",
+    "RING_CLASSES",
     "ChemicalAtom",
     "ChemicalBond",
     "ChemicalEntity",

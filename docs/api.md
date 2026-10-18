@@ -89,7 +89,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 [Chemistry coverage and release gates](chemistry_coverage.md).
 
 - Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`, `BondOrderOptions`, `BondOrderResult`
-- Calibration: `CalibrationError`, `calibrate_aromaticity_geometry`, `CalibrationPolicy`, `runtime_overrides`, `read_records`, `write_snapshot`
+- Calibration: `CalibrationError`, `calibrate_aromaticity_geometry`, `CalibrationPolicy`, `RING_CLASSES`, `runtime_overrides`, `read_records`, `write_snapshot`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
 - Analysis and conversion: `annotate_chemistry`, `infer_chemistry`, `infer_bond_orders`, `infer_bond_orders_array`, `infer_bond_orders_arrays`, `infer_bond_orders_from_arrays`, `infer_bond_orders_batch`, `analyze_periodic_topology`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `from_iupac_name`, `iupac_to_smiles`, `smiles_to_iupac`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`, `NamingParseError`
 
