@@ -5,7 +5,7 @@ This module provides functionality to parse CIF files into MolecularCrystal obje
 It includes tools for handling disorder information and identifying molecular units.
 """
 
-from typing import List, Tuple, Optional, Dict
+from typing import Dict, Iterator, List, Optional, Tuple
 import base64
 import copy
 import json
@@ -224,32 +224,92 @@ def _extract_custom_molcrys_provenance_rows(
             continue
         tag_to_idx = {tag: idx for idx, tag in enumerate(tags)}
         k = j
+        for tokens in _iter_cif_loop_rows(lines, k, len(tags)):
+            try:
+                atom_index = int(tokens[tag_to_idx["_molcrys_atom_index"]])
+                sym_op_index = int(tokens[tag_to_idx["_molcrys_sym_op_index"]])
+                asym_id = int(tokens[tag_to_idx["_molcrys_asym_id"]])
+                site_sym_order = int(
+                    tokens[tag_to_idx["_molcrys_site_symmetry_order"]]
+                )
+                rows[atom_index] = (sym_op_index, asym_id, site_sym_order)
+            except (TypeError, ValueError, IndexError):
+                pass
+        # Advance to the next loop/header after the row iterator stopped.
         while k < len(lines):
             stripped = lines[k].strip()
-            if not stripped:
-                k += 1
-                continue
-            if (
+            if stripped and (
                 stripped.lower() == "loop_"
                 or stripped.startswith("_")
                 or stripped.startswith("data_")
             ):
                 break
-            tokens = stripped.split()
-            if len(tokens) == len(tags):
-                try:
-                    atom_index = int(tokens[tag_to_idx["_molcrys_atom_index"]])
-                    sym_op_index = int(tokens[tag_to_idx["_molcrys_sym_op_index"]])
-                    asym_id = int(tokens[tag_to_idx["_molcrys_asym_id"]])
-                    site_sym_order = int(
-                        tokens[tag_to_idx["_molcrys_site_symmetry_order"]]
-                    )
-                    rows[atom_index] = (sym_op_index, asym_id, site_sym_order)
-                except (TypeError, ValueError, IndexError):
-                    pass
             k += 1
         i = k
     return rows
+
+
+def _cif_line_tokens(line: str) -> list[str]:
+    """Tokenize one CIF row while honoring CIF's quote termination rule."""
+    tokens: list[str] = []
+    index = 0
+    length = len(line)
+    while index < length:
+        while index < length and line[index].isspace():
+            index += 1
+        if index >= length:
+            break
+        if line[index] in "'\"":
+            quote = line[index]
+            index += 1
+            chars: list[str] = []
+            while index < length:
+                character = line[index]
+                if character == quote and (
+                    index + 1 == length or line[index + 1].isspace()
+                ):
+                    index += 1
+                    break
+                chars.append(character)
+                index += 1
+            tokens.append("".join(chars))
+            continue
+        start = index
+        while index < length and not line[index].isspace():
+            index += 1
+        tokens.append(line[start:index])
+    return tokens
+
+
+def _iter_cif_loop_rows(
+    lines: list[str], start: int, width: int
+) -> Iterator[list[str]]:
+    """Yield tokenized CIF loop rows, including semicolon text-field values."""
+    pending: list[str] = []
+    cursor = start
+    while cursor < len(lines):
+        raw = lines[cursor]
+        stripped = raw.strip()
+        if not stripped:
+            cursor += 1
+            continue
+        if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+            break
+        if raw.startswith(";"):
+            text_lines: list[str] = [raw[1:]] if raw[1:] else []
+            cursor += 1
+            while cursor < len(lines) and not lines[cursor].startswith(";"):
+                text_lines.append(lines[cursor])
+                cursor += 1
+            if cursor < len(lines):
+                cursor += 1
+            pending.append("\n".join(text_lines))
+        else:
+            pending.extend(_cif_line_tokens(stripped))
+            cursor += 1
+        while len(pending) >= width:
+            yield pending[:width]
+            pending = pending[width:]
 
 
 def _extract_custom_molcrys_atom_ids(text: str) -> Dict[int, str]:
@@ -267,24 +327,12 @@ def _extract_custom_molcrys_atom_ids(text: str) -> Dict[int, str]:
         if "_molcrys_atom_index" not in tags or "_molcrys_atom_id" not in tags:
             continue
         tag_to_index = {tag: position for position, tag in enumerate(tags)}
-        while cursor < len(lines):
-            stripped = lines[cursor].strip()
-            if not stripped:
-                cursor += 1
-                continue
-            if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
-                break
-            # IDs are quoted by the writer; shlex handles both quoted and
-            # unquoted legacy values without changing embedded punctuation.
-            import shlex
-            tokens = shlex.split(stripped)
-            if len(tokens) == len(tags):
-                try:
-                    atom_index = int(tokens[tag_to_index["_molcrys_atom_index"]])
-                    result[atom_index] = tokens[tag_to_index["_molcrys_atom_id"]]
-                except (TypeError, ValueError, IndexError):
-                    pass
-            cursor += 1
+        for tokens in _iter_cif_loop_rows(lines, cursor, len(tags)):
+            try:
+                atom_index = int(tokens[tag_to_index["_molcrys_atom_index"]])
+                result[atom_index] = tokens[tag_to_index["_molcrys_atom_id"]]
+            except (TypeError, ValueError, IndexError):
+                pass
     return result
 
 
@@ -1099,7 +1147,10 @@ def _clean_cif_text_value(value) -> str | None:
     value = _first_cif_value(value)
     if value is None:
         return None
-    text = str(value).strip().strip("'\"")
+    text = str(value).strip()
+    # Pymatgen removes CIF quote delimiters before returning a value.  Do not
+    # strip quote characters here: they may be part of the actual value (for
+    # example, a trailing apostrophe or a value enclosed in literal quotes).
     return None if text in {"", ".", "?"} else text
 
 

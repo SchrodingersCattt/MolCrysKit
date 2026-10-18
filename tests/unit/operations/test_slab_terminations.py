@@ -452,15 +452,21 @@ def test_termination_metadata_round_trip_preserves_types_and_tags():
     assert termination["charge_source"] == "charge'source"
 
     # Metadata on a read crystal is picked up when no explicit metadata
-    # argument is supplied, and all seven provenance tags survive unchanged.
+    # argument is supplied, and all seven provenance values survive unchanged.
     rewritten = write_cif(restored)
-    for tag in (
-        "_molcrys_termination_shift",
-        "_molcrys_termination_index",
-        "_molcrys_tasker_type",
-        "_molcrys_tasker_polar",
-        "_molcrys_tasker_dipole_per_area",
-        "_molcrys_charge_source",
-        "_molcrys_tasker2_corrected",
-    ):
-        assert tag in rewritten
+    rewritten_restored = read_mol_crystal(
+        cif_text=rewritten, attach_chemistry=False
+    )
+    rewritten_termination = rewritten_restored.metadata["termination_info"]
+    assert rewritten_termination["shift"] == pytest.approx(termination["shift"])
+    assert rewritten_termination["termination_index"] == termination["termination_index"]
+    assert rewritten_termination["tasker_type"] == termination["tasker_type"]
+    assert rewritten_termination["is_polar"] is termination["is_polar"]
+    assert rewritten_termination["dipole_per_area"] == pytest.approx(
+        termination["dipole_per_area"]
+    )
+    assert rewritten_termination["charge_source"] == termination["charge_source"]
+    assert (
+        rewritten_termination["tasker2_corrected"]
+        is termination["tasker2_corrected"]
+    )

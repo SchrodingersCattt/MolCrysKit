@@ -23,6 +23,63 @@ from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
 
 
+def _cif_quote(value: object) -> str:
+    """Quote a CIF text value without truncating embedded quote marks.
+
+    CIF's single- and double-quoted values terminate when the matching quote
+    is followed by whitespace (or the end of the value).  A quote can still be
+    used as an ordinary character when it is followed by another non-space
+    character, which is why values such as ``"Type'I"`` work with the usual
+    single-quote form.  Values that cannot be represented by either scalar
+    quote form are emitted as a semicolon-delimited text field.
+    """
+    text = str(value)
+
+    # A scalar quoted value cannot span a physical line.  Treat newlines like
+    # the case where both quote styles are unsafe and use a text field.
+    if any(character in text for character in "\r\n"):
+        return f";\n{text}\n;"
+
+    def _contains_terminating_quote(quote: str) -> bool:
+        return any(
+            character == quote
+            and (index + 1 == len(text) or text[index + 1].isspace())
+            for index, character in enumerate(text)
+        )
+
+    if not _contains_terminating_quote("'"):
+        return f"'{text}'"
+    if not _contains_terminating_quote('"'):
+        return f'"{text}"'
+    return f";\n{text}\n;"
+
+
+def _append_cif_text(lines: list[str], tag: str, value: object) -> None:
+    """Append one scalar CIF tag, including multiline text-field values."""
+    token = _cif_quote(value)
+    if token.startswith(";\n"):
+        lines.append(tag)
+        lines.extend(token.splitlines())
+    else:
+        lines.append(f"{tag} {token}")
+
+
+def _append_cif_loop_text(
+    lines: list[str], prefix: str, value: object, suffix: str = ""
+) -> None:
+    """Append one loop row containing a quoted or multiline text value."""
+    token = _cif_quote(value)
+    if token.startswith(";\n"):
+        # CIF requires a semicolon text field to start in column one.  Keep
+        # the other row values on their own lines around that field.
+        lines.append(prefix.rstrip())
+        lines.extend(token.splitlines())
+        if suffix:
+            lines.append(suffix.lstrip())
+    else:
+        lines.append(f"{prefix}{token}{suffix}")
+
+
 def write_xyz(molecule: CrystalMolecule, filename: str = None) -> str:
     """
     Write a molecule to XYZ format.
@@ -352,8 +409,7 @@ def write_cif(
                     f"_molcrys_termination_index        {int(termination_index)}"
                 )
             if tasker_type is not None:
-                escaped = str(tasker_type)
-                lines.append(f"_molcrys_tasker_type              '{escaped}'")
+                _append_cif_text(lines, "_molcrys_tasker_type", tasker_type)
             if is_polar is not None:
                 lines.append(f"_molcrys_tasker_polar             {is_polar}")
             if dipole_per_area is not None:
@@ -362,8 +418,7 @@ def write_cif(
                     f"{float(dipole_per_area):.6e}"
                 )
             if charge_source is not None:
-                escaped = str(charge_source)
-                lines.append(f"_molcrys_charge_source            '{escaped}'")
+                _append_cif_text(lines, "_molcrys_charge_source", charge_source)
             if tasker2_corrected is not None:
                 lines.append(
                     f"_molcrys_tasker2_corrected        {tasker2_corrected}"
@@ -614,8 +669,13 @@ def write_cif(
     ):
         atom_id = ""
         if i < len(all_atom_ids):
-            atom_id = str(all_atom_ids[i]).replace(chr(39), chr(39) * 2)
-        lines.append(f"  {i:4d} {soi:4d} {aid:4d} {sso:2d} '{atom_id}' {molecule_id:d}")
+            atom_id = str(all_atom_ids[i])
+        _append_cif_loop_text(
+            lines,
+            f"  {i:4d} {soi:4d} {aid:4d} {sso:2d} ",
+            atom_id,
+            f" {molecule_id:d}",
+        )
 
     cif_string = "\n".join(lines) + "\n"
 
@@ -1067,8 +1127,9 @@ def write_cif_asu(
             if value is None:
                 continue
             if isinstance(value, str):
-                value = f"'{value}'"
-            lines.append(f"{name} {value}")
+                _append_cif_text(lines, name, value)
+            else:
+                lines.append(f"{name} {value}")
         lines.append("")
     lines.extend([
         "loop_",
@@ -1238,10 +1299,12 @@ def write_cif_asu(
     )
     for index, row in enumerate(selected):
         atom_id = str(row.get("atom_id", "")) or "."
-        lines.append(
+        _append_cif_loop_text(
+            lines,
             f"  {index} {index} {int(row.get('sym_op_index', 0))} "
-            f"{int(row.get('asym_id', -1))} {int(row.get('site_symmetry_order', 1))} "
-            f"'{atom_id.replace(chr(39), chr(39) * 2)}' {int(row.get('molecule_id', -1))}"
+            f"{int(row.get('asym_id', -1))} {int(row.get('site_symmetry_order', 1))} ",
+            atom_id,
+            f" {int(row.get('molecule_id', -1))}",
         )
     lines.extend(["", "# The full-cell expansion is represented by the operation loop above.", ""])
     text = "\n".join(lines)
