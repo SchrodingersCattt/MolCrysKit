@@ -48,10 +48,11 @@ def test_calibration_reports_pair_coverage_and_explicit_metric_bands():
 
     bands = snapshot["geometry_bands"]
     planarity = bands["planarity"]
-    assert planarity["aromatic_max"] < planarity["non_aromatic_min"]
+    assert planarity["aromatic_max"] < planarity["saturated_min"]
+    assert planarity["conjugated_non_aromatic"]["q05"] < planarity["saturated_min"]
     assert planarity["uncertain"] == [
         planarity["aromatic_max"],
-        planarity["non_aromatic_min"],
+        planarity["saturated_min"],
     ]
     bond_metric = bands["bond_metric"]
     assert bond_metric["aromatic_max"] < bond_metric["saturated_min"]
@@ -106,6 +107,17 @@ def test_overlapping_ring_metric_tails_refuse_calibration():
         calibrate_aromaticity_geometry(records, policy=_policy())
 
 
+def test_conjugated_planarity_is_reported_without_setting_planarity_band():
+    records = _fixture_records()
+    for record in records:
+        if record.get("ring_class") == "conjugated_non_aromatic":
+            record["planarity"] = 0.0
+    snapshot = calibrate_aromaticity_geometry(records, policy=_policy())
+    planarity = snapshot["geometry_bands"]["planarity"]
+    assert planarity["saturated_min"] > planarity["aromatic_max"]
+    assert planarity["conjugated_non_aromatic"]["q05"] == 0.0
+
+
 def test_metricless_and_unknown_rows_are_counted_and_excluded():
     records = _fixture_records()
     records[20].pop("bond_metric")
@@ -134,6 +146,24 @@ def test_runtime_overrides_rejects_reference_mismatch_and_missing_pair():
     del missing["element_pair_references_A"]["S-S"]
     with pytest.raises(CalibrationError, match="missing element-pair references"):
         runtime_overrides(missing)
+
+
+def test_reference_median_comparison_uses_angstrom_tolerance():
+    records = _fixture_records()
+    for record in records:
+        references = record.get("references_A")
+        if isinstance(references, dict):
+            references["C-C"] += 5e-5
+    snapshot = calibrate_aromaticity_geometry(records, policy=_policy())
+    assert snapshot["references_A"]["C-C"] == 1.505
+
+    outside_tolerance = _fixture_records()
+    for record in outside_tolerance:
+        references = record.get("references_A")
+        if isinstance(references, dict):
+            references["C-C"] += 2e-4
+    with pytest.raises(CalibrationError, match="references_A"):
+        calibrate_aromaticity_geometry(outside_tolerance, policy=_policy())
 
 
 def test_cli_smoke_uses_policy_instance_defaults(tmp_path):

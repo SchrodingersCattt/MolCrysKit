@@ -65,6 +65,19 @@ the bonds that lie on any accepted cycle; a biphenyl bridge does not.
 User-confirmed non-aromatic evidence locks the flag off. Ring planarity and
 lengths only rank Kekulé forms.
 
+When hydrogen metadata are absent, the ring-level geometry check also guards
+against mistaking an alternating ring for an aromatic one. For each element
+pair represented by at least four ring edges, it divides each edge length by
+that pair's configured single-bond reference, sorts the normalized lengths,
+and considers the largest internal gap. The split is eligible only when at
+least two edges fall on each side; the pair contributes alternation evidence
+when that gap is at least `AROMATIC_RING_BOND_ALTERNATION_MAX`. A ring is
+treated as alternating when any represented pair passes this test. Unknown
+element-pair references are skipped, and geometry abstains when fewer than
+half of the ring edges have a known reference. This largest-gap, two-sided
+rule preserves 2+4 patterns such as 1,4-cyclohexadiene that a median split
+could hide.
+
 Source precedence is user-confirmed, then explicit file evidence (CIF bond
 type, line notation, IUPAC), then inference. `S`/`D`/`T` lock orders 1/2/3.
 `A` and `delocalised` set the aromatic flag and leave the numeric order to
@@ -95,18 +108,21 @@ calibrator checks that this object matches the medians of the source-confirmed
 single-bond rows before accepting any ring metric; this keeps promoted runtime
 references and exported metrics on the same scale. A legacy `non_aromatic`
 class is accepted as an alias for `conjugated_non_aromatic`, but snapshots use
-the explicit classes.
+the explicit classes. Reference medians are compared with a `1e-4` Å absolute
+tolerance, matching the precision of reported CSD bond lengths.
 
 The calibrator reports the number of observations for every C/N/O/S element
 pair, quantile summaries, and explicit uncertainty bands between the relevant
-tails. Bond-metric separation is calibrated from `aromatic` versus `saturated`,
-while alternation separation is calibrated from `aromatic` versus
-`conjugated_non_aromatic`; saturated rings therefore do not make an
-alternation sample look ambiguous. It refuses to emit a snapshot when any
-requested pair or valid metric lacks the minimum coverage, when unknown rows
-are encountered without being counted, or when any tails overlap. This keeps a
-small or biased CSD sample from silently changing chemistry perception. A
-licensed CSD run can be reproduced with:
+tails. Planarity separation is calibrated from `aromatic` versus `saturated`;
+`conjugated_non_aromatic` planarity remains a reported distribution only and
+does not set the runtime planarity band. Bond-metric separation is calibrated
+from `aromatic` versus `saturated`, while alternation separation is calibrated
+from `aromatic` versus `conjugated_non_aromatic`; saturated rings therefore do
+not make an alternation sample look ambiguous. It refuses to emit a snapshot
+when any requested pair or valid metric lacks the minimum coverage, when
+unknown rows are encountered without being counted, or when any tails overlap.
+This keeps a small or biased CSD sample from silently changing chemistry
+perception. A licensed CSD run can be reproduced with:
 
 ```bash
 python scripts/calibrate_aromaticity.py rings.jsonl aromaticity_geometry.json \

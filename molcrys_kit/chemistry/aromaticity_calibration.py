@@ -18,6 +18,9 @@ Two kinds of observations are expected:
   ring record also carries a ``references_A`` mapping.  This records the
   single-bond references used to normalise its metrics, so a snapshot cannot
   promote thresholds calculated with one set of references alongside another.
+  Planarity separation is calibrated only from the aromatic and saturated
+  classes; conjugated non-aromatic planarity is reported for review but does
+  not set a runtime boundary.
 
 The calibrator reports the coverage and uncertainty bands instead of silently
 filling a missing element pair.  A caller can keep the conservative PR #179
@@ -46,6 +49,12 @@ ELEMENT_PAIRS: tuple[tuple[str, str], ...] = (
     ("O", "S"),
     ("S", "S"),
 )
+
+# CSD bond lengths are reported in Angstroms.  A promoted reference and the
+# median from its source rows are therefore compared with an absolute
+# tolerance at the scale of the measurements, rather than requiring JSON
+# serialization and floating-point arithmetic to agree to machine precision.
+REFERENCE_TOLERANCE_A = 1e-4
 
 RING_CLASSES: tuple[str, ...] = (
     "aromatic",
@@ -249,7 +258,9 @@ def calibrate_aromaticity_geometry(
         raise CalibrationError("missing references_A block")
     for references in reference_blocks:
         if any(
-            not math.isclose(references[pair], expected, rel_tol=1e-9, abs_tol=1e-9)
+            not math.isclose(
+                references[pair], expected, rel_tol=0.0, abs_tol=REFERENCE_TOLERANCE_A
+            )
             for pair, expected in expected_references.items()
         ):
             raise CalibrationError(
@@ -257,7 +268,9 @@ def calibrate_aromaticity_geometry(
             )
     for ring_class, metrics, references in pending_rings:
         if any(
-            not math.isclose(references[pair], expected, rel_tol=1e-9, abs_tol=1e-9)
+            not math.isclose(
+                references[pair], expected, rel_tol=0.0, abs_tol=REFERENCE_TOLERANCE_A
+            )
             for pair, expected in expected_references.items()
         ):
             raise CalibrationError(
@@ -291,7 +304,6 @@ def calibrate_aromaticity_geometry(
     conjugated_alternation = [
         item["alternation_gap"] for item in ring_metrics["conjugated_non_aromatic"]
     ]
-    non_aromatic_planarity = saturated_planarity + conjugated_planarity
     non_aromatic_metric = saturated_metric + conjugated_metric
     non_aromatic_alternation = saturated_alternation + conjugated_alternation
 
@@ -306,9 +318,9 @@ def calibrate_aromaticity_geometry(
     if conjugated_alternation_lower - aromatic_alternation_upper < policy.min_alternation_separation:
         raise CalibrationError("aromatic and conjugated alternation gaps overlap")
     aromatic_planarity_upper = _quantile(aromatic_planarity, 0.95)
-    non_aromatic_planarity_lower = _quantile(non_aromatic_planarity, 0.05)
-    if non_aromatic_planarity_lower - aromatic_planarity_upper < policy.min_metric_separation:
-        raise CalibrationError("aromatic and non-aromatic planarity overlaps")
+    saturated_planarity_lower = _quantile(saturated_planarity, 0.05)
+    if saturated_planarity_lower - aromatic_planarity_upper < policy.min_metric_separation:
+        raise CalibrationError("aromatic and saturated planarity overlaps")
 
     return {
         "schema_version": 1,
@@ -334,14 +346,13 @@ def calibrate_aromaticity_geometry(
         "geometry_bands": {
             "planarity": {
                 "aromatic": _summary(aromatic_planarity),
-                "non_aromatic": _summary(non_aromatic_planarity),
                 "saturated": _summary(saturated_planarity),
                 "conjugated_non_aromatic": _summary(conjugated_planarity),
                 "aromatic_max": aromatic_planarity_upper,
-                "non_aromatic_min": non_aromatic_planarity_lower,
+                "saturated_min": saturated_planarity_lower,
                 "uncertain": [
                     aromatic_planarity_upper,
-                    non_aromatic_planarity_lower,
+                    saturated_planarity_lower,
                 ],
             },
             "bond_metric": {
@@ -444,14 +455,16 @@ def runtime_overrides(snapshot: Mapping[str, object]) -> dict[str, object]:
             raise CalibrationError(f"invalid references_A value for element pair {key!r}")
         exported_lengths[pair] = number
     if set(exported_lengths) != set(pair_lengths) or any(
-        not math.isclose(exported_lengths[pair], value, rel_tol=1e-9, abs_tol=1e-9)
+        not math.isclose(
+            exported_lengths[pair], value, rel_tol=0.0, abs_tol=REFERENCE_TOLERANCE_A
+        )
         for pair, value in pair_lengths.items()
     ):
         raise CalibrationError("references_A does not match element-pair medians")
 
     try:
         planarity = float(bands["planarity"]["aromatic_max"])
-        planarity_min = float(bands["planarity"]["non_aromatic_min"])
+        planarity_min = float(bands["planarity"]["saturated_min"])
         metric = bands["bond_metric"]
         alternation = bands["alternation_gap"]
         aromatic_metric = float(metric["aromatic_max"])

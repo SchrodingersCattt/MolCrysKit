@@ -352,7 +352,7 @@
   {
     "ring_class": "conjugated_non_aromatic",
     "ring_id": "conjugated-0",
-    "planarity": 0.12,
+    "planarity": 0.02,
     "bond_metric": 1.04,
     "alternation_gap": 0.16,
     "references_A": {
@@ -371,7 +371,7 @@
   {
     "ring_class": "conjugated_non_aromatic",
     "ring_id": "conjugated-1",
-    "planarity": 0.13,
+    "planarity": 0.022,
     "bond_metric": 1.048,
     "alternation_gap": 0.17,
     "references_A": {
@@ -390,7 +390,7 @@
   {
     "ring_class": "conjugated_non_aromatic",
     "ring_id": "conjugated-2",
-    "planarity": 0.13999999999999999,
+    "planarity": 0.024,
     "bond_metric": 1.056,
     "alternation_gap": 0.18,
     "references_A": {
@@ -409,7 +409,7 @@
   {
     "ring_class": "conjugated_non_aromatic",
     "ring_id": "conjugated-3",
-    "planarity": 0.15,
+    "planarity": 0.026,
     "bond_metric": 1.064,
     "alternation_gap": 0.19,
     "references_A": {
@@ -428,7 +428,7 @@
   {
     "ring_class": "conjugated_non_aromatic",
     "ring_id": "conjugated-4",
-    "planarity": 0.16,
+    "planarity": 0.028,
     "bond_metric": 1.072,
     "alternation_gap": 0.2,
     "references_A": {
