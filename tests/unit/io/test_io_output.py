@@ -178,6 +178,12 @@ class TestWriteCif:
             ("Smiths' method", '"Smiths\' method"'),
             ("trailing'", '"trailing\'"'),
             ('both\' bad" value', ';\nboth\' bad" value\n;'),
+            # CIF scalar values cannot contain physical line breaks.  They
+            # are normalized before quote selection, including a line that
+            # begins with ``;`` (which would otherwise terminate a text field).
+            ("first\n;second", "'first ;second'"),
+            ("first\r\nsecond", "'first second'"),
+            ("first\rsecond", "'first second'"),
         ),
     )
     def test_cif_quote_uses_cif_safe_form(self, value, expected):
