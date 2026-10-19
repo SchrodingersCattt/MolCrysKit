@@ -105,4 +105,3 @@ Release steps (manual → automated):
 
 CI checkouts use `fetch-depth: 0` so `setuptools_scm` sees full tag history;
 do not lower it.
-
