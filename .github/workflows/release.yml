@@ -27,8 +27,8 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tag must match vX.Y.Z: ${TAG}" >&2
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([abrc][0-9]+)?$ ]]; then
+            echo "Release tag must match vX.Y.Z or vX.Y.ZaN/bN/rcN: ${TAG}" >&2
             exit 1
           fi
 
@@ -181,7 +181,7 @@ jobs:
           fi
 
           PROMOTE_LATEST="false"
-          if [[ "${GITHUB_REF}" == refs/tags/* && "${GITHUB_REF_NAME}" != *-* ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* && "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             PROMOTE_LATEST="true"
           fi
 
@@ -275,7 +275,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          PRERELEASE_FLAG=""
+          if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[abrc][0-9]+$ ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --generate-notes \
             --notes-file "${{ steps.body.outputs.path }}" \
-            --title "${GITHUB_REF_NAME}"
+            --title "${GITHUB_REF_NAME}" \
+            ${PRERELEASE_FLAG}
