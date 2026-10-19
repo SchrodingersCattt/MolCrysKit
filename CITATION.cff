@@ -6,7 +6,7 @@ message: >-
 title: MolCrysKit
 # Bumped per release. See AGENTS.md "Release process" — this file must be
 # updated together with the version commit on the chore/release-X.Y.Z branch.
-version: 0.7.1
+version: 0.8.0b1
 license: MIT
 repository-code: https://github.com/SchrodingersCattt/MolCrysKit
 url: https://github.com/SchrodingersCattt/MolCrysKit
@@ -34,3 +34,4 @@ preferred-citation:
   start: 4999
   end: 5007
   doi: 10.1021/acs.jcim.6c00168
+
