@@ -218,3 +218,6 @@ _tmp/
 
 # Generated periodic-chain structure bundles (local artifacts)
 examples/periodic_chains/bundles/
+
+# Generated analysis and visualization outputs
+/output/
