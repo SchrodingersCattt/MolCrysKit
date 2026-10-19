@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from click.testing import CliRunner
 import pytest
 
 from molcrys_kit.cli import main
 from molcrys_kit.cli import skill_viewer
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_skills_list_json() -> None:
@@ -78,6 +84,18 @@ def test_skills_json_errors_are_machine_readable() -> None:
         "ok": False,
         "schema": "mck.error/v1",
     }
+
+
+def test_skills_argument_does_not_hide_existing_commands() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "molcrys_kit", "io", "info", "skills"],
+        cwd=REPO_ROOT,
+        env=dict(os.environ, PYTHONPATH=str(REPO_ROOT)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert "No such command 'info'" not in result.stdout + result.stderr
 
 
 def test_skill_links_are_nested_deduplicated_and_cycle_safe(

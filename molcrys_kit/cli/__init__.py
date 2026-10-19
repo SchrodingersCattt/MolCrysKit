@@ -100,8 +100,14 @@ def skills_tree(name: str, as_json: bool) -> None:
 
 # Register structure command modules after the Click groups exist.  The
 # documentation-only path stays on the standard-library resource viewer and
-# does not import chemistry, analysis, or periodic-geometry modules.
-if "skills" not in sys.argv[1:]:
+# does not import chemistry, analysis, or periodic-geometry modules.  Inspect
+# the root command only: a positional value such as ``mck io info skills``
+# must not hide the existing structure commands.
+_root_command = next(
+    (argument for argument in sys.argv[1:] if not argument.startswith("-")),
+    None,
+)
+if _root_command != "skills":
     from .io_cmd import register_io_commands  # noqa: E402
     from .operate_cmd import register_operate_commands  # noqa: E402
     from .analyze_cmd import register_analyze_commands  # noqa: E402
