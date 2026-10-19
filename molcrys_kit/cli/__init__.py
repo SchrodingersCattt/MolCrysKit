@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import click
+
+from .skill_viewer import SkillError, emit_list, emit_show, emit_tree, get_skill
 
 try:
     from molcrys_kit._version import version as __version__
@@ -39,16 +42,60 @@ def analyze_group() -> None:
     """Analyze crystals and print reports."""
 
 
-# Register command modules after the Click groups exist.
-from .io_cmd import register_io_commands  # noqa: E402
-from .operate_cmd import register_operate_commands  # noqa: E402
-from .analyze_cmd import register_analyze_commands  # noqa: E402
-from .periodic_chain_cmd import register_periodic_chain_commands  # noqa: E402
+@main.group(name="skills")
+def skills_group() -> None:
+    """Discover and read bundled Agent Skills."""
 
-register_io_commands(io_group)
-register_operate_commands(operate_group)
-register_analyze_commands(analyze_group)
-register_periodic_chain_commands(main)
+
+@skills_group.command(name="list")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
+def skills_list(as_json: bool) -> None:
+    """List bundled skills and frontmatter descriptions."""
+    try:
+        emit_list(as_json=as_json)
+    except SkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@skills_group.command(name="show")
+@click.argument("name", metavar="SKILL_NAME")
+@click.option("--file", "relative_path", default="SKILL.md", show_default=True,
+              metavar="RELATIVE_PATH", help="Resource path relative to the skill root.")
+@click.option("--all", "all_files", is_flag=True,
+              help="Expand reachable Markdown references in link order.")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
+def skills_show(name: str, relative_path: str, all_files: bool, as_json: bool) -> None:
+    """Print one bundled skill resource, or explicitly expand its Markdown links."""
+    try:
+        emit_show(get_skill(name), relative_path, all_files=all_files, as_json=as_json)
+    except SkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@skills_group.command(name="tree")
+@click.argument("name", metavar="SKILL_NAME")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
+def skills_tree(name: str, as_json: bool) -> None:
+    """Show linked local resources without outputting document bodies."""
+    try:
+        emit_tree(get_skill(name), as_json=as_json)
+    except SkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+# Register structure command modules after the Click groups exist.  The
+# documentation-only path stays on the standard-library resource viewer and
+# does not import chemistry, analysis, or periodic-geometry modules.
+if "skills" not in sys.argv[1:]:
+    from .io_cmd import register_io_commands  # noqa: E402
+    from .operate_cmd import register_operate_commands  # noqa: E402
+    from .analyze_cmd import register_analyze_commands  # noqa: E402
+    from .periodic_chain_cmd import register_periodic_chain_commands  # noqa: E402
+
+    register_io_commands(io_group)
+    register_operate_commands(operate_group)
+    register_analyze_commands(analyze_group)
+    register_periodic_chain_commands(main)
 
 
 __all__ = ["main"]
