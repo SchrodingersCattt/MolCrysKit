@@ -224,6 +224,14 @@ def all_documents(skill: Skill, start: str = "SKILL.md") -> list[dict[str, str]]
     return documents
 
 
+def _validate_document_links(skill: Skill, relative: str, content: str) -> None:
+    """Validate local links without reading or expanding their targets."""
+    if not relative.lower().endswith(".md"):
+        return
+    for _raw, target, _fragment in _links(relative, content):
+        _resource(skill, target)
+
+
 def json_payload(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
@@ -253,6 +261,7 @@ def emit_show(skill: Skill, relative: str, *, all_files: bool, as_json: bool) ->
             sys.stdout.write(document["content"])
         return
     content = _read(skill, relative)
+    _validate_document_links(skill, relative, content)
     if as_json:
         print(json_payload({"schema": "mck.skills.show/v1", "skill": skill.name, "path": relative, "content": content}))
     else:
