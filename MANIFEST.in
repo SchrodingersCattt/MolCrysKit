@@ -1,1 +1,3 @@
 include molcrys_kit/constants/*.json
+
+prune output
