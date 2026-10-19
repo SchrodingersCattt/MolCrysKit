@@ -7,7 +7,14 @@ import sys
 
 import click
 
-from .skill_viewer import SkillError, emit_list, emit_show, emit_tree, get_skill
+from .skill_viewer import (
+    SkillError,
+    emit_list,
+    emit_show,
+    emit_tree,
+    get_skill,
+    json_payload,
+)
 
 try:
     from molcrys_kit._version import version as __version__
@@ -42,6 +49,14 @@ def analyze_group() -> None:
     """Analyze crystals and print reports."""
 
 
+def _skill_error(exc: SkillError, *, as_json: bool) -> None:
+    if as_json:
+        click.echo(f"Error: {exc}", err=True)
+        click.echo(json_payload({"schema": "mck.error/v1", "ok": False, "error": str(exc)}))
+        raise click.exceptions.Exit(2)
+    raise click.ClickException(str(exc)) from exc
+
+
 @main.group(name="skills")
 def skills_group() -> None:
     """Discover and read bundled Agent Skills."""
@@ -54,7 +69,7 @@ def skills_list(as_json: bool) -> None:
     try:
         emit_list(as_json=as_json)
     except SkillError as exc:
-        raise click.ClickException(str(exc)) from exc
+        _skill_error(exc, as_json=as_json)
 
 
 @skills_group.command(name="show")
@@ -69,7 +84,7 @@ def skills_show(name: str, relative_path: str, all_files: bool, as_json: bool) -
     try:
         emit_show(get_skill(name), relative_path, all_files=all_files, as_json=as_json)
     except SkillError as exc:
-        raise click.ClickException(str(exc)) from exc
+        _skill_error(exc, as_json=as_json)
 
 
 @skills_group.command(name="tree")
@@ -80,7 +95,7 @@ def skills_tree(name: str, as_json: bool) -> None:
     try:
         emit_tree(get_skill(name), as_json=as_json)
     except SkillError as exc:
-        raise click.ClickException(str(exc)) from exc
+        _skill_error(exc, as_json=as_json)
 
 
 # Register structure command modules after the Click groups exist.  The

@@ -67,6 +67,19 @@ def test_skills_reject_escape() -> None:
     assert "escapes" in result.output
 
 
+def test_skills_json_errors_are_machine_readable() -> None:
+    result = CliRunner().invoke(
+        main, ["skills", "show", "missing-skill", "--json"]
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "error": "unknown skill: 'missing-skill'",
+        "ok": False,
+        "schema": "mck.error/v1",
+    }
+
+
 def test_skill_links_are_nested_deduplicated_and_cycle_safe(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
