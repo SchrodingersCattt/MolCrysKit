@@ -284,4 +284,3 @@ jobs:
             --notes-file "${{ steps.body.outputs.path }}" \
             --title "${GITHUB_REF_NAME}" \
             ${PRERELEASE_FLAG}
-
