@@ -88,17 +88,21 @@ tests/unit/           Pytest regression suite
 
 ## Versioning & Release
 
-Version is owned by **`setuptools_scm`** from the latest `vX.Y.Z` git tag.
+Version is owned by **`setuptools_scm`** from the latest release tag. Stable
+releases use `vX.Y.Z`; pre-releases use PEP 440 tags such as `vX.Y.Zb1`.
 
 Release steps (manual → automated):
 1. Branch off `main`, bump `CITATION.cff` `version:` field, PR → merge.
-2. `git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`.
+2. Create a stable tag (`vX.Y.Z`) or beta tag (`vX.Y.Zb1`) and push it:
+   `git tag -a vX.Y.Zb1 -m "Release vX.Y.Zb1" && git push origin vX.Y.Zb1`.
 3. Tag push **automatically** triggers `release.yml`, which:
   - validates `CITATION.cff` against the tag,
   - runs unit tests,
   - builds and uploads PyPI distributions via trusted publishing,
   - builds and pushes the standard Docker image to GHCR,
-  - creates the GitHub Release with generated notes.
+  - creates the GitHub Release with generated notes; PEP 440 pre-release tags
+    are marked as GitHub pre-releases.
 
 CI checkouts use `fetch-depth: 0` so `setuptools_scm` sees full tag history;
 do not lower it.
+
