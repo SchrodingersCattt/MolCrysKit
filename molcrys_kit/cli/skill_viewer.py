@@ -40,12 +40,10 @@ _BUNDLED_SKILL_NAMES = frozenset({
 
 
 def _skills_root():
-    for package in ("molcrys_kit._bundled_skills", "skills"):
-        try:
-            return resources.files(package)
-        except (ImportError, TypeError):
-            continue
-    raise SkillError("bundled skills are not installed")  # pragma: no cover - broken install
+    try:
+        return resources.files("skills")
+    except (ImportError, TypeError) as exc:  # pragma: no cover - broken install
+        raise SkillError("bundled skills are not installed") from exc
 
 
 def _frontmatter(text: str) -> dict[str, str]:
