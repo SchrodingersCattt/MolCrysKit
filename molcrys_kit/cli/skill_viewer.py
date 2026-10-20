@@ -41,9 +41,23 @@ _BUNDLED_SKILL_NAMES = frozenset({
 
 def _skills_root():
     try:
-        return resources.files("skills")
-    except (ImportError, TypeError) as exc:  # pragma: no cover - broken install
-        raise SkillError("bundled skills are not installed") from exc
+        bundled = resources.files("molcrys_kit._bundled_skills")
+        if any(
+            child.name in _BUNDLED_SKILL_NAMES
+            and child.is_dir()
+            and child.joinpath("SKILL.md").is_file()
+            for child in bundled.iterdir()
+        ):
+            return bundled
+    except (ImportError, TypeError):  # pragma: no cover - source checkout
+        pass
+
+    # Source/editable checkouts keep the canonical tree at the repository root;
+    # installed distributions use the project-scoped package above.
+    source_root = Path(__file__).resolve().parents[2] / "skills"
+    if source_root.is_dir():
+        return source_root
+    raise SkillError("bundled skills are not installed")
 
 
 def _frontmatter(text: str) -> dict[str, str]:
