@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import textwrap
 
 from click.testing import CliRunner
 import pytest
@@ -74,9 +75,7 @@ def test_skills_reject_escape() -> None:
 
 
 def test_skills_json_errors_are_machine_readable() -> None:
-    result = CliRunner().invoke(
-        main, ["skills", "show", "missing-skill", "--json"]
-    )
+    result = CliRunner().invoke(main, ["skills", "show", "missing-skill", "--json"])
     assert result.exit_code == 2
     payload = json.loads(result.stdout)
     assert payload == {
@@ -96,6 +95,85 @@ def test_skills_argument_does_not_hide_existing_commands() -> None:
         check=False,
     )
     assert "No such command 'info'" not in result.stdout + result.stderr
+
+
+def _run_isolated_cli(script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        env=dict(os.environ, PYTHONPATH=str(REPO_ROOT)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_host_skills_argv_does_not_drop_structure_commands() -> None:
+    """Importing under a host argv of ``skills`` must not hide structure commands.
+
+    The documentation path stays free of chemistry imports until a structure
+    command is actually looked up.
+    """
+    result = _run_isolated_cli(
+        textwrap.dedent(
+            """
+            import sys
+            sys.argv = ["host.py", "skills"]
+            from click.testing import CliRunner
+            from molcrys_kit.cli import io_group, main
+
+            heavy = (
+                "molcrys_kit.cli.io_cmd",
+                "molcrys_kit.cli.operate_cmd",
+                "molcrys_kit.cli.analyze_cmd",
+                "molcrys_kit.cli.periodic_chain_cmd",
+            )
+            assert all(name not in sys.modules for name in heavy)
+
+            listed = CliRunner().invoke(main, ["skills", "list"])
+            assert listed.exit_code == 0, listed.output
+            skills_help = CliRunner().invoke(main, ["skills", "--help"])
+            assert skills_help.exit_code == 0, skills_help.output
+            assert "list" in skills_help.output
+            assert all(name not in sys.modules for name in heavy), sorted(sys.modules)
+
+            names = sorted(io_group.commands)
+            assert names == ["convert", "extract-molecule", "info", "molecules"], names
+            assert "molcrys_kit.cli.io_cmd" in sys.modules
+
+            help_result = CliRunner().invoke(main, ["io", "--help"])
+            assert help_result.exit_code == 0, help_result.output
+            for name in names:
+                assert name in help_result.output, help_result.output
+
+            root_help = CliRunner().invoke(main, ["--help"])
+            assert root_help.exit_code == 0, root_help.output
+            assert "build" in root_help.output
+            assert "validate-periodic-bundle" in root_help.output
+            """
+        )
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_host_option_skills_token_does_not_drop_structure_commands() -> None:
+    """An option value of ``skills`` in the host argv is not the mck subcommand."""
+    result = _run_isolated_cli(
+        textwrap.dedent(
+            """
+            import sys
+            sys.argv = ["host.py", "--opt", "skills", "io"]
+            from click.testing import CliRunner
+            from molcrys_kit.cli import main
+
+            result = CliRunner().invoke(main, ["io", "--help"])
+            assert result.exit_code == 0, result.output
+            for name in ("convert", "extract-molecule", "info", "molecules"):
+                assert name in result.output, result.output
+            """
+        )
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_skill_links_are_nested_deduplicated_and_cycle_safe(
@@ -138,7 +216,9 @@ def test_skill_tree_rejects_broken_links(
     root = tmp_path / "skills"
     skill_root = root / "demo"
     skill_root.mkdir(parents=True)
-    (skill_root / "SKILL.md").write_text("[missing](references/nope.md)\n", encoding="utf-8")
+    (skill_root / "SKILL.md").write_text(
+        "[missing](references/nope.md)\n", encoding="utf-8"
+    )
     monkeypatch.setattr(skill_viewer, "_skills_root", lambda: root)
     with pytest.raises(skill_viewer.SkillError, match="resource not found"):
         skill_viewer.tree(skill_viewer.get_skill("demo"))
