@@ -18,6 +18,7 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 - Cluster Carving: Disorder resolution → desolvation → coordination-shell cluster extraction
 - Nanocluster Carving: Build arbitrary finite shapes while preserving complete molecular or unit-cell topology
 - LLM-based AI agent Friendliness: Try on https://matmaster.bohrium.com/matmaster or build your own skill for your agent
+- Bundled Agent Skills: use `mck skills list`, `show`, and `tree` for read-only progressive access to shipped workflows
 
 <p align="center">
   <img src="https://github.com/SchrodingersCattt/MolCrysKit/releases/download/readme-assets-v1/01_molecule_identification.png" width="357"><br>
@@ -159,6 +160,8 @@ mck operate nanocluster --help
 mck operate void --help
 mck build chain --help
 mck validate-periodic-bundle --help
+mck skills --help
+mck skills list --json
 ```
 
 The command groups roughly mirror the Python package layout:

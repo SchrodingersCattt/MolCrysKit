@@ -10,6 +10,8 @@ Installing MolCrysKit via `pip install molcrys-kit` automatically installs the `
 mck --help
 mck io --help
 mck operate cluster --help
+mck skills list --json
+mck skills show analyze-molecular-crystal --file references/cli-analyses.md
 ```
 
 ### `mck build`
@@ -32,6 +34,25 @@ mck validate-periodic-bundle structure.cif --json
 - `--quiet` — Only show warnings and errors
 - `--version` — Print version and exit
 - `-h`, `--help` — Show help message
+
+## `mck skills` — bundled Agent Skills
+
+The read-only `skills` viewer exposes the installed Agent Skills without
+requiring a repository checkout. `list` returns entrypoint names and
+frontmatter descriptions; `show NAME` prints only the raw `SKILL.md`; and
+`show NAME --file PATH` reads one resource relative to that skill. `tree NAME`
+reports local links and assets without outputting their bodies. Use
+`show NAME --all` only when the reachable Markdown pages should be expanded in
+deterministic link order. Scripts, binaries, and external URLs are never
+executed or expanded. Add `--json` to any subcommand for machine-readable
+metadata and text.
+
+```bash
+mck skills list --json
+mck skills show operate-molecular-crystal
+mck skills tree query-csd-structures
+mck skills show analyze-molecular-crystal --all
+```
 
 ## Command Groups
 

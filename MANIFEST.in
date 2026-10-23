@@ -1,3 +1,4 @@
 include molcrys_kit/constants/*.json
+recursive-include skills *
 
 prune output
