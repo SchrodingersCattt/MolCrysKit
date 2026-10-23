@@ -6,9 +6,16 @@ import numpy as np
 import pytest
 from ase import Atoms
 from pymatgen.core import Lattice, Structure
+from pymatgen.core.periodic_table import Element, Species
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from molcrys_kit.constants.config import KEY_DISORDER_GROUP, KEY_OCCUPANCY
+from molcrys_kit.constants.config import (
+    KEY_DISORDER_GROUP,
+    KEY_FORMAL_CHARGE,
+    KEY_FORMAL_CHARGE_KNOWN,
+    KEY_ISOTOPE,
+    KEY_OCCUPANCY,
+)
 from molcrys_kit.io.pymatgen_io import from_pymatgen_structure, to_pymatgen_structure
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
@@ -149,3 +156,108 @@ def test_site_records_occupancy_matches_structure():
 def test_from_pymatgen_rejects_non_structure():
     with pytest.raises(TypeError, match="pymatgen Structure"):
         from_pymatgen_structure(object())  # type: ignore[arg-type]
+
+
+def test_from_pymatgen_keeps_fe2_fe3_as_separate_components():
+    """get_el_amt_dict would merge these into Fe@1.0; items() must not."""
+    lattice = Lattice.cubic(5.0)
+    structure = Structure(
+        lattice,
+        [{Species("Fe", 2): 0.5, Species("Fe", 3): 0.5}],
+        [[0.0, 0.0, 0.0]],
+    )
+    # Guard the regression target: element-amount collapse looks "ordered".
+    assert structure[0].species.get_el_amt_dict() == {"Fe": 1.0}
+
+    crystal = from_pymatgen_structure(structure)
+    symbols = [sym for mol in crystal.molecules for sym in mol.get_chemical_symbols()]
+    occupancies = [
+        float(v)
+        for mol in crystal.molecules
+        for v in mol.arrays[KEY_OCCUPANCY]
+    ]
+    charges = [
+        int(v)
+        for mol in crystal.molecules
+        for v in mol.arrays[KEY_FORMAL_CHARGE]
+    ]
+    known = [
+        bool(v)
+        for mol in crystal.molecules
+        for v in mol.arrays[KEY_FORMAL_CHARGE_KNOWN]
+    ]
+
+    assert symbols == ["Fe", "Fe"]
+    assert occupancies == pytest.approx([0.5, 0.5])
+    assert sorted(charges) == [2, 3]
+    assert known == [True, True]
+
+
+def test_from_pymatgen_keeps_h_and_d_as_separate_components():
+    lattice = Lattice.cubic(5.0)
+    structure = Structure(
+        lattice,
+        [{Element("H"): 0.5, Element("D"): 0.5}],
+        [[0.1, 0.2, 0.3]],
+    )
+    assert structure[0].species.get_el_amt_dict() == {"H": 1.0}
+
+    crystal = from_pymatgen_structure(structure)
+    symbols = [sym for mol in crystal.molecules for sym in mol.get_chemical_symbols()]
+    occupancies = [
+        float(v)
+        for mol in crystal.molecules
+        for v in mol.arrays[KEY_OCCUPANCY]
+    ]
+    isotopes = [
+        int(v)
+        for mol in crystal.molecules
+        for v in mol.arrays[KEY_ISOTOPE]
+    ]
+
+    assert symbols == ["H", "H"]
+    assert occupancies == pytest.approx([0.5, 0.5])
+    assert sorted(isotopes) == [0, 2]
+
+
+def test_to_pymatgen_rejects_occupancy_above_one():
+    crystal = _water_crystal_with_occupancy([1.0, 1.2, 1.0])
+    with pytest.raises(ValueError, match="occupancy in \\[0, 1\\]"):
+        to_pymatgen_structure(crystal)
+
+
+def test_empty_structure_round_trips_to_empty_crystal():
+    lattice = Lattice.cubic(4.0, pbc=(True, True, False))
+    structure = Structure(lattice, [], [])
+    crystal = from_pymatgen_structure(structure)
+    assert crystal.molecules == []
+    assert tuple(crystal.pbc) == (True, True, False)
+    restored = to_pymatgen_structure(crystal)
+    assert len(restored) == 0
+
+
+def test_to_pymatgen_emits_species_for_charge_and_deuterium():
+    atoms = Atoms(
+        "FeH",
+        positions=[[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]],
+        cell=[6.0, 6.0, 6.0],
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array([0.5, 0.5], dtype=float))
+    atoms.set_array(KEY_FORMAL_CHARGE, np.array([2, 0], dtype=int))
+    atoms.set_array(KEY_FORMAL_CHARGE_KNOWN, np.array([True, False], dtype=bool))
+    atoms.set_array(KEY_ISOTOPE, np.array([0, 2], dtype=int))
+    molecule = CrystalMolecule(atoms, crystal=None, check_pbc=False)
+    molecule.info["atom_indices"] = [0, 1]
+    crystal = MolecularCrystal(np.eye(3) * 6.0, [molecule], pbc=(True, True, True))
+
+    structure = to_pymatgen_structure(crystal)
+    keys = [list(site.species.keys())[0] for site in structure]
+    assert isinstance(keys[0], Species)
+    assert keys[0].symbol == "Fe"
+    assert int(keys[0].oxi_state) == 2
+    assert _species_is_deuterium(keys[1])
+
+
+def _species_is_deuterium(species) -> bool:
+    return str(getattr(species, "name", "")) == "D" or str(species) in {"D", "Element D"}

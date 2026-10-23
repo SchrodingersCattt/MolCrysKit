@@ -78,9 +78,9 @@ Core crystal data model.
   - `get_bond_records()` returns all perceived periodic-image bonds, including
     multiple records for one atom pair and self-image bonds in one-site cells.
 - Symmetry: `FractionalAffineOperation`, `LatticeBasisChange`, `CrystalSymmetry`, `identity_operation`, `validate_subgroup`, `left_cosets`, `domain_representatives`
-- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`, `MolecularCrystal.from_pymatgen(structure)`, `MolecularCrystal.to_pymatgen()`
+- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`, `MolecularCrystal.from_pymatgen(structure)`
+  - Conversions: `MolecularCrystal.to_pymatgen()` (and io helpers) preserve per-site occupancy, oxidation state, and H/D isotope identity; prefer them over ASE atoms adaptors that reject disordered structures.
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
-  - The pymatgen constructors preserve per-site occupancy (including partial and mixed compositions). Prefer them over ASE atoms adaptors that reject disordered structures; module-level helpers live under the io package.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
 - Polyhedra reference data: `all_ideal_polyhedra`, `ideal_polyhedra_for_cn`, `convex_hull_payload`
 - Periodic geometry: `BoundaryPort`, `ChainSpec`, `ConnectionRule`, `FragmentInstance`, `FragmentTemplate`, `PeriodicBundle`, `PeriodicEdge`, `PeriodicGraph`, `ScrewSpec`
