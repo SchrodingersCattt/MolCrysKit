@@ -58,12 +58,18 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 pip install molcrys-kit
 ```
 
+Pymatgen users who want the namespace import path
+(`from pymatgen.analysis.molcrys import ...`) can also install the thin addon
+package `pymatgen-analysis-molcrys` (see `addons/pymatgen-analysis-molcrys/`).
+
 ### From source (development)
 
 ```bash
 git clone https://github.com/SchrodingersCattt/MolCrysKit.git
 cd MolCrysKit
 pip install -e ".[dev]"
+# optional pymatgen namespace addon
+pip install -e addons/pymatgen-analysis-molcrys
 ```
 
 All dependencies are declared in `pyproject.toml` (there is no separate

@@ -1,0 +1,56 @@
+name: pymatgen-analysis-molcrys
+
+on:
+  push:
+    paths:
+      - "addons/pymatgen-analysis-molcrys/**"
+      - "molcrys_kit/io/pymatgen_io.py"
+      - "molcrys_kit/operations/surface.py"
+      - "molcrys_kit/structures/crystal.py"
+      - ".github/workflows/pymatgen-analysis-molcrys.yml"
+  pull_request:
+    paths:
+      - "addons/pymatgen-analysis-molcrys/**"
+      - "molcrys_kit/io/pymatgen_io.py"
+      - "molcrys_kit/operations/surface.py"
+      - "molcrys_kit/structures/crystal.py"
+      - ".github/workflows/pymatgen-analysis-molcrys.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  addon-tests:
+    name: Addon tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install molcrys-kit and the pymatgen addon
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+          python -m pip install -e "addons/pymatgen-analysis-molcrys[test]"
+
+      - name: Import smoke
+        run: |
+          python -c "from pymatgen.analysis.molcrys import TopologicalSlabGenerator, generate_topological_slab; print(TopologicalSlabGenerator)"
+
+      - name: Run addon tests
+        run: pytest addons/pymatgen-analysis-molcrys/tests -v --timeout=180
