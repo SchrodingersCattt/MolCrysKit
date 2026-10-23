@@ -16,7 +16,11 @@ def _copy_skill_tree(source: Path, target: Path) -> None:
     """
     target.mkdir(parents=True, exist_ok=True)
     for item in sorted(source.iterdir()):
-        if item.is_symlink() or item.name == "__pycache__" or item.name.endswith(".pyc"):
+        if (
+            item.is_symlink()
+            or item.name == "__pycache__"
+            or item.name.endswith((".pyc", ".pyo"))
+        ):
             continue
         destination = target / item.name
         if item.is_dir():
