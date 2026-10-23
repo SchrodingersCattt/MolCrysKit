@@ -1,28 +1,42 @@
 """Setuptools hook that copies the canonical skills tree into the wheel."""
 
 from pathlib import Path
-from shutil import copytree, rmtree
+from shutil import copy2
 
 from setuptools import setup
 from setuptools.command.build_py import build_py
 
 
+def _copy_skill_tree(source: Path, target: Path) -> None:
+    """Copy a skill directory without following symlinks into regular files.
+
+    Symlinks are skipped so a link that escapes the skill root cannot become a
+    concrete file in the wheel (source checkouts reject such escapes at read time).
+    """
+    target.mkdir(parents=True, exist_ok=True)
+    for item in sorted(source.iterdir()):
+        if item.is_symlink():
+            continue
+        destination = target / item.name
+        if item.is_dir():
+            _copy_skill_tree(item, destination)
+        elif item.is_file():
+            copy2(item, destination)
+
+
 class BuildBundledSkills(build_py):
-    def build_package_data(self):
+    def run(self):
+        super().run()
         source_root = Path(__file__).parent / "skills"
-        package_root = Path(self.get_package_dir("molcrys_kit._bundled_skills"))
-        generated: list[Path] = []
+        package_root = Path(self.build_lib) / "molcrys_kit" / "_bundled_skills"
+        if not source_root.is_dir():
+            return
         for source in sorted(source_root.iterdir()):
-            if not source.is_dir() or not (source / "SKILL.md").is_file():
+            if source.is_symlink() or not source.is_dir():
                 continue
-            target = package_root / source.name
-            copytree(source, target, dirs_exist_ok=True)
-            generated.append(target)
-        try:
-            super().build_package_data()
-        finally:
-            for target in generated:
-                rmtree(target, ignore_errors=True)
+            if not (source / "SKILL.md").is_file():
+                continue
+            _copy_skill_tree(source, package_root / source.name)
 
 
 setup(cmdclass={"build_py": BuildBundledSkills})

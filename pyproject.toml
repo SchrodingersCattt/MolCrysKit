@@ -66,7 +66,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 molcrys_kit = ["constants/*.json"]
-"molcrys_kit._bundled_skills" = ["*/SKILL.md", "*/references/*.md", "*/scripts/*.py"]
+"molcrys_kit._bundled_skills" = ["**/*"]
 
 [tool.setuptools_scm]
 write_to = "molcrys_kit/_version.py"

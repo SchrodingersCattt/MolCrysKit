@@ -70,7 +70,7 @@ def test_skills_reject_escape() -> None:
         main,
         ["skills", "show", "analyze-molecular-crystal", "--file", "../SKILL.md"],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "escapes" in result.output
 
 
@@ -83,6 +83,28 @@ def test_skills_json_errors_are_machine_readable() -> None:
         "ok": False,
         "schema": "mck.error/v1",
     }
+
+
+def test_skills_text_errors_also_exit_two() -> None:
+    result = CliRunner().invoke(main, ["skills", "show", "missing-skill"])
+    assert result.exit_code == 2
+    assert "unknown skill" in result.output
+
+
+def test_unknown_subcommand_suggests_without_traceback() -> None:
+    runner = CliRunner()
+    nested = runner.invoke(main, ["io", "inf"])
+    assert nested.exit_code == 2, nested.output
+    assert "No such command 'inf'" in nested.output
+    assert "Did you mean 'info'" in nested.output
+    assert "AttributeError" not in nested.output
+    assert "Traceback" not in nested.output
+
+    root = runner.invoke(main, ["nosuch"])
+    assert root.exit_code == 2, root.output
+    assert "No such command 'nosuch'" in root.output
+    assert "AttributeError" not in root.output
+    assert "Traceback" not in root.output
 
 
 def test_skills_argument_does_not_hide_existing_commands() -> None:
@@ -222,3 +244,24 @@ def test_skill_tree_rejects_broken_links(
     monkeypatch.setattr(skill_viewer, "_skills_root", lambda: root)
     with pytest.raises(skill_viewer.SkillError, match="resource not found"):
         skill_viewer.tree(skill_viewer.get_skill("demo"))
+
+
+def test_skill_show_ignores_code_links_and_allows_directories(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "skills"
+    skill_root = root / "demo"
+    (skill_root / "references").mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Demo\n---\n"
+        "See [refs](references/) and `not-a-link](missing.md)`.\n"
+        "```\n[example](references/missing.md)\n```\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(skill_viewer, "_skills_root", lambda: root)
+
+    skill = skill_viewer.get_skill("demo")
+    skill_viewer.emit_show(skill, "SKILL.md", all_files=False, as_json=False)
+    rows = skill_viewer.tree(skill)
+    assert any(row["path"] == "references" and row["kind"] == "directory" for row in rows)
+    assert all(row["path"] != "references/missing.md" for row in rows)

@@ -31,12 +31,20 @@ class Skill:
 _LINK_RE = re.compile(
     r"\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))"
 )
+_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`]+`")
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _BUNDLED_SKILL_NAMES = frozenset({
     "analyze-molecular-crystal",
     "operate-molecular-crystal",
     "query-csd-structures",
 })
+
+
+def _without_code(text: str) -> str:
+    """Blank out fenced and inline code so example links are not validated."""
+    blanked = _FENCED_CODE_RE.sub(lambda match: " " * len(match.group(0)), text)
+    return _INLINE_CODE_RE.sub(lambda match: " " * len(match.group(0)), blanked)
 
 
 def _skills_root():
@@ -140,7 +148,7 @@ def _normalise_relative(raw: str, *, label: str = "resource") -> str:
     return "/".join(parts)
 
 
-def _resource(skill: Skill, relative: str):
+def _resolve(skill: Skill, relative: str):
     relative = _normalise_relative(relative)
     candidate = skill.root.joinpath(*relative.split("/"))
     if isinstance(skill.root, Path) or isinstance(candidate, Path):
@@ -150,9 +158,22 @@ def _resource(skill: Skill, relative: str):
             candidate_path.relative_to(root_path)
         except (OSError, RuntimeError, ValueError) as exc:
             raise SkillError(f"resource path escapes the selected skill: {relative!r}") from exc
+    return candidate, relative
+
+
+def _resource(skill: Skill, relative: str):
+    candidate, relative = _resolve(skill, relative)
     if not candidate.is_file():
         raise SkillError(f"resource not found in skill {skill.name!r}: {relative}")
     return candidate, relative
+
+
+def _link_target(skill: Skill, relative: str):
+    """Resolve a local link target that may be a file or a directory."""
+    candidate, relative = _resolve(skill, relative)
+    if candidate.is_file() or candidate.is_dir():
+        return candidate, relative
+    raise SkillError(f"resource not found in skill {skill.name!r}: {relative}")
 
 
 def _read(skill: Skill, relative: str) -> str:
@@ -172,12 +193,14 @@ def _local_target(source: str, raw_target: str) -> tuple[str, str | None] | None
     path, separator, fragment = target.partition("#")
     source_parent = posixpath.dirname(source)
     joined = posixpath.join(source_parent, unquote(path))
-    return _normalise_relative(joined, label="linked resource"), fragment if separator else None
+    # Directory links often end with ``/``; keep a usable relative path.
+    normalised = _normalise_relative(joined.rstrip("/") or joined, label="linked resource")
+    return normalised, fragment if separator else None
 
 
 def _links(source: str, text: str) -> list[tuple[str, str, str | None]]:
     result: list[tuple[str, str, str | None]] = []
-    for match in _LINK_RE.finditer(text):
+    for match in _LINK_RE.finditer(_without_code(text)):
         raw = match.group(1) or match.group(2) or ""
         target = _local_target(source, raw)
         if target is not None:
@@ -185,7 +208,9 @@ def _links(source: str, text: str) -> list[tuple[str, str, str | None]]:
     return result
 
 
-def _kind(relative: str) -> str:
+def _kind(relative: str, *, is_dir: bool = False) -> str:
+    if is_dir:
+        return "directory"
     return "markdown" if relative.lower().endswith(".md") else "asset"
 
 
@@ -204,8 +229,21 @@ def tree(skill: Skill) -> list[dict[str, Any]]:
         if not relative.lower().endswith(".md"):
             return
         for raw, target, fragment in _links(relative, text):
-            _resource(skill, target)
-            links.append({"target": target, "fragment": fragment, "raw": raw, "kind": _kind(target)})
+            candidate, _ = _link_target(skill, target)
+            is_dir = candidate.is_dir()
+            links.append(
+                {
+                    "target": target,
+                    "fragment": fragment,
+                    "raw": raw,
+                    "kind": _kind(target, is_dir=is_dir),
+                }
+            )
+            if is_dir:
+                if target not in visited:
+                    visited.add(target)
+                    rows.append({"path": target, "kind": "directory", "links": []})
+                continue
             if target.lower().endswith(".md"):
                 visit(target)
             elif target not in visited:
@@ -230,7 +268,9 @@ def all_documents(skill: Skill, start: str = "SKILL.md") -> list[dict[str, str]]
         links = _links(relative, text) if relative.lower().endswith(".md") else []
         documents.append({"path": relative, "content": text})
         for _raw, target, _fragment in links:
-            _resource(skill, target)
+            candidate, _ = _link_target(skill, target)
+            if candidate.is_dir():
+                continue
             if target.lower().endswith(".md"):
                 visit(target)
 
@@ -243,7 +283,7 @@ def _validate_document_links(skill: Skill, relative: str, content: str) -> None:
     if not relative.lower().endswith(".md"):
         return
     for _raw, target, _fragment in _links(relative, content):
-        _resource(skill, target)
+        _link_target(skill, target)
 
 
 def json_payload(value: Any) -> str:

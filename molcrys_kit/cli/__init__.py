@@ -64,10 +64,6 @@ class _LoadingCommandMap(dict[str, click.Command]):
         self._load()
         return super().__len__()
 
-    def __bool__(self) -> bool:
-        self._load()
-        return super().__bool__()
-
     def get(
         self, key: str, default: click.Command | None = None
     ) -> click.Command | None:
@@ -144,13 +140,13 @@ def analyze_group() -> None:
 
 
 def _skill_error(exc: SkillError, *, as_json: bool) -> None:
+    # Match mat-vis skills: both text and JSON skill errors exit 2.
+    click.echo(f"Error: {exc}", err=True)
     if as_json:
-        click.echo(f"Error: {exc}", err=True)
         click.echo(
             json_payload({"schema": "mck.error/v1", "ok": False, "error": str(exc)})
         )
-        raise click.exceptions.Exit(2)
-    raise click.ClickException(str(exc)) from exc
+    raise SystemExit(2) from exc
 
 
 @main.group(name="skills")
