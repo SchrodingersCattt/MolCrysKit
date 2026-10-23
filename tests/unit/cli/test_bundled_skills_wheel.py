@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import zipfile
 
 import pytest
@@ -22,7 +23,7 @@ def _canonical_skill_files() -> set[str]:
     for path in SKILLS_ROOT.rglob("*"):
         if path.is_symlink() or not path.is_file():
             continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
+        if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
             continue
         relative = path.relative_to(SKILLS_ROOT).as_posix()
         files.add(relative)
@@ -32,7 +33,9 @@ def _canonical_skill_files() -> set[str]:
 @pytest.mark.timeout(240)
 def test_wheel_contains_full_bundled_skills_tree() -> None:
     """Installed wheels must mirror skills/** under molcrys_kit/_bundled_skills."""
-    pytest.importorskip("build")
+    # Require the real PyPA builder. A bare ``import build`` can succeed against a
+    # local setuptools ``build/`` artifact directory that has no ``__main__``.
+    pytest.importorskip("build.__main__")
     canonical = _canonical_skill_files()
     assert canonical, "canonical skills tree is empty"
 
@@ -54,6 +57,7 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
                 "*.egg-info",
                 "__pycache__",
                 "*.pyc",
+                "*.pyo",
                 ".pytest_cache",
                 "molcrys_kit/_version.py",
             ),
@@ -61,8 +65,29 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
         )
         env = dict(os.environ)
         env.pop("PYTHONPATH", None)
+        # Editable installs put the project root on sys.path. A leftover
+        # setuptools ``build/`` directory there shadows PyPA ``build`` for
+        # ``python -m build``. Drop those path entries before launching.
+        launcher = textwrap.dedent(
+            f"""
+            import sys
+            from pathlib import Path
+
+            cleaned = []
+            for entry in sys.path:
+                if entry:
+                    local_build = Path(entry) / "build"
+                    if local_build.is_dir() and not (local_build / "__main__.py").is_file():
+                        continue
+                cleaned.append(entry)
+            sys.path[:] = cleaned
+            sys.argv = ["build", "--wheel", "--outdir", {str(dist)!r}]
+            from build.__main__ import entrypoint
+            entrypoint()
+            """
+        )
         result = subprocess.run(
-            [sys.executable, "-m", "build", "--wheel", "--outdir", str(dist)],
+            [sys.executable, "-c", launcher],
             cwd=work,
             env=env,
             capture_output=True,
@@ -71,17 +96,24 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
-        wheels = list(dist.glob("molcrys_kit-*.whl"))
-        assert len(wheels) == 1, wheels
+        wheels = sorted(dist.glob("*.whl"))
+        assert len(wheels) == 1, list(dist.iterdir())
         prefix = "molcrys_kit/_bundled_skills/"
         with zipfile.ZipFile(wheels[0]) as archive:
+            names = archive.namelist()
             packaged = {
                 name[len(prefix) :]
-                for name in archive.namelist()
+                for name in names
                 if name.startswith(prefix)
                 and not name.endswith("/")
                 and not name.endswith("__init__.py")
             }
+            bytecode = [
+                name
+                for name in names
+                if "__pycache__" in name or name.endswith((".pyc", ".pyo"))
+            ]
+        assert not bytecode, bytecode
         assert packaged == canonical, sorted(canonical.symmetric_difference(packaged))
 
         # The build must not leave skill trees in the package source directory.
