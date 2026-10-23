@@ -12,10 +12,11 @@ def _copy_skill_tree(source: Path, target: Path) -> None:
 
     Symlinks are skipped so a link that escapes the skill root cannot become a
     concrete file in the wheel (source checkouts reject such escapes at read time).
+    Bytecode caches are omitted so a prior local import cannot pollute the wheel.
     """
     target.mkdir(parents=True, exist_ok=True)
     for item in sorted(source.iterdir()):
-        if item.is_symlink():
+        if item.is_symlink() or item.name == "__pycache__" or item.name.endswith(".pyc"):
             continue
         destination = target / item.name
         if item.is_dir():

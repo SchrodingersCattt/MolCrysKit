@@ -22,6 +22,8 @@ def _canonical_skill_files() -> set[str]:
     for path in SKILLS_ROOT.rglob("*"):
         if path.is_symlink() or not path.is_file():
             continue
+        if "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
         relative = path.relative_to(SKILLS_ROOT).as_posix()
         files.add(relative)
     return files
@@ -51,6 +53,7 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
                 "dist",
                 "*.egg-info",
                 "__pycache__",
+                "*.pyc",
                 ".pytest_cache",
                 "molcrys_kit/_version.py",
             ),
