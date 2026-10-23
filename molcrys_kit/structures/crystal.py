@@ -319,6 +319,38 @@ class MolecularCrystal:
         """String representation of the molecular crystal."""
         return f"MolecularCrystal(lattice={self.lattice.tolist()}, molecules_count={len(self.molecules)}, pbc={self.pbc})"
 
+    def to_pymatgen(self):
+        """Convert this crystal to a pymatgen ``Structure``.
+
+        Preserves per-site occupancy (including partial occupancies).  See
+        :func:`molcrys_kit.io.pymatgen_io.to_pymatgen_structure`.
+        """
+        from ..io.pymatgen_io import to_pymatgen_structure
+
+        return to_pymatgen_structure(self)
+
+    @classmethod
+    def from_pymatgen(
+        cls,
+        structure,
+        bond_thresholds=None,
+        max_atoms=None,
+        bond_scale: float = 1.0,
+    ) -> "MolecularCrystal":
+        """Create a MolecularCrystal from a pymatgen ``Structure``.
+
+        Accepts partial and mixed occupancies (unlike ``AseAtomsAdaptor``).
+        See :func:`molcrys_kit.io.pymatgen_io.from_pymatgen_structure`.
+        """
+        from ..io.pymatgen_io import from_pymatgen_structure
+
+        return from_pymatgen_structure(
+            structure,
+            bond_scale=bond_scale,
+            bond_thresholds=bond_thresholds,
+            max_atoms=max_atoms,
+        )
+
     @classmethod
     def from_ase(cls, atoms: Atoms, bond_thresholds=None, max_atoms=None, bond_scale: float = 1.0) -> "MolecularCrystal":
         """

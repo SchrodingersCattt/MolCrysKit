@@ -17,6 +17,7 @@
 | Task | Entry point | Input | Output | More detail |
 |---|---|---|---|---|
 | Parse CIF | `mck.read_mol_crystal` | CIF path | `MolecularCrystal` | source docstring |
+| Convert pymatgen Structure | `to_pymatgen_structure`, `from_pymatgen_structure`, `MolecularCrystal.to_pymatgen`, `MolecularCrystal.from_pymatgen` | `MolecularCrystal` / `Structure` | `Structure` / `MolecularCrystal` | preserves occupancy; source docstring |
 | Read CIF symmetry | `read_cif_symmetry` | CIF path/text | `CrystalSymmetry` | source docstring |
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
@@ -77,7 +78,8 @@ Core crystal data model.
   - `get_bond_records()` returns all perceived periodic-image bonds, including
     multiple records for one atom pair and self-image bonds in one-site cells.
 - Symmetry: `FractionalAffineOperation`, `LatticeBasisChange`, `CrystalSymmetry`, `identity_operation`, `validate_subgroup`, `left_cosets`, `domain_representatives`
-- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`
+- Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`, `MolecularCrystal.from_pymatgen(structure)`
+  - Conversions: `MolecularCrystal.to_pymatgen()` (and io helpers) preserve per-site occupancy, oxidation state, and H/D isotope identity; prefer them over ASE atoms adaptors that reject disordered structures.
   - `use_asu_first=True`: identify molecules on the asymmetric unit, then replicate via symmetry operations.  More efficient for high-symmetry crystals; falls back to the standard path on failure.
 - Clusters: `CrystalCluster`, `ClusterProvenance`
 - Polyhedra reference data: `all_ideal_polyhedra`, `ideal_polyhedra_for_cn`, `convex_hull_payload`
@@ -97,6 +99,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 Read/write interfaces.
 
 - Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
+- pymatgen Structure bridge: `to_pymatgen_structure`, `from_pymatgen_structure` (occupancy-preserving; mixed sites expand to one atom per composition component; the reverse conversion does not re-collapse co-located atoms into a multi-species site)
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
   - It preserves CIF chemical names, published bond rows, isotopes/site charges, and absolute-structure values with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`, then attaches a provisional chemistry snapshot automatically. Geometry-only callers can pass `attach_chemistry=False` to skip the perception pass.

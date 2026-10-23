@@ -29,6 +29,7 @@ from .output import (
 from .poscar import read_poscar
 from .xyz import read_xyz
 from .periodic_bundle import read_periodic_bundle, write_periodic_bundle
+from .pymatgen_io import from_pymatgen_structure, to_pymatgen_structure
 
 __all__ = [
     "DisorderInfo",
@@ -54,4 +55,6 @@ __all__ = [
     "write_extxyz",
     "read_periodic_bundle",
     "write_periodic_bundle",
+    "from_pymatgen_structure",
+    "to_pymatgen_structure",
 ]
