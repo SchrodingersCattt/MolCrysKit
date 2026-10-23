@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 from pymatgen.core import Structure
 
@@ -10,10 +10,12 @@ from molcrys_kit.operations.surface import (
     TopologicalSlabGenerator as _MckTopologicalSlabGenerator,
 )
 from molcrys_kit.operations.surface import generate_topological_slab as _mck_generate_topological_slab
+from molcrys_kit.structures import MolecularCrystal
 
 from ._convert import as_molecular_crystal, as_structure
 
 MillerIndex = Tuple[int, int, int]
+StructureLike = Union[Structure, MolecularCrystal]
 
 
 class TopologicalSlabGenerator:
@@ -24,7 +26,11 @@ class TopologicalSlabGenerator:
     cutting through molecules.
     """
 
-    def __init__(self, structure: Structure, miller_index: Optional[MillerIndex] = None):
+    def __init__(
+        self,
+        structure: StructureLike,
+        miller_index: Optional[MillerIndex] = None,
+    ):
         self._crystal = as_molecular_crystal(structure)
         self.miller_index = miller_index
         self._generator = _MckTopologicalSlabGenerator(self._crystal)
@@ -51,7 +57,7 @@ class TopologicalSlabGenerator:
 
 
 def generate_topological_slab(
-    structure: Structure,
+    structure: StructureLike,
     miller_index: MillerIndex,
     *,
     layers: Optional[int] = None,

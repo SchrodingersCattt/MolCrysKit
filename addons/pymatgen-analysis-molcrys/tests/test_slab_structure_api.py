@@ -50,3 +50,19 @@ def test_import_path_is_pymatgen_namespace():
 
     assert hasattr(molcrys, "generate_topological_slab")
     assert hasattr(molcrys, "TopologicalSlabGenerator")
+
+
+def test_facade_accepts_partial_occupancy_structure(acetaminophen_structure):
+    """Facade conversion path must not reject disordered Structure inputs."""
+    from pymatgen.analysis.molcrys._convert import as_molecular_crystal
+
+    species = list(acetaminophen_structure.species)
+    species[0] = {str(species[0]): 0.7}
+    disordered = Structure(
+        acetaminophen_structure.lattice,
+        species,
+        acetaminophen_structure.frac_coords,
+        coords_are_cartesian=False,
+    )
+    crystal = as_molecular_crystal(disordered)
+    assert len(crystal.to_ase()) == len(disordered)
