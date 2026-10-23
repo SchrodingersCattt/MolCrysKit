@@ -18,6 +18,10 @@ Occupancy contract
   to ``formal_charge``; hydrogen isotopes ``D``/``T`` map to ``isotope``.
 - Multi-species (mixed) sites therefore expand to multiple atoms that share
   coordinates — matching how disordered CIF rows are stored in MolCrysKit.
+- Round-trip is **not** lossless for mixed sites: ``to_pymatgen`` emits one
+  ``PeriodicSite`` per MolCrysKit atom and does **not** re-collapse
+  co-located atoms into a single multi-species composition. Callers that need
+  pymatgen mixed-site grouping must rebuild it themselves.
 - Site properties ``molecule_index``, ``disorder_group``, ``assembly``, and
   ``label`` round-trip when present; missing values use MolCrysKit defaults.
 - An empty ``Structure`` (zero sites) becomes an empty ``MolecularCrystal``
