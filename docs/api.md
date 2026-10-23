@@ -99,7 +99,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 Read/write interfaces.
 
 - Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
-- pymatgen Structure bridge: `to_pymatgen_structure`, `from_pymatgen_structure` (occupancy-preserving; mixed sites expand to one atom per composition component; `to_pymatgen` does not re-collapse co-located atoms into a multi-species site)
+- pymatgen Structure bridge: `to_pymatgen_structure`, `from_pymatgen_structure` (occupancy-preserving; mixed sites expand to one atom per composition component; the reverse conversion does not re-collapse co-located atoms into a multi-species site)
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
   - It preserves CIF chemical names, published bond rows, isotopes/site charges, and absolute-structure values with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`, then attaches a provisional chemistry snapshot automatically. Geometry-only callers can pass `attach_chemistry=False` to skip the perception pass.
