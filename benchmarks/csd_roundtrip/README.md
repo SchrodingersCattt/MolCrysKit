@@ -89,7 +89,7 @@ the ordered poses; original CSD chemistry is a separate truth companion.
 One representative of each molecular orbit is selected independently of the
 target constructor. A fixed nontrivial SO(3) rotation changes template-local
 coordinates, with the corresponding proper pose rotation restoring the
-original measured geometry.
+original source geometry.
 
 For disorder, CCDC's selected-molecule packing is not used as an atomic-average
 oracle: it can choose one state or join alternatives into a connected union.
@@ -107,6 +107,21 @@ compositional, unequal-weight or non-symmetry-related alternatives that cannot
 be represented by that path are failures/limitations, not silently inferred
 inverse models. The source atom occupancies are never replaced by group
 weights, including H atoms for which the two API fields can differ.
+
+The attempted single-state seed uses `q = min(partial atomic occupancies) * k`
+when partial atoms exist, where `k` is the analyzed orientation multiplicity;
+it is not an independently determined physical centre occupancy. The source
+marginal inventory is the acceptance oracle. Additional non-symmetry-related
+conformers are not supplied as if symmetry had inferred them. Marginal failures
+in this limited seed path can reflect source/extraction limitations and are
+not, by themselves, proof of a constructor defect. The lossless sidecar and
+true-ASU capability gates remain required independently of this attempt.
+The average-site probe retains source group/assembly distinctions during
+expansion. It does not establish every possible equivalence between split
+and merged shared-site representations. Its site-inventory mismatches alone
+are therefore not a verdict on physical ensemble equivalence.
+For disordered entries, `n_reference_molecules` labels CCDC's selected-state
+packing only; it is not an expected molecule count for the statistical average.
 
 Disorder gates check the in-memory marginal inventory, P1 average readback
 with pymatgen and CCDC, source-operation provenance, known chemical identity,
@@ -126,6 +141,7 @@ licensed environment. In PowerShell:
 ```powershell
 cmd /c '"D:\CCDC\ccdc-software\csd-python-api\miniconda\Scripts\activate.bat" && python -B -m benchmarks.csd_roundtrip.ccdc_adapter prepare'
 cmd /c '"D:\CCDC\ccdc-software\csd-python-api\miniconda\Scripts\activate.bat" && python -B -m benchmarks.csd_roundtrip.ccdc_adapter export'
+cmd /c '"D:\CCDC\ccdc-software\csd-python-api\miniconda\Scripts\activate.bat" && python -B -m benchmarks.csd_roundtrip.ccdc_adapter environment'
 python -B -m benchmarks.csd_roundtrip.run --run-id baseline --workers 4 --ccdc-activate D:\CCDC\ccdc-software\csd-python-api\miniconda\Scripts\activate.bat
 python -B -m benchmarks.csd_roundtrip.report --run-id baseline
 ```
@@ -174,3 +190,13 @@ The benchmark unit tests use only synthetic structures. They do not import
 CCDC, use a licence, or retrieve structures in CI. On Windows, the four existing
 forward-fixture checksum tests require byte-identical Git blobs; automatic
 CRLF conversion can change their hashes without changing their chemistry.
+
+## References
+
+Groom, C. R.; Bruno, I. J.; Lightfoot, M. P.; Ward, S. C. The Cambridge
+Structural Database. *Acta Crystallographica B* **2016**, *72*, 171–179.
+[DOI: 10.1107/S2052520616003954](https://doi.org/10.1107/S2052520616003954).
+
+CCDC. [CSD Python API documentation](https://downloads.ccdc.cam.ac.uk/documentation/API/).
+The installed software used for this experiment is version 3.7.2; the exact
+database pool and retrieval time are recorded in the environment metadata.

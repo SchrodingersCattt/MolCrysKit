@@ -1,0 +1,240 @@
+{
+  "analysis_script_sha256": "727dd5ea71717146992f35094e142168789da3ac2206d0cfa5c82d1be1880071",
+  "cases": 1004,
+  "coverage": {
+    "centred_conventional_cell": 138,
+    "disordered": 201,
+    "metal_containing": 533,
+    "missing_coordinates": 153,
+    "multi_component": 626,
+    "multi_ion": 312,
+    "neutral_multispecies_cocrystal_or_solvate_candidate": 184,
+    "observed_solvent_formula_candidate": 198,
+    "oppositely_charged_components": 310,
+    "partial_occupancy": 150,
+    "repeated_independent_species": 293,
+    "special_position": 276,
+    "water_component_hydrate_candidate": 69
+  },
+  "disordered_cases": 201,
+  "harness_sha256": "12e0abf3d944df1f440db752fa627101654ec489ca6bd9231535cb06438a0358",
+  "isotope_loss_cases": [
+    "AMEGEF03"
+  ],
+  "late_timeout_geometry_already_verified": [
+    "BIDPAJ",
+    "ITOVIX",
+    "VIXNUN"
+  ],
+  "manifest_sha256": "829afa3517cfc1cd491221a3dd678646344cb8261592b1c767bcb749509b94a6",
+  "molecular_completeness": {
+    "complete": 851,
+    "missing_coordinates": 153
+  },
+  "ordered_cases": 803,
+  "public_result_projection_checked": 1004,
+  "schema": "csd-roundtrip.synthesis.v1",
+  "stages": {
+    "asu_average": {
+      "not_reached": 814,
+      "unsupported": 190
+    },
+    "asu_ccdc_chemistry": {
+      "mismatch": 752,
+      "not_reached": 251,
+      "unsupported": 1
+    },
+    "asu_ccdc_geometry": {
+      "mismatch": 50,
+      "not_reached": 251,
+      "pass": 703
+    },
+    "asu_cell": {
+      "not_reached": 251,
+      "pass": 753
+    },
+    "asu_mck_readback": {
+      "mismatch": 156,
+      "not_reached": 252,
+      "pass": 596
+    },
+    "asu_operations": {
+      "not_reached": 251,
+      "pass": 753
+    },
+    "asu_pymatgen": {
+      "mismatch": 8,
+      "not_reached": 251,
+      "pass": 745
+    },
+    "asu_readback": {
+      "error": 39,
+      "not_reached": 965
+    },
+    "asu_written": {
+      "not_reached": 246,
+      "pass": 758
+    },
+    "average_chemistry": {
+      "not_reached": 814,
+      "unsupported": 190
+    },
+    "average_source_symmetry": {
+      "not_reached": 814,
+      "pass": 190
+    },
+    "context": {
+      "not_reached": 1,
+      "pass": 1003
+    },
+    "correlation_preservation": {
+      "not_reached": 814,
+      "pass": 190
+    },
+    "disorder_model_readback": {
+      "not_reached": 814,
+      "unsupported": 190
+    },
+    "execution": {
+      "error": 5,
+      "not_reached": 976,
+      "timeout": 23
+    },
+    "export": {
+      "mismatch": 118,
+      "pass": 886
+    },
+    "memory_average": {
+      "mismatch": 171,
+      "not_reached": 811,
+      "pass": 22
+    },
+    "memory_cell": {
+      "not_reached": 203,
+      "pass": 801
+    },
+    "memory_chemistry": {
+      "mismatch": 197,
+      "not_reached": 203,
+      "unsupported": 604
+    },
+    "memory_geometry": {
+      "mismatch": 89,
+      "not_reached": 203,
+      "pass": 712
+    },
+    "memory_symmetry": {
+      "not_reached": 203,
+      "pass": 801
+    },
+    "microstate_exclusivity": {
+      "indeterminate": 3,
+      "not_reached": 814,
+      "pass": 187
+    },
+    "p1_average_ccdc": {
+      "mismatch": 173,
+      "not_reached": 814,
+      "pass": 17
+    },
+    "p1_average_pymatgen": {
+      "mismatch": 173,
+      "not_reached": 811,
+      "pass": 20
+    },
+    "p1_ccdc_chemistry": {
+      "mismatch": 796,
+      "not_reached": 207,
+      "unsupported": 1
+    },
+    "p1_ccdc_geometry": {
+      "mismatch": 89,
+      "not_reached": 207,
+      "pass": 708
+    },
+    "p1_cell": {
+      "not_reached": 207,
+      "pass": 797
+    },
+    "p1_mck_readback": {
+      "mismatch": 129,
+      "not_reached": 246,
+      "pass": 629
+    },
+    "p1_pymatgen": {
+      "mismatch": 8,
+      "not_reached": 246,
+      "pass": 750
+    },
+    "p1_readback": {
+      "error": 39,
+      "not_reached": 965
+    },
+    "p1_source_operations": {
+      "not_reached": 207,
+      "pass": 797
+    },
+    "p1_written": {
+      "not_reached": 203,
+      "pass": 801
+    }
+  },
+  "status_counts": {
+    "error": 44,
+    "mismatch": 920,
+    "timeout": 23,
+    "unsupported": 17
+  },
+  "strata": {
+    "all": {
+      "all_ordered_geometry_gates": 566,
+      "disorder_memory_average": 22,
+      "n": 1004,
+      "ordered_memory_geometry": 712,
+      "overall_pass": 0
+    },
+    "disordered": {
+      "all_ordered_geometry_gates": 0,
+      "disorder_memory_average": 22,
+      "n": 200,
+      "ordered_memory_geometry": 0,
+      "overall_pass": 0
+    },
+    "multi_component": {
+      "all_ordered_geometry_gates": 153,
+      "disorder_memory_average": 0,
+      "n": 200,
+      "ordered_memory_geometry": 186,
+      "overall_pass": 0
+    },
+    "multi_ion": {
+      "all_ordered_geometry_gates": 160,
+      "disorder_memory_average": 0,
+      "n": 200,
+      "ordered_memory_geometry": 178,
+      "overall_pass": 0
+    },
+    "single_component": {
+      "all_ordered_geometry_gates": 160,
+      "disorder_memory_average": 0,
+      "n": 200,
+      "ordered_memory_geometry": 181,
+      "overall_pass": 0
+    },
+    "special_position": {
+      "all_ordered_geometry_gates": 91,
+      "disorder_memory_average": 0,
+      "n": 200,
+      "ordered_memory_geometry": 164,
+      "overall_pass": 0
+    },
+    "targeted": {
+      "all_ordered_geometry_gates": 2,
+      "disorder_memory_average": 0,
+      "n": 4,
+      "ordered_memory_geometry": 3,
+      "overall_pass": 0
+    }
+  },
+  "target_commit": "9bf0ffb0fb321d1084dbc444250b5f186af3c873"
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "asu_max_A": 1.2809491335957507e-14,
+    "n_reference_atoms": 160,
+    "n_reference_molecules": 2,
+    "p1_max_A": 1.2809491335957507e-14,
+    "refcode": "AGANUU",
+    "stratum": "single_component",
+    "strict_status": "mismatch"
+  },
+  {
+    "asu_max_A": 7.160723346098895e-15,
+    "n_reference_atoms": 280,
+    "n_reference_molecules": 20,
+    "p1_max_A": 7.160723346098895e-15,
+    "refcode": "ABEDUH",
+    "stratum": "multi_component",
+    "strict_status": "mismatch"
+  },
+  {
+    "asu_max_A": 3.794299872214038e-15,
+    "n_reference_atoms": 68,
+    "n_reference_molecules": 8,
+    "p1_max_A": 3.688882027804963e-15,
+    "refcode": "ANOSUS",
+    "stratum": "multi_ion",
+    "strict_status": "mismatch"
+  },
+  {
+    "asu_max_A": 4.440892098500626e-15,
+    "n_reference_atoms": 114,
+    "n_reference_molecules": 1,
+    "p1_max_A": 4.440892098500626e-15,
+    "refcode": "ACIPIN",
+    "stratum": "special_position",
+    "strict_status": "mismatch"
+  }
+]

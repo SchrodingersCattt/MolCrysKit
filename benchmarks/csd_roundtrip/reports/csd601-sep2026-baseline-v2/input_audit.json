@@ -1,0 +1,13 @@
+{
+  "cached_cases": 1004,
+  "canonical_source_hashes_verified": 1004,
+  "cif_byte_hashes_verified": 1004,
+  "coincident_reference_cases": [],
+  "coordinates_included": false,
+  "final_result_cif_bindings_verified": 1004,
+  "final_result_source_bindings_verified": 1004,
+  "frozen_cases": 1004,
+  "manifest_sha256": "829afa3517cfc1cd491221a3dd678646344cb8261592b1c767bcb749509b94a6",
+  "ordered_reference_cases_checked": 803,
+  "periodic_duplicate_reference_cases": []
+}

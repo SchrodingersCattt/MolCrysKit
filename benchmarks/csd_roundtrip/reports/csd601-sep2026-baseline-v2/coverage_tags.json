@@ -1,0 +1,24 @@
+{
+  "cases": 1004,
+  "changes_frozen_strata_or_scores": false,
+  "manifest_sha256": "829afa3517cfc1cd491221a3dd678646344cb8261592b1c767bcb749509b94a6",
+  "role_policy": "Water and solvent-formula flags are candidates; neutral multispecies does not distinguish a coformer from a solvent. No crystallization role is inferred as verified truth.",
+  "schema": "csd-roundtrip.coverage-tags.v1",
+  "script_sha256": "295b133fcefa5ac8babefe84cca63324d16e85fb1df3f05fd5c808e6baff58eb",
+  "species_identity": "graph isomorphism using available element, charge, explicit D/T isotope, stereo and typed bonds",
+  "tag_counts": {
+    "centred_conventional_cell": 138,
+    "disordered": 201,
+    "metal_containing": 533,
+    "missing_coordinates": 153,
+    "multi_component": 626,
+    "multi_ion": 312,
+    "neutral_multispecies_cocrystal_or_solvate_candidate": 184,
+    "observed_solvent_formula_candidate": 198,
+    "oppositely_charged_components": 310,
+    "partial_occupancy": 150,
+    "repeated_independent_species": 293,
+    "special_position": 276,
+    "water_component_hydrate_candidate": 69
+  }
+}

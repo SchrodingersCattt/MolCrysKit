@@ -1,0 +1,22 @@
+{
+  "fixture_note": "Four existing forward CIF fixtures were read as the exact pinned Git blobs to avoid Windows automatic CRLF checksum changes. No fixture contents are included in this benchmark.",
+  "focused": {
+    "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -B -m pytest -p pytest_timeout tests/unit/benchmarks/test_csd_roundtrip.py tests/unit/operations/test_forward.py tests/unit/io/test_forward_fixtures.py -q --disable-warnings",
+    "passed": 61
+  },
+  "full_pytest": {
+    "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -B -m pytest -p pytest_timeout tests -q --disable-warnings --tb=short",
+    "elapsed_s": 690.18,
+    "passed": 2441,
+    "skipped": 6,
+    "warnings": 65991
+  },
+  "harness_sha256": "12e0abf3d944df1f440db752fa627101654ec489ca6bd9231535cb06438a0358",
+  "synthetic_benchmark_tests": 21,
+  "target_commit": "9bf0ffb0fb321d1084dbc444250b5f186af3c873",
+  "tool_versions": {
+    "pytest": "9.0.2",
+    "pytest-timeout": "2.4.0",
+    "ruff": "0.15.14"
+  }
+}

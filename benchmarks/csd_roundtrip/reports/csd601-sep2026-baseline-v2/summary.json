@@ -1,0 +1,524 @@
+{
+  "examples": {
+    "asu_average:true_asu_average_unavailable": [
+      "IQUHUY",
+      "ABEDUL",
+      "AJIVAS",
+      "ANIMAN",
+      "APEFEH"
+    ],
+    "asu_ccdc_chemistry:chemical_identity_or_bond_order_mismatch": [
+      "BENZEN02",
+      "HXMTAM10",
+      "IBPRAC",
+      "ABEDUH",
+      "ACAKIC"
+    ],
+    "asu_ccdc_chemistry:known_chemical_annotations_not_preserved": [
+      "AMEGEF03"
+    ],
+    "asu_ccdc_chemistry:molecule_count": [
+      "BETDCU10",
+      "CIQSOK",
+      "DAPRCV",
+      "FAJNUC",
+      "FEGCEA"
+    ],
+    "asu_ccdc_chemistry:whole_molecule_geometry_or_graph": [
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "ETOPUZ",
+      "FULBET"
+    ],
+    "asu_ccdc_geometry:molecule_count": [
+      "BETDCU10",
+      "CIQSOK",
+      "DAPRCV",
+      "FAJNUC",
+      "FEGCEA"
+    ],
+    "asu_ccdc_geometry:whole_molecule_geometry_or_graph": [
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "ETOPUZ",
+      "FULBET"
+    ],
+    "asu_mck_readback:molecule_count": [
+      "HXMTAM10",
+      "AJUSEH01",
+      "AMOJET",
+      "BETDCU10",
+      "CIQSOK"
+    ],
+    "asu_mck_readback:whole_molecule_geometry_or_graph": [
+      "APEYIF",
+      "AQEXAX",
+      "BEYCIV",
+      "BIVLAU",
+      "BOXNUY"
+    ],
+    "asu_pymatgen:independent_expanded_composition": [
+      "GOCDOR",
+      "ILUCIB",
+      "POVJIV",
+      "QOVCEL04",
+      "TECNAQ10"
+    ],
+    "asu_readback:serialization_or_independent_readback": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BANVOB10",
+      "COBPES"
+    ],
+    "average_chemistry:average_sites_omit_known_chemical_annotations": [
+      "IQUHUY",
+      "ABEDUL",
+      "AJIVAS",
+      "ANIMAN",
+      "APEFEH"
+    ],
+    "disorder_model_readback:no_lossless_disorder_sidecar_reader": [
+      "IQUHUY",
+      "ABEDUL",
+      "AJIVAS",
+      "ANIMAN",
+      "APEFEH"
+    ],
+    "execution:case_300s_limit": [
+      "BIDPAJ",
+      "BIGBEZ",
+      "DEXNUS",
+      "DIGHEK",
+      "ETOPUZ"
+    ],
+    "execution:exception": [
+      "DATYOO",
+      "KUKPEO",
+      "OFIGOD",
+      "TENLUT",
+      "XOHZIF"
+    ],
+    "export:average_site_count": [
+      "BOZBOL",
+      "ECAWAL",
+      "FUNDEZ",
+      "HIPLID",
+      "KAYQEJ"
+    ],
+    "export:average_site_geometry_occupancy": [
+      "AREZAZ",
+      "AXUQIW",
+      "CERQOJ",
+      "CEXYIR",
+      "EFEZOF"
+    ],
+    "export:molecule_count": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BANVOB10",
+      "BETDCU10"
+    ],
+    "export:whole_molecule_geometry_or_graph": [
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "DATYOO",
+      "ETOPUZ"
+    ],
+    "memory_average:average_site_count": [
+      "IQUHUY",
+      "AJIVAS",
+      "ANIMAN",
+      "APEFEH",
+      "APEFIN"
+    ],
+    "memory_average:average_site_geometry_occupancy": [
+      "IHIWEE"
+    ],
+    "memory_chemistry:atomic_chemical_identity_not_preserved": [
+      "IBPRAC",
+      "AFOSUK",
+      "APUVUE",
+      "ARUMOP",
+      "AWESOO"
+    ],
+    "memory_chemistry:known_chemical_annotations_not_preserved": [
+      "BENZEN02",
+      "HXMTAM10",
+      "ABEDUH",
+      "ACAKIC",
+      "ACIPIN"
+    ],
+    "memory_chemistry:molecule_count": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BANVOB10",
+      "BETDCU10"
+    ],
+    "memory_chemistry:whole_molecule_geometry_or_graph": [
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "ETOPUZ",
+      "FULBET"
+    ],
+    "memory_geometry:molecule_count": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BANVOB10",
+      "BETDCU10"
+    ],
+    "memory_geometry:whole_molecule_geometry_or_graph": [
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "ETOPUZ",
+      "FULBET"
+    ],
+    "microstate_exclusivity:microstate_enumeration_truncated": [
+      "ILOWUC10",
+      "TIDRIJ",
+      "YIJMAH"
+    ],
+    "p1_average_ccdc:average_site_count": [
+      "IQUHUY",
+      "AJIVAS",
+      "ANIMAN",
+      "APEFEH",
+      "APEFIN"
+    ],
+    "p1_average_pymatgen:average_site_count": [
+      "IQUHUY",
+      "AJIVAS",
+      "ANIMAN",
+      "APEFEH",
+      "APEFIN"
+    ],
+    "p1_average_pymatgen:average_site_geometry_occupancy": [
+      "AXUQIW",
+      "ECAKAZ",
+      "IHIWEE"
+    ],
+    "p1_ccdc_chemistry:chemical_identity_or_bond_order_mismatch": [
+      "BENZEN02",
+      "HXMTAM10",
+      "IBPRAC",
+      "ABEDUH",
+      "ACAKIC"
+    ],
+    "p1_ccdc_chemistry:known_chemical_annotations_not_preserved": [
+      "AMEGEF03"
+    ],
+    "p1_ccdc_chemistry:molecule_count": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BETDCU10",
+      "CIQSOK"
+    ],
+    "p1_ccdc_chemistry:whole_molecule_geometry_or_graph": [
+      "BANVOB10",
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "COBPES"
+    ],
+    "p1_ccdc_geometry:molecule_count": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BETDCU10",
+      "CIQSOK"
+    ],
+    "p1_ccdc_geometry:whole_molecule_geometry_or_graph": [
+      "BANVOB10",
+      "BEZMEA",
+      "BOXNUY",
+      "CEYGOC",
+      "COBPES"
+    ],
+    "p1_mck_readback:molecule_count": [
+      "BETDCU10",
+      "CIQSOK",
+      "DAPRCV",
+      "FAJNUC",
+      "GOCDOR"
+    ],
+    "p1_mck_readback:whole_molecule_geometry_or_graph": [
+      "ACAKIC",
+      "APEYIF",
+      "AQEXAX",
+      "BEKNAI",
+      "BEYCIV"
+    ],
+    "p1_pymatgen:independent_expanded_composition": [
+      "GOCDOR",
+      "ILUCIB",
+      "POVJIV",
+      "QOVCEL04",
+      "TECNAQ10"
+    ],
+    "p1_readback:serialization_or_independent_readback": [
+      "AGUNUO",
+      "ALAXAQ",
+      "ARECUW",
+      "BANVOB10",
+      "COBPES"
+    ]
+  },
+  "failure_codes": {
+    "asu_average:true_asu_average_unavailable": 190,
+    "asu_ccdc_chemistry:chemical_identity_or_bond_order_mismatch": 702,
+    "asu_ccdc_chemistry:known_chemical_annotations_not_preserved": 1,
+    "asu_ccdc_chemistry:molecule_count": 11,
+    "asu_ccdc_chemistry:whole_molecule_geometry_or_graph": 39,
+    "asu_ccdc_geometry:molecule_count": 11,
+    "asu_ccdc_geometry:whole_molecule_geometry_or_graph": 39,
+    "asu_mck_readback:molecule_count": 72,
+    "asu_mck_readback:whole_molecule_geometry_or_graph": 84,
+    "asu_pymatgen:independent_expanded_composition": 8,
+    "asu_readback:serialization_or_independent_readback": 39,
+    "average_chemistry:average_sites_omit_known_chemical_annotations": 190,
+    "disorder_model_readback:no_lossless_disorder_sidecar_reader": 190,
+    "execution:case_300s_limit": 23,
+    "execution:exception": 5,
+    "export:average_site_count": 12,
+    "export:average_site_geometry_occupancy": 10,
+    "export:molecule_count": 51,
+    "export:whole_molecule_geometry_or_graph": 45,
+    "memory_average:average_site_count": 170,
+    "memory_average:average_site_geometry_occupancy": 1,
+    "memory_chemistry:atomic_chemical_identity_not_preserved": 108,
+    "memory_chemistry:known_chemical_annotations_not_preserved": 604,
+    "memory_chemistry:molecule_count": 46,
+    "memory_chemistry:whole_molecule_geometry_or_graph": 43,
+    "memory_geometry:molecule_count": 46,
+    "memory_geometry:whole_molecule_geometry_or_graph": 43,
+    "microstate_exclusivity:microstate_enumeration_truncated": 3,
+    "p1_average_ccdc:average_site_count": 173,
+    "p1_average_pymatgen:average_site_count": 170,
+    "p1_average_pymatgen:average_site_geometry_occupancy": 3,
+    "p1_ccdc_chemistry:chemical_identity_or_bond_order_mismatch": 707,
+    "p1_ccdc_chemistry:known_chemical_annotations_not_preserved": 1,
+    "p1_ccdc_chemistry:molecule_count": 33,
+    "p1_ccdc_chemistry:whole_molecule_geometry_or_graph": 56,
+    "p1_ccdc_geometry:molecule_count": 33,
+    "p1_ccdc_geometry:whole_molecule_geometry_or_graph": 56,
+    "p1_mck_readback:molecule_count": 10,
+    "p1_mck_readback:whole_molecule_geometry_or_graph": 119,
+    "p1_pymatgen:independent_expanded_composition": 8,
+    "p1_readback:serialization_or_independent_readback": 39
+  },
+  "frozen_total": 1004,
+  "groups": {
+    "all": {
+      "geometry_roundtrip_match": 563,
+      "memory_average_pass": 22,
+      "memory_geometry_pass": 712,
+      "record_match": 0,
+      "status": {
+        "error": 44,
+        "mismatch": 920,
+        "timeout": 23,
+        "unsupported": 17
+      },
+      "total": 1004
+    },
+    "disordered": {
+      "geometry_roundtrip_match": 0,
+      "memory_average_pass": 22,
+      "memory_geometry_pass": 0,
+      "record_match": 0,
+      "status": {
+        "error": 3,
+        "mismatch": 173,
+        "timeout": 8,
+        "unsupported": 16
+      },
+      "total": 200
+    },
+    "multi_component": {
+      "geometry_roundtrip_match": 152,
+      "memory_average_pass": 0,
+      "memory_geometry_pass": 186,
+      "record_match": 0,
+      "status": {
+        "error": 2,
+        "mismatch": 195,
+        "timeout": 3
+      },
+      "total": 200
+    },
+    "multi_ion": {
+      "geometry_roundtrip_match": 160,
+      "memory_average_pass": 0,
+      "memory_geometry_pass": 178,
+      "record_match": 0,
+      "status": {
+        "error": 10,
+        "mismatch": 189,
+        "timeout": 1
+      },
+      "total": 200
+    },
+    "single_component": {
+      "geometry_roundtrip_match": 160,
+      "memory_average_pass": 0,
+      "memory_geometry_pass": 181,
+      "record_match": 0,
+      "status": {
+        "error": 3,
+        "mismatch": 191,
+        "timeout": 6
+      },
+      "total": 200
+    },
+    "special_position": {
+      "geometry_roundtrip_match": 89,
+      "memory_average_pass": 0,
+      "memory_geometry_pass": 164,
+      "record_match": 0,
+      "status": {
+        "error": 26,
+        "mismatch": 168,
+        "timeout": 5,
+        "unsupported": 1
+      },
+      "total": 200
+    },
+    "targeted": {
+      "geometry_roundtrip_match": 2,
+      "memory_average_pass": 0,
+      "memory_geometry_pass": 3,
+      "record_match": 0,
+      "status": {
+        "mismatch": 4
+      },
+      "total": 4
+    }
+  },
+  "manifest_sha256": "829afa3517cfc1cd491221a3dd678646344cb8261592b1c767bcb749509b94a6",
+  "observed": 1004,
+  "schema": "csd-roundtrip.summary.v1",
+  "stages": {
+    "asu_average": {
+      "unsupported": 190
+    },
+    "asu_ccdc_chemistry": {
+      "mismatch": 752,
+      "unsupported": 1
+    },
+    "asu_ccdc_geometry": {
+      "mismatch": 50,
+      "pass": 703
+    },
+    "asu_cell": {
+      "pass": 753
+    },
+    "asu_mck_readback": {
+      "mismatch": 156,
+      "pass": 596
+    },
+    "asu_operations": {
+      "pass": 753
+    },
+    "asu_pymatgen": {
+      "mismatch": 8,
+      "pass": 745
+    },
+    "asu_readback": {
+      "error": 39
+    },
+    "asu_written": {
+      "pass": 758
+    },
+    "average_chemistry": {
+      "unsupported": 190
+    },
+    "average_source_symmetry": {
+      "pass": 190
+    },
+    "context": {
+      "pass": 1003
+    },
+    "correlation_preservation": {
+      "pass": 190
+    },
+    "disorder_model_readback": {
+      "unsupported": 190
+    },
+    "execution": {
+      "error": 5,
+      "timeout": 23
+    },
+    "export": {
+      "mismatch": 118,
+      "pass": 886
+    },
+    "memory_average": {
+      "mismatch": 171,
+      "pass": 22
+    },
+    "memory_cell": {
+      "pass": 801
+    },
+    "memory_chemistry": {
+      "mismatch": 197,
+      "unsupported": 604
+    },
+    "memory_geometry": {
+      "mismatch": 89,
+      "pass": 712
+    },
+    "memory_symmetry": {
+      "pass": 801
+    },
+    "microstate_exclusivity": {
+      "indeterminate": 3,
+      "pass": 187
+    },
+    "p1_average_ccdc": {
+      "mismatch": 173,
+      "pass": 17
+    },
+    "p1_average_pymatgen": {
+      "mismatch": 173,
+      "pass": 20
+    },
+    "p1_ccdc_chemistry": {
+      "mismatch": 796,
+      "unsupported": 1
+    },
+    "p1_ccdc_geometry": {
+      "mismatch": 89,
+      "pass": 708
+    },
+    "p1_cell": {
+      "pass": 797
+    },
+    "p1_mck_readback": {
+      "mismatch": 129,
+      "pass": 629
+    },
+    "p1_pymatgen": {
+      "mismatch": 8,
+      "pass": 750
+    },
+    "p1_readback": {
+      "error": 39
+    },
+    "p1_source_operations": {
+      "pass": 797
+    },
+    "p1_written": {
+      "pass": 801
+    }
+  },
+  "target_commit": "9bf0ffb0fb321d1084dbc444250b5f186af3c873"
+}
