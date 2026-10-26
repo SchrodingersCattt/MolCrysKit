@@ -1,0 +1,49 @@
+{
+  "active_databases": [
+    "as601be_CIP.sqlite",
+    "Feb26_CIP.sqlite",
+    "May26_CIP.sqlite",
+    "Sep26_CIP.sqlite"
+  ],
+  "ccdc_version": "3.7.2",
+  "csd_current_version": "601",
+  "database_files": [
+    {
+      "bytes": 10213793792,
+      "name": "as601be_CIP.sqlite"
+    },
+    {
+      "bytes": 186040320,
+      "name": "Feb26_CIP.sqlite"
+    },
+    {
+      "bytes": 129114112,
+      "name": "May26_CIP.sqlite"
+    },
+    {
+      "bytes": 144400384,
+      "name": "Sep26_CIP.sqlite"
+    }
+  ],
+  "database_metadata": [
+    {
+      "name": "as601be.inf",
+      "sha256": "898aa1845465b7fff3c1f0f333d3b9ff12d8c378e583d20b58b1663cfd34d688"
+    },
+    {
+      "name": "Feb26.inf",
+      "sha256": "ce18e162cec3b65c9f3d2ae18e2e3414cec26a98bf405442ddd7ecad6e4c8118"
+    },
+    {
+      "name": "May26.inf",
+      "sha256": "f7bea5515aa28ef4f1cf4d737d074dc0f2ed66a57b66e37cbc60769efca21f7b"
+    },
+    {
+      "name": "Sep26.inf",
+      "sha256": "4d164746be9da9d3cdd11d99e93164f0b8fafdcf33fb66374f578df57eef941f"
+    }
+  ],
+  "entry_count": 1469017,
+  "python": "3.11.15",
+  "retrieved_utc": "2026-10-26T16:25:36.661087+00:00"
+}

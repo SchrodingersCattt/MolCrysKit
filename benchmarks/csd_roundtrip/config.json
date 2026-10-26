@@ -1,0 +1,16 @@
+{
+  "schema": "csd-roundtrip.v1",
+  "target_commit": "9bf0ffb0fb321d1084dbc444250b5f186af3c873",
+  "seed": 42,
+  "per_stratum": 200,
+  "targeted": ["IBPRAC", "BENZEN02", "HXMTAM10", "IQUHUY"],
+  "timeout_s": 300,
+  "max_disorder_combinations": 256,
+  "position_A": 0.0001,
+  "length_A": 0.000001,
+  "angle_deg": 0.00001,
+  "fractional": 0.0000001,
+  "occupancy": 0.00001,
+  "spglib_symprec_A": 0.001,
+  "template_rotation_xyz_deg": [23, -37, 11]
+}
