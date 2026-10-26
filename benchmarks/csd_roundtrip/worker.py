@@ -681,11 +681,13 @@ def run_case(case, run_metadata, result_path=None):
                     )
             # Plausibility is diagnostic: pre-existing source defects do not
             # change a faithful round-trip into a failure by themselves.
-            for name, obj in (
-                ("source", read_mol_crystal(str(folder / "input.cif"))),
-                ("output", crystal),
-            ):
+            for name in ("source", "output"):
                 try:
+                    obj = (
+                        read_mol_crystal(str(folder / "input.cif"))
+                        if name == "source"
+                        else crystal
+                    )
                     report = sanity_check(obj)
                     result["diagnostics"][name + "_sanity"] = {
                         r.name: r.status for r in report.results

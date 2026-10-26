@@ -199,6 +199,10 @@ def public_result(raw):
         for key, value in raw.get("diagnostics", {}).items()
         if key in {"source_sanity", "output_sanity"} and isinstance(value, dict)
     }
+    for key in ("source_sanity_error", "output_sanity_error"):
+        value = raw.get("diagnostics", {}).get(key)
+        if isinstance(value, str) and value.isidentifier():
+            result["diagnostics"][key] = value
     if result.get("status") not in STATUSES:
         raise ValueError("invalid result status")
     return result
