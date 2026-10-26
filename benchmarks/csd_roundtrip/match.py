@@ -54,9 +54,10 @@ def graph(molecule, chemistry=False):
             )
         g.add_node(i, identity=identity)
     for edge in molecule.get("bonds", []):
-        g.add_edge(
-            edge[0], edge[1], kind=edge[2] if chemistry and len(edge) > 2 else None
-        )
+        kind = edge[2] if chemistry and len(edge) > 2 else None
+        if kind in ("Unknown", "UNKNOWN", "Unspecified"):
+            kind = None
+        g.add_edge(edge[0], edge[1], kind=kind)
     return g
 
 

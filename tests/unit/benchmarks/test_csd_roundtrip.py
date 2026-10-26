@@ -8,7 +8,12 @@ import networkx as nx
 import numpy as np
 import pytest
 
-from benchmarks.csd_roundtrip.common import digest, public_result, verify_manifest
+from benchmarks.csd_roundtrip.common import (
+    digest,
+    public_result,
+    verify_manifest,
+    normalize_source_isotopes,
+)
 from benchmarks.csd_roundtrip.match import (
     compare_molecules,
     molecule_mapping,
@@ -16,7 +21,9 @@ from benchmarks.csd_roundtrip.match import (
 )
 from benchmarks.csd_roundtrip.report import summarize
 from benchmarks.csd_roundtrip.run import compatible_resume
-from benchmarks.csd_roundtrip.worker import CheckpointStages, snapshot_mck
+from benchmarks.csd_roundtrip.worker import CheckpointStages, snapshot_mck, make_poses
+
+pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 
 def synthetic_molecule(
@@ -131,6 +138,48 @@ def test_operation_parser_handles_fractional_translations():
     rotation, shift = parse_operation("-x,1/2+y,1/2-z")
     assert np.array_equal(rotation, np.diag([-1.0, 1.0, -1.0]))
     assert np.allclose(shift, [0.0, 0.5, 0.5])
+
+
+def test_explicit_d_and_t_are_preserved_without_inventing_other_isotopes():
+    raw = {
+        "atoms": [
+            {"symbol": "D", "xyz": [0.0, 0.0, 0.0], "isotope": None},
+            {"symbol": "T", "xyz": [1.0, 0.0, 0.0], "isotope": None},
+            {"symbol": "C", "xyz": [0.0, 1.0, 0.0], "isotope": None},
+        ]
+    }
+    normalized = normalize_source_isotopes(deepcopy(raw))
+    assert [(a["symbol"], a["isotope"]) for a in normalized["atoms"]] == [
+        ("H", 2),
+        ("H", 3),
+        ("C", None),
+    ]
+    assert raw["atoms"][0]["symbol"] == "D"
+    assert normalize_source_isotopes(deepcopy(normalized)) == normalized
+
+
+def test_deuterated_template_has_isotope_array_and_mass():
+    molecule = synthetic_molecule(symbols=("O", "H", "H"))
+    molecule["atoms"][1]["isotope"] = 2
+    source = {
+        "lattice": (np.eye(3) * 20).tolist(),
+        "templates": [molecule],
+        "source_templates": [molecule],
+    }
+    pose = make_poses(source, None)[0]
+    assert list(pose.template.atoms.arrays["isotope"]) == [0, 2, 0]
+    assert pose.template.atoms.get_masses()[1] == pytest.approx(2.01410177812)
+
+
+def test_unknown_bond_order_and_absent_order_share_unknown_semantics():
+    original = synthetic_molecule()
+    candidate = deepcopy(original)
+    original["bonds"][0][2] = "Unknown"
+    candidate["bonds"][0][2] = None
+    assert (
+        molecule_mapping(original, candidate, np.eye(3) * 20, chemistry=True)
+        is not None
+    )
 
 
 def test_public_projection_drops_coordinates_logs_and_arbitrary_diagnostics():

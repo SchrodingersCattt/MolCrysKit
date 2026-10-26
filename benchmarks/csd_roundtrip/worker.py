@@ -15,7 +15,15 @@ from ase import Atoms
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.transform import Rotation
 
-from .common import LOCAL, ROOT, config, read_json, write_json
+from .common import (
+    LOCAL,
+    ROOT,
+    config,
+    read_json,
+    write_json,
+    isotope_symbol,
+    normalize_source_isotopes,
+)
 from .match import cell_parameters, compare_molecules, molecule_mapping, parse_operation
 
 
@@ -46,6 +54,8 @@ def snapshot_mck(crystal, canonical_lattice=None):
                 if isinstance(value, np.generic):
                     value = value.item()
                 atom[destination] = None if value in (None, "") else value
+                if destination == "isotope" and value == 0:
+                    atom[destination] = None
             if atom["occupancy"] is None:
                 atom["occupancy"] = 1.0
             atoms.append(atom)
@@ -164,6 +174,16 @@ def make_poses(source, context, disorder=False):
                 dtype=str,
             ),
         )
+        isotopes = [a.get("isotope") for a in annotation_source["atoms"]]
+        if any(x is not None for x in isotopes):
+            atoms.set_array(
+                "isotope", np.asarray([x or 0 for x in isotopes], dtype=int)
+            )
+            masses = atoms.get_masses()
+            for atom_index, isotope in enumerate(isotopes):
+                if isotope in (2, 3) and atoms[atom_index].symbol == "H":
+                    masses[atom_index] = {2: 2.01410177812, 3: 3.01604928199}[isotope]
+            atoms.set_masses(masses)
         template = MolecularTemplate(
             atoms,
             identifier=f"component{index}",
@@ -400,12 +420,17 @@ def average_from_cif(path, source):
     lattice = np.asarray(source["lattice"])
     rows = []
     for i, symbol in enumerate(symbols):
+        symbol, isotope = isotope_symbol(symbol)
         f = np.array([float(block["_atom_site_fract_" + axis][i]) for axis in "xyz"])
         group = block.get("_atom_site_disorder_group", ["0"] * len(symbols))[i]
         assembly = block.get("_atom_site_disorder_assembly", ["."] * len(symbols))[i]
         rows.append(
             {
                 "symbol": symbol,
+                "isotope": isotope,
+                "formal_charge": float(
+                    block.get("_atom_site_charge", [0.0] * len(symbols))[i]
+                ),
                 "xyz": (f @ lattice).tolist(),
                 "occupancy": float(
                     block.get("_atom_site_occupancy", [1.0] * len(symbols))[i]
@@ -575,6 +600,7 @@ def run_case(case, run_metadata, result_path=None):
             != source["input_sha256"]
         ):
             raise ValueError("private input checksum mismatch")
+        normalize_source_isotopes(source)
         result.update(
             {k: source[k] for k in ("missing_atoms", "input_sha256", "source_sha256")}
         )

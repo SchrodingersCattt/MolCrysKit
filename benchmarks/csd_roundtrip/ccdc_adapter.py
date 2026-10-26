@@ -21,7 +21,17 @@ import traceback
 
 import numpy as np
 
-from .common import LOCAL, REPO, ROOT, STRATA, config, digest, read_json, write_json
+from .common import (
+    LOCAL,
+    REPO,
+    ROOT,
+    STRATA,
+    config,
+    digest,
+    read_json,
+    write_json,
+    normalize_source_isotopes,
+)
 from .match import (
     compare_molecules,
     independent_representatives,
@@ -451,6 +461,7 @@ def check_output(refcode, filename):
         ),
         "operations": list(crystal.symmetry_operators),
     }
+    normalize_source_isotopes(snapshot_value)
     write_json(Path(filename).with_suffix(".ccdc.json"), snapshot_value)
     # This command owns no persistent state. The snapshot is fully written
     # and atomically renamed before exit. On this Windows CCDC build native

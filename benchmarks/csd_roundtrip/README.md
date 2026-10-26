@@ -57,8 +57,11 @@ The required tolerances are in `config.json`:
 | Occupancies and molecular state weights | 1e-5 |
 
 Known connectivity, bond orders, charges and stereochemistry must survive.
-The CCDC API used here does not expose a reliable isotope field; its source
-truth is explicitly unknown, and isotope preservation is tested synthetically.
+The CCDC API used here does not expose a general reliable isotope field.
+Explicit D/T symbols are normalized to H with isotope 2/3 and corresponding
+template masses; other unavailable isotope truth remains unknown. This
+normalization operates on in-memory copies of the original private snapshots.
+Isotope preservation is also tested synthetically.
 Unknown annotations are never silently replaced by a known identity claim.
 The target template API accepts untyped edges: inability to provide/preserve
 known CSD bond orders is scored as a capability gap rather than a geometric

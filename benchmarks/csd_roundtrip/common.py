@@ -22,6 +22,27 @@ STRATA = (
 STATUSES = {"pass", "mismatch", "unsupported", "indeterminate", "error", "timeout"}
 
 
+def isotope_symbol(symbol):
+    """Normalize explicit hydrogen isotope symbols without guessing masses."""
+    return {"D": ("H", 2), "T": ("H", 3)}.get(symbol, (symbol, None))
+
+
+def normalize_source_isotopes(value):
+    """Normalize a private snapshot in memory; the frozen input stays intact."""
+    if isinstance(value, dict):
+        if "symbol" in value and "xyz" in value:
+            symbol, isotope = isotope_symbol(value["symbol"])
+            value["symbol"] = symbol
+            if isotope is not None:
+                value["isotope"] = isotope
+        for item in value.values():
+            normalize_source_isotopes(item)
+    elif isinstance(value, list):
+        for item in value:
+            normalize_source_isotopes(item)
+    return value
+
+
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
