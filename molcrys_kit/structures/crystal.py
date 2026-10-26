@@ -15,7 +15,7 @@ from ase import Atoms
 from ase.neighborlist import neighbor_list
 
 from .molecule import CrystalMolecule
-from .records import BondRecord, SiteRecord
+from .records import BOND_ROLES, BondRecord, SiteRecord
 from ..constants import (
     ATOMIC_RADII,
     DEFAULT_NEIGHBOR_CUTOFF,
@@ -1045,7 +1045,14 @@ class MolecularCrystal:
         ``molecule.info['bond_records']`` payload.  It also reconstructs the
         same contract after ASE/ExtXYZ round-trips where molecule ``info`` is
         intentionally not serialised.
+
+        Every returned record has ``role`` set to ``"covalent"`` or
+        ``"coordination"``.  A role stored with the neighbor-list edge is
+        kept; otherwise the role is classified from the endpoint elements
+        and the contact distance.
         """
+        from .connectivity import resolve_bond_role
+
         site_records = {
             (record.molecule_index, record.local_index): record
             for record in self.get_site_records()
@@ -1072,6 +1079,7 @@ class MolecularCrystal:
                     raw_right = int(raw["right"])
                     raw_shift = np.asarray(raw["right_image_shift"], dtype=int)
                     raw_vector = np.asarray(raw["vector"], dtype=float)
+                    raw_role = raw["role"] if "role" in raw else None
                 except (KeyError, TypeError, ValueError):
                     continue
                 pair = frozenset((raw_left, raw_right))
@@ -1090,7 +1098,7 @@ class MolecularCrystal:
                     seen_legacy.add(key)
                     legacy_pairs.add(pair)
                     legacy_records.append(
-                        (left_global, right_global, raw_shift, raw_vector)
+                        (left_global, right_global, raw_shift, raw_vector, raw_role)
                     )
 
             graph_pairs = {
@@ -1103,7 +1111,7 @@ class MolecularCrystal:
                 for first_local, second_local in molecule.graph.edges()
             }
 
-            for left_global, right_global, right_shift, vector in sorted(
+            for left_global, right_global, right_shift, vector, raw_role in sorted(
                 legacy_records,
                 key=lambda item: (
                     item[0],
@@ -1115,6 +1123,7 @@ class MolecularCrystal:
                 right_local = global_to_local[right_global]
                 left_site = site_records[(molecule_index, left_local)]
                 right_site = site_records[(molecule_index, right_local)]
+                distance_A = float(np.linalg.norm(vector))
                 result.append(
                     BondRecord(
                         molecule_index=molecule_index,
@@ -1126,7 +1135,13 @@ class MolecularCrystal:
                         right_asym_index=right_site.asym_index,
                         right_image_shift=tuple(int(v) for v in right_shift),
                         vector_A=tuple(float(v) for v in vector),
-                        distance_A=float(np.linalg.norm(vector)),
+                        distance_A=distance_A,
+                        role=resolve_bond_role(
+                            raw_role,
+                            left_site.symbol,
+                            right_site.symbol,
+                            distance_A,
+                        ),
                     )
                 )
 
@@ -1156,6 +1171,7 @@ class MolecularCrystal:
                 vector = np.asarray(
                     molecule.positions[right_local], dtype=float
                 ) - np.asarray(molecule.positions[left_local], dtype=float)
+                distance_A = float(np.linalg.norm(vector))
 
                 result.append(
                     BondRecord(
@@ -1168,7 +1184,13 @@ class MolecularCrystal:
                         right_asym_index=right_site.asym_index,
                         right_image_shift=tuple(int(v) for v in right_shift),
                         vector_A=tuple(float(v) for v in vector),
-                        distance_A=float(np.linalg.norm(vector)),
+                        distance_A=distance_A,
+                        role=resolve_bond_role(
+                            None,
+                            left_site.symbol,
+                            right_site.symbol,
+                            distance_A,
+                        ),
                     )
                 )
 
@@ -1180,6 +1202,27 @@ class MolecularCrystal:
                 record.right_global_index,
                 record.right_image_shift,
             ),
+        )
+
+    def get_connectivity_report(self):
+        """Return whether this crystal's bond graph is molecular or extended.
+
+        The result is the translational rank of the signed neighbor-list
+        graph, including coordination contacts.  ``regime`` is
+        ``"molecular"`` when every component has rank 0 and ``"extended"``
+        when any component has rank 1, 2, or 3 (chain, layer, or framework).
+        A bond that only crosses a cell face to unwrap one finite molecule
+        stays molecular.  Element symbols are not consulted.
+
+        Renderers use ``regime`` for lattice versus molecular presentation
+        and :attr:`BondRecord.role` for which edges to draw as sticks.
+        """
+        from .connectivity import build_connectivity_report
+
+        return build_connectivity_report(
+            self.get_bond_records(),
+            len(self.molecules),
+            tuple(bool(flag) for flag in self.pbc),
         )
 
     def summary(self) -> str:
@@ -1484,6 +1527,7 @@ class MolecularCrystal:
                     "right": record.right_global_index,
                     "right_image_shift": list(record.right_image_shift),
                     "vector": list(record.vector_A),
+                    "role": record.role,
                 }
                 for record in bond_records
             ]
@@ -1560,20 +1604,22 @@ class MolecularCrystal:
                 right = int(raw["right"])
                 shift = [int(value) for value in raw["right_image_shift"]]
                 vector = [float(value) for value in raw["vector"]]
+                raw_role = raw["role"] if "role" in raw else None
             except (KeyError, TypeError, ValueError):
                 continue
             if not 0 <= molecule_index < len(molecules):
                 continue
             if not {left, right}.issubset(valid_globals[molecule_index]):
                 continue
-            records_by_molecule[molecule_index].append(
-                {
-                    "left": left,
-                    "right": right,
-                    "right_image_shift": shift,
-                    "vector": vector,
-                }
-            )
+            restored = {
+                "left": left,
+                "right": right,
+                "right_image_shift": shift,
+                "vector": vector,
+            }
+            if isinstance(raw_role, str) and raw_role in BOND_ROLES:
+                restored["role"] = raw_role
+            records_by_molecule[molecule_index].append(restored)
         for molecule, records in zip(molecules, records_by_molecule):
             if not records:
                 continue
