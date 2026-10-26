@@ -11,7 +11,19 @@ from .crystal import MolecularCrystal
 from .cluster import CrystalCluster, ClusterProvenance
 from .polyhedra import all_ideal_polyhedra, convex_hull_payload, ideal_polyhedra_for_cn
 from .trajectory import CrystalTrajectory
-from .records import BondRecord, SiteRecord
+from .records import (
+    BOND_ROLE_COORDINATION,
+    BOND_ROLE_COVALENT,
+    BOND_ROLES,
+    CONNECTIVITY_REGIME_EXTENDED,
+    CONNECTIVITY_REGIME_MOLECULAR,
+    CONNECTIVITY_REGIMES,
+    BondRecord,
+    ComponentConnectivity,
+    ConnectivityReport,
+    SiteRecord,
+)
+from .connectivity import classify_bond_role
 from .periodic_geometry import BoundaryPort, ChainSpec, ConnectionRule, FragmentInstance, FragmentTemplate, PeriodicBundle, PeriodicEdge, PeriodicGraph, ScrewSpec
 from .bond import (
     BondCandidates,
@@ -49,6 +61,15 @@ __all__ = [
     "BondRecord",
     "BondCandidates",
     "BondPairs",
+    "BOND_ROLE_COORDINATION",
+    "BOND_ROLE_COVALENT",
+    "BOND_ROLES",
+    "classify_bond_role",
+    "ComponentConnectivity",
+    "ConnectivityReport",
+    "CONNECTIVITY_REGIME_EXTENDED",
+    "CONNECTIVITY_REGIME_MOLECULAR",
+    "CONNECTIVITY_REGIMES",
     "SiteRecord",
     "BoundaryPort",
     "ChainSpec",

@@ -22,6 +22,7 @@
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
+| Bond role and connectivity regime | `MolecularCrystal.get_bond_records`, `MolecularCrystal.get_connectivity_report`, `classify_bond_role` | ASE/CIF `MolecularCrystal` | `BondRecord.role` (`covalent` or `coordination`) and molecular/extended regime | source docstring |
 | Attach chemistry-domain records | `annotate_chemistry` | `MolecularCrystal` | `CrystalChemistry` | source docstring |
 | Infer bond orders and formal charges | `infer_chemistry` | `MolecularCrystal` | `CrystalChemistry` with alternatives/warnings | source docstring |
 | Infer bond orders for one entity | `infer_bond_orders` | `FiniteChemicalEntity` / `PeriodicChemicalEntity` | `BondOrderResult` with Hückel aromaticity, source locks, diagnostics, and alternatives | source docstring |
@@ -72,11 +73,14 @@ Core crystal data model.
 - Core: `MolAtom`, `CrystalMolecule`, `MolecularCrystal`, `CrystalTrajectory`, `Molecule`
 - Cell transforms: `MolecularCrystal.transform_cell`
 - Bonds: `BondPairs`, `BondCandidates`, `VerletBondTracker`, `build_bond_candidates`, `candidate_list_needs_rebuild`, `evaluate_bond_candidates`, `infer_bond_pairs`; see [Bond inference](bonds.md)
-- Renderer contracts: `SiteRecord`, `BondRecord`; use `MolecularCrystal.get_site_records()` and `MolecularCrystal.get_bond_records()` instead of private ASE metadata.
+- Renderer contracts: `SiteRecord`, `BondRecord`, `ComponentConnectivity`, `ConnectivityReport`; use `MolecularCrystal.get_site_records()`, `MolecularCrystal.get_bond_records()`, and `MolecularCrystal.get_connectivity_report()` instead of private ASE metadata or element whitelists.
   - `SiteRecord` identifies one atom by global, molecule-local, and ASU-source indices and carries label/symmetry provenance, Cartesian and fractional coordinates, occupancy/disorder metadata, lattice image shift, uiso_A2, and Cartesian u_cart_A2.
-  - `BondRecord` carries molecule-local and global endpoints, ASU-source endpoints when known, the right-end lattice image shift, Cartesian bond vector, and distance.
+  - `BondRecord` carries molecule-local and global endpoints, ASU-source endpoints when known, the right-end lattice image shift, Cartesian bond vector, distance, and role.
+  - role is the plain string `BOND_ROLE_COVALENT` (`"covalent"`) or `BOND_ROLE_COORDINATION` (`"coordination"`). Every neighbor-list edge is labelled when it is accepted. Non-metal pairs are covalent. A metal–non-metal pair is covalent at or below the minimum of METAL_NONMETAL_COVALENT_MAX and (r_i + r_j) * NON_METAL_THRESHOLD_FACTOR, and coordination beyond that ceiling. Metal–metal pairs are coordination. `BOND_ROLES` is the allowed set. `classify_bond_role` applies the same rule. Renderers draw sticks for covalent edges and keep coordination edges for topology or polyhedra. Bond order is not on this record.
   - `get_bond_records()` returns all perceived periodic-image bonds, including
     multiple records for one atom pair and self-image bonds in one-site cells.
+    Edge identity is (left_global_index, right_global_index, right_image_shift) with role on that same record.
+  - `get_connectivity_report()` returns a `ConnectivityReport`. regime is `CONNECTIVITY_REGIME_MOLECULAR` when every component has translational rank 0, and `CONNECTIVITY_REGIME_EXTENDED` when any component has rank 1–3 (chain, layer, or framework). max_rank is the largest component rank. components is one `ComponentConnectivity` per molecule component (molecule_index, rank, regime, translation_generators). Rank is the lattice-winding dimension of the signed bond graph, including coordination contacts, and does not inspect element symbols. `CONNECTIVITY_REGIMES` is the allowed set. A cell-face crossing that only unwraps a finite molecule stays molecular.
 - Symmetry: `FractionalAffineOperation`, `LatticeBasisChange`, `CrystalSymmetry`, `identity_operation`, `validate_subgroup`, `left_cosets`, `domain_representatives`
 - Constructors: `MolecularCrystal.from_cif(path, use_asu_first=False)`, `MolecularCrystal.from_ase(atoms)`, `MolecularCrystal.from_pymatgen(structure)`
   - Conversions: `MolecularCrystal.to_pymatgen()` (and io helpers) preserve per-site occupancy, oxidation state, and H/D isotope identity; prefer them over ASE atoms adaptors that reject disordered structures.

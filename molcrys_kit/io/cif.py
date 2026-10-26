@@ -372,7 +372,8 @@ def _build_molecule_graph(
     The result is a simple graph with at most one edge per non-self atom
     pair. Its ``graph["bond_records"]`` payload retains every accepted
     periodic-image contact. Records use ``left < right``; self-image shifts
-    are oriented with their first non-zero component negative.
+    are oriented with their first non-zero component negative. Each record
+    carries a ``role`` of ``"covalent"`` or ``"coordination"``.
     """
     from ..constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 
@@ -391,6 +392,7 @@ def _build_molecule_graph(
         return crystal_graph
 
     from ..analysis.interactions import get_bonding_threshold
+    from ..structures.connectivity import classify_bond_role
 
     unique_symbols = sorted(set(symbols))
     radii = {
@@ -522,6 +524,11 @@ def _build_molecule_graph(
                 "right": right,
                 "right_image_shift": list(key[2]),
                 "vector": [float(value) for value in vector],
+                "role": classify_bond_role(
+                    symbols[left],
+                    symbols[right],
+                    float(np.linalg.norm(vector)),
+                ),
             },
         )
 
@@ -592,6 +599,11 @@ def _build_molecule_graph(
                     "right": key[1],
                     "right_image_shift": list(key[2]),
                     "vector": [float(value) for value in vector],
+                    "role": classify_bond_role(
+                        symbols[key[0]],
+                        symbols[key[1]],
+                        float(np.linalg.norm(vector)),
+                    ),
                 },
             )
 

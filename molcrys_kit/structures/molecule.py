@@ -58,13 +58,17 @@ def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
         return
 
     positions = np.asarray(molecule.get_positions(), dtype=float)
+    symbols = molecule.get_chemical_symbols()
+    from .connectivity import classify_bond_role
+
     records = []
     for atom_i, atom_j, edge_data in molecule._graph.edges(data=True):
         left, right = sorted((int(atom_i), int(atom_j)))
         vector = positions[right] - positions[left]
         image_shift = np.zeros(3, dtype=int)
         edge_data["vector"] = vector.copy()
-        edge_data["distance"] = float(np.linalg.norm(vector))
+        distance = float(np.linalg.norm(vector))
+        edge_data["distance"] = distance
         edge_data["image_shift"] = image_shift
         records.append(
             {
@@ -72,6 +76,7 @@ def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
                 "right": right,
                 "right_image_shift": [0, 0, 0],
                 "vector": [float(value) for value in vector],
+                "role": classify_bond_role(symbols[left], symbols[right], distance),
             }
         )
     legacy_records = molecule.info.get("bond_records")
