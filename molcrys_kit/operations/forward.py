@@ -23,7 +23,7 @@ older id-only payloads are rejected instead of being completed by guesswork.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -1289,6 +1289,28 @@ def _coset_representatives(
     return tuple(result)
 
 
+def _transform_bond_image_shift(
+    operation: FractionalAffineOperation,
+    image_shift: Sequence[int],
+) -> tuple[int, int, int]:
+    """Rotate a bond's lattice image by the generating operation.
+
+    Fractional row vectors transform as ``f @ W.T``.  The integer image that
+    takes the right endpoint into the bonded cell therefore transforms by the
+    same linear map, not by being copied onto the mate.
+    """
+    shift = (
+        np.asarray(image_shift, dtype=float)
+        @ np.asarray(operation.rotation, dtype=float).T
+    )
+    rounded = np.rint(shift)
+    if not np.allclose(shift, rounded, atol=1.0e-8, rtol=0.0):
+        raise ConstructionValidationError(
+            "symmetry operation does not map the bond image onto an integer lattice shift"
+        )
+    return tuple(int(value) for value in rounded)
+
+
 def _bond_record_payload(record: PeriodicBondRecord) -> dict[str, Any]:
     return {
         "left": int(record.left),
@@ -1477,21 +1499,26 @@ def _copy_generated_atoms(
         str(item) for item in atom_identities
     )
     if pose.template.bonds:
+        transformed_bonds = tuple(
+            replace(
+                record,
+                image_shift=_transform_bond_image_shift(operation, record.image_shift),
+            )
+            for record in pose.template.bonds
+        )
         molecule.info["forward_connectivity"] = [
-            [int(record.left), int(record.right)] for record in pose.template.bonds
+            [int(record.left), int(record.right)] for record in transformed_bonds
         ]
         molecule.info["bond_pairs"] = [
-            record.pair()
-            for record in pose.template.bonds
-            if record.left != record.right
+            record.pair() for record in transformed_bonds if record.left != record.right
         ]
         molecule.info["forward_bonds"] = [
-            _bond_record_payload(record) for record in pose.template.bonds
+            _bond_record_payload(record) for record in transformed_bonds
         ]
         molecule._graph = nx.Graph()
         molecule._graph.add_nodes_from(range(n))
         positions = np.asarray(molecule.get_positions(), dtype=float)
-        for record in pose.template.bonds:
+        for record in transformed_bonds:
             left, right = int(record.left), int(record.right)
             if left == right or not (0 <= left < n and 0 <= right < n):
                 continue
@@ -1508,8 +1535,10 @@ def _copy_generated_atoms(
                 bond_type_known=bool(record.bond_type_known),
                 kind=record.kind,
             )
+    else:
+        transformed_bonds = ()
     if operation.determinant < 0 and _has_known_stereo(molecule):
-        _reassign_improper_stereochemistry(molecule, pose.template.bonds)
+        _reassign_improper_stereochemistry(molecule, transformed_bonds)
     return molecule
 
 
@@ -2122,13 +2151,13 @@ def select_ordered_realization(
     """Select one admissible whole-molecule state per orbit.
 
     A zero-weight occupied state is rejected.  When an orbit has both a
-    positive occupied weight and a positive vacancy weight, the caller must
-    choose explicitly; the default does not place a molecule on a vacant
-    centre.  The returned metadata records the symmetry of the selected
-    coordinates separately from the source average symmetry.
+    positive occupied weight and a positive vacancy weight, that orbit needs
+    its own occupied or vacancy choice.  ``None`` and ``{}`` do not supply
+    one, and naming a different orbit does not either.  The returned metadata
+    records the symmetry of the selected coordinates separately from the
+    source average symmetry.
     """
     available = _alternatives_for_selection(model)
-    explicit = selections is not None
     selections = dict(selections or {})
     chosen: list[CrystalMolecule] = []
     selected_alternatives: dict[str, str] = {}
@@ -2139,7 +2168,7 @@ def select_ordered_realization(
         vacant = [
             item for item in alternatives if item.vacancy and item.weight > 1.0e-8
         ]
-        if orbit_id not in selections and not explicit:
+        if orbit_id not in selections:
             if occupied and vacant:
                 raise ConstructionValidationError(
                     "partial center occupation requires an explicit occupied or "
@@ -2153,7 +2182,7 @@ def select_ordered_realization(
                 occupied_only = [item for item in alternatives if not item.vacancy]
                 choice = occupied_only[0].alternative_id if occupied_only else 0
         else:
-            choice = selections.get(orbit_id, 0)
+            choice = selections[orbit_id]
         if isinstance(choice, str):
             selected = next(
                 (item for item in alternatives if item.alternative_id == choice), None

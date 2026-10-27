@@ -201,12 +201,16 @@ def test_explicit_enantiopure_general_position_fails_and_racemate_reassigns_ster
     alkene_crystal = construct_molecular_crystal(
         racemic, MolecularPose(alkene, np.array([0.2, 0.3, 0.4]))
     )
-    alkene_labels = [
-        str(molecule.arrays["stereochemistry"][0])
+    improper = [
+        molecule
         for molecule in alkene_crystal.molecules
+        if molecule.info.get("forward_stereo_reassigned")
     ]
-    assert len(set(alkene_labels)) == 1
-    assert alkene_labels[0] in {"E", "Z"}
+    assert improper
+    assert all(
+        str(molecule.arrays["stereochemistry"][0]) == "E"
+        for molecule in alkene_crystal.molecules
+    )
 
     untyped = MolecularTemplate(
         Atoms(
@@ -406,9 +410,31 @@ def test_disorder_companion_round_trip_and_legacy_loss():
     assert payload["alternatives"][0]["bonds"]
     restored = read_statistical_disorder_companion(payload)
     again = restored.to_dict()
+    third = read_statistical_disorder_companion(again).to_dict()
     assert again["schema"] == payload["schema"]
     assert len(again["alternatives"]) == len(payload["alternatives"])
     assert again["alternatives"][0]["bonds"][0]["bond_type"] == "single"
+
+    def _cartesians(document):
+        return [
+            np.asarray(atom["cartesian"], dtype=float)
+            for alternative in document["alternatives"]
+            for atom in alternative["atoms"]
+        ]
+
+    original_coordinates = _cartesians(payload)
+    restored_coordinates = _cartesians(again)
+    rewritten_coordinates = _cartesians(third)
+    assert original_coordinates
+    assert (
+        len(original_coordinates)
+        == len(restored_coordinates)
+        == len(rewritten_coordinates)
+    )
+    for left, right in zip(original_coordinates, restored_coordinates):
+        assert np.allclose(left, right, atol=1.0e-12, rtol=0.0)
+    for left, right in zip(restored_coordinates, rewritten_coordinates):
+        assert np.array_equal(left, right)
     selected = restored.select_ordered_realization()
     assert len(selected.molecules) == 1
     assert selected.molecules[0].get_chemical_formula() == "H2O"
@@ -479,6 +505,8 @@ def test_zero_weight_and_partial_occupation_selection():
     )
     with pytest.raises(ConstructionValidationError, match="partial center occupation"):
         partial.select_ordered_realization()
+    with pytest.raises(ConstructionValidationError, match="partial center occupation"):
+        partial.select_ordered_realization({})
     orbit = partial.alternatives[0].orbit_id
     occupied = partial.select_ordered_realization(
         {orbit: partial.alternatives[0].alternative_id}
@@ -489,6 +517,56 @@ def test_zero_weight_and_partial_occupation_selection():
     assert sum(len(molecule) for molecule in occupied.molecules) == 3
     assert empty.molecules == []
     assert occupied.metadata["realized_symmetry"]["matches_source_group"] is True
+
+    two_centers = construct_statistical_disorder(
+        context,
+        [
+            MolecularPose(water, np.array([0.2, 0.2, 0.2]), occupation=0.5),
+            MolecularPose(water, np.array([0.7, 0.3, 0.4]), occupation=0.5),
+        ],
+    )
+    orbits = list(two_centers.alternatives_by_orbit)
+    assert len(orbits) == 2
+    first_choice = two_centers.alternatives_by_orbit[orbits[0]][0].alternative_id
+    second_choice = two_centers.alternatives_by_orbit[orbits[1]][0].alternative_id
+    with pytest.raises(ConstructionValidationError, match="partial center occupation"):
+        two_centers.select_ordered_realization({orbits[0]: first_choice})
+    both = two_centers.select_ordered_realization(
+        {orbits[0]: first_choice, orbits[1]: second_choice}
+    )
+    assert len(both.molecules) == 2
+
+
+def test_generated_bond_image_shift_follows_the_operation():
+    context = _context_from_number(2, lattice=np.eye(3) * 20.0)
+    template = MolecularTemplate(
+        Atoms("C2", positions=[[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]]),
+        bonds=(
+            PeriodicBondRecord(
+                0,
+                1,
+                order=1.0,
+                bond_type="single",
+                kind="covalent",
+                image_shift=(1, 0, 0),
+                order_known=True,
+                bond_type_known=True,
+            ),
+        ),
+    )
+    crystal = construct_molecular_crystal(
+        context, MolecularPose(template, np.array([0.2, 0.3, 0.4]))
+    )
+    shifts = {}
+    for molecule in crystal.molecules:
+        operation = context.operations[molecule.info["forward_operation_index"]]
+        shift = tuple(
+            int(value) for value in molecule.graph.get_edge_data(0, 1)["image_shift"]
+        )
+        assert tuple(molecule.info["forward_bonds"][0]["image_shift"]) == shift
+        shifts[int(np.sign(operation.determinant))] = shift
+    assert shifts[1] == (1, 0, 0)
+    assert shifts[-1] == (-1, 0, 0)
 
 
 def test_stabilizer_matching_does_not_wrap_atoms_independently():
@@ -571,14 +649,41 @@ def test_declared_group_must_match_the_complete_operation_set():
         origin_choice="0,0,1/4",
     )
     assert len(accepted.operations) == 2
+    mirror = _context_from_number(6)
+    axis_swap = LatticeBasisChange(
+        np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    )
+    conjugated = tuple(
+        axis_swap.transform_operation(operation) for operation in mirror.operations
+    )
+    original_rotations = {
+        tuple(np.rint(operation.rotation).astype(int).ravel())
+        for operation in mirror.operations
+    }
+    conjugated_rotations = {
+        tuple(np.rint(operation.rotation).astype(int).ravel())
+        for operation in conjugated
+    }
+    assert original_rotations != conjugated_rotations
+    with pytest.raises(InvalidSymmetryError):
+        prepare_construction_context(
+            np.eye(3) * 10.0,
+            CrystalSymmetry(
+                conjugated,
+                space_group_number=6,
+                space_group_symbol=mirror.symmetry.space_group_symbol,
+            ),
+        )
     basis_ok = prepare_construction_context(
         np.eye(3) * 10.0,
         CrystalSymmetry(
-            standard.operations, space_group_number=2, space_group_symbol="P -1"
+            conjugated,
+            space_group_number=6,
+            space_group_symbol=mirror.symmetry.space_group_symbol,
         ),
-        basis="[[0, 1, 0], [1, 0, 0], [0, 0, -1]]",
+        basis="[[0, 1, 0], [1, 0, 0], [0, 0, 1]]",
     )
-    assert len(basis_ok.operations) == 2
+    assert len(basis_ok.operations) == len(mirror.operations)
     with pytest.raises(InvalidSymmetryError):
         prepare_construction_context(
             np.eye(3) * 10.0,
