@@ -229,9 +229,7 @@ def _extract_custom_molcrys_provenance_rows(
                 atom_index = int(tokens[tag_to_idx["_molcrys_atom_index"]])
                 sym_op_index = int(tokens[tag_to_idx["_molcrys_sym_op_index"]])
                 asym_id = int(tokens[tag_to_idx["_molcrys_asym_id"]])
-                site_sym_order = int(
-                    tokens[tag_to_idx["_molcrys_site_symmetry_order"]]
-                )
+                site_sym_order = int(tokens[tag_to_idx["_molcrys_site_symmetry_order"]])
                 rows[atom_index] = (sym_op_index, asym_id, site_sym_order)
             except (TypeError, ValueError, IndexError):
                 pass
@@ -293,7 +291,11 @@ def _iter_cif_loop_rows(
         if not stripped:
             cursor += 1
             continue
-        if stripped.lower() == "loop_" or stripped.startswith("_") or stripped.startswith("data_"):
+        if (
+            stripped.lower() == "loop_"
+            or stripped.startswith("_")
+            or stripped.startswith("data_")
+        ):
             break
         if raw.startswith(";"):
             text_lines: list[str] = [raw[1:]] if raw[1:] else []
@@ -334,6 +336,75 @@ def _extract_custom_molcrys_atom_ids(text: str) -> Dict[int, str]:
             except (TypeError, ValueError, IndexError):
                 pass
     return result
+
+
+def _extract_molcrys_site_annotations(text: str) -> Dict[int, Dict[str, object]]:
+    """Read optional isotope and mass columns from a MolCrysKit atom side table."""
+    lines = text.splitlines()
+    cursor = 0
+    annotations: Dict[int, Dict[str, object]] = {}
+    while cursor < len(lines):
+        if lines[cursor].strip().lower() != "loop_":
+            cursor += 1
+            continue
+        cursor += 1
+        tags: list[str] = []
+        while cursor < len(lines) and lines[cursor].lstrip().startswith("_"):
+            tags.append(lines[cursor].strip().split()[0])
+            cursor += 1
+        if "_molcrys_atom_index" not in tags:
+            continue
+        if "_molcrys_isotope" not in tags and "_molcrys_atom_mass" not in tags:
+            continue
+        index_at = tags.index("_molcrys_atom_index")
+        isotope_at = (
+            tags.index("_molcrys_isotope") if "_molcrys_isotope" in tags else None
+        )
+        mass_at = (
+            tags.index("_molcrys_atom_mass") if "_molcrys_atom_mass" in tags else None
+        )
+        for tokens in _iter_cif_loop_rows(lines, cursor, len(tags)):
+            try:
+                atom_index = int(tokens[index_at])
+            except (TypeError, ValueError, IndexError):
+                continue
+            record: Dict[str, object] = {}
+            if isotope_at is not None:
+                token = tokens[isotope_at]
+                if token not in {".", "?"}:
+                    record["isotope"] = int(float(token))
+            if mass_at is not None:
+                token = tokens[mass_at]
+                if token not in {".", "?"}:
+                    record["mass"] = float(token)
+            if record:
+                annotations[atom_index] = record
+    return annotations
+
+
+def _bond_attributes_from_record(record: dict) -> dict:
+    """Copy a published bond type onto a graph edge without inventing one."""
+    from ..chemistry.source import parse_bond_type
+
+    token = record.get("bond_type")
+    parsed = parse_bond_type(None if token is None else str(token))
+    if parsed is None:
+        return {
+            "bond_type": None,
+            "bond_type_known": False,
+            "order": None,
+            "order_known": False,
+            "kind": None,
+        }
+    bond_type = str(token).strip().lower()
+    return {
+        "bond_type": bond_type,
+        "bond_type_known": True,
+        "order": parsed.order,
+        "order_known": parsed.order is not None,
+        "kind": "covalent" if parsed.aromatic or parsed.order else None,
+        "aromatic": bool(parsed.aromatic),
+    }
 
 
 def _pymatgen_cif_parser(
@@ -470,10 +541,9 @@ def _build_molecule_graph(
     # spurious ultra-short self-image edge.  Keep ordinary geometry within one
     # image and add the authoritative cross-image edges below.
     if explicit_bonds and sym_op_indices is not None:
-        compatible &= (
-            sym_op_indices[i_list].astype(int, copy=False)
-            == sym_op_indices[j_list].astype(int, copy=False)
-        )
+        compatible &= sym_op_indices[i_list].astype(int, copy=False) == sym_op_indices[
+            j_list
+        ].astype(int, copy=False)
 
     i_list = i_list[compatible]
     j_list = j_list[compatible]
@@ -546,11 +616,16 @@ def _build_molecule_graph(
     # additive within each symmetry image, while a long or unusual template
     # bond cannot disappear merely because it exceeds the heuristic cutoff.
     if explicit_bonds:
-        for raw_left, raw_right in explicit_bonds:
+        for raw_edge in explicit_bonds:
             try:
-                left, right = int(raw_left), int(raw_right)
-            except (TypeError, ValueError):
+                left, right = int(raw_edge[0]), int(raw_edge[1])
+            except (TypeError, ValueError, IndexError):
                 continue
+            edge_attributes = (
+                dict(raw_edge[2])
+                if len(raw_edge) >= 3 and isinstance(raw_edge[2], dict)
+                else {}
+            )
             if not (
                 0 <= left < len(atoms)
                 and 0 <= right < len(atoms)
@@ -582,16 +657,26 @@ def _build_molecule_graph(
             )
             cell = np.asarray(atoms.get_cell(), dtype=float)
             if cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1.0e-12:
-                image_shift = np.rint((vector - raw_vector) @ np.linalg.inv(cell)).astype(int)
+                image_shift = np.rint(
+                    (vector - raw_vector) @ np.linalg.inv(cell)
+                ).astype(int)
             else:
                 image_shift = np.zeros(3, dtype=int)
-            crystal_graph.add_edge(
-                left,
-                right,
-                vector=vector,
-                image_shift=image_shift,
+            edge_payload = {
+                "vector": vector,
+                "image_shift": image_shift,
+                "bond_type": edge_attributes.get("bond_type"),
+                "bond_type_known": bool(edge_attributes.get("bond_type_known")),
+                "order": edge_attributes.get("order"),
+                "order_known": bool(edge_attributes.get("order_known")),
+                "kind": edge_attributes.get("kind"),
+            }
+            crystal_graph.add_edge(left, right, **edge_payload)
+            key = (
+                min(left, right),
+                max(left, right),
+                tuple(int(value) for value in image_shift),
             )
-            key = (min(left, right), max(left, right), tuple(int(value) for value in image_shift))
             canonical_records.setdefault(
                 key,
                 {
@@ -604,6 +689,10 @@ def _build_molecule_graph(
                         symbols[key[1]],
                         float(np.linalg.norm(vector)),
                     ),
+                    "bond_type": edge_attributes.get("bond_type"),
+                    "bond_type_known": bool(edge_attributes.get("bond_type_known")),
+                    "order": edge_attributes.get("order"),
+                    "order_known": bool(edge_attributes.get("order_known")),
                 },
             )
 
@@ -841,7 +930,12 @@ class DisorderInfo:
     crystal_symmetry: CrystalSymmetry = None  # Validated affine operation set
     atom_ids: List[str] = None  # Stable MolCrysKit atom identities
     molecule_ids: List[int] = None  # Optional writer-side molecule provenance
-    source_symmetry: CrystalSymmetry = None  # Provenance symmetry for expanded-P1 output
+    source_symmetry: CrystalSymmetry = (
+        None  # Provenance symmetry for expanded-P1 output
+    )
+    source_asu_index: List[int] = None  # ASU row that generated each expanded atom
+    source_asu_fractional: np.ndarray = None  # Unexpanded ASU fractional coordinate
+    atomic_masses: List[Optional[float]] = None  # Explicit masses, None when absent
 
     def __post_init__(self):
         if self.assemblies is None:
@@ -874,6 +968,10 @@ class DisorderInfo:
             self.molecule_ids = [-1] * len(self.labels)
         if self.cif_chemistry is None:
             self.cif_chemistry = {}
+        if self.source_asu_index is None:
+            self.source_asu_index = []
+        if self.atomic_masses is None:
+            self.atomic_masses = [None] * len(self.labels)
         # lattice_matrix stays None when not available (e.g. legacy callers);
         # from_crystal() and scan_cif_disorder() always set it.
 
@@ -1296,13 +1394,26 @@ def _extract_cif_chemistry(data_block: dict) -> dict:
     return metadata
 
 
+_ISOTOPE_ELEMENT_ALIASES = {"D": ("H", 2), "T": ("H", 3)}
+
+
 def _parse_atom_type_symbol(value) -> tuple[str, int, Optional[int]]:
-    """Return element, leading isotope, and explicit charge from a CIF type."""
+    """Return element, isotope, and explicit charge from a CIF type symbol.
+
+    ``D`` and ``T`` are hydrogen aliases for isotopes 2 and 3.  A leading mass
+    number that disagrees with the alias is a conflicting annotation and
+    raises ``ValueError``.  The caller keeps the verbatim token separately.
+    """
     raw = str(value).strip().strip("'\"").split(":", 1)[0]
     match = re.match(r"^(?P<isotope>\d+)?(?P<element>[A-Z][a-z]?)(?P<tail>.*)$", raw)
     if match is None:
-        return _clean_species_string(raw), 0, None
+        token = _clean_species_string(raw)
+        alias = _ISOTOPE_ELEMENT_ALIASES.get(token)
+        if alias is None:
+            return token, 0, None
+        return alias[0], alias[1], None
     isotope = int(match.group("isotope")) if match.group("isotope") else 0
+    element = match.group("element")
     tail = match.group("tail")
     charge = None
     charge_match = re.fullmatch(
@@ -1313,7 +1424,17 @@ def _parse_atom_type_symbol(value) -> tuple[str, int, Optional[int]]:
         sign = charge_match.group("sign1") or charge_match.group("sign2")
         magnitude_text = charge_match.group("mag1") or charge_match.group("mag2") or "1"
         charge = int(magnitude_text) * (1 if sign == "+" else -1)
-    return match.group("element"), isotope, charge
+    alias = _ISOTOPE_ELEMENT_ALIASES.get(element)
+    if alias is not None:
+        alias_element, alias_isotope = alias
+        if isotope and isotope != alias_isotope:
+            raise ValueError(
+                f"conflicting isotope annotation in atom type symbol {value!r}: "
+                f"leading mass {isotope} disagrees with {element} (isotope {alias_isotope})"
+            )
+        element = alias_element
+        isotope = alias_isotope
+    return element, isotope, charge
 
 
 def _as_cif_list(value) -> list:
@@ -1673,9 +1794,11 @@ def scan_cif_disorder(
         expand_symmetry=expand_symmetry,
         strict=False,
     )
-    representation = str(
-        _first_cif_value(data_block.get("_molcrys_representation")) or ""
-    ).strip().casefold()
+    representation = (
+        str(_first_cif_value(data_block.get("_molcrys_representation")) or "")
+        .strip()
+        .casefold()
+    )
     is_true_asu_export = representation == "ordered_asymmetric_unit"
     source_symmetry = None
     source_xyz = _as_cif_list(data_block.get("_molcrys_source_symop_xyz"))
@@ -1721,7 +1844,9 @@ def scan_cif_disorder(
     # Extract raw data fields
     labels = _as_cif_list(data_block.get("_atom_site_label"))
     symbols = _as_cif_list(data_block.get("_atom_site_type_symbol"))
-    raw_atom_ids = [str(value) for value in _as_cif_list(data_block.get("_molcrys_atom_id"))]
+    raw_atom_ids = [
+        str(value) for value in _as_cif_list(data_block.get("_molcrys_atom_id"))
+    ]
     raw_molecule_ids = _as_cif_list(data_block.get("_molcrys_molecule_id"))
     side_atom_ids = _extract_custom_molcrys_atom_ids(raw_text or "")
     raw_type_symbols = list(symbols)
@@ -1764,7 +1889,11 @@ def scan_cif_disorder(
     # Convert fractional coordinates to numpy array
     n_atoms = len(labels)
     atom_ids = [
-        (raw_atom_ids[index] if index < len(raw_atom_ids) else side_atom_ids.get(index, ""))
+        (
+            raw_atom_ids[index]
+            if index < len(raw_atom_ids)
+            else side_atom_ids.get(index, "")
+        )
         for index in range(n_atoms)
     ]
     molecule_ids = []
@@ -1966,6 +2095,10 @@ def scan_cif_disorder(
     all_site_formal_charges = []
     all_atom_ids = []
     all_molecule_ids = []
+    all_source_asu_indices = []
+    all_source_asu_fractional = []
+    all_atomic_masses = []
+    asu_annotations = _extract_molcrys_site_annotations(raw_text or "")
 
     # Per-element buckets canonicalise symmetry-equivalent ASU rows (some CSD
     # exports contain multiple labelled rows from the same orbit).  Distinct
@@ -1999,9 +2132,7 @@ def scan_cif_disorder(
                 ) @ lattice_matrix
                 protected = (
                     np.min(
-                        np.einsum(
-                            "ij,ij->i", candidate_cartesian, candidate_cartesian
-                        )
+                        np.einsum("ij,ij->i", candidate_cartesian, candidate_cartesian)
                     )
                     < legacy_tol_sq
                 )
@@ -2067,13 +2198,31 @@ def scan_cif_disorder(
             all_uiso.append(float(asu_uiso[i]))
             all_u_cart.append(_transform_u_cart(asu_u_cart[i], op, lattice))
             all_raw_type_symbols.append(str(raw_type_symbols[i]))
+            annotation = asu_annotations.get(i, {})
+            annotation_isotope = annotation.get("isotope")
+            if (
+                annotation_isotope is not None
+                and int(annotation_isotope) != int(isotopes[i])
+                and int(isotopes[i]) > 0
+            ):
+                raise ValueError(
+                    f"conflicting isotope annotation for atom {i}: "
+                    f"type symbol gives {int(isotopes[i])}, side table gives {int(annotation_isotope)}"
+                )
+            if annotation_isotope is not None and int(isotopes[i]) == 0:
+                isotopes[i] = int(annotation_isotope)
             all_isotopes.append(int(isotopes[i]))
             all_site_formal_charges.append(site_formal_charges[i])
+            all_atomic_masses.append(annotation.get("mass"))
             source_atom_id = atom_ids[i] if i < len(atom_ids) else ""
             if source_atom_id and len(sym_ops) > 1 and op_idx:
                 source_atom_id = f"{source_atom_id}@op{op_idx}"
             all_atom_ids.append(source_atom_id)
             all_molecule_ids.append(molecule_ids[i] if i < len(molecule_ids) else -1)
+            all_source_asu_indices.append(i)
+            all_source_asu_fractional.append(
+                np.asarray(original_coord, dtype=float).copy()
+            )
 
             # Use custom _molcrys_* provenance when available (CIF round-trip
             # for slabs/supercells where symmetry expansion is P1 identity).
@@ -2124,6 +2273,13 @@ def scan_cif_disorder(
         cif_chemistry=cif_chemistry,
         crystal_symmetry=crystal_symmetry,
         source_symmetry=source_symmetry,
+        source_asu_index=all_source_asu_indices,
+        source_asu_fractional=np.asarray(
+            all_source_asu_fractional, dtype=float
+        ).reshape(-1, 3)
+        if all_source_asu_fractional
+        else np.zeros((0, 3)),
+        atomic_masses=all_atomic_masses,
     )
 
 
@@ -2251,19 +2407,66 @@ def read_mol_crystal(
                     matches.append(int(candidate))
             return matches
 
-        pairs: list[tuple[int, int]] = []
+        from ..constants.config import KEY_SOURCE_ASU_FRAC, KEY_SOURCE_ASU_INDEX
+
+        source_indices = np.asarray(
+            atoms_obj.arrays.get(KEY_SOURCE_ASU_INDEX, []), dtype=int
+        )
+        source_fractional = atoms_obj.arrays.get(KEY_SOURCE_ASU_FRAC)
+        has_source = (
+            source_fractional is not None
+            and len(source_indices) == len(fractional)
+            and len(np.asarray(source_fractional)) == len(fractional)
+        )
+        disorder_groups = np.asarray(
+            atoms_obj.arrays.get(
+                KEY_DISORDER_GROUP, np.zeros(len(fractional), dtype=int)
+            ),
+            dtype=int,
+        )
+
+        def _sources_for(candidates) -> list[int]:
+            if not has_source:
+                return []
+            found = []
+            for index in candidates:
+                source = int(source_indices[int(index)])
+                if source not in found:
+                    found.append(source)
+            return found
+
+        def _source_coordinate(source: int) -> np.ndarray:
+            matches = np.flatnonzero(source_indices == int(source))
+            return np.asarray(source_fractional[int(matches[0])], dtype=float)
+
+        def _source_images(source: int) -> list[int]:
+            return [
+                int(index) for index in np.flatnonzero(source_indices == int(source))
+            ]
+
+        def _sources_compatible(left_source: int, right_source: int) -> bool:
+            left_images = _source_images(left_source)
+            right_images = _source_images(right_source)
+            if not left_images or not right_images:
+                return False
+            left_group = int(disorder_groups[left_images[0]])
+            right_group = int(disorder_groups[right_images[0]])
+            return not (left_group and right_group and left_group != right_group)
+
+        pairs: list[tuple] = []
         for record in records:
+            bond_attributes = _bond_attributes_from_record(record)
             left_candidates = by_label.get(str(record.get("atom1_label", "")), ())
             right_candidates = by_label.get(str(record.get("atom2_label", "")), ())
             if not left_candidates or not right_candidates:
                 continue
-            site_symmetry = str(record.get("site_symmetry_2") or "").strip().strip("'\"")
-            symmetry_match = re.fullmatch(r"(?P<index>\d+)(?:_(?P<shift>[1-9]{3}))?", site_symmetry)
-            if (
-                symmetry_match is not None
-                and operations
-                and lattice_matrix is not None
-            ):
+            site_symmetry = (
+                str(record.get("site_symmetry_2") or "").strip().strip("'\"")
+            )
+            symmetry_match = re.fullmatch(
+                r"(?P<index>\d+)(?:_(?P<shift>[1-9]{3}))?", site_symmetry
+            )
+            if symmetry_match is not None and operations and lattice_matrix is not None:
                 operation_index = int(symmetry_match.group("index")) - 1
                 if 0 <= operation_index < len(operations):
                     shift_token = symmetry_match.group("shift")
@@ -2273,13 +2476,55 @@ def read_mol_crystal(
                             [int(value) - 5 for value in shift_token], dtype=int
                         )
                     operation = operations[operation_index]
-                    # CIF's site-symmetry code describes atom site 2.  Start
-                    # from the two untransformed ASU endpoints, map the right
-                    # endpoint by that code, and then apply every group
-                    # operation to both endpoints.  This keeps the symmetry
-                    # image provenance in both directions and reconstructs
-                    # every mate of a cross-image bond.
-                    if identity_index is not None and len(sym_op_indices) == len(fractional):
+                    # CIF's site-symmetry code describes atom site 2.  Both
+                    # endpoints of one bond image are transformed by the same
+                    # group operation, starting from the original ASU
+                    # coordinates.  Identity images that symmetry expansion
+                    # deduplicated are not replaced by every mate of the label:
+                    # that Cartesian product creates cross-molecule edges.
+                    if has_source:
+                        left_sources = _sources_for(left_candidates)
+                        right_sources = _sources_for(right_candidates)
+                        for left_source in left_sources:
+                            for right_source in right_sources:
+                                if not _sources_compatible(left_source, right_source):
+                                    continue
+                                asu_left = _source_coordinate(left_source)
+                                asu_right = _source_coordinate(right_source)
+                                transformed_right = (
+                                    np.asarray(
+                                        operation.apply(asu_right, wrap=False),
+                                        dtype=float,
+                                    )
+                                    + image_shift
+                                )
+                                left_images = _source_images(left_source)
+                                right_images = _source_images(right_source)
+                                for group_operation in operations:
+                                    expected_left = group_operation.apply(
+                                        asu_left, wrap=False
+                                    )
+                                    expected_right = group_operation.apply(
+                                        transformed_right, wrap=False
+                                    )
+                                    for left in _matching_candidates(
+                                        expected_left, left_images
+                                    ):
+                                        for right in _matching_candidates(
+                                            expected_right, right_images
+                                        ):
+                                            if left == right:
+                                                continue
+                                            pair = tuple(sorted((left, right)))
+                                            annotated = (*pair, bond_attributes)
+                                            if pair not in {
+                                                (item[0], item[1]) for item in pairs
+                                            }:
+                                                pairs.append(annotated)
+                        continue
+                    if identity_index is not None and len(sym_op_indices) == len(
+                        fractional
+                    ):
                         asu_left_candidates = [
                             int(index)
                             for index in left_candidates
@@ -2290,22 +2535,20 @@ def read_mol_crystal(
                             for index in right_candidates
                             if int(sym_op_indices[int(index)]) == identity_index
                         ]
-                        # A special-position site may be deduplicated before
-                        # the identity operation is visited.  Its retained
-                        # coordinate is still a valid ASU representative.
-                        if not asu_left_candidates:
-                            asu_left_candidates = list(map(int, left_candidates))
-                        if not asu_right_candidates:
-                            asu_right_candidates = list(map(int, right_candidates))
                     else:
                         asu_left_candidates = list(map(int, left_candidates))
                         asu_right_candidates = list(map(int, right_candidates))
+                    if not asu_left_candidates or not asu_right_candidates:
+                        continue
                     for asu_left in asu_left_candidates:
                         for asu_right in asu_right_candidates:
-                            transformed_right = np.asarray(
-                                operation.apply(fractional[asu_right], wrap=False),
-                                dtype=float,
-                            ) + image_shift
+                            transformed_right = (
+                                np.asarray(
+                                    operation.apply(fractional[asu_right], wrap=False),
+                                    dtype=float,
+                                )
+                                + image_shift
+                            )
                             for group_operation in operations:
                                 expected_left = group_operation.apply(
                                     fractional[asu_left], wrap=False
@@ -2322,11 +2565,10 @@ def read_mol_crystal(
                                         if left == right:
                                             continue
                                         pair = tuple(sorted((left, right)))
-                                        if pair not in pairs:
-                                            pairs.append(pair)
-                    # A valid symmetry-coded row is authoritative even when
-                    # the endpoint is the same label; do not fall through to
-                    # ambiguous distance matching.
+                                        if pair not in {
+                                            (item[0], item[1]) for item in pairs
+                                        }:
+                                            pairs.append((*pair, bond_attributes))
                     continue
             try:
                 raw_expected = record.get("distance_A")
@@ -2353,8 +2595,8 @@ def read_mol_crystal(
             for error, left, right in candidates:
                 if error <= cutoff:
                     pair = tuple(sorted((int(left), int(right))))
-                    if pair not in pairs:
-                        pairs.append(pair)
+                    if pair not in {(item[0], item[1]) for item in pairs}:
+                        pairs.append((*pair, bond_attributes))
         return pairs
 
     # Extract disorder info — this is now the SOLE authority for atomic
@@ -2444,6 +2686,25 @@ def read_mol_crystal(
     )
     if any(value > 0 for value in disorder_info.isotopes):
         atoms.set_array(KEY_ISOTOPE, np.asarray(disorder_info.isotopes, dtype=int))
+    if disorder_info.source_asu_index and len(disorder_info.source_asu_index) == n:
+        from ..constants.config import KEY_SOURCE_ASU_FRAC, KEY_SOURCE_ASU_INDEX
+
+        atoms.set_array(
+            KEY_SOURCE_ASU_INDEX,
+            np.asarray(disorder_info.source_asu_index, dtype=int),
+        )
+        atoms.set_array(
+            KEY_SOURCE_ASU_FRAC,
+            np.asarray(disorder_info.source_asu_fractional, dtype=float).reshape(n, 3),
+        )
+    if disorder_info.atomic_masses and any(
+        value is not None for value in disorder_info.atomic_masses
+    ):
+        masses = np.asarray(atoms.get_masses(), dtype=float)
+        for index, mass in enumerate(disorder_info.atomic_masses):
+            if mass is not None and np.isfinite(float(mass)):
+                masses[index] = float(mass)
+        atoms.set_masses(masses)
     if any(value is not None for value in disorder_info.site_formal_charges):
         atoms.set_array(
             KEY_FORMAL_CHARGE,
