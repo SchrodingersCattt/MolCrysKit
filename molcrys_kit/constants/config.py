@@ -31,23 +31,27 @@ CIF_LEGACY_COINCIDENCE_TOLERANCE_A = 0.01
 MIN_PERIODIC_CELL_VOLUME_A3 = 1e-8
 
 # Standard keys for disorder metadata
-KEY_OCCUPANCY = "occupancy"                    # Default: 1.0
-KEY_DISORDER_GROUP = "disorder_group"            # Default: 0 as integer
-KEY_ASSEMBLY = "assembly"                       # Default: "" empty string
-KEY_LABEL = "label"                             # Default: Atom element symbol
-KEY_ATOM_ID = "mck_atom_id"                     # Stable identity within a crystal lineage
-KEY_ISOTOPE = "isotope"                         # Mass number; 0 means unspecified
-KEY_FORMAL_CHARGE = "formal_charge"             # Per-site formal charge when explicit
-KEY_FORMAL_CHARGE_KNOWN = "formal_charge_known" # Distinguish unknown from neutral zero
-KEY_SYM_OP_INDEX = "sym_op_index"               # Default: 0 as integer
-KEY_ASYM_ID = "asym_id"                         # Default: -1 as integer
-KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order" # Default: 1 as integer
-KEY_FRAC_X = "frac_x"                           # CIF fractional x-coordinate
-KEY_FRAC_Y = "frac_y"                           # CIF fractional y-coordinate
-KEY_FRAC_Z = "frac_z"                           # CIF fractional z-coordinate
-KEY_IMAGE_SHIFT = "image_shift"                 # Integer lattice image, shape (n, 3)
-KEY_UISO = "uiso"                               # Isotropic displacement U, Angstrom^2
-KEY_U_CART = "u_cart"                           # Cartesian U tensor, flattened shape (n, 9)
+KEY_OCCUPANCY = "occupancy"  # Default: 1.0
+KEY_DISORDER_GROUP = "disorder_group"  # Default: 0 as integer
+KEY_ASSEMBLY = "assembly"  # Default: "" empty string
+KEY_LABEL = "label"  # Default: Atom element symbol
+KEY_ATOM_ID = "mck_atom_id"  # Stable identity within a crystal lineage
+KEY_ISOTOPE = "isotope"  # Mass number; 0 means unspecified
+KEY_FORMAL_CHARGE = "formal_charge"  # Per-site formal charge when explicit
+KEY_FORMAL_CHARGE_KNOWN = "formal_charge_known"  # Distinguish unknown from neutral zero
+KEY_SYM_OP_INDEX = "sym_op_index"  # Default: 0 as integer
+KEY_ASYM_ID = "asym_id"  # Default: -1 as integer
+KEY_SITE_SYMMETRY_ORDER = "site_symmetry_order"  # Default: 1 as integer
+KEY_FRAC_X = "frac_x"  # CIF fractional x-coordinate
+KEY_FRAC_Y = "frac_y"  # CIF fractional y-coordinate
+KEY_FRAC_Z = "frac_z"  # CIF fractional z-coordinate
+KEY_IMAGE_SHIFT = "image_shift"  # Integer lattice image, shape (n, 3)
+KEY_UISO = "uiso"  # Isotropic displacement U, Angstrom^2
+KEY_U_CART = "u_cart"  # Cartesian U tensor, flattened shape (n, 9)
+# Expansion bookkeeping for authoritative CIF bond images. These arrays are
+# derived while reading; they are not crystallographic site labels.
+KEY_SOURCE_ASU_INDEX = "mck_source_asu_index"
+KEY_SOURCE_ASU_FRAC = "mck_source_asu_frac"
 
 # Bounded chemistry-perception search and confidence thresholds. Coordinate
 # cutoffs are in Angstroms; scores are squared bond-length residuals.
@@ -206,7 +210,7 @@ DISORDER_CONFIG = {
     # atoms as competing for the same physical site
     "VALENCE_PRESCREEN_THRESHOLD": 1.95,  # Tightened to exclude salt interactions
     "HARD_SPHERE_THRESHOLD": 0.85,  # Small threshold. Applied to compatible atoms to allow normal packing
-    "OVERLAP_SITE_THRESHOLD": 0.4,   # Below this distance, two atoms are at the same site (not a real bond)
+    "OVERLAP_SITE_THRESHOLD": 0.4,  # Below this distance, two atoms are at the same site (not a real bond)
     "DISORDER_CLASH_THRESHOLD": 2.2,  # Large threshold. Applied to COMPETING disorder parts to ensure split sites are exclusive
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
     # H-bond detection cutoff for SP clustering: H atoms within this distance of a
@@ -231,10 +235,10 @@ DISORDER_CONFIG = {
     "SP_COMPLETION_RELOCATED_C_H_DISTANCE": 1.09,
     "SP_COMPLETION_UNDERCOORD_H_SEARCH": 1.7,
     # Orphan-H removal cutoffs (post-processing in _remove_orphan_hydrogens):
-    "ORPHAN_H_BOND_CUTOFF": 1.4,      # Å — H must have a heavy atom within this to not be orphan
-    "WATER_O_H_CUTOFF": 1.4,          # Å — O-H bond for water completeness check
-    "WATER_O_H_SWEEP_CUTOFF": 2.0,    # Å — wider sweep: remove H near an incomplete water O
-    "WATER_O_HEAVY_BOND_CUTOFF": 2.0, # Å — O-C/N/S/P bond cutoff (disqualifies O from being water)
+    "ORPHAN_H_BOND_CUTOFF": 1.4,  # Å — H must have a heavy atom within this to not be orphan
+    "WATER_O_H_CUTOFF": 1.4,  # Å — O-H bond for water completeness check
+    "WATER_O_H_SWEEP_CUTOFF": 2.0,  # Å — wider sweep: remove H near an incomplete water O
+    "WATER_O_HEAVY_BOND_CUTOFF": 2.0,  # Å — O-C/N/S/P bond cutoff (disqualifies O from being water)
     # Maximum neighbor count for tetrahedral/trigonal clique decomposition.
     # C(16,4) = 1820 candidates — manageable.  C(30,4) = 27405 — too slow.
     "CLIQUE_DECOMP_MAX_NEIGHBORS": 16,
@@ -324,54 +328,50 @@ DEFAULT_MAX_COORDINATION = 6
 
 # Common solvents database for desolvation
 COMMON_SOLVENTS = {
-    "Water": {
-        "formula": "H2O",
-        "heavy_formula": "O",
-        "aliases": ["H2O", "O"]
-    },
+    "Water": {"formula": "H2O", "heavy_formula": "O", "aliases": ["H2O", "O"]},
     "Methanol": {
         "formula": "CH4O",
         "heavy_formula": "CO",
-        "aliases": ["CH4O", "MeOH", "Methyl alcohol", "Methyl hydrate", "Wood spirit"]
+        "aliases": ["CH4O", "MeOH", "Methyl alcohol", "Methyl hydrate", "Wood spirit"],
     },
     "Ethanol": {
         "formula": "C2H6O",
         "heavy_formula": "C2O",
-        "aliases": ["C2H6O", "EtOH", "Ethyl alcohol", "Grain alcohol"]
+        "aliases": ["C2H6O", "EtOH", "Ethyl alcohol", "Grain alcohol"],
     },
     "Dichloromethane": {
         "formula": "CH2Cl2",
         "heavy_formula": "CCl2",
-        "aliases": ["CH2Cl2", "DCM", "Methylene chloride", "Methylene dichloride"]
+        "aliases": ["CH2Cl2", "DCM", "Methylene chloride", "Methylene dichloride"],
     },
     "DMF": {
         "formula": "C3H7NO",
         "heavy_formula": "C3NO",
-        "aliases": ["C3H7NO", "Dimethylformamide", "Formamide, N,N-dimethyl-"]
+        "aliases": ["C3H7NO", "Dimethylformamide", "Formamide, N,N-dimethyl-"],
     },
     "Chloroform": {
         "formula": "CHCl3",
         "heavy_formula": "CCl3",
-        "aliases": ["CHCl3", "Trichloromethane", "Methenyl trichloride"]
+        "aliases": ["CHCl3", "Trichloromethane", "Methenyl trichloride"],
     },
     "Acetone": {
         "formula": "C3H6O",
         "heavy_formula": "C3O",
-        "aliases": ["C3H6O", "Propanone", "Beta-ketopropane", "Dimethyl ketone"]
+        "aliases": ["C3H6O", "Propanone", "Beta-ketopropane", "Dimethyl ketone"],
     },
     "Toluene": {
         "formula": "C7H8",
         "heavy_formula": "C7",
-        "aliases": ["C7H8", "Methylbenzene", "Phenylmethane"]
+        "aliases": ["C7H8", "Methylbenzene", "Phenylmethane"],
     },
     "THF": {
         "formula": "C4H8O",
         "heavy_formula": "C4O",
-        "aliases": ["C4H8O", "Tetrahydrofuran", "Oxolane", "Furan, tetrahydro-"]
+        "aliases": ["C4H8O", "Tetrahydrofuran", "Oxolane", "Furan, tetrahydro-"],
     },
     "Acetonitrile": {
         "formula": "C2H3N",
         "heavy_formula": "C2N",
-        "aliases": ["C2H3N", "Ethanonitrile", "Methyl cyanide", "Cyano methane"]
-    }
+        "aliases": ["C2H3N", "Ethanonitrile", "Methyl cyanide", "Cyano methane"],
+    },
 }

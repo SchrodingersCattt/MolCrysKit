@@ -66,11 +66,14 @@ def _raw_fixture_rows(name: str):
     symbols = [str(value) for value in block["_atom_site_type_symbol"]]
     fractional = np.asarray(
         [
-            [float(block[tag][index]) for tag in (
-                "_atom_site_fract_x",
-                "_atom_site_fract_y",
-                "_atom_site_fract_z",
-            )]
+            [
+                float(block[tag][index])
+                for tag in (
+                    "_atom_site_fract_x",
+                    "_atom_site_fract_y",
+                    "_atom_site_fract_z",
+                )
+            ]
             for index in range(len(labels))
         ],
         dtype=float,
@@ -146,7 +149,10 @@ def test_forward_fixture_reads_with_symmetry_and_occupancy(name):
         info = scan_cif_disorder(str(path))
         assert info.has_disorder
         assert any(float(value) < 1.0 for value in info.occupancies)
-        assert set(int(value) for value in info.disorder_groups if int(value) > 0) == {1, 2}
+        assert set(int(value) for value in info.disorder_groups if int(value) > 0) == {
+            1,
+            2,
+        }
 
 
 @pytest.mark.parametrize("name", ["IBPRAC", "BENZEN02", "HXMTAM10"])
@@ -161,8 +167,7 @@ def test_real_fixture_forward_build_and_cif_round_trip(name):
     assert len(crystal.molecules) == analysis.orbit_multiplicity
     assert sum(len(molecule) for molecule in crystal.molecules) == expected_atoms
     assert all(
-        np.allclose(molecule.arrays["occupancy"], 1.0)
-        for molecule in crystal.molecules
+        np.allclose(molecule.arrays["occupancy"], 1.0) for molecule in crystal.molecules
     )
     if name == "BENZEN02":
         # The licensed teaching record has no usable H coordinates; the
@@ -205,6 +210,13 @@ def test_real_fixture_forward_build_and_cif_round_trip(name):
     )
     assert len(parsed) == 1
     assert len(parsed[0]) == expected_atoms
+    if name == "HXMTAM10":
+        # Published special-site bonds must not stitch the two symmetry
+        # copies into one molecule.  The carbon-only fixture is the deposited
+        # content; this check is about molecular inventory, not added hydrogens.
+        restored = read_mol_crystal(cif_text=asu, attach_chemistry=False)
+        assert len(restored.molecules) == 2
+        assert {len(molecule) for molecule in restored.molecules} == {22}
     assert all(
         float(site.species[site.species.elements[0]]) <= 1.0 + 1.0e-8
         for site in parsed[0]
@@ -219,7 +231,9 @@ def test_iquhuy_forward_statistical_average_round_trip(tmp_path):
     assert len(model.alternatives) == 4
     assert model.correlation_status == "local-only"
     assert model.expected_formula == {"N": 2.0, "C": 18.0, "H": 10.0}
-    assert {len(alternatives) for alternatives in model.alternatives_by_orbit.values()} == {2}
+    assert {
+        len(alternatives) for alternatives in model.alternatives_by_orbit.values()
+    } == {2}
     assert all(
         np.isclose(sum(item.weight for item in alternatives), 1.0)
         for alternatives in model.alternatives_by_orbit.values()
@@ -237,7 +251,10 @@ def test_iquhuy_forward_statistical_average_round_trip(tmp_path):
     assert any(float(value) < 1.0 for value in parsed.occupancies)
     assert {int(value) for value in parsed.disorder_groups if int(value) > 0}
     selected = model.select_ordered_realization()
-    assert sum(len(molecule) for molecule in selected.molecules) == pose.template.atom_count * 2
+    assert (
+        sum(len(molecule) for molecule in selected.molecules)
+        == pose.template.atom_count * 2
+    )
 
 
 def test_true_asu_p_minus_one_round_trip_preserves_special_site_provenance():
@@ -272,8 +289,7 @@ def test_true_asu_p_minus_one_round_trip_preserves_special_site_provenance():
     )
     assert set(orders.tolist()) == {2}
     assert all(
-        np.all(molecule.arrays["asym_id"] == 0)
-        for molecule in round_trip.molecules
+        np.all(molecule.arrays["asym_id"] == 0) for molecule in round_trip.molecules
     )
 
     parsed = CifParser.from_str(asu, occupancy_tolerance=1.0).parse_structures(

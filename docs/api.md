@@ -42,7 +42,7 @@
 | Transform periodic cell | `MolecularCrystal.transform_cell` | target lattice or row-basis matrix | molecule-safe `MolecularCrystal` copy | source docstring |
 | Audit periodic cell | `check_cell_integrity` | `MolecularCrystal` (+ optional reference) | integrity report with hashes and seam contacts | source docstring |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
-| Forward crystal construction | `prepare_construction_context`, `analyze_molecular_pose`, `construct_molecular_crystal`, `construct_statistical_disorder` | cell + validated symmetry + complete rigid pose(s) | ordered `MolecularCrystal` / explicit disorder model | Issue #172 forward contract |
+| Forward crystal construction | `prepare_construction_context`, `analyze_molecular_pose`, `construct_molecular_crystal`, `construct_statistical_disorder`, `read_statistical_disorder_companion` | cell + complete symmetry + rigid pose(s), optional typed bonds and joint constraints | ordered crystal, true-ASU or P1 CIF, versioned disorder companion | Issue #172/#198 forward contract |
 | Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
 | Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
 | Add hydrogens | `add_hydrogens` | `MolecularCrystal` | `MolecularCrystal` | [Tutorials](tutorials.md) |
@@ -107,7 +107,10 @@ Read/write interfaces.
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
   - It preserves CIF chemical names, published bond rows, isotopes/site charges, and absolute-structure values with standard uncertainties in `MolecularCrystal.metadata["cif_chemistry"]`, then attaches a provisional chemistry snapshot automatically. Geometry-only callers can pass `attach_chemistry=False` to skip the perception pass.
-- Write: `write_cif`, `write_cif_p1`, `write_cif_asu`, `write_disorder_cif`, `write_forward_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`
+- Write: `write_cif`, `write_cif_p1`, `write_cif_asu`, `write_disorder_cif`, `write_disorder_cif_asu`, `write_forward_cif`, `write_cif_sequence`, `write_poscar`, `write_poscar_sequence`, `write_xyz`, `write_xyz_with_freeze`, `write_trajectory`, `write_extxyz`, `describe_structure_export`
+  - Ordered P1 and true-ASU CIF keep known bond order/type, isotope (`2H` for deuterium), explicit formal charge, and atomic mass. Unknown bond type is `.`, and unknown charge is distinct from explicit zero.
+  - `write_forward_cif(..., representation="asu")` on a statistical model writes one source-group ASU of the marginal sites. `representation="p1"` remains the materialized average and is not expanded a second time.
+  - `describe_structure_export` states which of XYZ, POSCAR, ASE, ExtXYZ, CIF, and the JSON companion keep symmetry, occupancy, and whole-molecule alternatives. XYZ and POSCAR warn; they do not convert an average into a microstate.
 - Disorder: `scan_cif_disorder`, `DisorderInfo`, `DisorderInfo.from_crystal`
 
 ### `mck.operations`
@@ -126,7 +129,11 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 - Internal DOF interpolation: `interpolate_molecule_with_internal_dofs`
 - Reactive paths: `RigidGroup`, `BondChange`, `ReactivePathConfig`, `ReactivePathResult`, `interpolate_reactive_path`
-- Forward construction: `MolecularTemplate`, `MolecularPose`, `ForwardConstructionContext`, `CrystalConstructionContext`, `prepare_construction_context`, `prepare_context_from_cif`, `SiteSymmetryAnalysis`, `analyze_molecular_pose`, `analyze_site_symmetry`, `construct_molecular_crystal`, `build_molecular_crystal`, `build_symmetry_complete_crystal`, `MolecularAlternative`, `AverageAtomSite`, `StatisticalDisorderModel`, `construct_statistical_disorder`, `build_orientational_disorder`, `select_ordered_realization`, `ConstructionValidationError`, `InvalidOrientationError`, `InvalidSymmetryError`, `IncompatibleSiteError`
+- Forward construction: `MolecularTemplate`, `MolecularPose`, `ForwardConstructionContext`, `CrystalConstructionContext`, `prepare_construction_context`, `prepare_context_from_cif`, `SiteSymmetryAnalysis`, `analyze_molecular_pose`, `analyze_site_symmetry`, `construct_molecular_crystal`, `build_molecular_crystal`, `build_symmetry_complete_crystal`, `MolecularAlternative`, `AverageAtomSite`, `StatisticalDisorderModel`, `construct_statistical_disorder`, `build_orientational_disorder`, `select_ordered_realization`, `read_statistical_disorder_companion`, `intermolecular_contacts`, `PeriodicBondRecord`, `DISORDER_COMPANION_SCHEMA`, `DISORDER_CONSTRAINT_SCHEMA`, `ConstructionValidationError`, `InvalidOrientationError`, `InvalidSymmetryError`, `IncompatibleSiteError`, `IncompatibleChemistryError`, `DisorderCompanionLossError`
+  - Declared space-group number, Hermann–Mauguin symbol, Hall symbol, setting, origin, and basis must match the complete operation set. An unlabelled closed group stays valid.
+  - `chemistry_policy="enantiopure"` is checked against the full group. Allowed improper mates reassign known stereo from the typed graph and transformed coordinates; indeterminate mates stay unknown.
+  - Stabilizer matching uses one coherent molecular image. The fractional near-special residual and its angstrom counterpart are reported on the site analysis and nothing is snapped.
+  - Statistical companions use schema `molcrys.statistical_disorder.v1` (atoms, typed bonds, cell, operations, vacancies, and constraints). Older id-only payloads raise `DisorderCompanionLossError`. Joint constraints use `molcrys.disorder_constraints.v1`. Zero-weight states and unconditional selection of a partial occupation are rejected. `select_ordered_realization` reports realized symmetry separately from the source average.
 
 Compatibility note: the former **create_defect_structure()** placeholder has been
 removed because it returned its input unchanged. Use `generate_vacancy` for a
