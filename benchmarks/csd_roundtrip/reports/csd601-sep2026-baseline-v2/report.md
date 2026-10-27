@@ -1,3 +1,5 @@
+> **Follow-up interpretation:** start with [triage.md](triage.md). These are frozen v2 pipeline counts, not counts of confirmed product defects. RT08 separates unavailable CCDC assignments from valid chemical-label conflicts; RT09 documents the limited disorder-input/oracle path. Raw result rows are unchanged.
+
 # CSD molecular-crystal round-trip benchmark
 
 Run: `csd601-sep2026-baseline-v2`. Target: `9bf0ffb0fb321d1084dbc444250b5f186af3c873`.

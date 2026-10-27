@@ -3,12 +3,14 @@
 The frozen corpus has **1004/1004 executed entries**: 1000 stratified entries plus four targeted references.
 The package tree is `9bf0ffb0fb321d1084dbc444250b5f186af3c873`; benchmark-only commits change no production code.
 
+**Follow-up:** read [triage.md](triage.md) before interpreting chemical mismatch counts. CCDC unavailable-assignment sentinels were compared as known labels in v2. The supplementary audit separates confirmed defects, missing evidence and benchmark limitations. Frozen raw rows and geometric results are unchanged.
+
 ## Provenance and primary results
 
 - CSD 6.01, active February/May/September 2026 updates; 1,469,017 entries in the source pool.
 - Licensed CCDC API 3.7.2 in its own Python environment; environment versions and active pool are recorded in `environment.json`.
 - Seed 42; each of the five frozen strata contains 200 entries. Family suffixes remain distinct exact refcodes.
-- Strict source-record preservation: **0/1004**.
+- Historical v2 strict-evaluator output: **0/1004** (read RT08/RT09 before interpreting it as chemical equivalence).
 - Ordered in-memory geometric reconstruction: **712/803**.
 - All required ordered geometric round-trip gates satisfied: **566/803**.
 - Disorder raw marginal-site inventory match in the documented selected-state seed path: **22/201**.

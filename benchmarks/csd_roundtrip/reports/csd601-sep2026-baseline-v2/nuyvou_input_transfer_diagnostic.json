@@ -1,0 +1,60 @@
+{
+  "contains_coordinates": false,
+  "refcode": "NUYVOU",
+  "template_audits": [
+    {
+      "cif_reader_stereo_status_counts": {
+        "Error": 184
+      },
+      "direct_source_template_matches": 1,
+      "source_packing_reference_stereo_status_counts": [
+        {
+          "None": 173,
+          "R": 1,
+          "S": 10
+        }
+      ],
+      "source_template_stereo_status_counts": [
+        {
+          "None": 174,
+          "S": 10
+        }
+      ],
+      "symmetry_complete_reference_matches": 1
+    },
+    {
+      "cif_reader_stereo_status_counts": {
+        "Error": 6
+      },
+      "direct_source_template_matches": 1,
+      "source_packing_reference_stereo_status_counts": [
+        {
+          "None": 6
+        }
+      ],
+      "source_template_stereo_status_counts": [
+        {
+          "None": 6
+        }
+      ],
+      "symmetry_complete_reference_matches": 1
+    },
+    {
+      "cif_reader_stereo_status_counts": {
+        "Error": 5
+      },
+      "direct_source_template_matches": 1,
+      "source_packing_reference_stereo_status_counts": [
+        {
+          "None": 5
+        }
+      ],
+      "source_template_stereo_status_counts": [
+        {
+          "None": 5
+        }
+      ],
+      "symmetry_complete_reference_matches": 1
+    }
+  ]
+}

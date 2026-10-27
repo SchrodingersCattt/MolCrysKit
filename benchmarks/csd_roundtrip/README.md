@@ -31,6 +31,26 @@ Run environment files record Python, package versions, worker count and
 the benchmark source hash. CSD access and coordinate redistribution remain
 subject to the applicable CCDC licence.
 
+## Refcodes and actionable problem locations
+
+Download [refcodes.txt](refcodes.txt) for all **1004 exact identifiers**, one
+per line, or [refcodes.csv](refcodes.csv) for identifiers with frozen stratum
+and targeted-case flags. The machine-readable source of truth remains
+`manifest.json`; the lists are checked against it.
+
+Maintainers should start with the [actionable triage index](reports/csd601-sep2026-baseline-v2/triage.md).
+Each problem has pinned source-function/line links, expected/observed behaviour,
+repair direction, executable probes and regression acceptance. Its confirmed
+and candidate refcode lists are separate. `failure_catalogue.csv` maps every
+non-pass stage to these repair IDs or an explicitly unresolved queue.
+
+The follow-up audit also identifies benchmark issues: CCDC `Error`/`Unknown`
+values describe unavailable assignments, not different valid R/S/bond orders.
+The frozen v2 raw statuses must not be read as counts of confirmed product
+defects. See RT08/RT09 before interpreting chemical or disorder mismatch totals.
+The 1004 raw result rows and evaluator hash are unchanged; the supplemental
+audit is a cause/provenance review, not a rerun with silently changed scoring.
+
 ## Match contract
 
 No geometry optimization, missing-atom generation, rigid alignment, origin

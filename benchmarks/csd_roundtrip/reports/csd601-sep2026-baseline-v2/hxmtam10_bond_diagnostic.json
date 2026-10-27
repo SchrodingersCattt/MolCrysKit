@@ -1,0 +1,14 @@
+{
+  "baseline_component_sizes": [
+    44
+  ],
+  "contains_coordinates": false,
+  "diagnostic_filtered_component_sizes": [
+    22,
+    22
+  ],
+  "diagnostic_only": "Distance filtering is NOT the general repair; preserve coherent ASU endpoints and periodic bond images.",
+  "explicit_pairs": 384,
+  "pairs_longer_than_any_published_bond": 336,
+  "refcode": "HXMTAM10"
+}

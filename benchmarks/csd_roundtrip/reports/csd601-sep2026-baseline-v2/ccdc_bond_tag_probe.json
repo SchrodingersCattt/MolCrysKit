@@ -1,0 +1,51 @@
+{
+  "synthetic_only": true,
+  "description": "Two carbon atoms and an explicit bond loop; no CSD record",
+  "api_version": "3.7.2",
+  "rows": [
+    {
+      "tag": "_geom_bond_type",
+      "token": "double",
+      "bond_types": [
+        "Unknown"
+      ],
+      "chirality": [
+        "Error",
+        "Error"
+      ]
+    },
+    {
+      "tag": "_ccdc_geom_bond_type",
+      "token": "double",
+      "bond_types": [
+        "Unknown"
+      ],
+      "chirality": [
+        "Error",
+        "Error"
+      ]
+    },
+    {
+      "tag": "_ccdc_geom_bond_type",
+      "token": "D",
+      "bond_types": [
+        "Unknown"
+      ],
+      "chirality": [
+        "Error",
+        "Error"
+      ]
+    },
+    {
+      "tag": "_ccdc_geom_bond_type",
+      "token": "Double",
+      "bond_types": [
+        "Unknown"
+      ],
+      "chirality": [
+        "Error",
+        "Error"
+      ]
+    }
+  ]
+}

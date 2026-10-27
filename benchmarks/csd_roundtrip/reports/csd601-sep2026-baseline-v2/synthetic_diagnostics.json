@@ -1,0 +1,112 @@
+{
+  "probes": {
+    "RT01": {
+      "constructed_molecules": 2,
+      "diagnostic_filtered_formulas": [
+        "CH4",
+        "CH4"
+      ],
+      "expected_molecules": 2,
+      "independent_atoms": 10,
+      "pair_distance_histogram_A": {
+        "1.091192": 8,
+        "7.569062": 8
+      },
+      "published_pair_count": 16,
+      "readback_formulas": [
+        "C2H8"
+      ]
+    },
+    "RT02": {
+      "accepted": true,
+      "expected": "reject incompatible enantiopure request",
+      "labels": [
+        "R",
+        "R"
+      ],
+      "molecules": 2
+    },
+    "RT03": {
+      "expected_export_type": "double",
+      "graph_bond_type": "double",
+      "observed_export_types": [
+        "single"
+      ]
+    },
+    "RT04": {
+      "expected_formal_charges": [
+        1,
+        -1
+      ],
+      "expected_isotopes": [
+        2,
+        2
+      ],
+      "readback_formal_charges": [
+        null,
+        null
+      ],
+      "readback_isotopes": [
+        0,
+        0
+      ]
+    },
+    "RT05": {
+      "error_type": "KeyError",
+      "expected": "H with isotope 2",
+      "read_succeeded": false
+    },
+    "RT06": {
+      "model_alternatives": 2,
+      "serialized_alternative_keys": [
+        "alternative_id",
+        "center_fractional",
+        "operation_index",
+        "orbit_id",
+        "weight"
+      ],
+      "serialized_top_keys": [
+        "alternatives",
+        "average_sites",
+        "correlation_status",
+        "correlations",
+        "orbit_probabilities",
+        "representation"
+      ]
+    },
+    "RT07": {
+      "asu_call_raised": true,
+      "average_is_materialized_p1": true,
+      "error_type": "AttributeError"
+    },
+    "RT08": {
+      "baseline_checker": {
+        "code": "chemical_identity_or_bond_order_mismatch",
+        "status": "mismatch"
+      },
+      "expected": "assignment failure is not a different valid R/S configuration"
+    },
+    "RT10": {
+      "actual_selected_atoms": 3,
+      "alternative_weights": [
+        0.0
+      ],
+      "centre_occupation": 0.0,
+      "expected_selected_atoms": 0
+    },
+    "RT11": {
+      "actual_ordered_compatible": true,
+      "actual_stabilizer_order": 2,
+      "expected_ordered_compatible": false,
+      "expected_stabilizer_order": 1,
+      "single_whole_molecule_image_match": false
+    },
+    "RT12": {
+      "accepted": true,
+      "actual_operations": 1,
+      "declared_group": 2,
+      "expected": "reject declaration P -1 with identity-only operations"
+    }
+  },
+  "synthetic_only": true
+}

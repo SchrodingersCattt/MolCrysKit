@@ -3,3 +3,7 @@
 *.jsonl text eol=lf
 *.md text eol=lf
 *.csv text eol=lf
+*.txt text eol=lf
+reports/**/identity_audit.json linguist-generated=true
+reports/**/failure_catalogue.csv linguist-generated=true
+reports/**/problem_index.json linguist-generated=true

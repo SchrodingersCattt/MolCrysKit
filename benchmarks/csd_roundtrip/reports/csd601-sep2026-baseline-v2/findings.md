@@ -1,6 +1,9 @@
 # Independently reproduced findings
 
 Target package: `9bf0ffb0fb321d1084dbc444250b5f186af3c873`.
+Read [triage.md](triage.md) for the repair map, exact code locations and
+per-problem refcodes. RT08 corrects the interpretation of unavailable CCDC
+chemistry in the original v2 totals; raw rows are retained unchanged.
 The following examples generate synthetic structures and require no CSD data
 or CCDC licence. Run from a checkout of the pinned package with its normal
 dependencies. They supplement the frozen CSD corpus rather than increasing its
