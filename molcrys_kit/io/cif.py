@@ -387,6 +387,11 @@ def _bond_attributes_from_record(record: dict) -> dict:
     from ..chemistry.source import parse_bond_type
 
     token = record.get("bond_type")
+    if "order_known" in record:
+        return {
+            key: record.get(key)
+            for key in ("order", "order_known", "bond_type", "bond_type_known", "kind")
+        }
     parsed = parse_bond_type(None if token is None else str(token))
     if parsed is None:
         return {
@@ -636,6 +641,10 @@ def _build_molecule_graph(
                 continue
             if left > right:
                 left, right = right, left
+                if "image_shift" in edge_attributes:
+                    edge_attributes["image_shift"] = -np.asarray(
+                        edge_attributes["image_shift"], dtype=int
+                    )
             if disorder_groups is not None:
                 group_left = int(disorder_groups[left])
                 group_right = int(disorder_groups[right])
@@ -648,19 +657,26 @@ def _build_molecule_graph(
                     and int(sym_op_indices[left]) != int(sym_op_indices[right])
                 ):
                     continue
-            vector = np.asarray(
-                atoms.get_distance(left, right, mic=True, vector=True),
-                dtype=float,
-            )
             raw_vector = np.asarray(
                 atoms.positions[right] - atoms.positions[left], dtype=float
             )
             cell = np.asarray(atoms.get_cell(), dtype=float)
-            if cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1.0e-12:
+            if "image_shift" in edge_attributes:
+                image_shift = np.asarray(edge_attributes["image_shift"], dtype=int)
+                vector = raw_vector + image_shift @ cell
+            else:
+                vector = np.asarray(
+                    atoms.get_distance(left, right, mic=True, vector=True), dtype=float
+                )
+            if (
+                "image_shift" not in edge_attributes
+                and cell.shape == (3, 3)
+                and abs(float(np.linalg.det(cell))) > 1.0e-12
+            ):
                 image_shift = np.rint(
                     (vector - raw_vector) @ np.linalg.inv(cell)
                 ).astype(int)
-            else:
+            elif "image_shift" not in edge_attributes:
                 image_shift = np.zeros(3, dtype=int)
             edge_payload = {
                 "vector": vector,
@@ -1372,6 +1388,31 @@ def _extract_cif_chemistry(data_block: dict) -> dict:
     bond_types = _as_cif_list(
         data_block.get("_ccdc_geom_bond_type", data_block.get("_geom_bond_type"))
     )
+    annotation_tags = {
+        "order": "_molcrys_bond_order",
+        "order_known": "_molcrys_bond_order_known",
+        "bond_type_known": "_molcrys_bond_type_known",
+        "kind": "_molcrys_bond_kind",
+    }
+    columns = {
+        key: _as_cif_list(data_block.get(tag)) for key, tag in annotation_tags.items()
+    }
+    annotations = [{} for _ in left]
+    if any(columns.values()):
+        if any(len(column) != len(left) for column in columns.values()):
+            raise ValueError("incomplete typed CIF bond annotation columns")
+        for index in range(len(left)):
+            order_known = str(columns["order_known"][index]) == "1"
+            type_known = str(columns["bond_type_known"][index]) == "1"
+            annotations[index] = {
+                "order": float(columns["order"][index]) if order_known else None,
+                "order_known": order_known,
+                "bond_type": str(bond_types[index]) if type_known else None,
+                "bond_type_known": type_known,
+                "kind": None
+                if str(columns["kind"][index]) in {".", "?"}
+                else str(columns["kind"][index]),
+            }
     if left and right:
         metadata["published_bonds"] = tuple(
             {
@@ -1388,6 +1429,7 @@ def _extract_cif_chemistry(data_block: dict) -> dict:
                 "bond_type": str(bond_types[index])
                 if index < len(bond_types)
                 else None,
+                **annotations[index],
             }
             for index, label in enumerate(left[: len(right)])
         )
@@ -2454,6 +2496,21 @@ def read_mol_crystal(
             return not (left_group and right_group and left_group != right_group)
 
         pairs: list[tuple] = []
+
+        def _append_image_pair(left, right, expected_left, expected_right, attributes):
+            # Retained sites may be wrapped independently by expansion, but the
+            # published edge has one directed, authoritative endpoint image.
+            # Do not replace that vector by the shortest periodic distance.
+            shift = np.rint(
+                (expected_right - expected_left)
+                - (fractional[right] - fractional[left])
+            ).astype(int)
+            if left > right:
+                left, right, shift = right, left, -shift
+            pair = (int(left), int(right))
+            if pair not in {(item[0], item[1]) for item in pairs}:
+                pairs.append((*pair, {**attributes, "image_shift": shift}))
+
         for record in records:
             bond_attributes = _bond_attributes_from_record(record)
             left_candidates = by_label.get(str(record.get("atom1_label", "")), ())
@@ -2515,12 +2572,13 @@ def read_mol_crystal(
                                         ):
                                             if left == right:
                                                 continue
-                                            pair = tuple(sorted((left, right)))
-                                            annotated = (*pair, bond_attributes)
-                                            if pair not in {
-                                                (item[0], item[1]) for item in pairs
-                                            }:
-                                                pairs.append(annotated)
+                                            _append_image_pair(
+                                                left,
+                                                right,
+                                                expected_left,
+                                                expected_right,
+                                                bond_attributes,
+                                            )
                         continue
                     if identity_index is not None and len(sym_op_indices) == len(
                         fractional
@@ -2564,11 +2622,13 @@ def read_mol_crystal(
                                     ):
                                         if left == right:
                                             continue
-                                        pair = tuple(sorted((left, right)))
-                                        if pair not in {
-                                            (item[0], item[1]) for item in pairs
-                                        }:
-                                            pairs.append((*pair, bond_attributes))
+                                        _append_image_pair(
+                                            left,
+                                            right,
+                                            expected_left,
+                                            expected_right,
+                                            bond_attributes,
+                                        )
                     continue
             try:
                 raw_expected = record.get("distance_A")

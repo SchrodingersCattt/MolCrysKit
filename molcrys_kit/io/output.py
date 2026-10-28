@@ -41,6 +41,8 @@ def _cif_bond_token(edge_data: dict | None) -> str:
     """Serialize a known bond type. Unknown stays ``.`` rather than ``single``."""
     if not edge_data:
         return "."
+    if edge_data.get("bond_type_known") is False:
+        return "."
     if edge_data.get("bond_type_known") and edge_data.get("bond_type") not in (
         None,
         "",
@@ -55,6 +57,25 @@ def _cif_bond_token(edge_data: dict | None) -> str:
     return "."
 
 
+def _cif_bond_annotations(data):
+    order = (
+        str(float(data["order"]))
+        if data.get("order_known") and data.get("order") is not None
+        else "."
+    )
+    return f"{order} {int(bool(data.get('order_known')))} {int(bool(data.get('bond_type_known')))} {data.get('kind') or '.'}"
+
+
+def _p1_bond_symmetry_code(left, right, left_fractional, right_fractional, lattice):
+    shift = np.rint(
+        (right - left) @ np.linalg.inv(lattice)
+        - (np.asarray(right_fractional) - np.asarray(left_fractional))
+    ).astype(int)
+    if np.any(np.abs(shift) > 4):
+        raise ValueError("bond symmetry image is outside CIF code range")
+    return "1_" + "".join(str(int(value) + 5) for value in shift)
+
+
 def describe_structure_export(fmt: str) -> dict[str, object]:
     """State what one structure export preserves.
 
@@ -63,6 +84,8 @@ def describe_structure_export(fmt: str) -> dict[str, object]:
     selected microstate.  Extended XYZ keeps per-atom arrays.  The statistical
     companion is the lossless disorder record.
     """
+    from ..operations.forward import DISORDER_COMPANION_SCHEMA
+
     key = str(fmt).strip().lower().replace("-", "_")
     catalogue = {
         "xyz": {
@@ -89,7 +112,7 @@ def describe_structure_export(fmt: str) -> dict[str, object]:
             "occupancy": True,
             "disorder_alternatives": False,
             "arrays": True,
-            "lossy": False,
+            "lossy": True,
             "notes": "In-memory ASE atoms keep arrays; a later format writer may drop them.",
         },
         "extxyz": {
@@ -98,7 +121,7 @@ def describe_structure_export(fmt: str) -> dict[str, object]:
             "disorder_groups": True,
             "arrays": True,
             "disorder_alternatives": False,
-            "lossy": False,
+            "lossy": True,
         },
         "cif_p1": {
             "symmetry": "expanded P1 with source provenance",
@@ -132,7 +155,7 @@ def describe_structure_export(fmt: str) -> dict[str, object]:
             "lossy": False,
         },
         "companion_json": {
-            "schema": "molcrys.statistical_disorder.v1",
+            "schema": DISORDER_COMPANION_SCHEMA,
             "disorder_alternatives": True,
             "bonds": True,
             "constraints": True,
@@ -764,6 +787,14 @@ def write_cif(
                         molecule_offset + right,
                         distance,
                         _cif_bond_token(edge_data),
+                        _cif_bond_annotations(edge_data),
+                        _p1_bond_symmetry_code(
+                            positions[left],
+                            positions[right],
+                            all_frac_positions[molecule_offset + left],
+                            all_frac_positions[molecule_offset + right],
+                            crystal.lattice,
+                        ),
                     )
                 )
 
@@ -867,9 +898,25 @@ def write_cif(
         lines.append("  _geom_bond_atom_site_label_2")
         lines.append("  _geom_bond_distance")
         lines.append("  _geom_bond_type")
-        for left, right, distance, bond_token in all_bond_edges:
+        lines.append("  _geom_bond_site_symmetry_2")
+        lines.extend(
+            [
+                "  _molcrys_bond_order",
+                "  _molcrys_bond_order_known",
+                "  _molcrys_bond_type_known",
+                "  _molcrys_bond_kind",
+            ]
+        )
+        for (
+            left,
+            right,
+            distance,
+            bond_token,
+            annotations,
+            symmetry_code,
+        ) in all_bond_edges:
             lines.append(
-                f"  {written_labels[left]} {written_labels[right]} {distance:.6f} {bond_token}"
+                f"  {written_labels[left]} {written_labels[right]} {distance:.6f} {bond_token} {symmetry_code} {annotations}"
             )
 
     lines.append("")
@@ -1476,7 +1523,7 @@ def write_cif_asu(
                 return candidate
         return None
 
-    def _symmetry_site_code(right_row, right_source_row) -> str:
+    def _symmetry_site_code(left_row, right_row, right_source_row) -> str:
         """Encode the operation taking the retained second endpoint to its image.
 
         CIF's ``_geom_bond_site_symmetry_2`` code belongs to atom site 2.  A
@@ -1488,9 +1535,10 @@ def write_cif_asu(
         if right_row is None or right_source_row is None:
             return "."
         right_fractional = np.asarray(right_row["fractional"], dtype=float)
+        right_fractional = right_fractional - np.floor(right_fractional)
         right_source_fractional = np.asarray(
             right_source_row["fractional"], dtype=float
-        )
+        ) - np.floor(np.asarray(left_row["fractional"], dtype=float))
         for operation_index, operation in enumerate(operations):
             mapped = np.asarray(
                 operation.apply(right_fractional, wrap=False), dtype=float
@@ -1542,7 +1590,7 @@ def write_cif_asu(
                 right_row = _selected_equivalent(right_source_row)
             if right_row is None:
                 continue
-            symmetry_code = _symmetry_site_code(right_row, right_source_row)
+            symmetry_code = _symmetry_site_code(left_row, right_row, right_source_row)
             if left_row["label"] == right_row["label"] and symmetry_code == ".":
                 raise ValueError(
                     "ASU export cannot represent a collapsed explicit bond without "
@@ -1574,6 +1622,7 @@ def write_cif_asu(
                     distance,
                     symmetry_code,
                     _cif_bond_token(edge_data),
+                    _cif_bond_annotations(edge_data),
                 )
             )
     if asu_bonds:
@@ -1590,14 +1639,18 @@ def write_cif_asu(
                 "  _geom_bond_distance",
                 "  _geom_bond_type",
                 "  _geom_bond_site_symmetry_2",
+                "  _molcrys_bond_order",
+                "  _molcrys_bond_order_known",
+                "  _molcrys_bond_type_known",
+                "  _molcrys_bond_kind",
             ]
         )
         lines.extend(
             (
                 f"  {left} {_format_bond_endpoint(left, right)} "
-                f"{distance:.6f} {bond_token} {symmetry_code}"
+                f"{distance:.6f} {bond_token} {symmetry_code} {annotations}"
             )
-            for left, right, distance, symmetry_code, bond_token in asu_bonds
+            for left, right, distance, symmetry_code, bond_token, annotations in asu_bonds
         )
     elif had_bond_candidates:
         # Keep a discoverable marker for callers that inspect the standard
@@ -1647,6 +1700,43 @@ def write_cif_p1(
 ) -> str:
     """Explicit alias for the expanded full-cell P1 representation."""
     return write_cif(crystal, filename=filename, metadata=metadata, representation="p1")
+
+
+def _write_disorder_artifacts(model, text, filename, sidecar_path):
+    """Bind the portable companion to the exact emitted UTF-8 CIF."""
+    if filename is None and sidecar_path is None:
+        return
+    if filename is not None:
+        with open(filename, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        if sidecar_path is None:
+            sidecar_path = os.fspath(filename) + ".json"
+    payload = model.to_dict()
+    payload["cif_binding"] = {
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()
+    }
+    with open(sidecar_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True, allow_nan=False)
+
+
+def _statistical_disorder_tags(model, site, *, asu=False):
+    """State whole-alternative membership only where CIF can represent it.
+
+    A site shared by states belongs to group 0. Source symmetry can exchange
+    mutually exclusive states, which a marginal ASU cannot express as one
+    fixed group number; those tags stay unknown and the companion is required.
+    """
+    alternatives = model.alternatives_by_orbit[site.orbit_id]
+    if asu and (len(alternatives) > 1 or len(model.alternatives_by_orbit) > 1):
+        return ".", "."
+    if len(site.alternative_ids) != 1:
+        return "0", site.orbit_id
+    group = next(
+        index + 1
+        for index, item in enumerate(alternatives)
+        if item.alternative_id == site.alternative_ids[0]
+    )
+    return str(group), site.orbit_id
 
 
 def write_disorder_cif(
@@ -1731,33 +1821,27 @@ def write_disorder_cif(
             "  _atom_site_disorder_assembly",
             "  _molcrys_alternative_ids",
             "  _atom_site_charge",
+            "  _molcrys_atom_mass",
+            "  _molcrys_atom_index",
         ]
     )
     for index, site in enumerate(model.average_sites):
-        group = (
-            int(hashlib.sha1(site.orbit_id.encode("utf-8")).hexdigest()[:8], 16)
-            % 100000
-            + 1
-        )
+        group, assembly = _statistical_disorder_tags(model, site)
         fractional = site.fractional - np.floor(site.fractional)
         alternative_ids = ",".join(site.alternative_ids) or "."
         lines.append(
             f"  {site.symbol}{index + 1} {_cif_type_symbol(site.symbol, getattr(site, 'isotope', 0))} "
             f"{fractional[0]:.8f} {fractional[1]:.8f} {fractional[2]:.8f} "
-            f"{site.occupancy:.8f} {group} {site.orbit_id} '{alternative_ids}' "
-            f"{_cif_charge_token(getattr(site, 'formal_charge_known', False), getattr(site, 'formal_charge', None))}"
+            f"{site.occupancy:.8f} {group} {assembly} '{alternative_ids}' "
+            f"{_cif_charge_token(getattr(site, 'formal_charge_known', False), getattr(site, 'formal_charge', None))} "
+            f"{site.mass if site.mass is not None else '.'}"
+            f" {index}"
         )
     lines.extend(
         ["", "# Whole-molecule exclusivity and state weights are in the sidecar.", ""]
     )
     text = "\n".join(lines)
-    if filename is not None:
-        with open(filename, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        if sidecar_path is None:
-            sidecar_path = filename + ".json"
-        with open(sidecar_path, "w", encoding="utf-8") as handle:
-            json.dump(model.to_dict(), handle, indent=2, sort_keys=True, default=str)
+    _write_disorder_artifacts(model, text, filename, sidecar_path)
     return text
 
 
@@ -1770,7 +1854,7 @@ def _statistical_sites_related(left, right, operations, tolerance: float) -> boo
     return False
 
 
-def _statistical_site_identity(site) -> tuple:
+def _statistical_site_identity(site, *, include_stereo=True) -> tuple:
     charge = (
         ("known", float(site.formal_charge))
         if getattr(site, "formal_charge_known", False)
@@ -1781,23 +1865,34 @@ def _statistical_site_identity(site) -> tuple:
         int(getattr(site, "isotope", 0)),
         charge,
         str(getattr(site, "site_identity", "")),
-        int(site.template_atom_index),
+        getattr(site, "mass", None),
+        tuple(
+            pair
+            for pair in getattr(site, "chemical_annotations", ())
+            if include_stereo
+            or pair[0] not in {"stereo", "stereochemistry", "cip_code"}
+        ),
+        site.orbit_id.split(":orbit")[0],
     )
 
 
-def _reduce_statistical_asu_sites(sites, operations, tolerance: float):
+def _reduce_statistical_asu_sites(model, operations, tolerance: float):
     """Keep one marginal row per symmetry image without merging distinct chemistry."""
     selected = []
-    for site in sites:
+    for site in model.average_sites:
         related = None
         for existing in selected:
             if not _statistical_sites_related(site, existing, operations, tolerance):
                 continue
             if _statistical_site_identity(site) != _statistical_site_identity(existing):
-                raise ValueError(
-                    "statistical ASU reduction would merge symmetry-related sites "
-                    "with incompatible isotope, charge, or site identity"
-                )
+                if _statistical_site_identity(
+                    site, include_stereo=False
+                ) != _statistical_site_identity(existing, include_stereo=False):
+                    continue
+                if not _statistical_stereo_images_match(
+                    model, site, existing, operations, tolerance
+                ):
+                    continue
             if not np.isclose(
                 float(site.occupancy), float(existing.occupancy), atol=1.0e-6, rtol=0.0
             ):
@@ -1809,6 +1904,27 @@ def _reduce_statistical_asu_sites(sites, operations, tolerance: float):
         if related is None:
             selected.append(site)
     return tuple(selected)
+
+
+def _statistical_stereo_images_match(model, left, right, operations, tolerance):
+    # CIP labels can change under improper symmetry. Check the complete typed
+    # molecular states rather than swapping labels in a marginal-site key.
+    from ..operations.forward import _image_alternative
+
+    alternatives = (*model.alternatives, *model.vacancies)
+    by_id = {item.alternative_id: item for item in alternatives}
+    for operation in operations:
+        if not _statistical_sites_related(left, right, (operation,), tolerance):
+            continue
+        images = [
+            _image_alternative(model.context, by_id[key], operation, alternatives)
+            for key in left.alternative_ids
+        ]
+        if all(item is not None for item in images) and {
+            item.alternative_id for item in images
+        } == set(right.alternative_ids):
+            return True
+    return False
 
 
 def write_disorder_cif_asu(
@@ -1823,7 +1939,7 @@ def write_disorder_cif_asu(
     """
     lattice, operations, symmetry_obj = _context_parts(model.context)
     tolerance = float(getattr(model.context, "fractional_tolerance", 1.0e-7))
-    sites = _reduce_statistical_asu_sites(model.average_sites, operations, tolerance)
+    sites = _reduce_statistical_asu_sites(model, operations, tolerance)
     a, b, c = [float(np.linalg.norm(vector)) for vector in lattice]
     alpha = float(
         np.degrees(
@@ -1875,14 +1991,12 @@ def write_disorder_cif_asu(
             "  _atom_site_disorder_assembly",
             "  _molcrys_alternative_ids",
             "  _atom_site_charge",
+            "  _molcrys_atom_mass",
+            "  _molcrys_atom_index",
         ]
     )
     for index, site in enumerate(sites):
-        group = (
-            int(hashlib.sha1(site.orbit_id.encode("utf-8")).hexdigest()[:8], 16)
-            % 100000
-            + 1
-        )
+        group, assembly = _statistical_disorder_tags(model, site, asu=True)
         fractional = np.asarray(site.fractional, dtype=float) - np.floor(
             np.asarray(site.fractional, dtype=float)
         )
@@ -1890,8 +2004,10 @@ def write_disorder_cif_asu(
         lines.append(
             f"  {site.symbol}{index + 1} {_cif_type_symbol(site.symbol, getattr(site, 'isotope', 0))} "
             f"{fractional[0]:.8f} {fractional[1]:.8f} {fractional[2]:.8f} "
-            f"{site.occupancy:.8f} {group} {site.orbit_id} '{alternative_ids}' "
-            f"{_cif_charge_token(getattr(site, 'formal_charge_known', False), getattr(site, 'formal_charge', None))}"
+            f"{site.occupancy:.8f} {group} {assembly} '{alternative_ids}' "
+            f"{_cif_charge_token(getattr(site, 'formal_charge_known', False), getattr(site, 'formal_charge', None))} "
+            f"{site.mass if site.mass is not None else '.'}"
+            f" {index}"
         )
     lines.extend(
         [
@@ -1902,13 +2018,7 @@ def write_disorder_cif_asu(
         ]
     )
     text = "\n".join(lines)
-    if filename is not None:
-        with open(filename, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        if sidecar_path is None:
-            sidecar_path = filename + ".json"
-        with open(sidecar_path, "w", encoding="utf-8") as handle:
-            json.dump(model.to_dict(), handle, indent=2, sort_keys=True, default=str)
+    _write_disorder_artifacts(model, text, filename, sidecar_path)
     return text
 
 

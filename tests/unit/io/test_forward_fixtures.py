@@ -15,6 +15,7 @@ from molcrys_kit.io.cif import (
     scan_cif_disorder,
 )
 from molcrys_kit.io.output import write_cif_asu, write_cif_p1, write_disorder_cif
+from molcrys_kit.io.output import write_forward_cif
 from molcrys_kit.operations.forward import (
     analyze_molecular_pose,
     MolecularPose,
@@ -23,6 +24,8 @@ from molcrys_kit.operations.forward import (
     construct_statistical_disorder,
     prepare_construction_context,
     prepare_context_from_cif,
+    read_statistical_disorder_companion,
+    DISORDER_CONSTRAINT_SCHEMA,
 )
 from molcrys_kit.structures.symmetry import CrystalSymmetry, FractionalAffineOperation
 
@@ -297,3 +300,88 @@ def test_true_asu_p_minus_one_round_trip_preserves_special_site_provenance():
     )
     assert len(parsed) == 1
     assert len(parsed[0]) == 1
+
+
+def test_benzen02_complete_molecule_with_explicit_modeled_hydrogen_policy():
+    """Separate modeled C6H6 acceptance; the deposited fixture stays carbon-only.
+
+    Six hydrogens are constructed radially from the inversion center at
+    1.09 A from their parent carbon, the conventional aromatic C-H distance.
+    Their coordinates are a stated modeling assumption, never source data.
+    Pbca's general multiplicity 8 and inversion stabilizer 2 give four C6H6.
+    """
+    context, carbon_pose, _ = _fixture_forward_input("BENZEN02")
+    carbons = carbon_pose.template.atoms.positions.copy()
+    hydrogens = carbons + 1.09 * carbons / np.linalg.norm(carbons, axis=1)[:, None]
+    ring = ((0, 1), (1, 3), (3, 5), (5, 4), (4, 2), (2, 0))
+    template = MolecularTemplate(
+        Atoms("C6H6", positions=np.vstack((carbons, hydrogens))),
+        identifier="BENZEN02-modeled-radial-H",
+        anchor_cartesian=np.zeros(3),
+        connectivity=tuple((left, right, "aromatic") for left, right in ring)
+        + tuple((index, index + 6, "single") for index in range(6)),
+    )
+    crystal = construct_molecular_crystal(
+        context,
+        MolecularPose(template, np.zeros(3)),
+        formula_unit={"C": 6, "H": 6},
+        Z=4,
+    )
+    assert len(crystal.molecules) == 4
+    assert all(
+        molecule.get_chemical_formula() == "C6H6" for molecule in crystal.molecules
+    )
+    assert all(molecule.graph.number_of_edges() == 12 for molecule in crystal.molecules)
+    for writer in (write_cif_p1, write_cif_asu):
+        text = writer(crystal)
+        # The independent parser, not constructor-reported multiplicities,
+        # must recover the frozen inventory of four complete molecules.
+        structure = CifParser.from_str(text).parse_structures(primitive=False)[0]
+        assert structure.composition.get_el_amt_dict() == {"C": 24, "H": 24}
+        restored = read_mol_crystal(cif_text=text, attach_chemistry=False)
+        assert len(restored.molecules) == 4
+        assert all(
+            molecule.get_chemical_formula() == "C6H6" for molecule in restored.molecules
+        )
+        assert all(
+            molecule.graph.number_of_edges() == 12 for molecule in restored.molecules
+        )
+
+
+def test_iquhuy_declared_independent_joint_restoration_and_true_asu(tmp_path):
+    """An explicitly chosen independent ensemble; source correlations stay unknown."""
+    from itertools import product
+
+    context, pose, _ = _fixture_forward_input("IQUHUY")
+    probe = construct_statistical_disorder(context, pose)
+    joints = [
+        {
+            "weight": 0.25,
+            "assignment": {item.orbit_id: item.alternative_id for item in state},
+        }
+        for state in product(*probe.alternatives_by_orbit.values())
+    ]
+    model = construct_statistical_disorder(
+        context,
+        pose,
+        correlation_status="feasible",
+        correlations={"schema": DISORDER_CONSTRAINT_SCHEMA, "joints": joints},
+    )
+    filename = tmp_path / "iquhuy-asu.cif"
+    text = write_forward_cif(model, filename=filename, representation="asu")
+    payload = json.loads(filename.with_suffix(".cif.json").read_text())
+    restored = read_statistical_disorder_companion(payload, cif_text=text)
+    assert restored.to_dict() == payload
+    assert all(item.weight == 0.5 for item in restored.alternatives)
+    structure = CifParser.from_str(text).parse_structures(primitive=False)[0]
+    assert structure.composition.get_el_amt_dict() == pytest.approx(
+        {"C": 18, "N": 2, "H": 10}
+    )
+    for joint in joints:
+        selected = restored.select_ordered_realization(joint["assignment"])
+        assert [molecule.get_chemical_formula() for molecule in selected.molecules] == [
+            "C9H5N",
+            "C9H5N",
+        ]
+        assert sum(len(molecule) for molecule in selected.molecules) == 30
+        assert selected.metadata["realized_symmetry"]["operation_count"] <= 8

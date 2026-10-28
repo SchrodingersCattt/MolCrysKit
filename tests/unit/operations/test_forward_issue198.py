@@ -1,6 +1,9 @@
 """Synthetic regressions for the Issue #198 forward-construction contract."""
 
 from itertools import product
+import copy
+import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -959,6 +962,12 @@ def test_acceptance_geometry_symmetry_and_export_contracts():
     assert describe_structure_export("xyz")["lossy"] is True
     assert describe_structure_export("poscar")["occupancy"] is False
     assert describe_structure_export("companion_json")["disorder_alternatives"] is True
+    assert (
+        describe_structure_export("companion_json")["schema"]
+        == DISORDER_COMPANION_SCHEMA
+    )
+    assert describe_structure_export("ase")["lossy"] is True
+    assert describe_structure_export("extxyz")["lossy"] is True
     partial_atoms = Atoms("C", positions=[[0.0, 0.0, 0.0]])
     partial_atoms.set_array("occupancy", np.array([0.5]))
     partial = CrystalMolecule(partial_atoms, check_pbc=False)
@@ -967,3 +976,432 @@ def test_acceptance_geometry_symmetry_and_export_contracts():
         write_xyz(partial)
     with pytest.warns(UserWarning, match="not a selected physical microstate"):
         write_poscar(partial_crystal)
+
+
+def test_statistical_path_enforces_enantiopure_policy():
+    context = _context_from_number(2, chemistry_policy="enantiopure")
+    template = MolecularTemplate(
+        Atoms("CFClBrH", positions=np.vstack((np.zeros(3), _tetrahedron())))
+    )
+    with pytest.raises(IncompatibleChemistryError):
+        construct_statistical_disorder(
+            context, MolecularPose(template, [0.2, 0.3, 0.4])
+        )
+
+
+def test_typed_graph_and_charge_availability_constrain_stabilizers():
+    square = MolecularTemplate(
+        Atoms("C4", positions=[[1, 0, 0], [0, 1, 0], [-1, 0, 0], [0, -1, 0]]),
+        connectivity=((0, 1, 2), (1, 2, 1), (2, 3, 2), (3, 0, 1)),
+    )
+    analysis = analyze_molecular_pose(
+        _context_from_number(75), MolecularPose(square, np.zeros(3))
+    )
+    assert (analysis.site_symmetry_order, analysis.stabilizer_order, analysis.k) == (
+        4,
+        2,
+        2,
+    )
+    atoms = Atoms("C2", positions=[[-1, 0, 0], [1, 0, 0]])
+    atoms.set_array("formal_charge", np.zeros(2, dtype=int))
+    atoms.set_array("formal_charge_known", np.array([True, False]))
+    analysis = analyze_molecular_pose(
+        _context_from_number(2), MolecularPose(MolecularTemplate(atoms), np.zeros(3))
+    )
+    assert analysis.stabilizer_order == 1
+
+
+def test_feasible_joint_uses_molecular_cosets_and_preserves_pose_identity():
+    context = _context_from_number(75)
+    rotor = MolecularTemplate(
+        Atoms("ClCCl", positions=[[-1.7, 0, 0], [0, 0, 0], [1.7, 0, 0]]), anchor_index=1
+    )
+    pose = MolecularPose(rotor, np.zeros(3))
+    probe = construct_statistical_disorder(context, pose)
+    joints = [
+        {"weight": item.weight, "assignment": {item.orbit_id: item.alternative_id}}
+        for item in probe.alternatives
+    ]
+    model = construct_statistical_disorder(
+        context,
+        pose,
+        correlation_status="feasible",
+        correlations={"schema": DISORDER_CONSTRAINT_SCHEMA, "joints": joints},
+    )
+    assert model.constraint_report["status"] == "feasible"
+    for item in model.alternatives:
+        assert (
+            len(
+                model.select_ordered_realization(
+                    {item.orbit_id: item.alternative_id}
+                ).molecules
+            )
+            == 1
+        )
+
+
+def test_selection_rejects_unknown_orbits_and_zero_probability_vacancy():
+    model = construct_statistical_disorder(
+        _p1(), MolecularPose(Atoms("He", positions=[[0, 0, 0]]), [0.2, 0.3, 0.4])
+    )
+    with pytest.raises(ConstructionValidationError, match="orbit"):
+        model.select_ordered_realization({"typo": 0})
+    partial = construct_statistical_disorder(
+        _p1(),
+        MolecularPose(
+            Atoms("He", positions=[[0, 0, 0]]), [0.2, 0.3, 0.4], occupation=0.5
+        ),
+    )
+    impossible = replace(
+        partial, vacancies=(replace(partial.vacancies[0], weight=0.0),)
+    )
+    with pytest.raises(ConstructionValidationError, match="zero-weight"):
+        impossible.select_ordered_realization(
+            {impossible.vacancies[0].orbit_id: impossible.vacancies[0].alternative_id}
+        )
+    with pytest.raises(ConstructionValidationError, match="integer"):
+        model.select_ordered_realization({model.alternatives[0].orbit_id: 0.5})
+
+
+def test_companion_preserves_masses_arrays_and_revalidates_constraints():
+    atoms = Atoms(
+        "H2", positions=[[-0.4, 0, 0], [0.4, 0, 0]], masses=[2.014101778, 2.014101778]
+    )
+    atoms.set_array("isotope", np.array([2, 2]))
+    atoms.set_array("atom_identity", np.array(["left", "right"]))
+    template = MolecularTemplate(atoms, connectivity=((0, 1, "single"),))
+    model = construct_statistical_disorder(
+        _p1(), MolecularPose(template, [0.3, 0.2, 0.1])
+    )
+    restored = read_statistical_disorder_companion(model.to_dict())
+    left, right = model.alternatives[0].molecule, restored.alternatives[0].molecule
+    assert left.arrays.keys() == right.arrays.keys()
+    for key in left.arrays:
+        assert np.array_equal(left.arrays[key], right.arrays[key]), key
+    assert restored.to_dict() == model.to_dict()
+    tampered = copy.deepcopy(model.to_dict())
+    tampered["correlation_status"] = "feasible"
+    tampered["correlations"] = {"schema": DISORDER_CONSTRAINT_SCHEMA, "joints": []}
+    tampered["constraint_report"] = {"status": "feasible"}
+    with pytest.raises(ConstructionValidationError, match="sum to 1"):
+        read_statistical_disorder_companion(tampered)
+
+
+def test_companion_rejects_inconsistent_marginals():
+    model = construct_statistical_disorder(
+        _p1(), MolecularPose(Atoms("He", positions=[[0, 0, 0]]), [0.2, 0.3, 0.4])
+    )
+    payload = model.to_dict()
+    payload["average_sites"][0]["occupancy"] = 0.2
+    with pytest.raises(ConstructionValidationError, match="marginal"):
+        read_statistical_disorder_companion(payload)
+
+
+def test_periodic_contacts_include_self_images_and_skew_cell():
+    single = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]))
+    with pytest.raises(ConstructionValidationError, match="contact"):
+        construct_molecular_crystal(
+            _context_from_number(1, lattice=np.eye(3)),
+            MolecularPose(single, [0.2, 0.3, 0.4]),
+            reject_contacts=True,
+        )
+    lattice = np.array([[10.0, 0, 0], [9.0, 1.0, 0], [0, 0, 10.0]])
+    crystal = MolecularCrystal(
+        lattice,
+        [
+            CrystalMolecule(Atoms("C", positions=[[0, 0, 0]]), check_pbc=False),
+            CrystalMolecule(Atoms("C", positions=[[9.31, 0.49, 0]]), check_pbc=False),
+        ],
+    )
+    contacts = intermolecular_contacts(crystal)
+    assert any(
+        item["left_molecule"] != item["right_molecule"] and item["distance_A"] < 0.6
+        for item in contacts
+    )
+
+
+def test_statistical_asu_keeps_coincident_isotope_alternatives():
+    light = Atoms("H", positions=[[0, 0, 0]])
+    heavy = light.copy()
+    heavy.set_array("isotope", np.array([2]))
+    poses = [
+        MolecularPose(MolecularTemplate(atoms), [0, 0, 0], occupation=0.5)
+        for atoms in (light, heavy)
+    ]
+    model = construct_statistical_disorder(_context_from_number(2), poses)
+    cif = write_forward_cif(model, representation="asu")
+    block = next(iter(CifParser.from_str(cif).as_dict().values()))
+    assert sorted(block["_atom_site_type_symbol"]) == ["2H", "H"]
+    assert sorted(map(float, block["_atom_site_occupancy"])) == [0.5, 0.5]
+
+
+def test_selected_realization_checks_contacts_and_detects_accidental_symmetry():
+    template = MolecularTemplate(Atoms("C", positions=[[0, 0, 0]]))
+    model = construct_statistical_disorder(
+        _p1(),
+        [
+            MolecularPose(template, [0.2, 0.2, 0.2]),
+            MolecularPose(template, [0.21, 0.2, 0.2]),
+        ],
+    )
+    selected = model.select_ordered_realization()
+    assert selected.metadata["intermolecular_contacts"]
+    with pytest.raises(ConstructionValidationError, match="contact"):
+        model.select_ordered_realization(reject_contacts=True)
+    crystal = construct_molecular_crystal(_p1(), MolecularPose(template, [0, 0, 0]))
+    report = crystal.metadata["realized_symmetry"]
+    assert report["matches_source_group"]
+    assert report["detected_space_group_number"] == 221
+    assert report["accidental_supergroup"]
+
+
+@pytest.mark.parametrize("representation", ["p1", "asu"])
+def test_companion_is_bound_to_cif_and_preserves_known_mass(tmp_path, representation):
+    atoms = Atoms(
+        "H2", positions=[[-0.37, 0, 0], [0.37, 0, 0]], masses=[2.014101778, 2.014101778]
+    )
+    atoms.set_array("isotope", np.array([2, 2]))
+    model = construct_statistical_disorder(
+        _context_from_number(2),
+        MolecularPose(
+            MolecularTemplate(atoms, connectivity=((0, 1, "single"),)), [0, 0, 0]
+        ),
+    )
+    filename = tmp_path / "model.cif"
+    text = write_forward_cif(model, filename=filename, representation=representation)
+    payload = json.loads(filename.with_suffix(".cif.json").read_text())
+    restored = read_statistical_disorder_companion(payload, cif_text=text)
+    assert restored.to_dict() == payload
+    with pytest.raises(DisorderCompanionLossError, match="hash binding"):
+        read_statistical_disorder_companion(payload, cif_text=text + "\n")
+    info = scan_cif_disorder(cif_text=text)
+    assert all(value == pytest.approx(2.014101778) for value in info.atomic_masses)
+    payload["schema"] = "molcrys.statistical_disorder.v1"
+    with pytest.raises(DisorderCompanionLossError):
+        read_statistical_disorder_companion(payload)
+
+
+def test_partial_forbidden_constraints_and_duplicate_joint_weights():
+    context = _p1()
+    template = MolecularTemplate(Atoms("He", positions=[[0, 0, 0]]))
+    poses = [MolecularPose(template, [x, 0.2, 0.3], occupation=0.5) for x in (0.1, 0.6)]
+    probe = construct_statistical_disorder(context, poses)
+    first, second = probe.alternatives
+    forbidden = {
+        "schema": DISORDER_CONSTRAINT_SCHEMA,
+        "forbidden": [{"assignment": {first.orbit_id: first.alternative_id}}],
+    }
+    model = construct_statistical_disorder(context, poses, correlations=forbidden)
+    with pytest.raises(ConstructionValidationError, match="forbidden"):
+        model.select_ordered_realization(
+            {item.orbit_id: item.alternative_id for item in model.alternatives}
+        )
+    bad = copy.deepcopy(forbidden)
+    bad["forbidden"][0]["assignment"] = {"typo": "typo"}
+    with pytest.raises(ConstructionValidationError, match="unknown"):
+        construct_statistical_disorder(context, poses, correlations=bad)
+    joints = [
+        {
+            "weight": 0.25,
+            "assignment": {
+                item.orbit_id: item.alternative_id for item in probe.alternatives
+            },
+        }
+    ] * 2 + [
+        {
+            "weight": 0.5,
+            "assignment": {
+                item.orbit_id: item.alternative_id for item in probe.vacancies
+            },
+        }
+    ]
+    coupled = construct_statistical_disorder(
+        context,
+        poses,
+        correlation_status="feasible",
+        correlations={"schema": DISORDER_CONSTRAINT_SCHEMA, "joints": joints},
+    )
+    assert coupled.constraint_report["status"] == "feasible"
+    assert coupled.expected_formula == {"He": 1.0}
+    selection = {item.orbit_id: item.alternative_id for item in coupled.alternatives}
+    assert len(coupled.select_ordered_realization(selection).molecules) == 2
+    # Mutating caller-owned nested constraints never changes the model.
+    joints[0]["assignment"].clear()
+    assert coupled.correlations["joints"][0]["assignment"]
+
+
+@pytest.mark.parametrize(
+    "bond_type,order,kind",
+    [
+        ("double", 2, "covalent"),
+        ("triple", 3, "covalent"),
+        ("aromatic", 1.5, "covalent"),
+        ("coordination", None, "coordination"),
+        (None, None, None),
+    ],
+)
+def test_complete_typed_bond_records_survive_both_cif_readers(bond_type, order, kind):
+    template = MolecularTemplate(
+        Atoms("CN", positions=[[0, 0, 0], [1.3, 0, 0]]),
+        connectivity=((0, 1, {"bond_type": bond_type, "order": order, "kind": kind}),),
+    )
+    crystal = construct_molecular_crystal(
+        _context_from_number(2), MolecularPose(template, [0.2, 0.3, 0.4])
+    )
+    for writer in (write_cif_p1, write_cif_asu):
+        text = writer(crystal)
+        block = next(iter(CifParser.from_str(text).as_dict().values()))
+        assert set(block["_geom_bond_type"]) == {bond_type or "."}
+        restored = read_mol_crystal(cif_text=text, attach_chemistry=False)
+        assert len(restored.molecules) == 2
+        for molecule in restored.molecules:
+            edge = molecule.graph.get_edge_data(0, 1)
+            assert edge["order"] == order
+            assert edge["order_known"] == (order is not None)
+            assert edge["kind"] == kind
+
+
+def test_unknown_bond_masks_and_invalid_image_shifts_are_not_promoted():
+    atoms = Atoms("CO", positions=[[0, 0, 0], [1.2, 0, 0]])
+    template = MolecularTemplate(
+        atoms,
+        connectivity=(
+            (
+                0,
+                1,
+                {
+                    "order": 2,
+                    "order_known": False,
+                    "bond_type": "double",
+                    "bond_type_known": False,
+                },
+            ),
+        ),
+    )
+    assert template.bonds[0].order is None
+    assert not template.bonds[0].order_known
+    assert template.bonds[0].bond_type is None
+    with pytest.raises(ConstructionValidationError, match="three integers"):
+        MolecularTemplate(atoms, connectivity=((0, 1, {"image_shift": [0.5, 0, 0]}),))
+
+
+def test_long_published_bond_uses_authoritative_image_instead_of_nearest_image():
+    # Deliberately nonphysical long bond: the point is authoritative I/O, not
+    # a distance heuristic or a relaxed/shortened molecular conformation.
+    template = MolecularTemplate(
+        Atoms("CO", positions=[[0, 0, 0], [11, 0, 0]]),
+        anchor_index=0,
+        connectivity=((0, 1, "double"),),
+    )
+    crystal = construct_molecular_crystal(
+        _p1(), MolecularPose(template, [0.1, 0.2, 0.3])
+    )
+    for writer in (write_cif_p1, write_cif_asu):
+        restored = read_mol_crystal(cif_text=writer(crystal), attach_chemistry=False)
+        assert len(restored.molecules) == 1
+        assert restored.molecules[0].get_distance(0, 1) == pytest.approx(11.0)
+
+
+def test_formula_Z_and_explicit_charge_constraints_on_multispecies_salt():
+    context = _context_from_number(2)
+    poses = []
+    for symbol, charge, center in (
+        ("Na", 1, [0.1, 0.2, 0.3]),
+        ("Cl", -1, [0.4, 0.3, 0.2]),
+    ):
+        atoms = Atoms(symbol, positions=[[0, 0, 0]])
+        atoms.set_array("formal_charge", np.array([charge]))
+        poses.append(MolecularPose(MolecularTemplate(atoms), center))
+    crystal = construct_molecular_crystal(
+        context, poses, formula_unit={"Na": 1, "Cl": 1}, Z=2, expected_charge=0
+    )
+    assert len(crystal.molecules) == 4
+    assert crystal.metadata["composition_accounting"]["total_charge"] == 0
+    with pytest.raises(ConstructionValidationError, match="composition"):
+        construct_molecular_crystal(
+            context, poses, formula_unit={"Na": 1, "Cl": 1}, Z=1
+        )
+    with pytest.raises(ConstructionValidationError, match="expected charge"):
+        construct_molecular_crystal(context, poses, expected_charge=1)
+    with pytest.raises(ConstructionValidationError, match="indeterminate"):
+        construct_molecular_crystal(
+            context,
+            MolecularPose(Atoms("Na", positions=[[0, 0, 0]]), [0.1, 0.2, 0.3]),
+            expected_charge=0,
+        )
+    partial = construct_statistical_disorder(
+        context,
+        poses,
+        center_occupation=0.5,
+        expected_formula={"Na": 1, "Cl": 1},
+        expected_charge=0,
+    )
+    assert partial.expected_formula == {"Na": 1, "Cl": 1}
+
+
+def test_statistical_asu_reduces_reassigned_stereo_using_complete_states():
+    context = _context_from_number(2, chemistry_policy="racemic")
+    template = MolecularTemplate(
+        Atoms("CFClBrH", positions=np.vstack((np.zeros(3), _tetrahedron()))),
+        connectivity=tuple((0, index, 1) for index in range(1, 5)),
+        stereochemistry=("R", "", "", "", ""),
+    )
+    model = construct_statistical_disorder(
+        context, MolecularPose(template, [0.2, 0.3, 0.4])
+    )
+    assert sorted(
+        item.molecule.arrays["stereochemistry"][0] for item in model.alternatives
+    ) == ["R", "S"]
+    text = write_forward_cif(model, representation="asu")
+    structure = CifParser.from_str(text).parse_structures(primitive=False)[0]
+    assert len(structure) == 10
+    assert structure.composition.get_el_amt_dict() == {
+        key: 2.0 for key in ("C", "F", "Cl", "Br", "H")
+    }
+
+
+def test_realized_symmetry_preserves_chemical_identity_and_nested_inputs():
+    context = _context_from_number(2)
+    poses = []
+    for charge in (-1, 1):
+        atoms = Atoms("Na", positions=[[0, 0, 0]])
+        atoms.set_array("formal_charge", np.array([charge]))
+        atoms.info["nested"] = {"values": [1, 2]}
+        template = MolecularTemplate(atoms)
+        atoms.info["nested"]["values"].append(3)
+        assert template.atoms.info["nested"]["values"] == [1, 2]
+        poses.append(MolecularPose(template, [0.2, 0.3, 0.4], occupation=0.5))
+    model = construct_statistical_disorder(context, poses)
+    choices = {
+        orbit: alternatives[index].alternative_id
+        for index, (orbit, alternatives) in enumerate(
+            model.alternatives_by_orbit.items()
+        )
+    }
+    selected = model.select_ordered_realization(choices)
+    assert selected.metadata["realized_symmetry"]["operation_count"] == 1
+    selected.molecules[0].info["nested"]["values"].clear()
+    assert model.alternatives[0].molecule.info["nested"]["values"] == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "payload_change", ["duplicate", "nan", "missing_arrays", "bad_shape", "bad_bonds"]
+)
+def test_corrupt_companions_fail_with_typed_errors(payload_change):
+    model = construct_statistical_disorder(
+        _p1(), MolecularPose(Atoms("He", positions=[[0, 0, 0]]), [0.2, 0.3, 0.4])
+    )
+    payload = model.to_dict()
+    alternative = payload["alternatives"][0]
+    if payload_change == "duplicate":
+        payload["alternatives"].append(copy.deepcopy(alternative))
+    elif payload_change == "nan":
+        alternative["atoms"][0]["cartesian"][0] = float("nan")
+    elif payload_change == "missing_arrays":
+        del alternative["arrays"]
+    elif payload_change == "bad_shape":
+        alternative["arrays"]["occupancy"]["shape"] = [2]
+    else:
+        alternative["bonds"] = [{"left": 0, "right": 99}]
+    with pytest.raises(ConstructionValidationError):
+        read_statistical_disorder_companion(payload)
