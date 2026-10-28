@@ -16,13 +16,15 @@ must match the complete operation set.  An unlabelled closed set remains a
 custom group.  ``chemistry_policy="enantiopure"`` applies to the whole group,
 not only the site stabilizer.  Stabilizer comparisons use one coherent
 molecular image.  Typed bonds, isotopes, and explicit charges are preserved.
-Statistical models use companion schema ``molcrys.statistical_disorder.v1``;
+Statistical models use companion schema ``molcrys.statistical_disorder.v2``;
 older id-only payloads are rejected instead of being completed by guesswork.
 """
 
 from __future__ import annotations
 
 import re
+import copy
+import hashlib
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -41,6 +43,7 @@ from ..constants.config import (
     KEY_OCCUPANCY,
     KEY_SITE_SYMMETRY_ORDER,
     KEY_SYM_OP_INDEX,
+    PARTIAL_OCCUPANCY_TOLERANCE,
 )
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
@@ -52,7 +55,7 @@ from ..structures.symmetry import (
 )
 
 
-DISORDER_COMPANION_SCHEMA = "molcrys.statistical_disorder.v1"
+DISORDER_COMPANION_SCHEMA = "molcrys.statistical_disorder.v2"
 DISORDER_CONSTRAINT_SCHEMA = "molcrys.disorder_constraints.v1"
 _ENANTIOPURE_POLICIES = {"enantiopure", "enantiopure_only", "forbid_improper"}
 _RACEMIC_POLICIES = {"racemic", "allow_improper"}
@@ -123,8 +126,8 @@ class PeriodicBondRecord:
     bond_type: str | None = None
     kind: str | None = None
     image_shift: tuple[int, int, int] = (0, 0, 0)
-    order_known: bool = False
-    bond_type_known: bool = False
+    order_known: bool | None = None
+    bond_type_known: bool | None = None
 
     def pair(self) -> tuple[int, int]:
         left, right = int(self.left), int(self.right)
@@ -145,29 +148,38 @@ def _normalize_bond_record(edge: Any, atom_count: int) -> PeriodicBondRecord:
     image_shift = (0, 0, 0)
     order_known = False
     bond_type_known = False
+    infer_bond_type = True
     if isinstance(edge, PeriodicBondRecord):
-        left, right = int(edge.left), int(edge.right)
+        left, right = _integer_atom_index(edge.left), _integer_atom_index(edge.right)
+        infer_bond_type = edge.bond_type_known is None
         order = edge.order
         bond_type = edge.bond_type
         kind = edge.kind
-        image_shift = tuple(int(value) for value in edge.image_shift)
-        order_known = bool(edge.order_known or edge.order is not None)
+        image_shift = _integer_image_shift(edge.image_shift)
+        order_known = bool(
+            edge.order is not None if edge.order_known is None else edge.order_known
+        )
         bond_type_known = bool(
-            edge.bond_type_known
-            or (edge.bond_type not in (None, "") and not _unknown_token(edge.bond_type))
+            (edge.bond_type not in (None, "") and not _unknown_token(edge.bond_type))
+            if edge.bond_type_known is None
+            else edge.bond_type_known
         )
     elif isinstance(edge, Mapping):
         try:
-            left, right = int(edge["left"]), int(edge["right"])
+            left, right = (
+                _integer_atom_index(edge["left"]),
+                _integer_atom_index(edge["right"]),
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise ConstructionValidationError(
                 "bond mappings require integer 'left' and 'right' endpoints"
             ) from error
         order = edge.get("order")
+        infer_bond_type = "bond_type_known" not in edge
         bond_type = edge.get("bond_type")
         kind = edge.get("kind")
         raw_shift = edge.get("image_shift", (0, 0, 0))
-        image_shift = tuple(int(value) for value in raw_shift)
+        image_shift = _integer_image_shift(raw_shift)
         order_known = bool(edge.get("order_known", order is not None))
         bond_type_known = bool(
             edge.get(
@@ -177,7 +189,11 @@ def _normalize_bond_record(edge: Any, atom_count: int) -> PeriodicBondRecord:
         )
     else:
         try:
-            left, right = int(edge[0]), int(edge[1])
+            if len(edge) not in {2, 3}:
+                raise ConstructionValidationError(
+                    "connectivity edge must have two endpoints and at most one annotation"
+                )
+            left, right = _integer_atom_index(edge[0]), _integer_atom_index(edge[1])
         except (TypeError, ValueError, IndexError) as error:
             raise ConstructionValidationError(
                 "connectivity edges must contain exactly two atom indices"
@@ -198,10 +214,13 @@ def _normalize_bond_record(edge: Any, atom_count: int) -> PeriodicBondRecord:
             raise ConstructionValidationError(
                 "connectivity annotation must be a bond type, order, or mapping"
             )
-    if len(image_shift) != 3:
-        raise ConstructionValidationError(
-            "bond image_shift must contain three integers"
-        )
+    if isinstance(edge, (Mapping, PeriodicBondRecord)):
+        if order_known and order is None:
+            raise ConstructionValidationError("known bond order requires a value")
+        if not order_known:
+            order = None
+        if not bond_type_known:
+            bond_type = None
     if not 0 <= left < atom_count or not 0 <= right < atom_count:
         raise ConstructionValidationError(
             "connectivity edge index is outside the template"
@@ -215,6 +234,7 @@ def _normalize_bond_record(edge: Any, atom_count: int) -> PeriodicBondRecord:
         order_known = True
         if (
             not bond_type_known
+            and infer_bond_type
             and int(order) in _KNOWN_BOND_TYPES
             and float(order) == int(order)
         ):
@@ -244,6 +264,30 @@ def _normalize_bond_record(edge: Any, atom_count: int) -> PeriodicBondRecord:
         order_known,
         bond_type_known,
     )
+
+
+def _integer_image_shift(value):
+    try:
+        array = np.asarray(value, dtype=float)
+        if (
+            array.shape == (3,)
+            and np.all(np.isfinite(array))
+            and np.all(array == np.rint(array))
+        ):
+            return tuple(int(item) for item in array)
+    except (TypeError, ValueError):
+        pass
+    raise ConstructionValidationError("bond image_shift must contain three integers")
+
+
+def _integer_atom_index(value):
+    try:
+        result = int(value)
+        if not isinstance(value, (bool, np.bool_)) and float(value) == result:
+            return result
+    except (TypeError, ValueError, OverflowError):
+        pass
+    raise ConstructionValidationError("bond endpoints must be integer atom indices")
 
 
 def _readonly_array(value: Any, shape: tuple[int, ...], name: str) -> np.ndarray:
@@ -369,6 +413,7 @@ def _atom_identity_key(atoms: Atoms, index: int) -> tuple[Any, ...]:
     symbol = atoms.get_chemical_symbols()[index]
     isotope = atoms.arrays.get("isotope")
     charge = atoms.arrays.get("formal_charge")
+    charge_known = atoms.arrays.get("formal_charge_known")
     annotations: list[tuple[str, str]] = []
     for key in (
         "stereochemistry",
@@ -383,9 +428,41 @@ def _atom_identity_key(atoms: Atoms, index: int) -> tuple[Any, ...]:
     return (
         symbol,
         int(isotope[index]) if isotope is not None else 0,
-        float(charge[index]) if charge is not None else 0.0,
+        ("known", float(charge[index]))
+        if charge is not None and (charge_known is None or charge_known[index])
+        else ("unknown",),
         tuple(annotations),
     )
+
+
+def _validate_template_annotations(atoms):
+    for key in ("isotope", "formal_charge"):
+        if key not in atoms.arrays:
+            continue
+        values = atoms.arrays[key]
+        if (
+            values.shape != (len(atoms),)
+            or not np.all(np.isfinite(values))
+            or not np.all(values == np.rint(values))
+        ):
+            raise ConstructionValidationError(
+                f"{key} annotations must be finite integers per atom"
+            )
+    if "isotope" in atoms.arrays and np.any(atoms.arrays["isotope"] < 0):
+        raise ConstructionValidationError("isotope mass numbers must be non-negative")
+    if "formal_charge_known" in atoms.arrays and "formal_charge" not in atoms.arrays:
+        raise ConstructionValidationError(
+            "formal_charge_known requires a formal_charge array"
+        )
+    if "formal_charge" in atoms.arrays and "formal_charge_known" not in atoms.arrays:
+        atoms.set_array("formal_charge_known", np.ones(len(atoms), dtype=bool))
+    if "masses" in atoms.arrays and (
+        not np.all(np.isfinite(atoms.arrays["masses"]))
+        or np.any(atoms.arrays["masses"] <= 0)
+    ):
+        raise ConstructionValidationError(
+            "explicit atomic masses must be positive and finite"
+        )
 
 
 @dataclass(frozen=True)
@@ -404,24 +481,33 @@ class MolecularTemplate:
     def __post_init__(self) -> None:
         if not isinstance(self.atoms, Atoms):
             raise TypeError("atoms must be an ASE Atoms object")
-        copy = self.atoms.copy()
-        copy.set_cell(np.zeros((3, 3)))
-        copy.set_pbc(False)
-        copy.positions = np.asarray(self.atoms.get_positions(), dtype=float).copy()
+        copy_atoms = self.atoms.copy()
+        copy_atoms.info = copy.deepcopy(self.atoms.info)
+        copy_atoms.set_cell(np.zeros((3, 3)))
+        copy_atoms.set_pbc(False)
+        copy_atoms.positions = np.asarray(
+            self.atoms.get_positions(), dtype=float
+        ).copy()
+        if not len(copy_atoms) or not np.all(np.isfinite(copy_atoms.positions)):
+            raise ConstructionValidationError(
+                "template requires nonempty finite atom coordinates"
+            )
+        _validate_template_annotations(copy_atoms)
         if self.anchor_index is not None and not 0 <= int(self.anchor_index) < len(
-            copy
+            copy_atoms
         ):
             raise ConstructionValidationError("anchor_index is outside the template")
         if self.anchor_cartesian is not None:
             anchor = _readonly_array(self.anchor_cartesian, (3,), "anchor_cartesian")
         else:
             anchor = None
-        object.__setattr__(self, "atoms", copy)
+        object.__setattr__(self, "atoms", copy_atoms)
         object.__setattr__(self, "anchor_cartesian", anchor)
         bond_records: list[PeriodicBondRecord] = []
         if self.connectivity:
             bond_records.extend(
-                _normalize_bond_record(edge, len(copy)) for edge in self.connectivity
+                _normalize_bond_record(edge, len(copy_atoms))
+                for edge in self.connectivity
             )
         elif getattr(self.atoms, "_graph", None) is not None:
             for left, right, edge_data in self.atoms._graph.edges(data=True):
@@ -442,31 +528,36 @@ class MolecularTemplate:
                         )
                     ),
                 }
-                bond_records.append(_normalize_bond_record(payload, len(copy)))
+                bond_records.append(_normalize_bond_record(payload, len(copy_atoms)))
         if self.bonds:
             bond_records.extend(
-                _normalize_bond_record(edge, len(copy)) for edge in self.bonds
+                _normalize_bond_record(edge, len(copy_atoms)) for edge in self.bonds
             )
         deduped: dict[tuple[int, int, tuple[int, int, int]], PeriodicBondRecord] = {}
         for record in bond_records:
-            deduped.setdefault((record.left, record.right, record.image_shift), record)
+            key = (record.left, record.right, record.image_shift)
+            if key in deduped and deduped[key] != record:
+                raise ConstructionValidationError(
+                    "conflicting typed bonds name the same endpoint image"
+                )
+            deduped.setdefault(key, record)
         bond_records = list(deduped.values())
         connectivity = tuple(sorted(record.pair() for record in bond_records))
         object.__setattr__(self, "connectivity", connectivity)
         object.__setattr__(self, "bonds", tuple(bond_records))
         stereo = tuple(self.stereochemistry)
-        if stereo and len(stereo) != len(copy):
+        if stereo and len(stereo) != len(copy_atoms):
             raise ConstructionValidationError(
                 "stereochemistry must contain one value per template atom"
             )
         if not stereo:
             for key in ("stereochemistry", "stereo", "cip_code"):
-                values = copy.arrays.get(key)
-                if values is not None and len(values) == len(copy):
+                values = copy_atoms.arrays.get(key)
+                if values is not None and len(values) == len(copy_atoms):
                     stereo = tuple(str(value) for value in values)
                     break
         if stereo:
-            copy.set_array("stereochemistry", np.asarray(stereo, dtype=str))
+            copy_atoms.set_array("stereochemistry", np.asarray(stereo, dtype=str))
         object.__setattr__(self, "stereochemistry", stereo)
         if self.chemical_identity is not None:
             object.__setattr__(self, "chemical_identity", str(self.chemical_identity))
@@ -1014,17 +1105,22 @@ def _match_operation_to_template(
     # the supplied molecular graph.  Coordinate-only matching would certify a
     # square/path counterexample whose atoms occupy symmetric positions but
     # whose bonds are changed by the operation.
-    connectivity = {
-        tuple(sorted((int(edge[0]), int(edge[1]))))
-        for edge in pose.template.connectivity
-        if len(edge) >= 2
-    }
-    if connectivity:
-        mapped_connectivity = {
-            tuple(sorted((permutation[left], permutation[right])))
-            for left, right in connectivity
+    if pose.template.bonds:
+        original_bonds = {_bond_identity(record) for record in pose.template.bonds}
+        mapped_bonds = {
+            _bond_identity(
+                replace(
+                    record,
+                    left=permutation[record.left],
+                    right=permutation[record.right],
+                    image_shift=_transform_bond_image_shift(
+                        operation, record.image_shift
+                    ),
+                )
+            )
+            for record in pose.template.bonds
         }
-        if mapped_connectivity != connectivity:
+        if mapped_bonds != original_bonds:
             return False, tuple(permutation), max_distance
     # A declared chemical identity is an explicit stereochemical/tautomeric
     # contract.  An improper operation changes handedness and therefore may
@@ -1324,6 +1420,20 @@ def _bond_record_payload(record: PeriodicBondRecord) -> dict[str, Any]:
     }
 
 
+def _bond_identity(record: PeriodicBondRecord) -> tuple[Any, ...]:
+    """Undirected typed edge key, retaining its directed lattice image."""
+    forward = (record.left, record.right, tuple(record.image_shift))
+    reverse = (record.right, record.left, tuple(-x for x in record.image_shift))
+    return (
+        min(forward, reverse),
+        record.order_known,
+        record.order if record.order_known else None,
+        record.bond_type_known,
+        record.bond_type if record.bond_type_known else None,
+        record.kind,
+    )
+
+
 def _has_known_stereo(atoms: Atoms) -> bool:
     values = atoms.arrays.get("stereochemistry")
     if values is None:
@@ -1443,6 +1553,7 @@ def _copy_generated_atoms(
     _, cartesian = _mapped_template(context, pose, operation)
     source = pose.template.atoms
     atoms = Atoms(symbols=source.get_chemical_symbols(), positions=cartesian)
+    atoms.info = copy.deepcopy(source.info)
     for key, values in source.arrays.items():
         if key in {"numbers", "positions"}:
             continue
@@ -1487,6 +1598,7 @@ def _copy_generated_atoms(
     # metadata lets ASU reduction recognise the same atom in another mate
     # without collapsing independent same-element entities.
     molecule.info["forward_template_identifier"] = pose.template.identifier
+    molecule.info["forward_chemical_identity"] = pose.template.chemical_identity
     molecule.info["forward_pose_index"] = int(pose_index)
     molecule.info["forward_operation_index"] = int(operation_index)
     if atom_identities is None:
@@ -1549,6 +1661,10 @@ def construct_molecular_crystal(
     strict: bool = True,
     ordered: bool = True,
     reject_contacts: bool = False,
+    expected_formula: Mapping[str, float] | None = None,
+    formula_unit: Mapping[str, int] | None = None,
+    Z: int | None = None,
+    expected_charge: float | None = None,
 ) -> MolecularCrystal:
     """Construct complete ordered molecules from explicit poses.
 
@@ -1556,7 +1672,14 @@ def construct_molecular_crystal(
     than the summed covalent radii.  It never moves the supplied pose.
     """
     if not ordered:
-        return construct_statistical_disorder(context, poses)
+        return construct_statistical_disorder(
+            context,
+            poses,
+            expected_formula=expected_formula,
+            formula_unit=formula_unit,
+            Z=Z,
+            expected_charge=expected_charge,
+        )
     if isinstance(poses, MolecularPose):
         poses = (poses,)
     poses = tuple(poses)
@@ -1623,8 +1746,16 @@ def construct_molecular_crystal(
         "hydrogen_policy": "explicit_template",
     }
     crystal = MolecularCrystal(context.lattice, molecules, metadata=metadata)
+    crystal.metadata["composition_accounting"] = _composition_accounting(
+        [(molecule, 1.0) for molecule in molecules],
+        expected_formula=expected_formula,
+        formula_unit=formula_unit,
+        Z=Z,
+        expected_charge=expected_charge,
+    )
     contacts = intermolecular_contacts(crystal)
     crystal.metadata["intermolecular_contacts"] = contacts
+    crystal.metadata["realized_symmetry"] = _realized_symmetry(context, molecules)
     if reject_contacts and contacts:
         raise ConstructionValidationError(
             f"ordered construction has {len(contacts)} intermolecular contact(s) "
@@ -1633,17 +1764,80 @@ def construct_molecular_crystal(
     return crystal
 
 
+def _composition_accounting(
+    states, *, expected_formula=None, formula_unit=None, Z=None, expected_charge=None
+):
+    """Check explicit composition/charge contracts without guessing charges."""
+    totals, charge, unknown = {}, 0.0, 0.0
+    for molecule, weight in states:
+        if molecule is None or weight == 0:
+            continue
+        for index, symbol in enumerate(molecule.get_chemical_symbols()):
+            totals[symbol] = totals.get(symbol, 0.0) + weight
+            charges = molecule.arrays.get("formal_charge")
+            known = molecule.arrays.get("formal_charge_known")
+            if charges is not None and known is not None and known[index]:
+                charge += weight * float(charges[index])
+            else:
+                unknown += weight
+    if (formula_unit is None) != (Z is None):
+        raise ConstructionValidationError(
+            "formula_unit and Z must be supplied together"
+        )
+    if Z is not None:
+        if isinstance(Z, bool) or not isinstance(Z, (int, np.integer)) or Z <= 0:
+            raise ConstructionValidationError("Z must be a positive integer")
+        formula = {key: float(value) * Z for key, value in formula_unit.items()}
+        if expected_formula is not None and formula != dict(expected_formula):
+            raise ConstructionValidationError(
+                "formula_unit/Z contradicts expected_formula"
+            )
+        expected_formula = formula
+    if expected_formula is not None:
+        expected = {str(key): float(value) for key, value in expected_formula.items()}
+        if any(not np.isfinite(value) or value < 0 for value in expected.values()):
+            raise ConstructionValidationError(
+                "expected formula counts must be finite and non-negative"
+            )
+        if any(
+            abs(totals.get(key, 0.0) - expected.get(key, 0.0))
+            > PARTIAL_OCCUPANCY_TOLERANCE
+            for key in totals.keys() | expected.keys()
+        ):
+            raise ConstructionValidationError(
+                "constructed composition disagrees with expected formula"
+            )
+    if expected_charge is not None:
+        if not np.isfinite(expected_charge):
+            raise ConstructionValidationError("expected charge must be finite")
+        if unknown:
+            raise ConstructionValidationError(
+                "charge balance is indeterminate: formal charges are unknown"
+            )
+        if abs(charge - expected_charge) > PARTIAL_OCCUPANCY_TOLERANCE:
+            raise ConstructionValidationError(
+                "constructed charge disagrees with expected charge"
+            )
+    return {
+        "formula": totals,
+        "known_charge": charge,
+        "unknown_charge_atoms": unknown,
+        "total_charge": charge if not unknown else None,
+    }
+
+
 def intermolecular_contacts(crystal: MolecularCrystal) -> tuple[dict[str, Any], ...]:
     """Return intermolecular clashes without changing coordinates.
 
-    Distances are Cartesian angstroms and include one periodic image of each
-    atom pair.  A contact is closer than the sum of covalent radii.  The
+    Distances are Cartesian angstroms. All images inside the summed covalent
+    radii are included, including nonzero images of the same molecule. The
     crystal is not snapped, expanded, or otherwise repaired.
     """
     from ..constants import get_atomic_radius, has_atomic_radius
+    from ase.neighborlist import neighbor_list
 
     molecules = list(crystal.molecules)
-    if len(molecules) < 2:
+    if not molecules:
         return ()
     radii = []
     symbols = []
@@ -1659,30 +1853,42 @@ def intermolecular_contacts(crystal: MolecularCrystal) -> tuple[dict[str, Any], 
             radii.append(
                 float(get_atomic_radius(symbol)) if has_atomic_radius(symbol) else 0.7
             )
-    coordinates = np.asarray(positions, dtype=float)
-    lattice = np.asarray(crystal.lattice, dtype=float)
+    atoms = Atoms(symbols=symbols, positions=positions, cell=crystal.lattice, pbc=True)
+    lefts, rights, shifts, distances = neighbor_list("ijSd", atoms, radii)
     contacts = []
-    for left in range(len(symbols)):
-        for right in range(left + 1, len(symbols)):
-            if owners[left] == owners[right]:
-                continue
-            delta = coordinates[right] - coordinates[left]
-            fractional = delta @ np.linalg.inv(lattice)
-            fractional -= np.rint(fractional)
-            distance = float(np.linalg.norm(fractional @ lattice))
-            limit = radii[left] + radii[right]
-            if distance < limit:
-                contacts.append(
-                    {
-                        "left_molecule": int(owners[left]),
-                        "right_molecule": int(owners[right]),
-                        "left_symbol": symbols[left],
-                        "right_symbol": symbols[right],
-                        "distance_A": distance,
-                        "limit_A": limit,
-                    }
-                )
-    return tuple(contacts)
+    seen = set()
+    for left, right, shift, distance in zip(lefts, rights, shifts, distances):
+        if owners[left] == owners[right] and not np.any(shift):
+            continue
+        edge = (int(left), int(right), tuple(int(x) for x in shift))
+        reverse = (int(right), int(left), tuple(-int(x) for x in shift))
+        if min(edge, reverse) in seen:
+            continue
+        seen.add(min(edge, reverse))
+        limit = radii[left] + radii[right]
+        if distance < limit:
+            contacts.append(
+                {
+                    "left_molecule": int(owners[left]),
+                    "right_molecule": int(owners[right]),
+                    "left_symbol": symbols[left],
+                    "right_symbol": symbols[right],
+                    "distance_A": distance,
+                    "limit_A": limit,
+                    "image_shift": tuple(int(x) for x in shift),
+                }
+            )
+    return tuple(
+        sorted(
+            contacts,
+            key=lambda item: (
+                item["left_molecule"],
+                item["right_molecule"],
+                item["image_shift"],
+                item["distance_A"],
+            ),
+        )
+    )
 
 
 # Friendly aliases used in examples and downstream integrations.
@@ -1734,11 +1940,17 @@ class AverageAtomSite:
     formal_charge: float | None = None
     formal_charge_known: bool = False
     site_identity: str = ""
+    mass: float | None = None
+    chemical_annotations: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         fractional = _readonly_array(self.fractional, (3,), "fractional")
         object.__setattr__(self, "fractional", _canonical_fractional(fractional))
-        if self.occupancy < 0 or self.occupancy > 1.0 + 1e-8:
+        if (
+            not np.isfinite(self.occupancy)
+            or self.occupancy < 0
+            or self.occupancy > 1.0 + 1e-8
+        ):
             raise ConstructionValidationError(
                 "average atom occupancy must lie in [0, 1]"
             )
@@ -1776,10 +1988,15 @@ class StatisticalDisorderModel:
         return {key: tuple(value) for key, value in result.items()}
 
     def select_ordered_realization(
-        self, selections: Mapping[str, str | int] | None = None
+        self,
+        selections: Mapping[str, str | int] | None = None,
+        *,
+        reject_contacts: bool = False,
     ) -> MolecularCrystal:
         """Select one mutually exclusive state per orbit."""
-        return select_ordered_realization(self, selections)
+        return select_ordered_realization(
+            self, selections, reject_contacts=reject_contacts
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return _statistical_model_payload(self)
@@ -1801,7 +2018,8 @@ def _chemical_site_key(site: AverageAtomSite) -> tuple[Any, ...]:
         int(site.isotope),
         charge,
         str(site.site_identity),
-        int(site.template_atom_index),
+        site.mass,
+        tuple(site.chemical_annotations),
     )
 
 
@@ -1830,6 +2048,8 @@ def _merge_average_site(
                 formal_charge=existing.formal_charge,
                 formal_charge_known=existing.formal_charge_known,
                 site_identity=existing.site_identity,
+                mass=existing.mass,
+                chemical_annotations=existing.chemical_annotations,
             )
             return
     sites.append(candidate)
@@ -1900,6 +2120,10 @@ def construct_statistical_disorder(
     center_occupancies: Mapping[int | str, float] | None = None,
     correlation_status: str = "local-only",
     correlations: Mapping[str, Any] | None = None,
+    expected_formula: Mapping[str, float] | None = None,
+    formula_unit: Mapping[str, int] | None = None,
+    Z: int | None = None,
+    expected_charge: float | None = None,
 ) -> StatisticalDisorderModel:
     """Build an explicit symmetry-derived whole-molecule disorder model.
 
@@ -1925,7 +2149,7 @@ def construct_statistical_disorder(
     elif not isinstance(correlations, Mapping):
         raise ConstructionValidationError("correlations must be a mapping or None")
     else:
-        correlations = dict(correlations)
+        correlations = copy.deepcopy(dict(correlations))
 
     alternatives: list[MolecularAlternative] = []
     average_sites: list[AverageAtomSite] = []
@@ -1954,6 +2178,11 @@ def construct_statistical_disorder(
         )
     for pose_index, pose in enumerate(poses):
         analysis = analyze_molecular_pose(context, pose)
+        if not analysis.group_chemistry_compatible:
+            raise IncompatibleChemistryError(
+                analysis,
+                "enantiopure chemistry policy is incompatible with the full source group",
+            )
         default_pose_occupation = (
             float(pose.occupation)
             if requested_center_occupation is None
@@ -2068,6 +2297,16 @@ def construct_statistical_disorder(
                             formal_charge=charge,
                             formal_charge_known=known_charge,
                             site_identity=str(identity),
+                            mass=float(template_atoms.arrays["masses"][atom_index])
+                            if "masses" in template_atoms.arrays
+                            else None,
+                            chemical_annotations=(
+                                (
+                                    "molecular_identity",
+                                    pose.template.chemical_identity or "",
+                                ),
+                                *_atom_identity_key(molecule, atom_index)[3],
+                            ),
                         ),
                         context.fractional_tolerance,
                     )
@@ -2118,6 +2357,13 @@ def construct_statistical_disorder(
         "correlation_status": correlation_status,
         "correlations": dict(correlations),
         "constraint_report": constraint_report,
+        "composition_accounting": _composition_accounting(
+            [(item.molecule, item.weight) for item in alternatives],
+            expected_formula=expected_formula,
+            formula_unit=formula_unit,
+            Z=Z,
+            expected_charge=expected_charge,
+        ),
     }
     return StatisticalDisorderModel(
         context=context,
@@ -2147,6 +2393,8 @@ def _alternatives_for_selection(
 def select_ordered_realization(
     model: StatisticalDisorderModel,
     selections: Mapping[str, str | int] | None = None,
+    *,
+    reject_contacts: bool = False,
 ) -> MolecularCrystal:
     """Select one admissible whole-molecule state per orbit.
 
@@ -2159,6 +2407,8 @@ def select_ordered_realization(
     """
     available = _alternatives_for_selection(model)
     selections = dict(selections or {})
+    if set(selections) - set(available):
+        raise ConstructionValidationError("selection contains unknown center orbit(s)")
     chosen: list[CrystalMolecule] = []
     selected_alternatives: dict[str, str] = {}
     for orbit_id, alternatives in available.items():
@@ -2179,8 +2429,7 @@ def select_ordered_realization(
             elif len(occupied) == 1 and not vacant:
                 choice = occupied[0].alternative_id
             else:
-                occupied_only = [item for item in alternatives if not item.vacancy]
-                choice = occupied_only[0].alternative_id if occupied_only else 0
+                choice = occupied[0].alternative_id if occupied else 0
         else:
             choice = selections[orbit_id]
         if isinstance(choice, str):
@@ -2188,6 +2437,10 @@ def select_ordered_realization(
                 (item for item in alternatives if item.alternative_id == choice), None
             )
         else:
+            if isinstance(choice, bool) or not isinstance(choice, (int, np.integer)):
+                raise ConstructionValidationError(
+                    "alternative index must be an integer"
+                )
             occupied_only = [item for item in alternatives if not item.vacancy]
             selected = (
                 occupied_only[int(choice)]
@@ -2198,25 +2451,37 @@ def select_ordered_realization(
             raise ConstructionValidationError(
                 f"no alternative {choice!r} for orbit {orbit_id}"
             )
-        if selected.weight <= 1.0e-8 and not selected.vacancy:
+        if selected.weight <= 1.0e-8:
             raise ConstructionValidationError(
                 f"zero-weight occupied state {selected.alternative_id} cannot be selected"
             )
         if selected.vacancy or selected.molecule is None:
             selected_alternatives[orbit_id] = selected.alternative_id
             continue
-        chosen.append(selected.molecule.copy())
+        molecule = selected.molecule.copy()
+        molecule.info = copy.deepcopy(selected.molecule.info)
+        chosen.append(molecule)
         selected_alternatives[orbit_id] = selected.alternative_id
     _reject_infeasible_joint(model, selected_alternatives)
     realized = _realized_symmetry(model.context, chosen)
-    metadata = dict(model.metadata)
+    metadata = copy.deepcopy(dict(model.metadata))
     metadata["representation"] = "ordered_realization"
     metadata["source_disorder"] = model.to_dict()
     metadata["forward_context"] = model.context
     metadata["source_symmetry"] = model.context.to_metadata()
     metadata["selected_alternatives"] = selected_alternatives
     metadata["realized_symmetry"] = realized
-    return MolecularCrystal(model.context.lattice, chosen, metadata=metadata)
+    crystal = MolecularCrystal(model.context.lattice, chosen, metadata=metadata)
+    crystal.metadata["composition_accounting"] = _composition_accounting(
+        [(molecule, 1.0) for molecule in chosen]
+    )
+    contacts = intermolecular_contacts(crystal)
+    crystal.metadata["intermolecular_contacts"] = contacts
+    if reject_contacts and contacts:
+        raise ConstructionValidationError(
+            f"selected realization has {len(contacts)} intermolecular contact(s)"
+        )
+    return crystal
 
 
 def _validate_disorder_constraints(
@@ -2299,31 +2564,32 @@ def _validate_disorder_constraints(
                 marginals.get(alternative_id, 0.0) + joint["weight"]
             )
     if status == "feasible":
-        if abs(weight_sum - 1.0) > 1.0e-6:
+        if abs(weight_sum - 1.0) > PARTIAL_OCCUPANCY_TOLERANCE:
             raise ConstructionValidationError(
                 "a feasible joint distribution must sum to 1"
             )
         for alternative in (*alternatives, *vacancies):
             predicted = marginals.get(alternative.alternative_id, 0.0)
-            if abs(predicted - float(alternative.weight)) > 1.0e-6:
+            if abs(predicted - float(alternative.weight)) > PARTIAL_OCCUPANCY_TOLERANCE:
                 raise ConstructionValidationError(
                     "joint marginals disagree with the declared alternative weight of "
                     f"{alternative.alternative_id}"
                 )
         _require_symmetry_covariant_joints(context, by_id, joints)
-    elif status == "truncated" and weight_sum > 1.0 + 1.0e-6:
+    elif status == "truncated" and weight_sum > 1.0 + PARTIAL_OCCUPANCY_TOLERANCE:
         raise ConstructionValidationError("truncated joint weights exceed 1")
     elif status == "infeasible":
         raise ConstructionValidationError(
             "infeasible disorder constraints are rejected and are not serialized as a model"
         )
     for item in correlations.get("forbidden") or []:
-        assignment = {
-            str(key): str(value)
-            for key, value in dict(item.get("assignment") or {}).items()
-        }
+        assignment = _forbidden_assignment(item, by_id, orbits)
         if any(
-            joint["weight"] > 1.0e-8 and joint["assignment"] == assignment
+            joint["weight"] > 1.0e-8
+            and all(
+                joint["assignment"].get(key) == value
+                for key, value in assignment.items()
+            )
             for joint in joints
         ):
             raise ConstructionValidationError("a positive joint is also forbidden")
@@ -2333,6 +2599,26 @@ def _validate_disorder_constraints(
         "joint_count": len(joints),
         "weight_sum": weight_sum,
     }
+
+
+def _forbidden_assignment(item, by_id, orbits):
+    if not isinstance(item, Mapping) or not isinstance(item.get("assignment"), Mapping):
+        raise ConstructionValidationError(
+            "forbidden constraint requires an assignment mapping"
+        )
+    assignment = {str(key): str(value) for key, value in item["assignment"].items()}
+    if not assignment or not set(assignment) <= orbits:
+        raise ConstructionValidationError(
+            "forbidden assignment names unknown or empty center orbits"
+        )
+    if any(
+        value not in by_id or by_id[value].orbit_id != key
+        for key, value in assignment.items()
+    ):
+        raise ConstructionValidationError(
+            "forbidden assignment names an invalid alternative"
+        )
+    return assignment
 
 
 def _image_alternative(
@@ -2353,20 +2639,91 @@ def _image_alternative(
         ):
             return alternative
         return None
-    composed = operation.compose(context.operations[alternative.operation_index])
     for candidate in alternatives:
         if candidate.vacancy or candidate.operation_index < 0:
             continue
-        candidate_operation = context.operations[candidate.operation_index]
-        if not candidate_operation.equivalent_to(
-            composed, tolerance=context.fractional_tolerance
-        ):
+        if alternative.molecule.info.get(
+            "forward_pose_index"
+        ) != candidate.molecule.info.get("forward_pose_index"):
             continue
         if _fractional_equal(
             candidate.center_fractional, center, context.fractional_tolerance
+        ) and _molecule_image_matches(
+            context,
+            alternative.molecule,
+            candidate.molecule,
+            operation,
         ):
             return candidate
     return None
+
+
+def _molecule_image_matches(context, source, target, operation) -> bool:
+    """Compare complete unwrapped molecular images, including typed topology.
+
+    An operation label is only a coset representative, not a unique molecular
+    orientation. Geometry and the graph determine the action on alternatives.
+    """
+    if len(source) != len(target):
+        return False
+    inverse = np.linalg.inv(context.lattice)
+    mapped = operation.apply(source.positions @ inverse, wrap=False)
+    original = target.positions @ inverse
+    center_delta = mapped.mean(axis=0) - original.mean(axis=0)
+    mapped -= np.rint(center_delta)
+    delta = mapped[:, None, :] - original[None, :, :]
+    cost = np.linalg.norm(delta @ context.lattice, axis=2)
+    for left in range(len(source)):
+        for right in range(len(target)):
+            # Stereo is transformed by an improper operation; the typed graph
+            # plus geometry establishes orientation, never a copied CIP label.
+            left_key = _atom_identity_key(source, left)
+            right_key = _atom_identity_key(target, right)
+            if operation.determinant < 0:
+                left_key = (
+                    *left_key[:3],
+                    tuple(
+                        x
+                        for x in left_key[3]
+                        if x[0] not in {"stereo", "stereochemistry", "cip_code"}
+                    ),
+                )
+                right_key = (
+                    *right_key[:3],
+                    tuple(
+                        x
+                        for x in right_key[3]
+                        if x[0] not in {"stereo", "stereochemistry", "cip_code"}
+                    ),
+                )
+            if left_key != right_key:
+                cost[left, right] = np.inf
+    try:
+        rows, columns = linear_sum_assignment(cost)
+    except ValueError:
+        return False
+    if np.any(cost[rows, columns] > context.tolerance_A):
+        return False
+    permutation = dict(zip(rows, columns))
+    source_bonds = [
+        _normalize_bond_record(item, len(source))
+        for item in _molecule_bond_payload(source)
+    ]
+    target_bonds = [
+        _normalize_bond_record(item, len(target))
+        for item in _molecule_bond_payload(target)
+    ]
+    return {
+        _bond_identity(
+            replace(
+                record,
+                left=int(permutation[record.left]),
+                right=int(permutation[record.right]),
+                image_shift=_transform_bond_image_shift(operation, record.image_shift),
+            )
+        )
+        for record in source_bonds
+    } == {_bond_identity(record) for record in target_bonds}
 
 
 def _require_symmetry_covariant_joints(
@@ -2375,14 +2732,16 @@ def _require_symmetry_covariant_joints(
     joints: Sequence[Mapping[str, Any]],
 ) -> None:
     alternatives = tuple(by_id.values())
-    weights = {
-        tuple(sorted(joint["assignment"].items())): float(joint["weight"])
-        for joint in joints
-    }
+    weights = {}
+    for joint in joints:
+        key = tuple(sorted(joint["assignment"].items()))
+        weights[key] = weights.get(key, 0.0) + float(joint["weight"])
     for operation in context.operations:
-        for joint in joints:
+        for assignment, weight in weights.items():
+            if weight == 0:
+                continue
             image: dict[str, str] = {}
-            for alternative_id in joint["assignment"].values():
+            for _, alternative_id in assignment:
                 mapped = _image_alternative(
                     context, by_id[alternative_id], operation, alternatives
                 )
@@ -2394,7 +2753,7 @@ def _require_symmetry_covariant_joints(
             image_weight = weights.get(tuple(sorted(image.items())))
             if (
                 image_weight is None
-                or abs(image_weight - float(joint["weight"])) > 1.0e-6
+                or abs(image_weight - weight) > PARTIAL_OCCUPANCY_TOLERANCE
             ):
                 raise ConstructionValidationError(
                     "joint distribution is not symmetry-covariant"
@@ -2413,7 +2772,7 @@ def _reject_infeasible_joint(
             str(key): str(value)
             for key, value in dict(item.get("assignment") or {}).items()
         }
-        if assignment == dict(selected):
+        if all(selected.get(key) == value for key, value in assignment.items()):
             raise ConstructionValidationError(
                 "selected realization is forbidden by the disorder constraints"
             )
@@ -2440,30 +2799,19 @@ def _operation_preserves_atom_set(
     operation: FractionalAffineOperation,
     molecules: Sequence[CrystalMolecule],
 ) -> bool:
-    points = []
-    symbols = []
-    for molecule in molecules:
-        fractional = np.asarray(molecule.get_positions(), dtype=float) @ np.linalg.inv(
-            context.lattice
-        )
-        for index, symbol in enumerate(molecule.get_chemical_symbols()):
-            points.append(fractional[index])
-            symbols.append(symbol)
-    if not points:
-        return False
-    coordinates = np.asarray(points, dtype=float)
-    mapped = operation.apply(coordinates, wrap=False)
-    for symbol in set(symbols):
-        indices = [index for index, value in enumerate(symbols) if value == symbol]
-        delta = mapped[indices, None, :] - coordinates[None, indices, :]
-        delta -= np.rint(delta)
-        cost = np.linalg.norm(delta @ context.lattice, axis=2)
-        rows, columns = linear_sum_assignment(cost)
-        if len(rows) != len(indices) or np.any(
-            cost[rows, columns] > context.tolerance_A
-        ):
-            return False
-    return True
+    matches = np.asarray(
+        [
+            [
+                0.0
+                if _molecule_image_matches(context, source, target, operation)
+                else 1.0
+                for target in molecules
+            ]
+            for source in molecules
+        ]
+    )
+    rows, columns = linear_sum_assignment(matches)
+    return bool(np.all(matches[rows, columns] == 0))
 
 
 def _realized_symmetry(
@@ -2483,13 +2831,42 @@ def _realized_symmetry(
         for index, operation in enumerate(context.operations)
         if _operation_preserves_atom_set(context, operation, molecules)
     ]
-    return {
+    report = {
         "status": "occupied",
         "operation_indices": indices,
         "operation_count": len(indices),
         "source_operation_count": len(context.operations),
         "matches_source_group": len(indices) == len(context.operations),
     }
+    # Independent coordinate-based detection, kept separate from verification
+    # of the requested whole-molecule operation set. No cell standardization
+    # or coordinate modification is performed.
+    import spglib
+
+    points, types = [], []
+    identities = {}
+    for molecule in molecules:
+        for index, fractional in enumerate(
+            molecule.positions @ np.linalg.inv(context.lattice)
+        ):
+            identity = _atom_identity_key(molecule, index)[:3]
+            identities.setdefault(identity, len(identities) + 1)
+            types.append(identities[identity])
+            points.append(fractional)
+    dataset = spglib.get_symmetry_dataset(
+        (context.lattice, points, types), symprec=context.tolerance_A
+    )
+    report["detection_status"] = "detected" if dataset is not None else "indeterminate"
+    if dataset is not None:
+        report.update(
+            detected_space_group_number=int(dataset.number),
+            detected_operation_count=len(dataset.rotations),
+            accidental_supergroup=bool(
+                len(dataset.rotations) > len(context.operations)
+                and report["matches_source_group"]
+            ),
+        )
+    return report
 
 
 def _molecule_atom_payload(molecule: CrystalMolecule) -> list[dict[str, Any]]:
@@ -2522,6 +2899,8 @@ def _molecule_atom_payload(molecule: CrystalMolecule) -> list[dict[str, Any]]:
 
 
 def _molecule_bond_payload(molecule: CrystalMolecule) -> list[dict[str, Any]]:
+    if "forward_bonds" in molecule.info:
+        return copy.deepcopy(molecule.info["forward_bonds"])
     graph = getattr(molecule, "_graph", None)
     if graph is None:
         return []
@@ -2556,28 +2935,51 @@ def _alternative_payload(item: MolecularAlternative) -> dict[str, Any]:
         "atoms": [] if item.molecule is None else _molecule_atom_payload(item.molecule),
         "bonds": [] if item.molecule is None else _molecule_bond_payload(item.molecule),
         "info": {},
+        "arrays": {},
     }
     if item.molecule is not None:
-        info = item.molecule.info or {}
-        payload["info"] = {
-            "forward_template_identifier": info.get("forward_template_identifier"),
-            "forward_pose_index": info.get("forward_pose_index"),
-            "forward_operation_index": info.get("forward_operation_index"),
-            "forward_atom_identities": list(info.get("forward_atom_identities") or []),
-            "forward_stereo_reassigned": bool(
-                info.get("forward_stereo_reassigned", False)
-            ),
-        }
+        payload["info"] = _json_value(item.molecule.info)
+        for key, array in item.molecule.arrays.items():
+            if key in {"numbers", "positions"}:
+                continue
+            if array.dtype.kind not in "biufUS":
+                raise DisorderCompanionLossError(
+                    f"array {key!r} has an unsupported companion dtype"
+                )
+            payload["arrays"][key] = {
+                "dtype": array.dtype.str,
+                "shape": list(array.shape),
+                "data": _json_value(array.tolist()),
+            }
     return payload
+
+
+def _json_value(value):
+    """Encode supported metadata without silently stringifying lost objects."""
+    if isinstance(value, np.ndarray):
+        return _json_value(value.tolist())
+    if isinstance(value, np.generic):
+        return _json_value(value.item())
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and np.isfinite(value):
+        return value
+    raise DisorderCompanionLossError(
+        "companion metadata must contain finite JSON values"
+    )
 
 
 def _statistical_model_payload(model: StatisticalDisorderModel) -> dict[str, Any]:
     context = model.context
-    return {
+    payload = {
         "schema": DISORDER_COMPANION_SCHEMA,
         "representation": "statistical_average",
         "correlation_status": model.correlation_status,
-        "correlations": dict(model.correlations),
+        "correlations": _json_value(model.correlations),
         "constraint_report": dict(model.constraint_report),
         "orbit_probabilities": {
             key: float(value) for key, value in model.orbit_probabilities.items()
@@ -2619,10 +3021,17 @@ def _statistical_model_payload(model: StatisticalDisorderModel) -> dict[str, Any
                 "formal_charge": item.formal_charge,
                 "formal_charge_known": bool(item.formal_charge_known),
                 "site_identity": item.site_identity,
+                "mass": item.mass,
+                "chemical_annotations": [
+                    list(pair) for pair in item.chemical_annotations
+                ],
             }
             for item in model.average_sites
         ],
     }
+    if model.metadata.get("cif_binding") is not None:
+        payload["cif_binding"] = copy.deepcopy(model.metadata["cif_binding"])
+    return payload
 
 
 def _molecule_from_payload(payload: Mapping[str, Any]) -> CrystalMolecule | None:
@@ -2637,6 +3046,8 @@ def _molecule_from_payload(payload: Mapping[str, Any]) -> CrystalMolecule | None
         symbols=[str(row["symbol"]) for row in rows],
         positions=np.asarray([row["cartesian"] for row in rows], dtype=float),
     )
+    if not np.all(np.isfinite(atoms.positions)):
+        raise DisorderCompanionLossError("companion atom coordinates must be finite")
     atoms.set_array(
         "isotope", np.asarray([int(row.get("isotope") or 0) for row in rows], dtype=int)
     )
@@ -2656,24 +3067,48 @@ def _molecule_from_payload(payload: Mapping[str, Any]) -> CrystalMolecule | None
     atoms.set_array(
         KEY_LABEL, np.asarray([str(row.get("label") or "") for row in rows], dtype=str)
     )
+    # v2 preserves complete ASE arrays, including masses, provenance, identity
+    # masks, and vector-valued arrays. The atom records remain human-auditable.
+    if "arrays" not in payload:
+        raise DisorderCompanionLossError(
+            "companion alternative lacks lossless atom arrays"
+        )
+    for key in list(atoms.arrays):
+        if key not in {"numbers", "positions"}:
+            del atoms.arrays[key]
+    for key, encoded in payload["arrays"].items():
+        dtype = np.dtype(encoded["dtype"])
+        if key in {"numbers", "positions"} or dtype.kind not in "biufUS":
+            raise DisorderCompanionLossError("invalid companion array name or dtype")
+        array = np.asarray(encoded["data"], dtype=dtype)
+        if (
+            not array.ndim
+            or list(array.shape) != encoded["shape"]
+            or array.shape[0] != len(atoms)
+        ):
+            raise DisorderCompanionLossError(
+                "companion atom array has inconsistent dimensions"
+            )
+        atoms.set_array(str(key), array)
+    _validate_template_annotations(atoms)
     molecule = CrystalMolecule(atoms, check_pbc=False)
-    info = dict(payload.get("info") or {})
-    identities = tuple(
-        str(value) for value in info.get("forward_atom_identities") or []
-    )
-    molecule.info["forward_template_identifier"] = info.get(
-        "forward_template_identifier"
-    )
-    molecule.info["forward_pose_index"] = info.get("forward_pose_index")
-    molecule.info["forward_operation_index"] = info.get("forward_operation_index")
-    molecule.info["forward_atom_identities"] = identities
-    molecule.info["forward_stereo_reassigned"] = bool(
-        info.get("forward_stereo_reassigned", False)
-    )
+    molecule.info = copy.deepcopy(dict(payload.get("info") or {}))
+    if _molecule_atom_payload(molecule) != rows:
+        raise DisorderCompanionLossError(
+            "companion atom annotations disagree with its arrays and mappings"
+        )
+    if (
+        "forward_bonds" in molecule.info
+        and molecule.info["forward_bonds"] != payload["bonds"]
+    ):
+        raise DisorderCompanionLossError(
+            "companion typed bond records disagree with molecular provenance"
+        )
     molecule._graph = nx.Graph()
     molecule._graph.add_nodes_from(range(len(molecule)))
     positions = np.asarray(molecule.get_positions(), dtype=float)
-    for bond in payload.get("bonds") or []:
+    for raw_bond in payload.get("bonds") or []:
+        bond = _bond_record_payload(_normalize_bond_record(raw_bond, len(atoms)))
         left, right = int(bond["left"]), int(bond["right"])
         vector = positions[right] - positions[left]
         molecule._graph.add_edge(
@@ -2709,13 +3144,148 @@ def _alternative_from_payload(payload: Mapping[str, Any]) -> MolecularAlternativ
     )
 
 
+def _validate_restored_marginals(
+    context, alternatives, vacancies, sites, probabilities
+):
+    """Recompute the average from full states; never trust cached marginals."""
+    by_id = {item.alternative_id: item for item in (*alternatives, *vacancies)}
+    if not alternatives or len(by_id) != len(alternatives) + len(vacancies):
+        raise DisorderCompanionLossError(
+            "companion requires nonempty, uniquely identified alternatives"
+        )
+    totals, occupied = {}, {}
+    expected_sites = []
+    for item in (*alternatives, *vacancies):
+        if item.center_fractional.shape != (3,) or not np.all(
+            np.isfinite(item.center_fractional)
+        ):
+            raise DisorderCompanionLossError(
+                "alternative center must be a finite three-vector"
+            )
+        totals[item.orbit_id] = totals.get(item.orbit_id, 0.0) + item.weight
+        occupied.setdefault(item.orbit_id, 0.0)
+        if item.vacancy:
+            if item.alternative_id not in {state.alternative_id for state in vacancies}:
+                raise DisorderCompanionLossError(
+                    "vacancy is in the occupied alternative list"
+                )
+            continue
+        if item.operation_index < 0 or item.operation_index >= len(context.operations):
+            raise DisorderCompanionLossError(
+                "alternative operation index is outside the source group"
+            )
+        occupied[item.orbit_id] += item.weight
+        molecule = item.molecule
+        identities = molecule.info.get("forward_atom_identities", ())
+        if len(identities) != len(molecule):
+            raise DisorderCompanionLossError(
+                "alternative lacks complete atom/site mappings"
+            )
+        for index, fractional in enumerate(
+            molecule.positions @ np.linalg.inv(context.lattice)
+        ):
+            key = _atom_identity_key(molecule, index)
+            charge = key[2]
+            _merge_average_site(
+                expected_sites,
+                AverageAtomSite(
+                    key[0],
+                    fractional,
+                    item.weight,
+                    item.orbit_id,
+                    index,
+                    (item.alternative_id,),
+                    isotope=key[1],
+                    formal_charge=charge[1] if charge[0] == "known" else None,
+                    formal_charge_known=charge[0] == "known",
+                    site_identity=str(identities[index]),
+                    mass=float(molecule.arrays["masses"][index])
+                    if "masses" in molecule.arrays
+                    else None,
+                    chemical_annotations=(
+                        (
+                            "molecular_identity",
+                            molecule.info.get("forward_chemical_identity") or "",
+                        ),
+                        *key[3],
+                    ),
+                ),
+                context.fractional_tolerance,
+            )
+    if any(abs(value - 1.0) > PARTIAL_OCCUPANCY_TOLERANCE for value in totals.values()):
+        raise DisorderCompanionLossError(
+            "companion orbit weights including vacancies must sum to 1"
+        )
+    if (
+        not isinstance(probabilities, Mapping)
+        or set(probabilities) != set(occupied)
+        or any(
+            abs(float(probabilities[key]) - value) > PARTIAL_OCCUPANCY_TOLERANCE
+            for key, value in occupied.items()
+        )
+    ):
+        raise DisorderCompanionLossError(
+            "companion occupation probabilities disagree with its marginal weights"
+        )
+    if len(expected_sites) != len(sites):
+        raise DisorderCompanionLossError(
+            "companion marginal site inventory disagrees with complete alternatives"
+        )
+    remaining = list(sites)
+    for expected in expected_sites:
+        match = next(
+            (
+                index
+                for index, site in enumerate(remaining)
+                if site.orbit_id == expected.orbit_id
+                and _chemical_site_key(site) == _chemical_site_key(expected)
+                and _fractional_equal(
+                    site.fractional, expected.fractional, context.fractional_tolerance
+                )
+            ),
+            None,
+        )
+        if (
+            match is None
+            or abs(remaining[match].occupancy - expected.occupancy)
+            > PARTIAL_OCCUPANCY_TOLERANCE
+            or set(remaining[match].alternative_ids) != set(expected.alternative_ids)
+        ):
+            raise DisorderCompanionLossError(
+                "companion marginal site disagrees with complete alternatives"
+            )
+        remaining.pop(match)
+
+
 def read_statistical_disorder_companion(
     payload: Mapping[str, Any],
+    *,
+    cif_text: str | None = None,
+) -> StatisticalDisorderModel:
+    """Restore a v2 companion and validate complete states and constraints.
+
+    If ``cif_text`` is supplied its UTF-8 SHA-256 must match the writer's
+    binding. Legacy id-only and v1 companions fail explicitly because masses,
+    arbitrary atom arrays, and identity mappings cannot be recovered from them.
+    """
+    try:
+        return _read_statistical_disorder_companion(payload, cif_text=cif_text)
+    except ConstructionValidationError:
+        raise
+    except (KeyError, TypeError, ValueError, IndexError, OverflowError) as error:
+        raise DisorderCompanionLossError(
+            f"invalid disorder companion: {error}"
+        ) from error
+
+
+def _read_statistical_disorder_companion(
+    payload: Mapping[str, Any],
+    *,
+    cif_text: str | None = None,
 ) -> StatisticalDisorderModel:
     """Read a versioned statistical-disorder companion.
 
-    Payloads from older writers that stored only ids and weights raise
-    :class:`DisorderCompanionLossError` instead of synthesizing a graph.
+    The public wrapper turns malformed fields into typed validation errors.
     """
     if (
         not isinstance(payload, Mapping)
@@ -2725,6 +3295,15 @@ def read_statistical_disorder_companion(
             "disorder companion is not schema "
             f"{DISORDER_COMPANION_SCHEMA}; refusing to invent molecular records"
         )
+    if cif_text is not None:
+        binding = payload.get("cif_binding") or {}
+        if (
+            binding.get("sha256")
+            != hashlib.sha256(cif_text.encode("utf-8")).hexdigest()
+        ):
+            raise DisorderCompanionLossError(
+                "companion CIF hash binding is absent or does not match"
+            )
     cell = dict(payload.get("cell") or {})
     if "lattice" not in cell or "operations" not in cell:
         raise DisorderCompanionLossError(
@@ -2774,8 +3353,24 @@ def read_statistical_disorder_companion(
             formal_charge=item.get("formal_charge"),
             formal_charge_known=bool(item.get("formal_charge_known")),
             site_identity=str(item.get("site_identity") or ""),
+            mass=item.get("mass"),
+            chemical_annotations=tuple(
+                tuple(pair) for pair in item.get("chemical_annotations", [])
+            ),
         )
         for item in payload.get("average_sites") or []
+    )
+    correlation_status = str(payload.get("correlation_status") or "local-only")
+    correlations = copy.deepcopy(dict(payload.get("correlations") or {}))
+    report = _validate_disorder_constraints(
+        context, alternatives, vacancies, correlations, correlation_status
+    )
+    _validate_restored_marginals(
+        context,
+        alternatives,
+        vacancies,
+        average_sites,
+        payload.get("orbit_probabilities"),
     )
     return StatisticalDisorderModel(
         context=context,
@@ -2785,16 +3380,21 @@ def read_statistical_disorder_companion(
             str(key): float(value)
             for key, value in dict(payload.get("orbit_probabilities") or {}).items()
         },
-        correlation_status=str(payload.get("correlation_status") or "local-only"),
-        correlations=dict(payload.get("correlations") or {}),
+        correlation_status=correlation_status,
+        correlations=correlations,
         metadata={
             "representation": "statistical_average",
             "forward_context": context,
             "source_symmetry": context.to_metadata(),
             "restored_from_companion": True,
+            **(
+                {"cif_binding": copy.deepcopy(payload["cif_binding"])}
+                if "cif_binding" in payload
+                else {}
+            ),
         },
         vacancies=vacancies,
-        constraint_report=dict(payload.get("constraint_report") or {}),
+        constraint_report=report,
     )
 
 
