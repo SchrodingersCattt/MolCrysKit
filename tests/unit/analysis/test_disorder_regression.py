@@ -120,6 +120,7 @@ class CifCase:
     expected_element_totals: Mapping[str, int] | None = None
     expected_nh4_count: int = 0
     min_interatomic_distance: float = 0.65
+    minimum_random_replicas: int = 2
 
 
 CASES: list[CifCase] = [
@@ -134,6 +135,11 @@ CASES: list[CifCase] = [
     CifCase(
         "synthetic-water-orientation", "synthetic_water_orientation.cif", 3,
         expected_element_totals={"H": 2, "O": 1},
+    ),
+    CifCase(
+        "forward-methane-i43m", "forward_methane_i43m.cif", 10,
+        expected_element_totals={"C": 2, "H": 8},
+        minimum_random_replicas=1,  # Ordered input has exactly one state.
     ),
     # --- locked baseline (currently green on main) ---
     CifCase(
@@ -553,7 +559,9 @@ def test_disorder_random_replica_chemistry_validity(
     assert os.path.exists(cif_path), f"missing CIF fixture: {case.cif}"
 
     crystals = _solve_cached(cif_path, "random", 3, 42)
-    assert len(crystals) >= 2, f"{case.name}: random returned too few replicas"
+    assert len(crystals) >= case.minimum_random_replicas, (
+        f"{case.name}: random returned too few replicas"
+    )
 
     for idx, crystal in enumerate(crystals[1:], start=1):
         n_atoms = crystal.get_total_nodes()
@@ -629,6 +637,14 @@ def _assert_matches_optimal(case: CifCase, crystal, context: str) -> None:
 # ---------------------------------------------------------------------------
 # Targeted formula assertions (catch silent topology drift)
 # ---------------------------------------------------------------------------
+
+
+def test_forward_methane_i43m_topology(cif_data_dir: str):
+    """Special-site bonds retain two complete CH4 components."""
+    path = os.path.join(cif_data_dir, "forward_methane_i43m.cif")
+    _, n_atoms, _, formulas = _resolve(path)
+    assert n_atoms == 10
+    assert formulas == Counter({"C1H4": 2})
 
 
 def test_olex2_embedded_fcf_topology(cif_data_dir: str):
