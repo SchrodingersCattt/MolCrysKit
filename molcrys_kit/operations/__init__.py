@@ -138,7 +138,36 @@ from .forward import (
     select_ordered_realization,
 )
 
+from .chemical_edit import (
+    ChemicalAtomMapping,
+    ChemicalEdit,
+    CrystalEditSpec,
+    CrystalInventory,
+    PlacementPolicy,
+    PackingTransferPlan,
+    CounterfactualStatus,
+    CounterfactualResult,
+    RelaxationProtocol,
+    apply_chemical_edit,
+    transfer_packing,
+    periodic_clash_diagnostics,
+    write_cf0,
+)
+
 __all__ = [
+    "ChemicalAtomMapping",
+    "ChemicalEdit",
+    "CrystalEditSpec",
+    "CrystalInventory",
+    "PlacementPolicy",
+    "PackingTransferPlan",
+    "CounterfactualStatus",
+    "CounterfactualResult",
+    "RelaxationProtocol",
+    "apply_chemical_edit",
+    "transfer_packing",
+    "periodic_clash_diagnostics",
+    "write_cf0",
     "apply_gaussian_displacement_molecule",
     "apply_gaussian_displacement_crystal",
     "apply_directional_displacement",
