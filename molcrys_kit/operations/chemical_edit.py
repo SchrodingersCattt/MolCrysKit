@@ -21,6 +21,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from math import gcd
 from pathlib import Path
 from typing import Any
 
@@ -227,9 +228,11 @@ class PackingTransferPlan:
 
     Policies are keyed by role. Default pairing is by role then molecule order.
     Explicit site_mapping contains (composition index, template index) pairs
-    and must be a complete role-preserving bijection. Different role counts
-    are flagged composition_change and refused: vacancy/insertion policies
-    are not implemented. Different chemistry at equal counts is supported.
+    and must be a complete role-preserving bijection. Roles and their counts
+    are arbitrary caller input. Reduced role stoichiometry is compared separately
+    from full-cell multiplicity. Unequal cell counts require an explicit expansion
+    or vacancy/insertion policy and are refused; no supercell is built implicitly.
+    Different chemistry at equal counts is supported.
     """
 
     composition_inventory: CrystalInventory
@@ -852,6 +855,52 @@ def apply_chemical_edit(
         return _refuse(record, str(exc))
 
 
+def _compare_transfer_inventories(composition, template, source_inv, template_inv):
+    """Compare arbitrary compositions independently of full-cell multiplicity.
+
+    The GCD of role counts defines the common reduction factor for each cell.
+    Cross multiplication compares element and charge inventories exactly, even
+    when a reduced formula would have fractional element counts.
+    """
+    source_counts = Counter(source_inv.roles)
+    template_counts = Counter(template_inv.roles)
+    source_units = gcd(*source_counts.values())
+    template_units = gcd(*template_counts.values())
+    source_reduced = {
+        role: count // source_units for role, count in sorted(source_counts.items())
+    }
+    template_reduced = {
+        role: count // template_units for role, count in sorted(template_counts.items())
+    }
+    source_formula = _formula(composition)
+    template_formula = _formula(template)
+    chemistry_changed = {
+        element: count * template_units for element, count in source_formula.items()
+    } != {
+        element: count * source_units for element, count in template_formula.items()
+    } or sum(source_inv.charges) * template_units != sum(
+        template_inv.charges
+    ) * source_units
+    stoichiometry_changed = source_reduced != template_reduced
+    return {
+        "role_counts": {
+            "composition": dict(source_counts),
+            "template": dict(template_counts),
+        },
+        "reduced_role_counts": {
+            "composition": source_reduced,
+            "template": template_reduced,
+        },
+        "cell_multiplicities": {
+            "composition": source_units,
+            "template": template_units,
+        },
+        "site_count_change": source_counts != template_counts,
+        "stoichiometry_change": stoichiometry_changed,
+        "composition_change": stoichiometry_changed or chemistry_changed,
+    }
+
+
 def transfer_packing(
     composition: MolecularCrystal,
     template: MolecularCrystal,
@@ -866,15 +915,22 @@ def transfer_packing(
     try:
         _validate(composition, source_inv)
         _validate(template, template_inv)
-        counts_changed = Counter(source_inv.roles) != Counter(template_inv.roles)
-        record["composition_change"] = (
-            counts_changed
-            or _formula(composition) != _formula(template)
-            or sum(source_inv.charges) != sum(template_inv.charges)
+        comparison = _compare_transfer_inventories(
+            composition, template, source_inv, template_inv
         )
-        if counts_changed:
+        record["inventory_comparison"] = comparison
+        record["composition_change"] = comparison["composition_change"]
+        if comparison["stoichiometry_change"]:
+            record["refusal_code"] = "STOICHIOMETRY_POLICY_REQUIRED"
             raise ValueError(
                 "role stoichiometry changes require an explicit vacancy/insertion policy; unsupported"
+            )
+        if comparison["site_count_change"]:
+            record["refusal_code"] = "CELL_MULTIPLICITY_MAPPING_REQUIRED"
+            raise ValueError(
+                "equal reduced role stoichiometry has different full-cell multiplicities; "
+                "provide commensurate full cells for a complete site bijection; "
+                "implicit expansion or removal is unsupported"
             )
         pairs = list(plan.site_mapping)
         if not pairs:

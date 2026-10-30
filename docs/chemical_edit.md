@@ -1,9 +1,9 @@
 # Typed chemical edits and packing transfer
 
 `molcrys_kit.operations` provides an additive construction API for complete,
-ordered full cells. It implements the construction contract in #204 and the
-initial kernel of #201. A constructed CF0 is a hypothetical frozen geometry;
-it establishes neither a local minimum nor experimental realizability.
+ordered full cells. Related API discussions: #204 and #201. A constructed CF0 is
+a hypothetical frozen geometry; it establishes neither a local minimum nor
+experimental realizability.
 
 The library uses the existing `CrystalMolecule` chemistry, graphs, arrays and
 forward-builder anchor convention. Supply complete replacement geometry and
@@ -12,9 +12,10 @@ repair chemistry, regenerate hydrogen, or select a potential.
 
 ## Generic synthetic example
 
-This example builds a synthetic ABX3-type cell with dication role A, monocation
-role B and monoanion role X, then edits every B site in one transaction.
-Coordinates are illustrative and are not an experimental structure.
+This example builds a synthetic cell containing an ion pair and neutral guests,
+then edits every molecule labelled `counterion` in one transaction. Role labels,
+role counts and the number of distinct roles are supplied by the caller.
+Coordinates are illustrative.
 
 ```python
 import numpy as np
@@ -35,14 +36,12 @@ tetrahedron = np.array([
     [1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1],
 ]) / np.sqrt(3)
 ammonium = molecule("NH4", np.vstack([[0, 0, 0], 1.02 * tetrahedron]))
-components = [molecule("Ca", [[3, 3, 3]]), ammonium.copy()]
-components[1].positions += [10, 10, 10]
-components += [molecule("Cl", [p]) for p in (
-    [3, 10, 3], [10, 3, 10], [3, 3, 10],
-)]
+components = [ammonium.copy(), molecule("Cl", [[3, 3, 3]])]
+components[0].positions += [10, 10, 10]
+components += [molecule("He", [p]) for p in ([3, 10, 3], [10, 3, 10])]
 parent = MolecularCrystal(np.eye(3) * 20, components)
 inventory = CrystalInventory(
-    roles=("A", "B", "X", "X", "X"), charges=(2, 1, -1, -1, -1),
+    roles=("counterion", "anion", "guest", "guest"), charges=(1, -1, 0, 0),
 )
 replacement = molecule("NH3OH", [
     [0, 0, 0], [-.34, .96, 0], [-.34, -.48, .83], [-.34, -.48, -.83],
@@ -57,7 +56,7 @@ edit = ChemicalEdit(
     mapping=ChemicalAtomMapping(((0, 0),)),  # retain the nitrogen identity
 )
 result = apply_chemical_edit(
-    parent, inventory, CrystalEditSpec(edit, role="B"), seed=42,
+    parent, inventory, CrystalEditSpec(edit, role="counterion"), seed=42,
 )
 if result.status == CounterfactualStatus.CONSTRUCTED:
     paths = write_cf0(result, "chemical_edit_output")
@@ -66,8 +65,8 @@ else:
     print(result.status.value, result.provenance["reason"])
 ```
 
-Adding additional B molecules and corresponding inventory entries includes them
-in the same role-wide edit and provenance record. `scope="sites", indices=(i,)`
+Additional molecules with the selected role and corresponding inventory entries
+join the same role-wide edit and provenance record. `scope="sites", indices=(i,)`
 requests a local defect. `scope="orbit", indices=(i,)` expands seed sites to all
 members of their declared orbit IDs. Supply `CrystalInventory.orbit_ids` or use
 the `forward_pose_index` evidence from forward construction. Missing evidence
@@ -143,21 +142,35 @@ plan = PackingTransferPlan(
 transferred = transfer_packing(P, Q, plan, seed=42)
 ```
 
-Each role must have the same count in P and Q. This supports, for example,
-transfers between two distinct synthetic 2:1:5 cells. The template supplies the
-cell and anchors; composition supplies complete molecules and charges. Pairing
-uses role then input order. Supply a complete `site_mapping=((p_index, q_index),
-...)` bijection to choose another role-preserving assignment, and per-role
-`mappings` for retained atom identities. Missing placement policies or incomplete
-or role-changing assignments return `INCOMPATIBLE`.
+Role names, role counts and the number of roles are unrestricted. The current
+placement contract requires a complete role-preserving bijection between the
+supplied full cells. The template supplies the cell and anchors; composition
+supplies complete molecules and charges. Pairing uses role then input order.
+Supply `site_mapping=((p_index, q_index), ...)` to choose another complete
+bijection, and per-role `mappings` for retained atom identities. Missing placement
+policies or incomplete or role-changing assignments return `INCOMPATIBLE`.
 
-Different element inventories or role counts set `composition_change=true`.
-Different role counts require a vacancy/insertion policy and currently return
-`INCOMPATIBLE`, even if an incomplete mapping was supplied. There is no implicit
-supercell multiplication, deletion or insertion. Different chemistry at equal
-role counts is supported; output charge and formula default to P's inventory.
-Do not compare raw energies across unlike compositions without a common
-thermodynamic reference.
+Provenance separates reduced stoichiometry from full-cell multiplicity. Each
+cell's role counts are reduced by their greatest common divisor; element and
+charge inventories are compared at that same scale. `inventory_comparison`
+records raw counts, reduced counts, reduction factors, `site_count_change`,
+`stoichiometry_change` and `composition_change`. Reduction factors describe the
+declared role inventory; they are not inferred crystallographic Z values.
+
+Proportionally scaling an otherwise identical full cell does not by itself set
+`composition_change=true`. If only the full-cell multiplicities differ, transfer
+returns `INCOMPATIBLE` with `CELL_MULTIPLICITY_MAPPING_REQUIRED`: prepare
+commensurate input cells explicitly so every molecule has one destination.
+The API does not build supercells or discard molecules implicitly. Matching
+expanded cells remain supported for any role inventory.
+
+Changed reduced role counts set `stoichiometry_change=true` and
+`composition_change=true`, returning `STOICHIOMETRY_POLICY_REQUIRED` until an
+explicit vacancy/insertion policy is supported. Different chemistry or charge
+per reduced inventory also sets `composition_change=true`, even at unchanged
+role stoichiometry. At matching full-cell counts, output formula and charge
+default to the supplied composition's inventory. Do not compare raw energies
+across unlike compositions without a common thermodynamic reference.
 
 ## Results, export and refusal semantics
 

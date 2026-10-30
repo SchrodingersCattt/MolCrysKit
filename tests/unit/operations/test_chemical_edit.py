@@ -129,7 +129,7 @@ def assert_snapshot(crystal, saved):
         assert m.info == info
 
 
-def test_role_wide_unequal_size_abx3_one_record_deterministic_immutable():
+def test_role_wide_unequal_size_one_record_deterministic_immutable():
     parent, inventory = synthetic_cell(repeats=2)
     parent.molecules[0].info["nested"] = {"values": [1, 2]}
     saved = snapshot(parent)
@@ -213,7 +213,7 @@ def test_silver_ammonium_explicit_policy_supported_both_directions():
     assert "element" in refused.provenance["reason"]
 
 
-def test_same_stoichiometry_transfer_two_different_215_cells():
+def test_multi_component_transfer_preserves_template_lattice():
     composition, ci = synthetic_cell((2, 1, 5), chemistry=True)
     template, ti = synthetic_cell((2, 1, 5), skew=True)
     a_saved, b_saved = snapshot(composition), snapshot(template)
@@ -625,3 +625,192 @@ def test_contiguous_target_rebases_legacy_boundary_bond_geometry():
             placed.positions[bond["right"]] - placed.positions[bond["left"]],
         )
     assert target.info["bond_records"][0]["vector"] == [99.0, 0, 0]
+
+
+def arbitrary_inventory_cell(entries, *, skew=False):
+    """Build every role/species/charge/count directly from the test's input."""
+    size = sum(count for _, _, _, count in entries)
+    width = int(np.ceil(size ** (1 / 3)))
+    lattice = np.eye(3) * (8 * width)
+    if skew:
+        lattice[1, 0] = 2
+    molecules, roles, charges = [], [], []
+    for role, symbol, charge, count in entries:
+        for _ in range(count):
+            index = len(molecules)
+            molecule = ion(symbol)
+            grid = np.array(
+                [index % width, (index // width) % width, index // width**2]
+            )
+            fractional = (grid + 0.4) / width
+            if skew:
+                fractional += [0.03, 0.02, 0.01]
+            molecule.positions += fractional @ lattice
+            molecule.info["test_role"] = role
+            molecule.info["test_charge"] = charge
+            molecules.append(molecule)
+            roles.append(role)
+            charges.append(charge)
+    return MolecularCrystal(lattice, molecules), CrystalInventory(
+        tuple(roles), tuple(charges)
+    )
+
+
+def expanded_input(crystal, factor):
+    """Caller explicitly builds a supercell before invoking packing transfer."""
+    from molcrys_kit.operations import create_supercell
+
+    expanded = create_supercell(crystal, (factor, 1, 1))
+    inventory = CrystalInventory(
+        tuple(m.info["test_role"] for m in expanded.molecules),
+        tuple(m.info["test_charge"] for m in expanded.molecules),
+    )
+    return expanded, inventory
+
+
+ARBITRARY_INVENTORIES = [
+    (("charged guest", "Na", 1, 4),),
+    (("neutral/first", "He", 0, 3), ("neutral:second", "Ne", 0, 2)),
+    (
+        ("positive ion", "Na", 1, 2),
+        ("negative-ion", "Cl", -1, 2),
+        ("guest α", "He", 0, 3),
+        ("other/guest", "Ne", 0, 1),
+    ),
+]
+
+
+@pytest.mark.parametrize("entries", ARBITRARY_INVENTORIES)
+def test_transfer_accepts_arbitrary_role_labels_and_stoichiometries(entries):
+    composition, ci = arbitrary_inventory_cell(entries)
+    template, ti = arbitrary_inventory_cell(entries, skew=True)
+    plan = PackingTransferPlan(
+        ci, ti, {role: PlacementPolicy("com", "com") for role in ci.roles}
+    )
+    result = transfer_packing(composition, template, plan, seed=19)
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert Counter(result.inventory.roles) == Counter(ci.roles)
+    assert result.provenance["charge"] == sum(ci.charges)
+    assert not result.provenance["composition_change"]
+    comparison = result.provenance["inventory_comparison"]
+    assert not comparison["site_count_change"]
+    assert not comparison["stoichiometry_change"]
+    for j, molecule in enumerate(result.crystal.molecules):
+        np.testing.assert_allclose(
+            molecule.get_center_of_mass(), template.molecules[j].get_center_of_mass()
+        )
+    # Role-wide chemical editing also treats the caller's labels as opaque.
+    role, symbol, charge, count = entries[0]
+    target = ion("K" if symbol == "Na" else "Ar")
+    edit = ChemicalEdit(target, symbol, charge, charge, PlacementPolicy(0, 0))
+    changed = apply_chemical_edit(
+        template, ti, CrystalEditSpec(edit, role=role), seed=19
+    )
+    assert changed.status == CounterfactualStatus.CONSTRUCTED
+    assert len(changed.provenance["selected_sites"]) == count
+    assert all(
+        changed.inventory.roles[i] == role for i in changed.provenance["selected_sites"]
+    )
+
+
+@pytest.mark.parametrize("entries", ARBITRARY_INVENTORIES)
+@pytest.mark.parametrize("factor", [2, 3])
+def test_scaled_input_counts_are_mapping_refusals_without_composition_change(
+    entries, factor
+):
+    original, original_inventory = arbitrary_inventory_cell(entries)
+    expanded, expanded_inventory = expanded_input(original, factor)
+    saved = snapshot(expanded)
+    for source, ci, template, ti in (
+        (original, original_inventory, expanded, expanded_inventory),
+        (expanded, expanded_inventory, original, original_inventory),
+    ):
+        result = transfer_packing(
+            source, template, PackingTransferPlan(ci, ti, {}), seed=23
+        )
+        assert result.status == CounterfactualStatus.INCOMPATIBLE
+        assert result.crystal is None
+        assert result.provenance["refusal_code"] == "CELL_MULTIPLICITY_MAPPING_REQUIRED"
+        assert not result.provenance["composition_change"]
+        comparison = result.provenance["inventory_comparison"]
+        assert comparison["site_count_change"]
+        assert not comparison["stoichiometry_change"]
+        assert (
+            comparison["reduced_role_counts"]["composition"]
+            == comparison["reduced_role_counts"]["template"]
+        )
+        assert (
+            "implicit expansion or removal is unsupported"
+            in result.provenance["reason"]
+        )
+    assert_snapshot(expanded, saved)
+
+
+@pytest.mark.parametrize("entries", ARBITRARY_INVENTORIES)
+def test_matching_expanded_input_cells_support_transfer(entries):
+    source, _ = arbitrary_inventory_cell(entries)
+    template, _ = arbitrary_inventory_cell(entries, skew=True)
+    source, ci = expanded_input(source, 2)
+    template, ti = expanded_input(template, 2)
+    result = transfer_packing(
+        source,
+        template,
+        PackingTransferPlan(
+            ci, ti, {role: PlacementPolicy("com", "com") for role in ci.roles}
+        ),
+        seed=11,
+    )
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert len(result.crystal.molecules) == 2 * sum(entry[3] for entry in entries)
+    assert not result.provenance["composition_change"]
+    assert result.provenance["charge"] == sum(ci.charges)
+    np.testing.assert_array_equal(result.crystal.lattice, template.lattice)
+
+
+def test_scaled_chemistry_change_is_distinct_from_cell_multiplicity():
+    source, ci = arbitrary_inventory_cell(
+        (("first guest", "He", 0, 3), ("second guest", "Ne", 0, 2))
+    )
+    template, _ = arbitrary_inventory_cell(
+        (("first guest", "Ar", 0, 3), ("second guest", "Ne", 0, 2))
+    )
+    template, ti = expanded_input(template, 2)
+    result = transfer_packing(source, template, PackingTransferPlan(ci, ti, {}), seed=0)
+    assert result.status == CounterfactualStatus.INCOMPATIBLE
+    assert result.provenance["refusal_code"] == "CELL_MULTIPLICITY_MAPPING_REQUIRED"
+    assert result.provenance["composition_change"]
+    assert not result.provenance["inventory_comparison"]["stoichiometry_change"]
+
+
+def test_changed_reduced_arbitrary_inventory_reports_stoichiometry_policy():
+    source, ci = arbitrary_inventory_cell(
+        (("first guest", "He", 0, 3), ("second guest", "Ne", 0, 2))
+    )
+    template, ti = arbitrary_inventory_cell(
+        (("first guest", "He", 0, 4), ("second guest", "Ne", 0, 2))
+    )
+    result = transfer_packing(source, template, PackingTransferPlan(ci, ti, {}), seed=0)
+    assert result.status == CounterfactualStatus.INCOMPATIBLE
+    assert result.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_REQUIRED"
+    assert result.provenance["composition_change"]
+    assert result.provenance["inventory_comparison"]["stoichiometry_change"]
+
+
+def test_proportional_mixed_species_role_inventory_uses_exact_comparison():
+    source, ci = arbitrary_inventory_cell(
+        (("shared role", "He", 0, 2), ("shared role", "Ne", 0, 1))
+    )
+    for helium_count, neon_count, changed in ((4, 2, False), (5, 1, True)):
+        template, ti = arbitrary_inventory_cell(
+            (
+                ("shared role", "He", 0, helium_count),
+                ("shared role", "Ne", 0, neon_count),
+            )
+        )
+        result = transfer_packing(
+            source, template, PackingTransferPlan(ci, ti, {}), seed=0
+        )
+        assert result.status == CounterfactualStatus.INCOMPATIBLE
+        assert result.provenance["refusal_code"] == "CELL_MULTIPLICITY_MAPPING_REQUIRED"
+        assert result.provenance["composition_change"] is changed
+        assert not result.provenance["inventory_comparison"]["stoichiometry_change"]
