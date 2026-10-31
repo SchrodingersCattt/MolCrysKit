@@ -10,7 +10,8 @@ This module selects chemically allowed realizations without resolving a full
 disorder ensemble:
 
 * ``major`` keeps, within each exclusive family, the component with the
-  largest occupancy sum. Ties break by atom count, then by component label.
+  largest occupancy sum. Ties break by atom count, then by component label
+  (the greater label wins), then by the smaller atom index.
 * ``exclusive`` emits one realization per alternative. Other families stay on
   their major component, so the result is one state per alternative rather
   than the full Cartesian product.
@@ -18,15 +19,26 @@ disorder ensemble:
 
 Labelled CIF assemblies (``_atom_site_disorder_assembly``) are exclusive by
 definition: different disorder groups in one assembly cannot be occupied
-together. Unlabelled groups, and group-0 sites that differ only by occupancy,
-are exclusive only when their atoms approach within
-``DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]``. Distant partial groups stay
-in the same realization so an independent substituent is not discarded.
+together, even when those groups are far apart.
 
-``find_polyhedra`` defaults to ``major``. ``identify_molecules`` does too.
-Structure readers (``read_mol_crystal``, ``MolecularCrystal.from_ase``) default
-to ``as_refined`` so a read still contains every refined coordinate; shell
-construction applies ``major`` to those molecules itself.
+Unlabelled disorder groups are not coupled by the PART label alone. Atoms that
+share a label are split into local clusters (within
+``DISORDER_CONFIG["SYMMETRY_SITE_RADIUS"]``). Clusters of different labels
+compete only when they approach within
+``DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]``. A distant second site therefore
+keeps its own majority orientation.
+
+Group-0 atoms that differ only by occupancy are alternatives only when the
+occupancy values sum to at most one and some pair lies well below a covalent
+bond (``OCCUPANCY_ALTERNATIVE_BOND_FRACTION`` of the bonding threshold).
+Ordinary bonded neighbours with unequal partial occupancy stay together.
+Equal occupancies use the same short-contact test inside the class; the
+tie-break above picks the atom with the smaller index.
+
+``find_polyhedra`` defaults to ``major`` for the central site, and shell
+vertices always use the major ligand component. ``identify_molecules`` and
+the structure readers default to ``as_refined`` so a general identification
+does not drop refined atoms.
 """
 
 from __future__ import annotations
@@ -131,6 +143,7 @@ def disorder_realizations(
         groups,
         assemblies,
         _positions(atoms, n_atoms),
+        _symbols(atoms, n_atoms),
         spatial_alternatives=spatial_alternatives,
     )
     if not families:
@@ -299,11 +312,22 @@ def _competes(occupancies: np.ndarray, groups: Iterable[str]) -> bool:
     return bool(np.any(partial | nonzero))
 
 
+def _symbols(atoms, n_atoms: int) -> list[str]:
+    getter = getattr(atoms, "get_chemical_symbols", None)
+    if getter is None:
+        return ["X"] * n_atoms
+    symbols = [str(symbol) for symbol in getter()]
+    if len(symbols) != n_atoms:
+        return ["X"] * n_atoms
+    return symbols
+
+
 def _exclusive_families(
     occupancies: np.ndarray,
     groups: np.ndarray,
     assemblies: np.ndarray,
     positions: np.ndarray,
+    symbols: Sequence[str],
     *,
     spatial_alternatives: bool,
 ) -> list[list[_Component]]:
@@ -346,17 +370,36 @@ def _exclusive_families(
     if not spatial_alternatives:
         return families
 
-    cutoff = float(DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"])
-    blank_components = [
-        _component(f"group:{label}", label, indices, occupancies)
-        for label, indices in blank_groups.items()
-    ]
-    families.extend(_overlapping_families(blank_components, positions, cutoff))
+    clash = float(DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"])
+    site_radius = float(DISORDER_CONFIG["SYMMETRY_SITE_RADIUS"])
+    blank_components: list[_Component] = []
+    for label, indices in blank_groups.items():
+        clusters = _spatial_clusters(indices, positions, site_radius)
+        for cluster in clusters:
+            site_tag = "" if len(clusters) == 1 else f":site:{int(cluster.min())}"
+            blank_components.append(
+                _component(
+                    f"group:{label}{site_tag}",
+                    label,
+                    cluster,
+                    occupancies,
+                )
+            )
+    families.extend(
+        _overlapping_families(
+            blank_components,
+            positions,
+            clash,
+            require_different_labels=True,
+        )
+    )
     occupancy_components = [
         _component(f"occupancy:{label}", label, indices, occupancies)
         for label, indices in occupancy_classes.items()
     ]
-    families.extend(_overlapping_families(occupancy_components, positions, cutoff))
+    families.extend(
+        _occupancy_families(occupancy_components, positions, symbols, occupancies)
+    )
     return families
 
 
@@ -380,6 +423,8 @@ def _overlapping_families(
     components: Sequence[_Component],
     positions: np.ndarray,
     cutoff: float,
+    *,
+    require_different_labels: bool = False,
 ) -> list[list[_Component]]:
     if len(components) <= 1:
         return []
@@ -398,6 +443,8 @@ def _overlapping_families(
             parent[right_root] = left_root
 
     for left, right in combinations(range(len(components)), 2):
+        if require_different_labels and components[left].label == components[right].label:
+            continue
         distance = _min_distance(
             positions,
             components[left].indices,
@@ -412,22 +459,255 @@ def _overlapping_families(
     return [members for members in clusters.values() if len(members) > 1]
 
 
+def _spatial_clusters(
+    indices: Sequence[int],
+    positions: np.ndarray,
+    cutoff: float,
+) -> list[np.ndarray]:
+    """Split ``indices`` into clusters whose members meet within ``cutoff``."""
+    chosen = np.asarray(list(indices), dtype=int)
+    if chosen.size <= 1:
+        return [chosen]
+    from scipy.spatial import cKDTree
+
+    parent = np.arange(chosen.size)
+
+    def _find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = int(parent[index])
+        return index
+
+    def _union(left: int, right: int) -> None:
+        left_root = _find(left)
+        right_root = _find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for left, right in cKDTree(positions[chosen]).query_pairs(float(cutoff)):
+        _union(int(left), int(right))
+    buckets: dict[int, list[int]] = defaultdict(list)
+    for local, global_index in enumerate(chosen):
+        buckets[_find(local)].append(int(global_index))
+    return [np.asarray(members, dtype=int) for members in buckets.values()]
+
+
+def _occupancy_families(
+    components: Sequence[_Component],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+) -> list[list[_Component]]:
+    """Exclusive families for group-0 partial occupancies.
+
+    Different occupancy values compete only when they sum to at most one and
+    a pair sits well below a covalent bond. One occupancy value is split only
+    where atoms themselves sit that close; bonded neighbours are left intact.
+    """
+    if not components:
+        return []
+    parent = list(range(len(components)))
+
+    def _find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def _union(left: int, right: int) -> None:
+        left_root = _find(left)
+        right_root = _find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for left, right in combinations(range(len(components)), 2):
+        try:
+            left_occ = float(components[left].label)
+            right_occ = float(components[right].label)
+        except ValueError:
+            continue
+        if left_occ + right_occ > 1.0 + PARTIAL_OCCUPANCY_TOLERANCE:
+            continue
+        if _has_alternative_contact(
+            positions,
+            symbols,
+            components[left].indices,
+            components[right].indices,
+        ):
+            _union(left, right)
+
+    clusters: dict[int, list[_Component]] = defaultdict(list)
+    for index, component in enumerate(components):
+        clusters[_find(index)].append(component)
+    families: list[list[_Component]] = []
+    consumed: set[int] = set()
+    for members in clusters.values():
+        if len(members) <= 1:
+            continue
+        families.append(members)
+        consumed.update(id(member) for member in members)
+    for component in components:
+        if id(component) in consumed:
+            continue
+        families.extend(
+            _equal_occupancy_splits(component, positions, symbols, occupancies)
+        )
+    return families
+
+
+def _equal_occupancy_splits(
+    component: _Component,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+) -> list[list[_Component]]:
+    """Split one occupancy class at short alternative-site contacts."""
+    indices = component.indices
+    if indices.size < 2:
+        return []
+    edges = _alternative_edges(indices, positions, symbols)
+    if not edges:
+        return []
+    parent = list(range(indices.size))
+
+    def _find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def _union(left: int, right: int) -> None:
+        left_root = _find(left)
+        right_root = _find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for left, right in edges:
+        _union(left, right)
+    buckets: dict[int, list[int]] = defaultdict(list)
+    for local, global_index in enumerate(indices):
+        buckets[_find(local)].append(int(global_index))
+    families: list[list[_Component]] = []
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        families.append(
+            [
+                _component(
+                    f"occupancy:{component.label}:atom:{atom}",
+                    component.label,
+                    [atom],
+                    occupancies,
+                )
+                for atom in members
+            ]
+        )
+    return families
+
+
+def _alternative_cutoff(symbol_i: str, symbol_j: str) -> float:
+    """Distance below which a partial pair is an alternative site, not a bond."""
+    from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
+    from ..interactions.bonding import get_bonding_threshold
+
+    radius_i = get_atomic_radius(symbol_i) if has_atomic_radius(symbol_i) else 0.5
+    radius_j = get_atomic_radius(symbol_j) if has_atomic_radius(symbol_j) else 0.5
+    bond = get_bonding_threshold(
+        radius_i,
+        radius_j,
+        is_metal_element(symbol_i),
+        is_metal_element(symbol_j),
+    )
+    fraction = float(DISORDER_CONFIG["OCCUPANCY_ALTERNATIVE_BOND_FRACTION"])
+    return float(bond) * fraction
+
+
+def _alternative_edges(
+    indices: np.ndarray,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+) -> list[tuple[int, int]]:
+    """Local index pairs closer than the alternative-site cutoff."""
+    if indices.size < 2:
+        return []
+    from scipy.spatial import cKDTree
+
+    points = positions[indices]
+    local_symbols = [symbols[int(index)] for index in indices]
+    search = max(
+        _alternative_cutoff(left, right)
+        for left in set(local_symbols)
+        for right in set(local_symbols)
+    )
+    if search <= 0:
+        return []
+    edges: list[tuple[int, int]] = []
+    for left, right in cKDTree(points).query_pairs(search):
+        distance = float(np.linalg.norm(points[left] - points[right]))
+        cutoff = _alternative_cutoff(local_symbols[left], local_symbols[right])
+        if distance <= cutoff:
+            edges.append((int(left), int(right)))
+    return edges
+
+
+def _has_alternative_contact(
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    left: np.ndarray,
+    right: np.ndarray,
+) -> bool:
+    """True when some cross pair is an alternative site rather than a bond."""
+    if left.size == 0 or right.size == 0:
+        return False
+    from scipy.spatial import cKDTree
+
+    left_symbols = {symbols[int(index)] for index in left}
+    right_symbols = {symbols[int(index)] for index in right}
+    search = max(
+        _alternative_cutoff(left_symbol, right_symbol)
+        for left_symbol in left_symbols
+        for right_symbol in right_symbols
+    )
+    if search <= 0:
+        return False
+    neighbours = cKDTree(positions[right]).query_ball_point(positions[left], search)
+    right_positions = positions[right]
+    for local_left, hits in enumerate(neighbours):
+        if not hits:
+            continue
+        origin = positions[left[local_left]]
+        left_symbol = symbols[int(left[local_left])]
+        for local_right in hits:
+            distance = float(np.linalg.norm(origin - right_positions[local_right]))
+            cutoff = _alternative_cutoff(left_symbol, symbols[int(right[local_right])])
+            if distance <= cutoff:
+                return True
+    return False
+
+
 def _min_distance(
     positions: np.ndarray,
     left: np.ndarray,
     right: np.ndarray,
 ) -> float:
+    """Nearest distance between two index sets without an ``n × m`` matrix."""
     if left.size == 0 or right.size == 0:
         return float("inf")
-    delta = positions[left][:, None, :] - positions[right][None, :, :]
-    return float(np.linalg.norm(delta, axis=-1).min())
+    from scipy.spatial import cKDTree
+
+    if left.size > right.size:
+        left, right = right, left
+    distances, _ = cKDTree(positions[right]).query(positions[left], k=1)
+    return float(np.min(distances))
 
 
 def _winner(family: Sequence[_Component]) -> _Component:
     """Highest occupancy sum, then more atoms, then the greater label.
 
     The label tie-break matches the historical assembly mask, which used the
-    disorder-group text as the last key of ``max``.
+    disorder-group text as the last key of ``max``. A remaining tie keeps the
+    component whose lowest atom index is smaller, so equal occupancies resolve
+    without depending on dict order.
     """
     return max(
         family,
@@ -435,6 +715,7 @@ def _winner(family: Sequence[_Component]) -> _Component:
             component.occupancy_sum,
             component.n_atoms,
             component.label,
+            -int(component.indices.min()) if component.indices.size else 0,
         ),
     )
 

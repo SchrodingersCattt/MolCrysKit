@@ -1103,9 +1103,15 @@ major = read_mol_crystal(
 )
 ```
 
-`identify_molecules(..., disorder_policy="exclusive")` returns one molecule per
-orientation, copying ordered atoms into each. `disorder_policy="as_refined"`
-keeps the fused component. The same names are accepted by
-`disorder_realizations`. Unlabelled disorder groups are treated as alternatives
-only when their atoms approach within the disorder clash threshold, so two
-unrelated partial substituents that sit far apart are not collapsed.
+`identify_molecules` and `identify_molecule_indices` default to
+`disorder_policy="as_refined"` and keep every refined atom. Pass
+`disorder_policy="major"` or `"exclusive"` only when the returned molecules
+should already be occupied states. `disorder_policy="exclusive"` returns one
+molecule per orientation, copying ordered atoms into each.
+
+Unlabelled PART labels are resolved per site. Two far-apart substituents that
+reuse the same labels each keep their own majority orientation. Occupancy-only
+alternatives require a contact well below a covalent bond and occupancies that
+sum to at most one. A 50:50 contact is kept from the atom with the smaller
+index. Shell records store parent molecule indices in `center_molecule_index`
+and `shell_molecule_indices`, and they do not include a minor ligand position.

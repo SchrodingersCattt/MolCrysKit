@@ -22,7 +22,11 @@ from molcrys_kit.constants.config import (
     KEY_DISORDER_GROUP,
     KEY_OCCUPANCY,
 )
-from molcrys_kit.io.cif import identify_molecules, read_mol_crystal
+from molcrys_kit.io.cif import (
+    identify_molecule_indices,
+    identify_molecules,
+    read_mol_crystal,
+)
 from molcrys_kit.structures.crystal import MolecularCrystal
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -358,10 +362,188 @@ def test_atom_level_major_policy_skips_minor_assembly_ligands():
 
     major = find_polyhedra(atoms, "N", "Cl", cutoff=3.0, disorder_policy="major")
     refined = find_polyhedra(atoms, "N", "Cl", cutoff=3.0, disorder_policy="as_refined")
+    each = find_polyhedra(atoms, "N", "Cl", cutoff=3.0, disorder_policy="exclusive")
 
-    assert major[0]["coordination_number"] == 1
-    assert major[0]["shell_indices"] == [1]
-    assert refined[0]["coordination_number"] == 2
+    # Minor ligand positions are not shell vertices under any policy.
+    for record in (major[0], refined[0], each[0]):
+        assert record["coordination_number"] == 1
+        assert record["shell_indices"] == [1]
+
+
+def test_identify_molecules_default_keeps_every_refined_atom():
+    """General identification must not drop atoms unless the caller asks."""
+    major = _orientation(0.0, (0.0, 0.0, 0.0))
+    minor = _orientation(55.0, (0.25, 0.0, 0.0))
+    atoms = _cation_atoms([(major, 1, 0.65), (minor, 2, 0.35)])
+
+    molecules = identify_molecules(atoms)
+    indices = identify_molecule_indices(atoms)
+    covered = [index for group in indices for index in group]
+
+    assert len(molecules) == 1
+    assert len(molecules[0]) == len(atoms)
+    assert sorted(covered) == list(range(len(atoms)))
+    assert len(covered) == len(set(covered))
+
+
+def test_far_apart_unlabelled_parts_keep_each_sites_major():
+    """The same PART labels at two distant sites are independent choices."""
+    symbols = ["C", "C", "C", "C", "C", "C", "C", "C"]
+    positions = [
+        [0.0, 0.0, 0.0],  # site A, part 1, occ 0.8
+        [0.30, 0.0, 0.0],  # site A, part 2, occ 0.2
+        [1.6, 0.0, 0.0],
+        [3.1, 0.0, 0.0],
+        [4.6, 0.0, 0.0],
+        [6.1, 0.0, 0.0],
+        [8.0, 0.0, 0.0],  # site B, part 1, occ 0.3
+        [8.30, 0.0, 0.0],  # site B, part 2, occ 0.7
+    ]
+    groups = [1, 2, 0, 0, 0, 0, 1, 2]
+    occupancies = [0.8, 0.2, 1.0, 1.0, 1.0, 1.0, 0.3, 0.7]
+    atoms = Atoms(
+        symbols=symbols,
+        positions=positions,
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_DISORDER_GROUP, np.asarray(groups, dtype=int))
+    atoms.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * len(atoms), dtype=object))
+
+    realization = disorder_realizations(atoms, "major")[0]
+
+    assert realization.mask.tolist() == [
+        True,
+        False,
+        True,
+        True,
+        True,
+        True,
+        False,
+        True,
+    ]
+    assert "group:1:site:0" in realization.component_ids
+    assert "group:2:site:7" in realization.component_ids
+
+
+def test_partial_occupancy_bonds_are_not_alternatives():
+    """Unequal occupancy on a real bond is not an alternative orientation."""
+    water = Atoms(
+        symbols=["O", "H", "H"],
+        positions=[
+            [0.0, 0.0, 0.0],
+            [0.96, 0.0, 0.0],
+            [-0.24, 0.93, 0.0],
+        ],
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    water.set_array(KEY_OCCUPANCY, np.array([0.50, 0.50, 0.25]))
+    water.set_array(KEY_DISORDER_GROUP, np.zeros(3, dtype=int))
+    water.set_array(KEY_ASSEMBLY, np.array(["", "", ""], dtype=object))
+
+    chain_positions = [[index * 1.4, 0.0, 0.0] for index in range(6)]
+    chain = Atoms(
+        symbols=["C"] * 6,
+        positions=chain_positions,
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    chain.set_array(KEY_OCCUPANCY, np.array([0.6, 0.4, 0.6, 0.4, 0.6, 0.4]))
+    chain.set_array(KEY_DISORDER_GROUP, np.zeros(6, dtype=int))
+    chain.set_array(KEY_ASSEMBLY, np.array([""] * 6, dtype=object))
+
+    assert disorder_realizations(water, "major")[0].drops_atoms is False
+    assert disorder_realizations(chain, "major")[0].drops_atoms is False
+    assert disorder_realizations(water, "exclusive")[0].drops_atoms is False
+
+
+def test_equal_occupancy_alternatives_keep_the_lower_index():
+    """50:50 split sites still produce one drawable shell.
+
+    The two orientations share an occupancy, so the tie keeps the atom with
+    the smaller index. That orientation is the centred one.
+    """
+    major = _tetrahedral_offsets(1.45)
+    minor = _tetrahedral_offsets(1.80)
+    symbols = ["N"]
+    positions = [SITE.copy()]
+    occupancies = [1.0]
+    for offset in major:
+        symbols.append("C")
+        positions.append(SITE + offset)
+        occupancies.append(0.5)
+    for offset in minor:
+        symbols.append("C")
+        positions.append(SITE + offset)
+        occupancies.append(0.5)
+    cation = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    cation.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    cation.set_array(KEY_DISORDER_GROUP, np.zeros(len(cation), dtype=int))
+    cation.set_array(KEY_ASSEMBLY, np.array([""] * len(cation), dtype=object))
+    crystal = _crystal_with(cation, *_ligand_atoms())
+
+    realization = disorder_realizations(cation, "major")[0]
+    shells = _shells(crystal)
+
+    assert realization.drops_atoms is True
+    assert realization.mask.tolist() == [True, True, True, True, True, False, False, False, False]
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+
+
+def test_minor_ligand_position_is_not_a_shell_vertex():
+    cation = Atoms(
+        symbols=["N", "C", "C", "C", "C"],
+        positions=np.vstack([SITE, SITE + _tetrahedral_offsets()]),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    cell = np.eye(3) * CELL
+    ordered_offsets = [
+        [-5.0, 0.0, 0.0],
+        [0.0, 5.0, 0.0],
+        [0.0, -5.0, 0.0],
+        [0.0, 0.0, 5.0],
+        [0.0, 0.0, -5.0],
+    ]
+    ligands = [
+        Atoms(symbols=["Cl"], positions=[SITE + np.asarray(offset)], cell=cell, pbc=True)
+        for offset in ordered_offsets
+    ]
+    # The +x vertex is disordered. The minor image sits 0.35 Å farther out
+    # and must not become a seventh shell vertex.
+    major_ligand = Atoms(
+        symbols=["Cl"],
+        positions=[SITE + np.array([5.0, 0.0, 0.0])],
+        cell=cell,
+        pbc=True,
+    )
+    major_ligand.set_array(KEY_DISORDER_GROUP, np.array([1], dtype=int))
+    major_ligand.set_array(KEY_OCCUPANCY, np.array([0.6]))
+    major_ligand.set_array(KEY_ASSEMBLY, np.array([""], dtype=object))
+    minor = Atoms(
+        symbols=["Cl"],
+        positions=[SITE + np.array([5.35, 0.0, 0.0])],
+        cell=cell,
+        pbc=True,
+    )
+    minor.set_array(KEY_DISORDER_GROUP, np.array([2], dtype=int))
+    minor.set_array(KEY_OCCUPANCY, np.array([0.4]))
+    minor.set_array(KEY_ASSEMBLY, np.array([""], dtype=object))
+    crystal = _crystal_with(cation, *ligands, major_ligand, minor)
+
+    for policy in ("major", "exclusive", "as_refined"):
+        shells = _shells(crystal, disorder_policy=policy)
+        assert len(shells) == 1
+        assert shells[0]["coordination_number"] == 6
+        assert max(shells[0]["shell_distances"]) < 5.2
 
 
 def test_invalid_disorder_policy_raises():

@@ -96,21 +96,25 @@ site-centred ligand-shell construction share a smaller policy for the common
 case in which one molecular site is disordered over alternative orientations:
 
 - `major` keeps the highest-occupancy orientation (and any ordered atoms that
-  belong to every orientation). This is the default for `identify_molecules`
-  and for `find_polyhedra`.
+  belong to every orientation). This is the default for `find_polyhedra`
+  centres. It is not the default for molecule identification.
 - `exclusive` treats the orientations as mutually exclusive and returns one
-  molecule, or one shell, for each of them.
-- `as_refined` keeps every refined coordinate. `read_mol_crystal` and
-  `MolecularCrystal.from_cif` / `from_ase` use this default so a read does not
-  drop sites. A later shell search still applies `major` unless the caller
-  overrides it.
+  shell per central orientation. Other families stay on their major component.
+- `as_refined` keeps every refined coordinate. `identify_molecules`,
+  `identify_molecule_indices`, `read_mol_crystal`, and
+  `MolecularCrystal.from_cif` / `from_ase` use this default, so a general
+  caller does not lose refined atoms. A later shell search still applies
+  `major` to the centre unless the caller overrides it.
 
 Labelled CIF disorder assemblies are exclusive by the CIF definition.
-Unlabelled disorder groups, and sites that differ only by occupancy, are
-treated as alternative orientations only when their atoms approach within the
-disorder clash threshold. Independent partial groups that sit far apart stay
-together, so the policy does not truncate a molecule that happens to carry
-two unrelated partial substituents.
+Unlabelled PART numbers are not a global switch: atoms that share a label are
+split into local clusters, and only clusters that approach one another compete.
+A second disordered site that reuses the same labels keeps its own majority
+orientation. Occupancy-only sites compete when the occupancies sum to at most
+one and a contact is well below a covalent bond, so bonded atoms that merely
+have unequal partial occupancy are not alternatives. Equal occupancies then
+break the tie by atom count, label, and finally the smaller atom index. Shell
+vertices use the major ligand component under every policy.
 
 Fusing both orientations into one component produces a moiety that matches
 neither orientation. A ligand-shell query for the physical formula then

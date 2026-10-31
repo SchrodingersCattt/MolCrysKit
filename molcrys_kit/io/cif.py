@@ -727,7 +727,7 @@ def identify_molecule_indices(
     bond_scale: float = 1.0,
     explicit_bonds: Optional[List[Tuple[int, int]]] = None,
     *,
-    disorder_policy: str = "major",
+    disorder_policy: str = "as_refined",
 ) -> List[List[int]]:
     """
     Identify discrete molecular units and return their original atom indices.
@@ -737,10 +737,9 @@ def identify_molecule_indices(
     or changing the original ASE Atoms ordering. Bond perception is identical
     to ``identify_molecules``. Atoms in ``exclude_indices`` are removed from
     the returned groups. ``disorder_policy`` matches
-    :func:`identify_molecules`: ``"major"`` drops lower-occupancy
-    alternatives, ``"exclusive"`` returns one index group per orientation
-    (ordered atoms may appear in more than one group), and ``"as_refined"``
-    returns the bond-graph components unchanged.
+    :func:`identify_molecules`. The default ``"as_refined"`` returns every
+    bond-graph component and does not drop refined sites. ``"major"`` and
+    ``"exclusive"`` are explicit.
     """
     crystal_graph = _build_molecule_graph(
         atoms,
@@ -765,7 +764,7 @@ def identify_molecules(
     bond_scale: float = 1.0,
     explicit_bonds: Optional[List[Tuple[int, int]]] = None,
     *,
-    disorder_policy: str = "major",
+    disorder_policy: str = "as_refined",
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -785,14 +784,13 @@ def identify_molecules(
 
     ``disorder_policy`` decides what happens when those rules still leave
     alternative orientations inside one component (a shared ordered atom, or
-    partial occupancies with no disorder group). ``"major"`` (default) keeps
-    the highest-occupancy orientation plus ordered atoms. ``"exclusive"``
-    emits one molecule per orientation, copying ordered atoms into each.
-    ``"as_refined"`` returns the fused component unchanged. Structure readers
-    pass ``"as_refined"`` so every refined site remains available; pass
-    ``"major"`` or ``"exclusive"`` when the molecules themselves must be
-    chemically occupied states. See
-    :mod:`molcrys_kit.analysis.disorder.policy`.
+    partial occupancies with no disorder group). The default is
+    ``"as_refined"``: every refined atom stays in the result, so existing
+    callers keep full atom coverage. ``"major"`` keeps the highest-occupancy
+    orientation plus ordered atoms. ``"exclusive"`` emits one molecule per
+    orientation, copying ordered atoms into each. Shell construction applies
+    ``"major"`` itself; pass it here only when the molecules should already
+    be occupied states. See :mod:`molcrys_kit.analysis.disorder.policy`.
     """
     from ..constants.config import (
         KEY_ASSEMBLY,

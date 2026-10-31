@@ -4,13 +4,35 @@
 
 ### Added
 
-- Disorder policy for molecule identification and site-centred ligand-shell
-  searches. `major` (the default for `identify_molecules` and
-  `find_polyhedra`) keeps the highest-occupancy orientation of each mutually
-  exclusive disorder component instead of merging alternative orientations
-  into one molecule. `exclusive` returns one realization, or one shell, per
-  orientation. `as_refined` keeps every refined site and is the default for
-  `read_mol_crystal`, `MolecularCrystal.from_cif`, and
-  `MolecularCrystal.from_ase`. A shell search still applies `major` unless
-  the caller overrides it, so a default structure read can be used directly.
-  Ordered structures are unchanged.
+- Disorder policy for site-centred ligand shells and, when requested, for
+  molecule identification. `disorder_realizations` exposes the same rules.
+  `find_polyhedra` records `disorder_policy` and `disorder_component_ids`.
+  `center_molecule_index` and `shell_molecule_indices` are indices into the
+  parent molecule list (a realization does not invent a new molecule index).
+
+### Changed
+
+- `find_polyhedra` defaults to `major` for the central site. Alternative
+  orientations are not fused into the moiety or the centre, so a disordered
+  cation can match a real ligand shell. Ordered structures are unchanged.
+  Callers who want the previous unfiltered centre pass
+  `disorder_policy="as_refined"`.
+- Shell vertices use the major ligand component under every policy, including
+  `exclusive` and `as_refined`. A minor ligand position is not an extra vertex.
+- `identify_molecules` and `identify_molecule_indices` accept `disorder_policy`
+  but still default to `as_refined`. They do not drop refined atoms unless the
+  caller passes `major` or `exclusive`. `read_mol_crystal`,
+  `MolecularCrystal.from_cif`, and `MolecularCrystal.from_ase` keep that same
+  default.
+
+### Notes
+
+- Labelled disorder assemblies are exclusive as a whole. Unlabelled PART labels
+  are split into local clusters first, so a distant site that reuses a label
+  keeps its own majority orientation.
+- Occupancy-only atoms are alternatives only when the values sum to at most
+  one and a pair lies well below a covalent bond. Bonded atoms with unequal
+  partial occupancy stay in the molecule.
+- Ties prefer the larger occupancy sum, then more atoms, then the greater
+  component label, then the smaller atom index. Equal-occupancy split sites
+  therefore keep the lower-index atom.

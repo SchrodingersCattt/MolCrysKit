@@ -216,6 +216,11 @@ DISORDER_CONFIG = {
     # CIF occupancies are commonly reported to three or four places; five
     # places keeps 1/3-style values distinct without splitting float noise.
     "OCCUPANCY_KEY_DECIMALS": 5,
+    # Fraction of the covalent-bond threshold below which two partial-occupancy
+    # atoms are alternative sites. Ordinary bonds (C-C ~1.5 Å, O-H ~0.96 Å)
+    # stay above this fraction of their own threshold; split sites and heavily
+    # overlapped orientations fall below it.
+    "OCCUPANCY_ALTERNATIVE_BOND_FRACTION": 0.55,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
     # H-bond detection cutoff for SP clustering: H atoms within this distance of a
     # non-H atom are considered bonded.  Used to decide whether an H needs SP
