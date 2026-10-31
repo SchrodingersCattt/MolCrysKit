@@ -56,6 +56,8 @@ __all__ = [
     "CrystalEditSpec",
     "CrystalInventory",
     "PlacementPolicy",
+    "MoleculeInsertion",
+    "StoichiometryPolicy",
     "PackingTransferPlan",
     "CounterfactualStatus",
     "CounterfactualResult",
@@ -223,6 +225,74 @@ class CrystalEditSpec:
 
 
 @dataclass(frozen=True)
+class MoleculeInsertion:
+    """One composition molecule placed at a caller anchor, with no template site.
+
+    ``fractional_anchor`` is where that molecule's placement anchor lands, in
+    fractional coordinates of the template cell (row vector times the lattice).
+    The role ``PlacementPolicy`` supplies the molecule anchor and orientation.
+    ``mapped`` orientation is refused: an insertion has no template frame.
+    """
+
+    composition_index: int
+    fractional_anchor: tuple[float, float, float]
+
+    def __post_init__(self):
+        index = self.composition_index
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, (int, np.integer))
+            or index < 0
+        ):
+            raise ValueError(
+                "insertion composition index must be a nonnegative integer"
+            )
+        anchor = np.asarray(self.fractional_anchor, float).reshape(-1)
+        if anchor.shape != (3,) or not np.isfinite(anchor).all():
+            raise ValueError(
+                "insertion anchor must be three finite fractional coordinates"
+            )
+        object.__setattr__(self, "composition_index", int(index))
+        object.__setattr__(self, "fractional_anchor", tuple(float(v) for v in anchor))
+
+
+@dataclass(frozen=True)
+class StoichiometryPolicy:
+    """Vacancies and insertions that make a changed reduced inventory explicit.
+
+    ``vacant_sites`` are template molecule indices omitted from the output.
+    They are absent molecules, not partial-occupancy sites. ``insertions`` are
+    composition molecules that have no template counterpart. Every other
+    composition molecule must map onto every remaining template site by a
+    complete role-preserving bijection. The policy does not choose sites, expand
+    the cell, or accept a multiplicity-only mismatch.
+    """
+
+    vacant_sites: tuple[int, ...] = ()
+    insertions: tuple[MoleculeInsertion, ...] = ()
+
+    def __post_init__(self):
+        sites = []
+        for site in self.vacant_sites:
+            if (
+                isinstance(site, bool)
+                or not isinstance(site, (int, np.integer))
+                or site < 0
+            ):
+                raise ValueError("vacant sites must be nonnegative integer indices")
+            sites.append(int(site))
+        if len(sites) != len(set(sites)):
+            raise ValueError("vacant sites must be unique")
+        insertions = tuple(self.insertions)
+        if any(not isinstance(item, MoleculeInsertion) for item in insertions):
+            raise TypeError("insertions must contain MoleculeInsertion objects")
+        if len({item.composition_index for item in insertions}) != len(insertions):
+            raise ValueError("each composition molecule can be inserted once")
+        object.__setattr__(self, "vacant_sites", tuple(sorted(sites)))
+        object.__setattr__(self, "insertions", insertions)
+
+
+@dataclass(frozen=True)
 class PackingTransferPlan:
     """Transfer composition molecules to a template's full-cell site lattice.
 
@@ -230,9 +300,10 @@ class PackingTransferPlan:
     Explicit site_mapping contains (composition index, template index) pairs
     and must be a complete role-preserving bijection. Roles and their counts
     are arbitrary caller input. Reduced role stoichiometry is compared separately
-    from full-cell multiplicity. Unequal cell counts require an explicit expansion
-    or vacancy/insertion policy and are refused; no supercell is built implicitly.
-    Different chemistry at equal counts is supported.
+    from full-cell multiplicity. Changed reduced counts construct only through
+    ``stoichiometry_policy``. A multiplicity-only difference still requires
+    commensurate cells; no supercell is built implicitly. Different chemistry
+    at equal counts is supported.
     """
 
     composition_inventory: CrystalInventory
@@ -242,6 +313,7 @@ class PackingTransferPlan:
     site_mapping: tuple[tuple[int, int], ...] = ()
     expected_charge: int | None = None
     expected_formula: dict[str, int] | None = None
+    stoichiometry_policy: StoichiometryPolicy | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "placements", dict(self.placements))
@@ -253,6 +325,10 @@ class PackingTransferPlan:
             raise TypeError("placements must contain PlacementPolicy objects")
         if any(not isinstance(m, ChemicalAtomMapping) for m in self.mappings.values()):
             raise TypeError("mappings must contain ChemicalAtomMapping objects")
+        if self.stoichiometry_policy is not None and not isinstance(
+            self.stoichiometry_policy, StoichiometryPolicy
+        ):
+            raise TypeError("stoichiometry_policy must be a StoichiometryPolicy")
 
 
 @dataclass(frozen=True)
@@ -613,12 +689,14 @@ def _rotation(source, target, mapping, policy):
     return u @ correction @ vt
 
 
-def _place(source, target, policy, mapping, rotation):
+def _place(source, target, policy, mapping, rotation, destination=None):
     _mapping(source, target, mapping)
+    if destination is None:
+        destination = _anchor(source, policy.source_anchor)
     m = _clone(target)
     m.positions = (
         m.positions - _anchor(target, policy.target_anchor)
-    ) @ rotation + _anchor(source, policy.source_anchor)
+    ) @ rotation + destination
     _strip_stale_frac_arrays(m)
     # Parent crystallographic membership is invalid after chemistry/pose edits.
     for key in ("sym_op_index", "asym_id", "site_symmetry_order", "image_shift"):
@@ -679,21 +757,37 @@ def _refuse(record, reason, status=CounterfactualStatus.INCOMPATIBLE):
 
 
 def _construct(
-    parent, inventory, jobs, output_inventory, record, expected_charge, expected_formula
+    parent,
+    inventory,
+    jobs,
+    output_inventory,
+    record,
+    expected_charge,
+    expected_formula,
+    *,
+    omit_indices=(),
+    insertions=(),
 ):
     rng = np.random.default_rng(record["seed"])
     frames = [
         _rotation(source, target, mapping, policy)
         for _, source, target, policy, mapping in jobs
     ]
+    # Insertions have no template frame. Identity is the first sample.
+    insertion_frames = [np.eye(3) for _ in insertions]
     budget = max(
-        (p.samples if p.orientation == "sample" else 1 for _, _, _, p, _ in jobs),
+        [p.samples if p.orientation == "sample" else 1 for _, _, _, p, _ in jobs]
+        + [p.samples if p.orientation == "sample" else 1 for _, _, p, _ in insertions],
         default=1,
     )
+    omit = {int(i) for i in omit_indices}
+    kept = [i for i in range(len(parent.molecules)) if i not in omit]
+    output_of = {old: new for new, old in enumerate(kept)}
     best = None
     best_score = None
     best_attempt = None
     sampled_rotations = {}
+    insertion_rotations = {}
     for attempt in range(budget):
         molecules = [_clone(m) for m in parent.molecules]
         identity_records = []
@@ -721,6 +815,8 @@ def _construct(
                 new_ids,
                 f"edit:{record['parent_hash']}:{record['edit_hash']}:{index}",
             )
+            if index not in output_of:
+                raise ValueError("cannot edit a vacant template site")
             molecules[index] = molecule
             retained = [
                 {"source_index": i, "target_index": j, "atom_id": str(old_ids[i])}
@@ -741,10 +837,53 @@ def _construct(
                         if j not in {p[1] for p in mapping.pairs}
                     ],
                     "rotation_row_matrix": rotation.tolist(),
+                    "output_index": output_of[index],
+                }
+            )
+        inserted_molecules = []
+        for n, (lineage, target, policy, anchor) in enumerate(insertions):
+            rotation = insertion_frames[n]
+            if policy.orientation == "sample":
+                if attempt < policy.samples:
+                    if attempt > 0 or rotation is None:
+                        rotation = Rotation.random(random_state=rng).as_matrix()
+                    insertion_rotations[n] = rotation
+                else:
+                    rotation = insertion_rotations[n]
+            molecule = _place(
+                target,
+                target,
+                policy,
+                ChemicalAtomMapping(),
+                rotation,
+                destination=anchor,
+            )
+            new_ids = [
+                f"edit:{record['parent_hash']}:{record['edit_hash']}:insert:{lineage}:{j}"
+                for j in range(len(target))
+            ]
+            _reidentify(
+                molecule,
+                new_ids,
+                f"edit:{record['parent_hash']}:{record['edit_hash']}:insert:{lineage}",
+            )
+            inserted_molecules.append(molecule)
+            identity_records.append(
+                {
+                    "site": None,
+                    "insertion": True,
+                    "composition_index": lineage,
+                    "retained": [],
+                    "deleted": [],
+                    "created": new_ids,
+                    "rotation_row_matrix": rotation.tolist(),
+                    "output_index": len(kept) + n,
                 }
             )
         candidate = MolecularCrystal(
-            parent.lattice.copy(), molecules, pbc=tuple(parent.pbc)
+            parent.lattice.copy(),
+            [molecules[i] for i in kept] + inserted_molecules,
+            pbc=tuple(parent.pbc),
         )
         _validate(candidate, output_inventory)
         formula, charge = _formula(candidate), sum(output_inventory.charges)
@@ -755,7 +894,11 @@ def _construct(
         if expected_formula is not None and formula != expected_formula:
             raise ValueError("formula inventory differs from expected formula")
         # A uniform conservative scale handles mixed-role transfer policies.
-        scale = max((p.clash_scale for _, _, _, p, _ in jobs), default=1.0)
+        scale = max(
+            [p.clash_scale for _, _, _, p, _ in jobs]
+            + [p.clash_scale for _, _, p, _ in insertions],
+            default=1.0,
+        )
         contacts = periodic_clash_diagnostics(candidate, scale)
         record["attempts"] = attempt + 1
         score = (len(contacts), sum(c["limit_A"] - c["distance_A"] for c in contacts))
@@ -901,6 +1044,82 @@ def _compare_transfer_inventories(composition, template, source_inv, template_in
     }
 
 
+def _resolve_stoichiometry_policy(source_inv, template_inv, plan):
+    """Return the occupied (composition, template) bijection for an explicit policy."""
+    policy = plan.stoichiometry_policy
+    n_source = len(source_inv.roles)
+    n_template = len(template_inv.roles)
+    vacant = set(policy.vacant_sites)
+    inserted = {item.composition_index for item in policy.insertions}
+    if any(j >= n_template for j in vacant):
+        raise ValueError("vacant site index outside template")
+    if any(i >= n_source for i in inserted):
+        raise ValueError("insertion composition index outside composition")
+    remaining_template = [j for j in range(n_template) if j not in vacant]
+    remaining_source = [i for i in range(n_source) if i not in inserted]
+    pairs = list(plan.site_mapping)
+    if pairs:
+        if (
+            sorted(i for i, _ in pairs) != remaining_source
+            or sorted(j for _, j in pairs) != remaining_template
+        ):
+            raise ValueError(
+                "site mapping must bijection the non-inserted composition molecules "
+                "and the non-vacant template sites"
+            )
+    else:
+        pairs = []
+        roles = sorted(
+            {source_inv.roles[i] for i in remaining_source}
+            | {template_inv.roles[j] for j in remaining_template}
+        )
+        for role in roles:
+            left = [i for i in remaining_source if source_inv.roles[i] == role]
+            right = [j for j in remaining_template if template_inv.roles[j] == role]
+            if len(left) != len(right):
+                raise ValueError(
+                    f"stoichiometry policy leaves {len(left)} {role!r} composition "
+                    f"molecules and {len(right)} template sites"
+                )
+            pairs.extend(zip(left, right))
+    for i, j in pairs:
+        if source_inv.roles[i] != template_inv.roles[j]:
+            raise ValueError("site mapping must preserve roles")
+    for index in remaining_source:
+        role = source_inv.roles[index]
+        if role not in plan.placements:
+            raise ValueError(f"explicit placement policy missing for role {role}")
+    for item in policy.insertions:
+        role = source_inv.roles[item.composition_index]
+        if role not in plan.placements:
+            raise ValueError(f"explicit placement policy missing for role {role}")
+        if plan.placements[role].orientation == "mapped":
+            raise ValueError(
+                f"insertion of role {role} has no template frame for mapped orientation"
+            )
+    return pairs
+
+
+def _transfer_jobs(composition, template, source_inv, template_inv, plan, pairs):
+    jobs = []
+    for i, j in sorted(pairs, key=lambda p: p[1]):
+        role = source_inv.roles[i]
+        if role != template_inv.roles[j]:
+            raise ValueError("site mapping must preserve roles")
+        if role not in plan.placements:
+            raise ValueError(f"explicit placement policy missing for role {role}")
+        jobs.append(
+            (
+                j,
+                template.molecules[j],
+                composition.molecules[i],
+                plan.placements[role],
+                plan.mappings.get(role, ChemicalAtomMapping()),
+            )
+        )
+    return jobs
+
+
 def transfer_packing(
     composition: MolecularCrystal,
     template: MolecularCrystal,
@@ -908,7 +1127,13 @@ def transfer_packing(
     *,
     seed: int,
 ) -> CounterfactualResult:
-    """Place composition ions on template sites; preserve the template lattice."""
+    """Place composition ions on the template lattice.
+
+    Changed reduced stoichiometry constructs only when
+    ``plan.stoichiometry_policy`` names the vacant template sites and the
+    inserted composition molecules. Without that policy the result is a
+    refusal and contains no geometry.
+    """
     source_inv, template_inv = plan.composition_inventory, plan.template_inventory
     record = _record(template, template_inv, seed, plan)
     record["composition_hash"] = _hash(composition, source_inv)
@@ -920,54 +1145,100 @@ def transfer_packing(
         )
         record["inventory_comparison"] = comparison
         record["composition_change"] = comparison["composition_change"]
+        omit = ()
+        insertion_specs = ()
         if comparison["stoichiometry_change"]:
-            record["refusal_code"] = "STOICHIOMETRY_POLICY_REQUIRED"
-            raise ValueError(
-                "role stoichiometry changes require an explicit vacancy/insertion policy; unsupported"
+            if plan.stoichiometry_policy is None:
+                record["refusal_code"] = "STOICHIOMETRY_POLICY_REQUIRED"
+                raise ValueError(
+                    "role stoichiometry changes require an explicit vacancy/insertion policy; "
+                    "name vacant template sites and inserted composition molecules"
+                )
+            record["refusal_code"] = "STOICHIOMETRY_POLICY_INVALID"
+            pairs = _resolve_stoichiometry_policy(source_inv, template_inv, plan)
+            record.pop("refusal_code")
+            policy = plan.stoichiometry_policy
+            omit = policy.vacant_sites
+            kept = [j for j in range(len(template.molecules)) if j not in set(omit)]
+            composition_at = {j: i for i, j in pairs}
+            roles = [source_inv.roles[composition_at[j]] for j in kept]
+            charges = [source_inv.charges[composition_at[j]] for j in kept]
+            orbits = (
+                [template_inv.orbit_ids[j] for j in kept]
+                if template_inv.orbit_ids
+                else []
             )
-        if comparison["site_count_change"]:
+            lattice = np.asarray(template.lattice, float)
+            insertion_specs = tuple(
+                (
+                    item.composition_index,
+                    composition.molecules[item.composition_index],
+                    plan.placements[source_inv.roles[item.composition_index]],
+                    np.asarray(item.fractional_anchor, float) @ lattice,
+                )
+                for item in policy.insertions
+            )
+            for item in policy.insertions:
+                roles.append(source_inv.roles[item.composition_index])
+                charges.append(source_inv.charges[item.composition_index])
+            record["vacant_sites"] = list(policy.vacant_sites)
+            record["insertions"] = [
+                {
+                    "composition_index": item.composition_index,
+                    "fractional_anchor": list(item.fractional_anchor),
+                    "output_index": len(kept) + n,
+                }
+                for n, item in enumerate(policy.insertions)
+            ]
+            record["validation_limits"] = list(record["validation_limits"]) + [
+                "vacancies omit template molecules; they are not partial-occupancy sites",
+                "insertion anchors are caller coordinates, not optimized positions",
+            ]
+            out = CrystalInventory(
+                tuple(roles),
+                tuple(charges),
+                tuple(orbits)
+                if template_inv.orbit_ids and not policy.insertions
+                else (),
+            )
+        elif plan.stoichiometry_policy is not None:
+            record["refusal_code"] = "STOICHIOMETRY_POLICY_INVALID"
+            raise ValueError(
+                "an explicit stoichiometry policy applies only when reduced role counts differ; "
+                "multiplicity-only mismatches still require commensurate full cells"
+            )
+        elif comparison["site_count_change"]:
             record["refusal_code"] = "CELL_MULTIPLICITY_MAPPING_REQUIRED"
             raise ValueError(
                 "equal reduced role stoichiometry has different full-cell multiplicities; "
                 "provide commensurate full cells for a complete site bijection; "
                 "implicit expansion or removal is unsupported"
             )
-        pairs = list(plan.site_mapping)
-        if not pairs:
-            pairs = [
-                (i, j)
-                for role in sorted(set(source_inv.roles))
-                for i, j in zip(
-                    [n for n, r in enumerate(source_inv.roles) if r == role],
-                    [n for n, r in enumerate(template_inv.roles) if r == role],
-                )
-            ]
-        if sorted(i for i, j in pairs) != list(
-            range(len(composition.molecules))
-        ) or sorted(j for i, j in pairs) != list(range(len(template.molecules))):
-            raise ValueError("site mapping must be a complete bijection")
-        charges = list(template_inv.charges)
-        jobs = []
-        for i, j in sorted(pairs, key=lambda p: p[1]):
-            role = source_inv.roles[i]
-            if role != template_inv.roles[j]:
-                raise ValueError("site mapping must preserve roles")
-            if role not in plan.placements:
-                raise ValueError(f"explicit placement policy missing for role {role}")
-            charges[j] = source_inv.charges[i]
-            jobs.append(
-                (
-                    j,
-                    template.molecules[j],
-                    composition.molecules[i],
-                    plan.placements[role],
-                    plan.mappings.get(role, ChemicalAtomMapping()),
-                )
+        else:
+            pairs = list(plan.site_mapping)
+            if not pairs:
+                pairs = [
+                    (i, j)
+                    for role in sorted(set(source_inv.roles))
+                    for i, j in zip(
+                        [n for n, r in enumerate(source_inv.roles) if r == role],
+                        [n for n, r in enumerate(template_inv.roles) if r == role],
+                    )
+                ]
+            if sorted(i for i, j in pairs) != list(
+                range(len(composition.molecules))
+            ) or sorted(j for i, j in pairs) != list(range(len(template.molecules))):
+                raise ValueError("site mapping must be a complete bijection")
+            charges = list(template_inv.charges)
+            for i, j in pairs:
+                charges[j] = source_inv.charges[i]
+            out = CrystalInventory(
+                template_inv.roles, tuple(charges), template_inv.orbit_ids
             )
-        record["site_mapping"] = _json(pairs)
-        out = CrystalInventory(
-            template_inv.roles, tuple(charges), template_inv.orbit_ids
+        jobs = _transfer_jobs(
+            composition, template, source_inv, template_inv, plan, pairs
         )
+        record["site_mapping"] = _json(pairs)
         expected = (
             sum(source_inv.charges)
             if plan.expected_charge is None
@@ -978,7 +1249,17 @@ def transfer_packing(
             if plan.expected_formula is None
             else plan.expected_formula
         )
-        return _construct(template, template_inv, jobs, out, record, expected, formula)
+        return _construct(
+            template,
+            template_inv,
+            jobs,
+            out,
+            record,
+            expected,
+            formula,
+            omit_indices=omit,
+            insertions=insertion_specs,
+        )
     except ValueError as exc:
         return _refuse(record, str(exc))
 

@@ -17,8 +17,10 @@ from molcrys_kit.operations import (
     CrystalEditSpec,
     CrystalInventory,
     CounterfactualStatus,
+    MoleculeInsertion,
     PackingTransferPlan,
     PlacementPolicy,
+    StoichiometryPolicy,
     RelaxationProtocol,
     apply_chemical_edit,
     periodic_clash_diagnostics,
@@ -814,3 +816,255 @@ def test_proportional_mixed_species_role_inventory_uses_exact_comparison():
         assert result.provenance["refusal_code"] == "CELL_MULTIPLICITY_MAPPING_REQUIRED"
         assert result.provenance["composition_change"] is changed
         assert not result.provenance["inventory_comparison"]["stoichiometry_change"]
+
+
+def _placements(*inventories):
+    roles = {role for inventory in inventories for role in inventory.roles}
+    return {role: PlacementPolicy("com", "com") for role in roles}
+
+
+def test_vacancy_policy_builds_cross_stoichiometry_on_template_lattice(tmp_path):
+    composition, ci = synthetic_cell((1, 1, 3))
+    template, ti = synthetic_cell((2, 1, 5), skew=True)
+    saved = snapshot(composition), snapshot(template)
+    policy = StoichiometryPolicy(vacant_sites=(7, 1, 6))
+    plan = PackingTransferPlan(ci, ti, _placements(ci), stoichiometry_policy=policy)
+    result = transfer_packing(composition, template, plan, seed=21)
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert result.crystal is not None
+    assert result.provenance["vacant_sites"] == [1, 6, 7]
+    assert result.provenance["insertions"] == []
+    assert result.provenance["composition_change"]
+    assert result.provenance["inventory_comparison"]["stoichiometry_change"]
+    assert "refusal_code" not in result.provenance
+    assert Counter(
+        m.get_chemical_formula() for m in result.crystal.molecules
+    ) == Counter(m.get_chemical_formula() for m in composition.molecules)
+    assert result.provenance["charge"] == sum(ci.charges)
+    np.testing.assert_array_equal(result.crystal.lattice, template.lattice)
+    kept = [j for j in range(len(template.molecules)) if j not in (1, 6, 7)]
+    assert [change["site"] for change in result.provenance["atom_changes"]] == kept
+    for change in result.provenance["atom_changes"]:
+        np.testing.assert_allclose(
+            result.crystal.molecules[change["output_index"]].get_center_of_mass(),
+            template.molecules[change["site"]].get_center_of_mass(),
+        )
+    assert result.inventory.orbit_ids == tuple(ti.orbit_ids[j] for j in kept)
+    again = transfer_packing(composition, template, plan, seed=21)
+    assert result.provenance == again.provenance
+    assert_snapshot(composition, saved[0])
+    assert_snapshot(template, saved[1])
+    paths = write_cf0(result, tmp_path)
+    assert json.loads(paths["provenance"].read_text())["vacant_sites"] == [1, 6, 7]
+    swapped = PackingTransferPlan(
+        ci,
+        ti,
+        _placements(ci),
+        site_mapping=((0, 0), (1, 2), (2, 5), (3, 4), (4, 3)),
+        stoichiometry_policy=policy,
+    )
+    mapped = transfer_packing(composition, template, swapped, seed=21)
+    assert mapped.status == CounterfactualStatus.CONSTRUCTED, mapped.provenance
+    assert mapped.provenance["site_mapping"] == [[0, 0], [1, 2], [2, 5], [3, 4], [4, 3]]
+
+
+def test_insertion_policy_adds_composition_molecules_at_declared_anchors():
+    composition, ci = synthetic_cell((2, 1, 5))
+    template, ti = synthetic_cell((1, 1, 3), skew=True)
+    anchors = {
+        1: (0.85, 0.85, 0.75),
+        6: (0.15, 0.85, 0.75),
+        7: (0.50, 0.85, 0.75),
+    }
+    policy = StoichiometryPolicy(
+        insertions=tuple(MoleculeInsertion(i, anchors[i]) for i in (1, 6, 7))
+    )
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(ci, ti, _placements(ci, ti), stoichiometry_policy=policy),
+        seed=8,
+    )
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert len(result.crystal.molecules) == len(composition.molecules)
+    assert result.inventory.orbit_ids == ()
+    assert Counter(
+        m.get_chemical_formula() for m in result.crystal.molecules
+    ) == Counter(m.get_chemical_formula() for m in composition.molecules)
+    np.testing.assert_array_equal(result.crystal.lattice, template.lattice)
+    for item in result.provenance["insertions"]:
+        molecule = result.crystal.molecules[item["output_index"]]
+        np.testing.assert_allclose(
+            molecule.get_center_of_mass(),
+            np.asarray(item["fractional_anchor"]) @ template.lattice,
+        )
+        recorded = next(
+            change
+            for change in result.provenance["atom_changes"]
+            if change.get("composition_index") == item["composition_index"]
+        )
+        assert recorded["insertion"]
+        assert recorded["site"] is None
+        assert recorded["retained"] == []
+    for change in result.provenance["atom_changes"]:
+        if change.get("insertion"):
+            continue
+        np.testing.assert_allclose(
+            result.crystal.molecules[change["output_index"]].get_center_of_mass(),
+            template.molecules[change["site"]].get_center_of_mass(),
+        )
+
+
+def test_vacancy_and_insertion_policy_can_be_combined():
+    composition, ci = synthetic_cell((2, 1, 3))
+    template, ti = synthetic_cell((1, 1, 5))
+    policy = StoichiometryPolicy(
+        vacant_sites=(5, 6),
+        insertions=(MoleculeInsertion(1, (0.85, 0.85, 0.75)),),
+    )
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(ci, ti, _placements(ci, ti), stoichiometry_policy=policy),
+        seed=4,
+    )
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert result.provenance["vacant_sites"] == [5, 6]
+    assert [item["composition_index"] for item in result.provenance["insertions"]] == [
+        1
+    ]
+    assert len(result.crystal.molecules) == len(composition.molecules)
+    assert Counter(result.inventory.roles) == Counter(ci.roles)
+    assert result.provenance["charge"] == sum(ci.charges)
+
+
+def test_incomplete_or_misapplied_stoichiometry_policy_is_refused():
+    composition, ci = synthetic_cell((1, 1, 3))
+    template, ti = synthetic_cell((2, 1, 5))
+    incomplete = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(
+            ci,
+            ti,
+            _placements(ci),
+            stoichiometry_policy=StoichiometryPolicy(vacant_sites=(1,)),
+        ),
+        seed=0,
+    )
+    assert incomplete.status == CounterfactualStatus.INCOMPATIBLE
+    assert incomplete.crystal is None
+    assert incomplete.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_INVALID"
+    assert "X" in incomplete.provenance["reason"]
+    outside = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(
+            ci,
+            ti,
+            _placements(ci),
+            stoichiometry_policy=StoichiometryPolicy(vacant_sites=(99,)),
+        ),
+        seed=0,
+    )
+    assert outside.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_INVALID"
+    assert "outside" in outside.provenance["reason"]
+    with pytest.raises(ValueError, match="unique"):
+        StoichiometryPolicy(vacant_sites=(1, 1))
+    expanded, expanded_inventory = synthetic_cell((1, 1, 3), repeats=2)
+    rejected = transfer_packing(
+        composition,
+        expanded,
+        PackingTransferPlan(
+            ci,
+            expanded_inventory,
+            _placements(ci),
+            stoichiometry_policy=StoichiometryPolicy(vacant_sites=tuple(range(5, 10))),
+        ),
+        seed=0,
+    )
+    assert rejected.status == CounterfactualStatus.INCOMPATIBLE
+    assert rejected.crystal is None
+    assert rejected.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_INVALID"
+    assert not rejected.provenance["inventory_comparison"]["stoichiometry_change"]
+    assert "commensurate" in rejected.provenance["reason"]
+
+
+def test_overlapping_insertion_anchor_reports_clash_without_a_crystal():
+    composition, ci = synthetic_cell((2, 1, 5))
+    template, ti = synthetic_cell((1, 1, 3))
+    policy = StoichiometryPolicy(
+        insertions=(
+            MoleculeInsertion(1, (0.15, 0.15, 0.2)),
+            MoleculeInsertion(6, (0.15, 0.85, 0.75)),
+            MoleculeInsertion(7, (0.50, 0.85, 0.75)),
+        )
+    )
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(
+            ci,
+            ti,
+            {role: PlacementPolicy("com", "com", samples=1) for role in set(ci.roles)},
+            stoichiometry_policy=policy,
+        ),
+        seed=1,
+    )
+    assert result.status == CounterfactualStatus.CLASH
+    assert result.crystal is None
+    assert result.provenance["insertions"]
+
+
+def test_mapped_orientation_is_refused_for_insertions():
+    composition, ci = synthetic_cell((2, 1, 5))
+    template, ti = synthetic_cell((1, 1, 3))
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(
+            ci,
+            ti,
+            {
+                role: PlacementPolicy("com", "com", orientation="mapped")
+                for role in set(ci.roles)
+            },
+            stoichiometry_policy=StoichiometryPolicy(
+                insertions=(
+                    MoleculeInsertion(1, (0.85, 0.85, 0.75)),
+                    MoleculeInsertion(6, (0.15, 0.85, 0.75)),
+                    MoleculeInsertion(7, (0.50, 0.85, 0.75)),
+                )
+            ),
+        ),
+        seed=0,
+    )
+    assert result.status == CounterfactualStatus.INCOMPATIBLE
+    assert result.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_INVALID"
+    assert "mapped" in result.provenance["reason"]
+
+
+def test_chemical_edit_symbols_are_top_level_lazy_exports():
+    import molcrys_kit
+    from molcrys_kit.operations import chemical_edit
+
+    names = (
+        "ChemicalAtomMapping",
+        "ChemicalEdit",
+        "CrystalEditSpec",
+        "CrystalInventory",
+        "PlacementPolicy",
+        "MoleculeInsertion",
+        "StoichiometryPolicy",
+        "PackingTransferPlan",
+        "CounterfactualStatus",
+        "CounterfactualResult",
+        "RelaxationProtocol",
+        "apply_chemical_edit",
+        "transfer_packing",
+        "periodic_clash_diagnostics",
+        "write_cf0",
+    )
+    for name in names:
+        assert name in molcrys_kit.__all__
+        assert getattr(molcrys_kit, name) is getattr(chemical_edit, name)

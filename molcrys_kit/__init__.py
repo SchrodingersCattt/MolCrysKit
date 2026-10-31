@@ -41,7 +41,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "read_mol_crystal": (".io.cif", "read_mol_crystal"),
     # deterministic forward construction (Issue #172)
     "AverageAtomSite": (".operations.forward", "AverageAtomSite"),
-    "ConstructionValidationError": (".operations.forward", "ConstructionValidationError"),
+    "ConstructionValidationError": (
+        ".operations.forward",
+        "ConstructionValidationError",
+    ),
     "CrystalConstructionContext": (".operations.forward", "CrystalConstructionContext"),
     "ForwardConstructionContext": (".operations.forward", "ForwardConstructionContext"),
     "IncompatibleSiteError": (".operations.forward", "IncompatibleSiteError"),
@@ -55,20 +58,57 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "analyze_molecular_pose": (".operations.forward", "analyze_molecular_pose"),
     "analyze_site_symmetry": (".operations.forward", "analyze_site_symmetry"),
     "build_molecular_crystal": (".operations.forward", "build_molecular_crystal"),
-    "build_orientational_disorder": (".operations.forward", "build_orientational_disorder"),
-    "build_symmetry_complete_crystal": (".operations.forward", "build_symmetry_complete_crystal"),
-    "construct_molecular_crystal": (".operations.forward", "construct_molecular_crystal"),
-    "construct_statistical_disorder": (".operations.forward", "construct_statistical_disorder"),
-    "prepare_construction_context": (".operations.forward", "prepare_construction_context"),
+    "build_orientational_disorder": (
+        ".operations.forward",
+        "build_orientational_disorder",
+    ),
+    "build_symmetry_complete_crystal": (
+        ".operations.forward",
+        "build_symmetry_complete_crystal",
+    ),
+    "construct_molecular_crystal": (
+        ".operations.forward",
+        "construct_molecular_crystal",
+    ),
+    "construct_statistical_disorder": (
+        ".operations.forward",
+        "construct_statistical_disorder",
+    ),
+    "prepare_construction_context": (
+        ".operations.forward",
+        "prepare_construction_context",
+    ),
     "prepare_context_from_cif": (".operations.forward", "prepare_context_from_cif"),
     "select_ordered_realization": (".operations.forward", "select_ordered_realization"),
+    # typed chemical edits and packing transfer
+    "ChemicalAtomMapping": (".operations.chemical_edit", "ChemicalAtomMapping"),
+    "ChemicalEdit": (".operations.chemical_edit", "ChemicalEdit"),
+    "CounterfactualResult": (".operations.chemical_edit", "CounterfactualResult"),
+    "CounterfactualStatus": (".operations.chemical_edit", "CounterfactualStatus"),
+    "CrystalEditSpec": (".operations.chemical_edit", "CrystalEditSpec"),
+    "CrystalInventory": (".operations.chemical_edit", "CrystalInventory"),
+    "MoleculeInsertion": (".operations.chemical_edit", "MoleculeInsertion"),
+    "PackingTransferPlan": (".operations.chemical_edit", "PackingTransferPlan"),
+    "PlacementPolicy": (".operations.chemical_edit", "PlacementPolicy"),
+    "RelaxationProtocol": (".operations.chemical_edit", "RelaxationProtocol"),
+    "StoichiometryPolicy": (".operations.chemical_edit", "StoichiometryPolicy"),
+    "apply_chemical_edit": (".operations.chemical_edit", "apply_chemical_edit"),
+    "periodic_clash_diagnostics": (
+        ".operations.chemical_edit",
+        "periodic_clash_diagnostics",
+    ),
+    "transfer_packing": (".operations.chemical_edit", "transfer_packing"),
+    "write_cf0": (".operations.chemical_edit", "write_cf0"),
     # chemistry
     "ChemistryIndeterminateError": (".chemistry", "ChemistryIndeterminateError"),
     "BondOrderOptions": (".chemistry", "BondOrderOptions"),
     "BondOrderResult": (".chemistry", "BondOrderResult"),
     "CrystalChemistry": (".chemistry", "CrystalChemistry"),
     "CrystalStereoClass": (".chemistry", "CrystalStereoClass"),
-    "CrystalStereoIndeterminateError": (".chemistry", "CrystalStereoIndeterminateError"),
+    "CrystalStereoIndeterminateError": (
+        ".chemistry",
+        "CrystalStereoIndeterminateError",
+    ),
     "CrystalStereoReport": (".chemistry", "CrystalStereoReport"),
     "EntityRelationship": (".chemistry", "EntityRelationship"),
     "LineNotation": (".chemistry", "LineNotation"),
@@ -82,7 +122,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "StereoKind": (".chemistry", "StereoKind"),
     "StereoReport": (".chemistry", "StereoReport"),
     "analyze_periodic_topology": (".chemistry", "analyze_periodic_topology"),
-    "analyze_crystal_stereochemistry": (".chemistry", "analyze_crystal_stereochemistry"),
+    "analyze_crystal_stereochemistry": (
+        ".chemistry",
+        "analyze_crystal_stereochemistry",
+    ),
     "assign_stereochemistry": (".chemistry", "assign_stereochemistry"),
     "annotate_chemistry": (".chemistry", "annotate_chemistry"),
     "infer_chemistry": (".chemistry", "infer_chemistry"),
@@ -106,11 +149,13 @@ def __getattr__(name: str):
     if name == "Molecule":
         # Backward-compatibility alias
         from .structures.molecule import CrystalMolecule
+
         return CrystalMolecule
 
     if name in _LAZY_IMPORTS:
         module_path, attr = _LAZY_IMPORTS[name]
         import importlib
+
         mod = importlib.import_module(module_path, __name__)
         value = getattr(mod, attr)
         # Cache on the module so __getattr__ is not called again.
@@ -120,9 +165,17 @@ def __getattr__(name: str):
     # Lazy subpackage resolution: ``molcrys_kit.structures``, ``.io``, ``.chemistry``
     # were previously importable as attributes because the eager imports initialized
     # them.  Preserve that behaviour without paying the startup cost.
-    _SUBPACKAGES = {"structures", "io", "chemistry", "operations", "analysis", "constants"}
+    _SUBPACKAGES = {
+        "structures",
+        "io",
+        "chemistry",
+        "operations",
+        "analysis",
+        "constants",
+    }
     if name in _SUBPACKAGES:
         import importlib
+
         mod = importlib.import_module(f".{name}", __name__)
         globals()[name] = mod
         return mod
@@ -164,6 +217,21 @@ __all__ = [
     "prepare_construction_context",
     "prepare_context_from_cif",
     "select_ordered_realization",
+    "ChemicalAtomMapping",
+    "ChemicalEdit",
+    "CounterfactualResult",
+    "CounterfactualStatus",
+    "CrystalEditSpec",
+    "CrystalInventory",
+    "MoleculeInsertion",
+    "PackingTransferPlan",
+    "PlacementPolicy",
+    "RelaxationProtocol",
+    "StoichiometryPolicy",
+    "apply_chemical_edit",
+    "periodic_clash_diagnostics",
+    "transfer_packing",
+    "write_cf0",
     "ChemistryIndeterminateError",
     "BondOrderOptions",
     "BondOrderResult",

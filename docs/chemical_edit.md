@@ -1,9 +1,15 @@
 # Typed chemical edits and packing transfer
 
 `molcrys_kit.operations` provides an additive construction API for complete,
-ordered full cells. Related API discussions: #204 and #201. A constructed CF0 is
-a hypothetical frozen geometry; it establishes neither a local minimum nor
-experimental realizability.
+ordered full cells. The same symbols are lazy exports of `molcrys_kit`, in the
+same way as the forward-construction helpers. Related API discussions: #204 and
+#201. A constructed CF0 is a hypothetical frozen geometry; it establishes neither
+a local minimum nor experimental realizability.
+
+Issue #204 also lists pilot acceptance boxes that name unpublished template
+CIFs and swap identifiers. Those boxes stay in the research project. The library
+contract is this page's synthetic example and the synthetic unit tests. This
+package does not vendor those structures.
 
 The library uses the existing `CrystalMolecule` chemistry, graphs, arrays and
 forward-builder anchor convention. Supply complete replacement geometry and
@@ -93,7 +99,7 @@ there is no hidden graph edit or charge/stereo reassignment. Existing target
 chemistry records are copied with remapped stable IDs and a refreshed coordinate
 embedding; bonds, charges, stereo labels and evidence are preserved. Finite
 molecular bond images are rebased to zero in the contiguous output geometry. The result records
-source/target indices, retained stable IDs, deleted IDs, created IDs and rotations.
+source/target indices, the output molecule index, retained stable IDs, deleted IDs, created IDs and rotations.
 
 NH4+ to NH3OH+ is supported with a shared N anchor and sampled orientation.
 Ag+ to NH4+ and the reverse are supported as whole-ion replacements with an empty
@@ -142,9 +148,10 @@ plan = PackingTransferPlan(
 transferred = transfer_packing(P, Q, plan, seed=42)
 ```
 
-Role names, role counts and the number of roles are unrestricted. The current
-placement contract requires a complete role-preserving bijection between the
-supplied full cells. The template supplies the cell and anchors; composition
+Role names, role counts and the number of roles are unrestricted. Matching
+reduced inventories require a complete role-preserving bijection between the
+supplied full cells. Changed reduced inventories use `StoichiometryPolicy`
+instead of that full-cell bijection. The template supplies the cell and anchors; composition
 supplies complete molecules and charges. Pairing uses role then input order.
 Supply `site_mapping=((p_index, q_index), ...)` to choose another complete
 bijection, and per-role `mappings` for retained atom identities. Missing placement
@@ -165,19 +172,74 @@ The API does not build supercells or discard molecules implicitly. Matching
 expanded cells remain supported for any role inventory.
 
 Changed reduced role counts set `stoichiometry_change=true` and
-`composition_change=true`, returning `STOICHIOMETRY_POLICY_REQUIRED` until an
-explicit vacancy/insertion policy is supported. Different chemistry or charge
-per reduced inventory also sets `composition_change=true`, even at unchanged
-role stoichiometry. At matching full-cell counts, output formula and charge
-default to the supplied composition's inventory. Do not compare raw energies
-across unlike compositions without a common thermodynamic reference.
+`composition_change=true`. Without `PackingTransferPlan.stoichiometry_policy`
+the transfer returns `INCOMPATIBLE` / `STOICHIOMETRY_POLICY_REQUIRED` and no
+geometry. Supply a `StoichiometryPolicy` to construct that what-if cell:
+
+- `vacant_sites` are template molecule indices omitted from the output. A
+  vacancy removes the molecule. It is not a partial-occupancy site, and the
+  library does not choose which sites to drop.
+- `MoleculeInsertion` places a composition molecule that has no template
+  counterpart. `fractional_anchor` is the template-cell fractional coordinate
+  of that molecule's placement anchor (`anchor @ lattice`). Orientation uses
+  the role policy. `mapped` orientation is refused because an insertion has no
+  template frame; the first sample keeps the supplied orientation.
+- Every remaining composition molecule must map onto every remaining template
+  site. The default pairing is by role, then input order. `site_mapping` may
+  name that occupied bijection explicitly. Role `mappings` apply only to those
+  template-site replacements; insertions receive new atom IDs.
+- Output order is ascending non-vacant template indices, then insertions in
+  the order declared. Formula and charge follow the composition. The template
+  lattice is kept. Orbit IDs are kept only when every output molecule is a
+  retained template site.
+
+A policy that does not produce that bijection, names an out-of-range index, or
+is passed when the reduced role counts already match returns
+`STOICHIOMETRY_POLICY_INVALID`. A multiplicity-only mismatch is not a vacancy
+or an insertion: it still returns `CELL_MULTIPLICITY_MAPPING_REQUIRED` even if
+a policy object is supplied. Different chemistry or charge per reduced inventory
+also sets `composition_change=true`, even at unchanged role stoichiometry. At
+matching full-cell counts, output formula and charge default to the supplied
+composition's inventory. Do not compare raw energies across unlike compositions
+without a common thermodynamic reference.
+
+```python
+from molcrys_kit import (
+    MoleculeInsertion, PackingTransferPlan, PlacementPolicy, StoichiometryPolicy,
+)
+
+# Composition A:B:X = 1:1:3 placed on a 2:1:5 template by omitting the extra
+# template sites. The indices below match one synthetic ordering; name the
+# actual extra sites in the template you pass in.
+plan = PackingTransferPlan(
+    composition_inventory=p_inventory,
+    template_inventory=q_inventory,
+    placements={role: PlacementPolicy("com", "com", samples=32)
+                for role in set(p_inventory.roles)},
+    stoichiometry_policy=StoichiometryPolicy(
+        vacant_sites=(1, 6, 7),  # extra A and two extra X sites on Q
+    ),
+)
+```
+
+The reverse direction inserts the extra composition molecules at declared
+anchors instead of inventing coordinates:
+
+```python
+StoichiometryPolicy(insertions=(
+    MoleculeInsertion(1, (0.85, 0.85, 0.75)),
+    MoleculeInsertion(6, (0.15, 0.85, 0.75)),
+    MoleculeInsertion(7, (0.50, 0.85, 0.75)),
+))
+```
 
 ## Results, export and refusal semantics
 
 A successful `CounterfactualResult` contains a new crystal, output inventory and
 one provenance object. Refusals contain no candidate crystal or output inventory.
 `INCOMPATIBLE` covers source guards, charge/formula mismatches, occupancy,
-undefined placement/mapping and unsupported role stoichiometry changes. Partial
+undefined placement/mapping, a missing or incomplete stoichiometry policy, and
+a stoichiometry policy supplied for a multiplicity-only mismatch. Partial
 occupancy and declared periodic bonded frameworks require another representation
 and are refused. Inputs must already be finite contiguous molecular components;
 the editor does not discover or unwrap periodic networks. Invalid typed object
