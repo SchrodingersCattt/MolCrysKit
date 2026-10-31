@@ -352,7 +352,15 @@ class MolecularCrystal:
         )
 
     @classmethod
-    def from_ase(cls, atoms: Atoms, bond_thresholds=None, max_atoms=None, bond_scale: float = 1.0) -> "MolecularCrystal":
+    def from_ase(
+        cls,
+        atoms: Atoms,
+        bond_thresholds=None,
+        max_atoms=None,
+        bond_scale: float = 1.0,
+        *,
+        disorder_policy: str = "as_refined",
+    ) -> "MolecularCrystal":
         """
         Create a MolecularCrystal from an ASE Atoms object.
 
@@ -384,7 +392,13 @@ class MolecularCrystal:
         pbc = tuple(atoms.get_pbc())
 
         # Identify molecular units using graph-based approach
-        molecules = identify_molecules(atoms, bond_thresholds=bond_thresholds, max_atoms=max_atoms, bond_scale=bond_scale)
+        molecules = identify_molecules(
+            atoms,
+            bond_thresholds=bond_thresholds,
+            max_atoms=max_atoms,
+            bond_scale=bond_scale,
+            disorder_policy=disorder_policy,
+        )
 
         # Create and return a new MolecularCrystal instance
         return cls(lattice, molecules, pbc)
@@ -397,6 +411,8 @@ class MolecularCrystal:
         max_atoms=None,
         bond_scale: float = 1.0,
         use_asu_first: bool = False,
+        *,
+        disorder_policy: str = "as_refined",
     ) -> "MolecularCrystal":
         """
         Create a MolecularCrystal from a CIF file.
@@ -414,6 +430,10 @@ class MolecularCrystal:
         use_asu_first : bool
             Use ASU-first approach (identify molecules on ASU, then replicate)
             This is more efficient but requires proper symmetry handling.
+        disorder_policy : str
+            ``"as_refined"`` (default) keeps every refined site.
+            ``"major"`` or ``"exclusive"`` applies the disorder policy while
+            molecules are identified.
 
         Returns
         -------
@@ -434,6 +454,7 @@ class MolecularCrystal:
                     bond_thresholds=bond_thresholds,
                     max_atoms=max_atoms,
                     bond_scale=bond_scale,
+                    disorder_policy=disorder_policy,
                 )
             except Exception:
                 # Fallback to standard path on any failure
@@ -442,6 +463,7 @@ class MolecularCrystal:
                     bond_thresholds=bond_thresholds,
                     max_atoms=max_atoms,
                     bond_scale=bond_scale,
+                    disorder_policy=disorder_policy,
                 )
         
         # Standard path: expand to full cell, then identify molecules
@@ -451,6 +473,7 @@ class MolecularCrystal:
             bond_thresholds=bond_thresholds,
             max_atoms=max_atoms,
             bond_scale=bond_scale,
+            disorder_policy=disorder_policy,
         )
 
     def get_default_atomic_radii(self):

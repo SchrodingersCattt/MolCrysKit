@@ -20,7 +20,7 @@
 | Convert pymatgen Structure | `to_pymatgen_structure`, `from_pymatgen_structure`, `MolecularCrystal.to_pymatgen`, `MolecularCrystal.from_pymatgen` | `MolecularCrystal` / `Structure` | `Structure` / `MolecularCrystal` | preserves occupancy; source docstring |
 | Read CIF symmetry | `read_cif_symmetry` | CIF path/text | `CrystalSymmetry` | source docstring |
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
-| Identify molecules | `identify_molecule_indices` | ASE/CIF-derived structure | molecule indices | source docstring |
+| Identify molecules | `identify_molecule_indices`, `identify_molecules` | ASE/CIF-derived structure | molecule indices or molecules | `disorder_policy`: `major` (default), `exclusive`, or `as_refined` |
 | Export renderer-ready structure | `MolecularCrystal.get_site_records`, `MolecularCrystal.get_bond_records` | `MolecularCrystal` | immutable site/bond records | source docstring |
 | Bond role and connectivity regime | `MolecularCrystal.get_bond_records`, `MolecularCrystal.get_connectivity_report`, `classify_bond_role` | ASE/CIF `MolecularCrystal` | `BondRecord.role` (`covalent` or `coordination`) and molecular/extended regime | source docstring |
 | Attach chemistry-domain records | `annotate_chemistry` | `MolecularCrystal` | `CrystalChemistry` | source docstring |
@@ -58,7 +58,7 @@
 | Analyze ring puckering | `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems` | molecule + ordered ring / modes / molecule | coordinates / normal displacements / `list[RingSystem]` | source docstring |
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
-| Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | source docstring |
+| Packing/polyhedra | `find_polyhedra`, `detect_coordination_number` | crystal/ASE atoms | records/CN | `disorder_policy="major"` keeps the highest-occupancy orientation before a molecule-level shell is built |
 | Collective symmetry path | `build_symmetry_path_plan`, `generate_collective_symmetry_path` | crystal + affine operation | validated rigid path | [Tutorials](tutorials.md) |
 | Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
 | Composite conformational interpolation | `interpolate_molecule_with_internal_dofs` | two `CrystalMolecule` conformers | rigid + bridge-torsion/Cremer–Pople frames | source docstring |
@@ -147,6 +147,7 @@ Analysis workflows and selected re-exports. Interaction-specific exports are lis
 - Facets/shape: `BFDHFacetInfo`, `enumerate_bfdh_facets` (accepts explicit parent symmetry), `enumerate_low_index_millers`, `classify_shell`, `cshm`, `topology_signature`
 - Chemistry/formula/charge: `ChemicalEnvironment`, `StoichiometryAnalyzer`, `FormulaUnitMember`, `FormulaUnitSelection`, `Fragment`, `parse_moiety_string`, `match_molecule_to_fragment`, `heavy_signature`, `MolChargeResult`, `assign_mol_formal_charges`, `compute_topo_signature`
 - Packing/polyhedra: `find_polyhedra`, `detect_coordination_number`, `detect_prism_vs_antiprism`, `angular_rmsd_vs_ideals`, `compute_angular_signature`, `hull_encloses_center`, `planarity_analysis`, `DEFAULT_POLYHEDRON_SEARCH_CUTOFF`, `DEFAULT_MOLECULAR_SEARCH_CUTOFF`, `DEFAULT_CENTROID_OFFSET_FRAC`
+  - Molecule-level shells default to the major disorder policy: alternative orientations of one site are not merged into the moiety or the centre. Pass `disorder_policy="exclusive"` for one shell per orientation, or `disorder_policy="as_refined"` to use every refined site. Ordered structures are unchanged. The policy names live in `mck.analysis.disorder`.
 - Ring conformation: `PuckeringCoordinates`, `RingSystem`, `RingConformationError`, `RingCycleLimitError`, `InvalidRingOrderError`, `DegenerateRingGeometryError`, `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems`
 - Volume/boundary: `calculate_atomic_volumes`, `calculate_total_volume`, `calculate_accessible_boundary`, `min_distance_to_boundary`
 - Sanity checks: `sanity_check`, `SanityReport`, `CheckResult`, `check_hard_clash`, `check_intermolecular_clash`, `check_isolated_atoms`, `check_hydrogen_presence`, `check_formula_consistency`, `check_bond_distances`, `check_topology_preservation`; `sanity_check` accepts `profile="complete-crystal"` or `profile="fragment"`, and skipped checks are reported with `CheckResult.status == "skipped"`.
@@ -167,6 +168,8 @@ Van der Waals volume estimation and solvent-accessible boundary computation.
 Disorder metadata, solving, and ordered-replica generation.
 
 - `DisorderInfo`, `DisorderSolver`, `generate_ordered_replicas_from_disordered_sites`, `is_minor_site`, `DisorderProvenance`
+- `DEFAULT_DISORDER_POLICY`, `DISORDER_POLICIES`, `DisorderRealization`, `disorder_realizations`, `normalize_disorder_policy`
+  - major (the default) keeps the highest-occupancy component of each mutually exclusive family. exclusive returns one realization per orientation. as_refined keeps every refined site. Labelled disorder assemblies are always exclusive. Unlabelled groups and occupancy-only alternatives are exclusive when their atoms approach within the disorder clash threshold; distant partial groups are left in place. Structure readers default to as_refined and shell construction defaults to major.
 - Warning category: `UnresolvedDisorderWarning`
 - `DisorderInfo` carries CIF-derived metadata including the chemical formula moiety and Z value for stoichiometry validation during disorder resolution.
 

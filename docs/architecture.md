@@ -88,3 +88,32 @@ legacy behaviour where symmetry copies are locked together and motif merge keeps
 only the greedy best orientation.
 
 The MWIS solution represents a compromise between maximizing total occupancy (thermodynamic stability) and minimizing steric clashes (geometric feasibility), resulting in physically realistic ordered structures from disordered crystal data.
+
+### Molecule identity and ligand shells
+
+Resolving a full ordered replica is optional. Molecule identification and
+site-centred ligand-shell construction share a smaller policy for the common
+case in which one molecular site is disordered over alternative orientations:
+
+- `major` keeps the highest-occupancy orientation (and any ordered atoms that
+  belong to every orientation). This is the default for `identify_molecules`
+  and for `find_polyhedra`.
+- `exclusive` treats the orientations as mutually exclusive and returns one
+  molecule, or one shell, for each of them.
+- `as_refined` keeps every refined coordinate. `read_mol_crystal` and
+  `MolecularCrystal.from_cif` / `from_ase` use this default so a read does not
+  drop sites. A later shell search still applies `major` unless the caller
+  overrides it.
+
+Labelled CIF disorder assemblies are exclusive by the CIF definition.
+Unlabelled disorder groups, and sites that differ only by occupancy, are
+treated as alternative orientations only when their atoms approach within the
+disorder clash threshold. Independent partial groups that sit far apart stay
+together, so the policy does not truncate a molecule that happens to carry
+two unrelated partial substituents.
+
+Fusing both orientations into one component produces a moiety that matches
+neither orientation. A ligand-shell query for the physical formula then
+returns no centre. Selecting the major component restores a drawable shell
+around that orientation. Ordered crystals take the same path and are
+unchanged, because they contain no exclusive family.

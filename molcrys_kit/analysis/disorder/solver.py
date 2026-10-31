@@ -2215,7 +2215,7 @@ class DisorderSolver:
             cell=self.lattice,
             pbc=pbc,
         )
-        molecules = identify_molecules(atoms)
+        molecules = identify_molecules(atoms, disorder_policy="as_refined")
         crystal = MolecularCrystal(
             self.lattice,
             molecules,

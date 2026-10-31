@@ -212,6 +212,10 @@ DISORDER_CONFIG = {
     "HARD_SPHERE_THRESHOLD": 0.85,  # Small threshold. Applied to compatible atoms to allow normal packing
     "OVERLAP_SITE_THRESHOLD": 0.4,  # Below this distance, two atoms are at the same site (not a real bond)
     "DISORDER_CLASH_THRESHOLD": 2.2,  # Large threshold. Applied to COMPETING disorder parts to ensure split sites are exclusive
+    # Decimal places used to treat two partial occupancies as one orientation.
+    # CIF occupancies are commonly reported to three or four places; five
+    # places keeps 1/3-style values distinct without splitting float noise.
+    "OCCUPANCY_KEY_DECIMALS": 5,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
     # H-bond detection cutoff for SP clustering: H atoms within this distance of a
     # non-H atom are considered bonded.  Used to decide whether an H needs SP

@@ -1057,3 +1057,55 @@ when appropriate; the defaults are not project-specific endorsements.
   DOI: [10.1021/acs.jpcc.8b08684](https://doi.org/10.1021/acs.jpcc.8b08684).
   Delta-cluster convergence test in zeolites; basis for the
   diagnostic `rcut` mode.
+
+## Disorder policy for molecule identity and ligand shells
+
+Alternative orientations of one molecular site are mutually exclusive. If they
+share an ordered atom, or if the file only records partial occupancies, bond
+perception can still place both orientations in one component. That component
+is not a chemical molecule, and a moiety search for the real formula finds no
+ligand shell.
+
+`find_polyhedra(..., level="molecule")` defaults to `disorder_policy="major"`:
+the highest-occupancy orientation is the centre, and a shell is built around
+that orientation. Ordered crystals are unchanged.
+
+```python
+from molcrys_kit.analysis.packing_shell import find_polyhedra
+from molcrys_kit.io import read_mol_crystal
+
+# A default read keeps every refined site.
+crystal = read_mol_crystal("disordered.cif", attach_chemistry=False)
+
+# The shell uses the major orientation even when the read kept both.
+shells = find_polyhedra(
+    crystal,
+    "N C4",
+    "Cl",
+    level="molecule",
+    cutoff=8.0,
+    score_shape=True,
+)
+# shells[i]["coordination_number"] is the ligand count around that centre.
+# shells[i]["disorder_component_ids"] names the orientation that was kept.
+
+# One shell per orientation:
+each = find_polyhedra(
+    crystal, "N C4", "Cl", level="molecule",
+    cutoff=8.0, disorder_policy="exclusive",
+)
+
+# Chemical molecules at read time, instead of a fused component:
+major = read_mol_crystal(
+    "disordered.cif",
+    attach_chemistry=False,
+    disorder_policy="major",
+)
+```
+
+`identify_molecules(..., disorder_policy="exclusive")` returns one molecule per
+orientation, copying ordered atoms into each. `disorder_policy="as_refined"`
+keeps the fused component. The same names are accepted by
+`disorder_realizations`. Unlabelled disorder groups are treated as alternatives
+only when their atoms approach within the disorder clash threshold, so two
+unrelated partial substituents that sit far apart are not collapsed.
