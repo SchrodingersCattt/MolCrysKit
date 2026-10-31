@@ -27,6 +27,7 @@ from .models import (
     PeriodicChemicalEntity,
     PolymerChemicalEntity,
 )
+from .radicals import assign_bracket_radicals, radicals_match_bracket_valence
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,9 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
     unsupported = []
     if any(atom.oxidation_state is not None for atom in entity.atoms):
         unsupported.append("oxidation states")
-    if any(atom.radical_electrons for atom in entity.atoms):
+    if any(atom.radical_electrons for atom in entity.atoms) and not radicals_match_bracket_valence(
+        entity
+    ):
         unsupported.append("explicit radical-electron counts")
     if any(atom.explicit_hydrogens is not None for atom in entity.atoms):
         unsupported.append("explicit/implicit hydrogen distinction")
@@ -173,6 +176,7 @@ def _atom_signature(atom: ChemicalAtom) -> tuple:
         atom.isotope or 0,
         atom.formal_charge if atom.formal_charge is not None else 999,
         atom.implicit_hydrogens if atom.implicit_hydrogens is not None else 999,
+        int(atom.radical_electrons),
     )
 
 
@@ -340,6 +344,7 @@ def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
         and atom.formal_charge in {None, 0}
         and atom.implicit_hydrogens is None
         and atom.stereochemistry is None
+        and not atom.radical_electrons
     )
     if simple:
         if aromatic and atom.element.lower() in _AROMATIC:
@@ -508,13 +513,15 @@ def _read_opensmiles(text: str) -> FiniteChemicalEntity:
     if not atoms:
         raise LineNotationError("OpenSMILES contains no atoms")
     evidence = Evidence(EvidenceSource.LINE_NOTATION, "OpenSMILES parser")
-    return FiniteChemicalEntity(
-        entity_id="line:0",
-        atoms=tuple(atoms),
-        bonds=tuple(bonds),
-        net_charge=sum(atom.formal_charge or 0 for atom in atoms),
-        status=InferenceStatus.EXPLICIT,
-        evidence=(evidence,),
+    return assign_bracket_radicals(
+        FiniteChemicalEntity(
+            entity_id="line:0",
+            atoms=tuple(atoms),
+            bonds=tuple(bonds),
+            net_charge=sum(atom.formal_charge or 0 for atom in atoms),
+            status=InferenceStatus.EXPLICIT,
+            evidence=(evidence,),
+        )
     )
 
 

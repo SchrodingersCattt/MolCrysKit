@@ -32,6 +32,10 @@ DEFAULT_VALENCE = {
     "O": 2.0,
     "P": 3.0,
     "S": 2.0,
+    "F": 1.0,
+    "Cl": 1.0,
+    "Br": 1.0,
+    "I": 1.0,
 }
 
 # Some elements have more than one neutral valence state.  The bounded
@@ -47,6 +51,10 @@ ALLOWED_VALENCES = {
     "O": (2.0,),
     "P": (3.0,),
     "S": (2.0, 4.0, 6.0),
+    "F": (1.0,),
+    "Cl": (1.0,),
+    "Br": (1.0,),
+    "I": (1.0,),
 }
 
 

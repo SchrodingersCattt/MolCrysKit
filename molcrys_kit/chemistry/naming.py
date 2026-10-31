@@ -262,6 +262,11 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
         value = recognizer(entity)
         if value is not None:
             return _organic_result(entity, *value)
+    from .substitutive.engine import name_extended, naming_gap
+
+    extended = name_extended(entity)
+    if extended is not None:
+        return _organic_result(entity, *extended)
     # Keep uncovered structures as an explicit composition description.  A
     # reversible MCK-LN payload may be useful as an internal implementation
     # detail, but exposing it as a ``GENERAL_IUPAC_NAME`` falsely claims that
@@ -280,7 +285,8 @@ def _name_finite(entity: FiniteChemicalEntity) -> NamingResult:
             "Stop before substitutive naming because the required rule family is outside the implemented coverage matrix.",
         ),
         warnings=(
-            "no implemented rule family establishes a unique IUPAC name; composition description shown",
+            "no implemented rule family establishes a unique IUPAC name; "
+            f"composition description shown ({naming_gap(entity)})",
         ),
     )
 
@@ -352,7 +358,10 @@ def _name_disconnected(entity: FiniteChemicalEntity):
 
 def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
     """Add explicitly specified isotope and stereochemical descriptors."""
-    parent_locants = _parent_locants(entity, name)
+    from .substitutive.engine import parent_numbering
+
+    numbered = parent_numbering(entity)
+    parent_locants = numbered if numbered else _parent_locants(entity, name)
     element_indices = {}
     element_counts = {}
     isotope_prefixes = []
@@ -369,33 +378,67 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
             isotope_prefixes.append(f"({atom.isotope}{atom.element}{locant})")
     has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
     has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
-    stereo_prefixes = []
+    stereo_terms: list[tuple[int, str]] = []
     if has_atom_tokens or has_bond_tokens:
         report = assign_stereochemistry(entity)
+        adjacency = _adjacency(entity)
         for descriptor in report.descriptors:
             if descriptor.descriptor is None:
                 continue
             if descriptor.kind is StereoKind.TETRAHEDRAL:
-                center = next((atom for atom in entity.atoms if atom.atom_id == descriptor.center_atom_id), None)
+                center = next(
+                    (atom for atom in entity.atoms if atom.atom_id == descriptor.center_atom_id),
+                    None,
+                )
+                if center is None:
+                    continue
+                # Substituent stereodescriptors are already inside the parent
+                # name. Only parent-chain centres are cited in front.
+                if numbered and center.atom_id not in numbered:
+                    continue
                 locant = (
-                    2
-                    if center is not None and _is_alpha_amino_center(entity, center.atom_id)
+                    numbered.get(center.atom_id)
+                    if numbered
                     else (
-                        parent_locants.get(center.atom_id, element_indices.get(center.atom_id))
-                        if center is not None
-                        else None
+                        2
+                        if _is_alpha_amino_center(entity, center.atom_id)
+                        else parent_locants.get(
+                            center.atom_id, element_indices.get(center.atom_id)
+                        )
                     )
                 )
-                stereo_prefixes.append(
-                    f"({locant}{descriptor.descriptor})-"
-                    if locant is not None
-                    else f"({descriptor.descriptor})-"
-                )
+                if locant is None:
+                    continue
+                stereo_terms.append((int(locant), f"{locant}{descriptor.descriptor}"))
             else:
-                stereo_prefixes.append(f"({descriptor.descriptor})-")
+                ends = {
+                    neighbor
+                    for neighbor, bond in adjacency.get(descriptor.center_atom_id, ())
+                    if bond.order == 2.0
+                }
+                ends.add(descriptor.center_atom_id)
+                if numbered and not ends <= set(numbered):
+                    continue
+                locants = [
+                    numbered[atom_id]
+                    for atom_id in ends
+                    if numbered and atom_id in numbered
+                ]
+                if len(stereo_terms) or (numbered and locants):
+                    locant = min(locants) if locants else 0
+                    stereo_terms.append((locant, f"{locant}{descriptor.descriptor}" if locant else descriptor.descriptor))
+                else:
+                    stereo_terms.append((0, descriptor.descriptor))
+    stereo_terms.sort()
+    if len(stereo_terms) == 1 and stereo_terms[0][1] in {"E", "Z"}:
+        stereo_prefix = f"({stereo_terms[0][1]})-"
+    elif stereo_terms:
+        stereo_prefix = "(" + ",".join(term for _, term in stereo_terms) + ")-"
+    else:
+        stereo_prefix = ""
     # Preserve descriptor ordering before isotopic prefixes.  This is the
     # stable spelling used by the reverse parser and the stage-6 snapshots.
-    return "".join(stereo_prefixes) + "".join(isotope_prefixes) + name
+    return stereo_prefix + "".join(isotope_prefixes) + name
 
 
 def _parent_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:

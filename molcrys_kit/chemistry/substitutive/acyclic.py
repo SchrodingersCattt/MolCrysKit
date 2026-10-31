@@ -312,9 +312,33 @@ def _special_patterns(entity):
     return None
 
 
+def _carboxyl_carbons(entity):
+    """Carbons of neutral carboxylic acid groups, not esters or carboxylates."""
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    found = []
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [(neighbor, bond) for neighbor, bond in adjacency[carbon] if atoms[neighbor].element == "O"]
+        doubles = [neighbor for neighbor, bond in oxygens if _is_double(bond)]
+        hydroxys = [
+            neighbor
+            for neighbor, bond in oxygens
+            if _is_single(bond) and _hcount(entity, neighbor) > 0
+        ]
+        if len(doubles) == 1 and len(hydroxys) == 1:
+            found.append(carbon)
+    return found
+
+
 def _name_acid(entity):
     atoms = _atom_map(entity)
     adjacency = _heavy_adjacency(entity)
+    # Two or more carboxylic acids of equal seniority use a multiplied suffix
+    # (butanedioic acid). Demoting one of them to hydroxy+oxo is not that rule.
+    if len(_carboxyl_carbons(entity)) != 1:
+        return None
     for carbon, atom in atoms.items():
         if atom.element != "C":
             continue
@@ -539,7 +563,11 @@ def _name_ketone(entity):
         stem = alkane_stem(len(ordered))
         if stem is None:
             continue
-        return _result(f"{stem}-{numbering[carbon]}-one", "Select the longest chain containing the ketone carbonyl.")
+        return _result(
+            f"{stem}an-{numbering[carbon]}-one",
+            "Select the longest chain containing the ketone carbonyl.",
+            "Keep the saturated parent ending before the ketone locant.",
+        )
     return None
 
 
