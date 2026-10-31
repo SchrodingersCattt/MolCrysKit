@@ -56,7 +56,31 @@ jobs:
           pytest \
             tests/unit/contracts/test_docs_api_sync.py \
             tests/unit/contracts/test_skill_docs_sync.py \
+            tests/unit/contracts/test_docs_ship_with_code.py \
             -v --timeout=180
+
+  # Warn-only sibling of the docs contract job. The script always exits 0.
+  # continue-on-error on the warn step keeps an unexpected script failure
+  # from failing the build.
+  docs-ship-with-code:
+    name: Docs ship with code (warn)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out pull request merge commit
+        uses: actions/checkout@v4
+        with:
+          # pull_request checkouts are the synthetic merge commit. Full
+          # history makes HEAD~1 available for the file list.
+          fetch-depth: 0
+
+      - name: Warn when public modules change without docs
+        continue-on-error: true
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 .github/scripts/docs_ship_with_code.py --base HEAD~1 --head HEAD
 
   unit-tests:
     runs-on: ubuntu-latest
