@@ -312,9 +312,33 @@ def _special_patterns(entity):
     return None
 
 
+def _carboxyl_carbons(entity):
+    """Carbons of neutral carboxylic acid groups, not esters or carboxylates."""
+    atoms = _atom_map(entity)
+    adjacency = _heavy_adjacency(entity)
+    found = []
+    for carbon, atom in atoms.items():
+        if atom.element != "C":
+            continue
+        oxygens = [(neighbor, bond) for neighbor, bond in adjacency[carbon] if atoms[neighbor].element == "O"]
+        doubles = [neighbor for neighbor, bond in oxygens if _is_double(bond)]
+        hydroxys = [
+            neighbor
+            for neighbor, bond in oxygens
+            if _is_single(bond) and _hcount(entity, neighbor) > 0
+        ]
+        if len(doubles) == 1 and len(hydroxys) == 1:
+            found.append(carbon)
+    return found
+
+
 def _name_acid(entity):
     atoms = _atom_map(entity)
     adjacency = _heavy_adjacency(entity)
+    # Two or more carboxylic acids of equal seniority use a multiplied suffix
+    # (butanedioic acid). Demoting one of them to hydroxy+oxo is not that rule.
+    if len(_carboxyl_carbons(entity)) != 1:
+        return None
     for carbon, atom in atoms.items():
         if atom.element != "C":
             continue
@@ -539,7 +563,11 @@ def _name_ketone(entity):
         stem = alkane_stem(len(ordered))
         if stem is None:
             continue
-        return _result(f"{stem}-{numbering[carbon]}-one", "Select the longest chain containing the ketone carbonyl.")
+        return _result(
+            f"{stem}an-{numbering[carbon]}-one",
+            "Select the longest chain containing the ketone carbonyl.",
+            "Keep the saturated parent ending before the ketone locant.",
+        )
     return None
 
 
@@ -585,7 +613,7 @@ def _name_alkene(entity):
         bond for bond in entity.bonds
         if bond.order == 2.0 and bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN}
     ]
-    if len(double) != 1:
+    if not double or len(double) > 4:
         return None
     carbon_graph = {
         atom_id: [neighbor for neighbor, _ in adjacency[atom_id] if atoms[neighbor].element == "C"]
@@ -617,22 +645,38 @@ def _name_alkene(entity):
     scored = []
     for path in paths:
         positions = {atom_id: index + 1 for index, atom_id in enumerate(path)}
-        left = positions.get(double[0].atom1_id)
-        right = positions.get(double[0].atom2_id)
-        if left is None or right is None or abs(left - right) != 1:
+        ene = []
+        valid = True
+        for bond in double:
+            left = positions.get(bond.atom1_id)
+            right = positions.get(bond.atom2_id)
+            if left is None or right is None or abs(left - right) != 1:
+                valid = False
+                break
+            ene.append(min(left, right))
+        if not valid:
             continue
-        scored.append((min(left, right), tuple(path), positions))
+        scored.append((tuple(sorted(ene)), tuple(path)))
     if not scored:
         return None
-    _, path, positions = min(scored, key=lambda item: (item[0], item[1]))
-    left = positions[double[0].atom1_id]
-    right = positions[double[0].atom2_id]
+    ene, path = min(scored, key=lambda item: (item[0], item[1]))
     stem = alkane_stem(len(path))
     if stem is None or len(path) < 2:
         return None
+    if len(ene) == 1:
+        return _result(
+            f"{stem}-{ene[0]}-ene",
+            "Select the unbranched carbon chain containing the double bond.",
+        )
+    ending = {2: "diene", 3: "triene", 4: "tetraene"}.get(len(ene))
+    if ending is None:
+        return None
+    head = stem if stem.endswith("a") else stem + "a"
     return _result(
-        f"{stem}-{min(left, right)}-ene",
-        "Select the unbranched carbon chain containing the double bond.",
+        f"{head}-{','.join(map(str, ene))}-{ending}",
+        "Select the unbranched carbon chain containing the double bonds.",
+        "Number the chain so the unsaturation locants are lowest.",
+        "Keep the linking vowel before a multiplied ene ending.",
     )
 
 

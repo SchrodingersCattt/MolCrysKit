@@ -39,6 +39,7 @@ from .naming import (
     name_entity,
 )
 from .reference_naming import lookup_reference_name, lookup_reference_smiles
+from .representation import normalize_kekule_aromatic
 from .stereo import assign_stereochemistry
 from .systematic_name import NamingParseError, SystematicName
 
@@ -82,6 +83,79 @@ def _stem_count(stem: str) -> int | None:
         if value == stem:
             return count
     return None
+
+
+def _insert_linking_vowel(name: str) -> str:
+    """Rewrite legacy ``hept-2,5-diene`` spellings to ``hepta-2,5-diene``.
+
+    A single ene ending and suffixes such as ``enoic`` are left unchanged.
+    The defective ketone stem ``hex-2-one`` is not an unsaturation ending and
+    is not repaired here.
+    """
+    return re.sub(
+        r"([a-z])(?<!a)-(\d+(?:,\d+)+)-((?:di|tri|tetra|penta|hexa|hepta)ene)\b",
+        lambda match: f"{match.group(1)}a-{match.group(2)}-{match.group(3)}",
+        name,
+    )
+
+
+def _group_repeated_replacement_prefixes(name: str) -> str:
+    """Rewrite ``1-aza-4-aza`` to the grouped ``1,4-diaza`` form."""
+    pattern = re.compile(
+        r"(\d+)-(azanium|azonia|thia|oxa|aza)(?:-\d+-\2)+"
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        parts = re.findall(r"(\d+)-(azanium|azonia|thia|oxa|aza)", match.group(0))
+        locants = ",".join(locant for locant, _prefix in parts)
+        multiplier = {
+            2: "di",
+            3: "tri",
+            4: "tetra",
+            5: "penta",
+            6: "hexa",
+        }.get(len(parts), f"{len(parts)}-")
+        return f"{locants}-{multiplier}{parts[0][1]}"
+
+    return pattern.sub(replace, name)
+
+
+# Retained or multiplicative spellings that denote the same graph as the
+# canonical name this package emits. Defective stems such as ``hex-2-one``
+# are intentionally absent.
+_SPELLED_ALIASES = {
+    "1-oxacyclopropane": "oxirane",
+    "1-oxacyclobutane": "oxetane",
+    "1-oxacyclopentane": "oxolane",
+    "1-oxacyclohexane": "oxane",
+    "1,2-dihydroxybenzene": "benzene-1,2-diol",
+    "1,3-dihydroxybenzene": "benzene-1,3-diol",
+    "1,4-dihydroxybenzene": "benzene-1,4-diol",
+    "1,2,3-trihydroxybenzene": "benzene-1,2,3-triol",
+    "1,2,4-trihydroxybenzene": "benzene-1,2,4-triol",
+    "1,3,5-trihydroxybenzene": "benzene-1,3,5-triol",
+    "1-chloroethane": "chloroethane",
+    "1-fluoroethane": "fluoroethane",
+    "1-bromoethane": "bromoethane",
+    "1-iodoethane": "iodoethane",
+    "2-aminoethanol": "2-aminoethan-1-ol",
+    "trichloromethylperoxyl": "(trichloromethyl)peroxyl",
+    "1-azabenzene": "pyridine",
+    "bicyclo[4.4.0]deca-1,3,5,7,9-pentaene": "naphthalene",
+    "(13C1)methane": "(13C)methane",
+    "methylsulfanylmethane": "(methylsulfanyl)methane",
+    "ethylsulfanylethane": "(ethylsulfanyl)ethane",
+    "methanesulfinylmethane": "(methanesulfinyl)methane",
+    "methanesulfonylmethane": "(methanesulfonyl)methane",
+    "ethanesulfinylethane": "(ethanesulfinyl)ethane",
+    "ethanesulfonylethane": "(ethanesulfonyl)ethane",
+}
+
+
+def _canonicalize_spelling(name: str) -> str:
+    """Map documented aliases onto the canonical emitted spelling."""
+    rewritten = _group_repeated_replacement_prefixes(_insert_linking_vowel(name))
+    return _SPELLED_ALIASES.get(rewritten, rewritten)
 
 
 def _normalize_name(name: str) -> str:
@@ -316,7 +390,42 @@ def _parse_amino_acid(name: str):
     return _entity(name, atoms, bonds)
 
 
+def _parse_polyene(name: str):
+    match = re.fullmatch(r"([a-z]+)-(\d+(?:,\d+)+)-(diene|triene|tetraene)", name)
+    if match is None:
+        return None
+    head, locant_text, ending = match.groups()
+    locants = tuple(int(item) for item in locant_text.split(","))
+    expected = {"diene": 2, "triene": 3, "tetraene": 4}[ending]
+    if len(locants) != expected or tuple(sorted(locants)) != locants:
+        return None
+    stem = None
+    for candidate in sorted(ALKANE_STEMS.values(), key=len, reverse=True):
+        vowel = candidate if candidate.endswith("a") else candidate + "a"
+        if head == vowel:
+            stem = candidate
+            break
+    count = _stem_count(stem) if stem is not None else None
+    if count is None or count < 2 or any(not 1 <= locant < count for locant in locants):
+        return None
+    atoms, bonds = _carbon_chain(count, name=name)
+    for locant in locants:
+        bond = bonds[locant - 1]
+        bonds[locant - 1] = _bond(bond.atom1_id, bond.atom2_id, 2.0)
+    for index, atom in enumerate(atoms):
+        order_sum = sum(
+            edge.order or 0.0
+            for edge in bonds
+            if atom.atom_id in {edge.atom1_id, edge.atom2_id}
+        )
+        atoms[index] = _atom(atom.atom_id, "C", max(0, int(round(4 - order_sum))))
+    return _entity(name, atoms, bonds)
+
+
 def _parse_alkene(name: str):
+    polyene = _parse_polyene(name)
+    if polyene is not None:
+        return polyene
     match = re.fullmatch(r"(?P<stem>[a-z]+)-(?P<locant>\d+)-ene", name)
     if match is None:
         return None
@@ -382,23 +491,92 @@ def _parse_distinct_components(name: str):
     return _entity(name, atoms, bonds)
 
 
+def _graft_isotopic_hydrogens(entity: FiniteChemicalEntity, mass: int, count: int):
+    """Replace ``count`` implicit hydrogens with explicit nuclide atoms."""
+    atoms = list(entity.atoms)
+    bonds = list(entity.bonds)
+    remaining = count
+    serial = 0
+    for index, atom in enumerate(list(atoms)):
+        available = atom.implicit_hydrogens or 0
+        if atom.element == "H" or available <= 0:
+            continue
+        take = min(available, remaining)
+        atoms[index] = replace(atom, implicit_hydrogens=(available - take) or None)
+        for _ in range(take):
+            serial += 1
+            hydrogen_id = f"H{mass}_{serial}"
+            atoms.append(_atom(hydrogen_id, "H", isotope=mass))
+            bonds.append(_bond(atom.atom_id, hydrogen_id, 1.0))
+        remaining -= take
+        if remaining == 0:
+            break
+    if remaining:
+        raise NamingParseError("isotopic hydrogen count exceeds the parent")
+    return replace(entity, atoms=tuple(atoms), bonds=tuple(bonds))
+
+
 def _parse_decorated(name: str):
     """Parse stage-6 isotope and stereo prefixes around a supported name."""
     isotopes = []
     body = name
     while True:
-        match = re.match(r"^\((\d+)([A-Za-z](?:[a-z]?))(\d*)\)(?!-)(.+)$", body)
+        grouped = re.match(
+            r"^\((\d+(?:,\d+)*)-(\d+)([A-Za-z][a-z]?)(\d+)\)(?!-)(.+)$",
+            body,
+        )
+        if grouped:
+            locants = tuple(int(part) for part in grouped.group(1).split(","))
+            count = int(grouped.group(4))
+            if count != len(locants) or count < 2:
+                raise NamingParseError("isotope locant count does not match the nuclide subscript")
+            isotopes.append(
+                (
+                    "multi",
+                    int(grouped.group(2)),
+                    grouped.group(3).capitalize(),
+                    locants,
+                )
+            )
+            body = grouped.group(5)
+            continue
+        located = re.match(r"^\((\d+)-(\d+)([A-Za-z][a-z]?)\)(?!-)(.+)$", body)
+        if located:
+            isotopes.append(
+                (
+                    "locant",
+                    int(located.group(2)),
+                    located.group(3).capitalize(),
+                    int(located.group(1)),
+                )
+            )
+            body = located.group(4)
+            continue
+        match = re.match(r"^\((\d+)([A-Za-z][a-z]?)(\d*)\)(?!-)(.+)$", body)
         if match is None:
             break
-        isotopes.append(
-            (
-                int(match.group(1)),
-                match.group(2).capitalize(),
-                int(match.group(3)) if match.group(3) else None,
-            )
-        )
+        mass = int(match.group(1))
+        element = match.group(2).capitalize()
+        suffix = int(match.group(3)) if match.group(3) else None
+        if element == "H":
+            isotopes.append(("hydrogen", mass, "H", suffix or 1))
+        else:
+            isotopes.append(("nuclide", mass, element, suffix))
         body = match.group(4)
     stereo = []
+    combined = re.match(
+        r"^\(((?:\d*[RSEZrsez])(?:,\d*[RSEZrsez])+)\)-(.+)$",
+        body,
+    )
+    if combined and all(
+        re.fullmatch(r"\d*[RSEZrsez]", part) for part in combined.group(1).split(",")
+    ):
+        for part in combined.group(1).split(","):
+            item = re.fullmatch(r"(\d*)([RSEZrsez])", part)
+            stereo.append(
+                (int(item.group(1)) if item.group(1) else None, item.group(2).upper())
+            )
+        body = combined.group(2)
     while True:
         match = re.match(r"^\((?:(\d+))?([RSEZrsez])\)-(.+)$", body)
         if match is None:
@@ -410,18 +588,39 @@ def _parse_decorated(name: str):
     entity = _parse_name(body)
     if isotopes:
         atoms = list(entity.atoms)
-        for isotope, element, locant in isotopes:
+        bonds = list(entity.bonds)
+        for kind, mass, element, suffix in isotopes:
+            if kind == "hydrogen":
+                entity = _graft_isotopic_hydrogens(replace(entity, atoms=tuple(atoms), bonds=tuple(bonds)), mass, suffix)
+                atoms = list(entity.atoms)
+                bonds = list(entity.bonds)
+                continue
+            if kind == "multi":
+                for locant in suffix:
+                    preferred = f"C{locant}" if element == "C" else f"{element}{locant}"
+                    index = next((item for item, atom in enumerate(atoms) if atom.atom_id == preferred), None)
+                    if index is None:
+                        raise NamingParseError("isotope atom locant is outside the parent")
+                    atoms[index] = replace(atoms[index], isotope=mass)
+                continue
             candidates = [index for index, atom in enumerate(atoms) if atom.element == element]
-            if locant is None:
+            if kind == "locant":
+                preferred = f"C{suffix}" if element == "C" else f"{element}{suffix}"
+                index = next((item for item, atom in enumerate(atoms) if atom.atom_id == preferred), None)
+                if index is None:
+                    if suffix is None or not candidates or not 1 <= suffix <= len(candidates):
+                        raise NamingParseError("isotope atom locant is outside the parent")
+                    index = candidates[suffix - 1]
+            elif suffix is None:
                 if len(candidates) != 1:
                     raise NamingParseError("isotope prefix needs an atom locant")
                 index = candidates[0]
             else:
-                if not 1 <= locant <= len(candidates):
+                if not 1 <= suffix <= len(candidates):
                     raise NamingParseError("isotope atom locant is outside the parent")
-                index = candidates[locant - 1]
-            atoms[index] = replace(atoms[index], isotope=isotope)
-        entity = replace(entity, atoms=tuple(atoms))
+                index = candidates[suffix - 1]
+            atoms[index] = replace(atoms[index], isotope=mass)
+        entity = replace(entity, atoms=tuple(atoms), bonds=tuple(bonds))
     if stereo:
         for locant, descriptor in stereo:
             if descriptor in {"R", "S"}:
@@ -448,22 +647,79 @@ def _parse_decorated(name: str):
                     raise NamingParseError("stereo descriptor could not be encoded")
             elif descriptor in {"E", "Z"}:
                 bonds = list(entity.bonds)
+                chosen = None
                 for double in bonds:
                     if double.order != 2.0:
                         continue
-                    left = [index for index, bond in enumerate(bonds) if double.atom1_id in {bond.atom1_id, bond.atom2_id} and bond.order == 1.0 and double.atom2_id not in {bond.atom1_id, bond.atom2_id}]
-                    right = [index for index, bond in enumerate(bonds) if double.atom2_id in {bond.atom1_id, bond.atom2_id} and bond.order == 1.0 and double.atom1_id not in {bond.atom1_id, bond.atom2_id}]
-                    if not left or not right:
+                    ends = []
+                    for atom_id in (double.atom1_id, double.atom2_id):
+                        matched = re.fullmatch(r"C(\d+)", atom_id)
+                        if matched:
+                            ends.append(int(matched.group(1)))
+                    if locant is not None and ends and min(ends) != locant:
                         continue
-                    marker = "\\" if descriptor == "Z" else "/"
-                    bonds[left[0]] = replace(bonds[left[0]], stereochemistry="/")
-                    bonds[right[0]] = replace(bonds[right[0]], stereochemistry=marker)
-                    entity = replace(entity, bonds=tuple(bonds))
+                    chosen = double
                     break
+                if chosen is None:
+                    raise NamingParseError("stereo descriptor has no matching double bond")
+                left = [
+                    index
+                    for index, bond in enumerate(bonds)
+                    if chosen.atom1_id in {bond.atom1_id, bond.atom2_id}
+                    and bond.order == 1.0
+                    and chosen.atom2_id not in {bond.atom1_id, bond.atom2_id}
+                ]
+                right = [
+                    index
+                    for index, bond in enumerate(bonds)
+                    if chosen.atom2_id in {bond.atom1_id, bond.atom2_id}
+                    and bond.order == 1.0
+                    and chosen.atom1_id not in {bond.atom1_id, bond.atom2_id}
+                ]
+                if not left or not right:
+                    raise NamingParseError("stereo descriptor has no matching double bond")
+                # A conjugated polyene shares the single bond between two
+                # double bonds. Keep a marker that is already set and choose
+                # the free side so equal markers read back as E.
+                left_mark = bonds[left[0]].stereochemistry
+                right_mark = bonds[right[0]].stereochemistry
+
+                def _opposite(marker: str) -> str:
+                    return "\\" if marker == "/" else "/"
+
+                if left_mark not in {"/", "\\"} and right_mark not in {"/", "\\"}:
+                    bonds[left[0]] = replace(bonds[left[0]], stereochemistry="/")
+                    bonds[right[0]] = replace(
+                        bonds[right[0]],
+                        stereochemistry="/" if descriptor == "E" else "\\",
+                    )
+                elif left_mark in {"/", "\\"} and right_mark not in {"/", "\\"}:
+                    bonds[right[0]] = replace(
+                        bonds[right[0]],
+                        stereochemistry=left_mark if descriptor == "E" else _opposite(left_mark),
+                    )
+                elif right_mark in {"/", "\\"} and left_mark not in {"/", "\\"}:
+                    bonds[left[0]] = replace(
+                        bonds[left[0]],
+                        stereochemistry=right_mark if descriptor == "E" else _opposite(right_mark),
+                    )
+                entity = replace(entity, bonds=tuple(bonds))
     return entity
 
 
 def _parse_functional_acyclic(name: str):
+    saturated_ketone = re.fullmatch(r"(?P<stem>[a-z]+)an-(?P<locant>\d+)-one", name)
+    if saturated_ketone:
+        count = _stem_count(saturated_ketone.group("stem"))
+        locant = int(saturated_ketone.group("locant"))
+        if count is not None and 1 < locant < count:
+            atoms, bonds = _carbon_chain(count, name=name)
+            carbon_id = f"C{locant}"
+            carbon = next(atom for atom in atoms if atom.atom_id == carbon_id)
+            atoms[atoms.index(carbon)] = _atom(carbon_id, "C", max(0, (carbon.implicit_hydrogens or 0) - 2))
+            atoms.append(_atom("O1", "O"))
+            bonds.append(_bond(carbon_id, "O1", 2.0))
+            return _entity(name, atoms, bonds)
     match = re.fullmatch(r"(?P<stem>[a-z]+)-(?P<locant>\d+)-one", name)
     if match:
         count = _stem_count(match.group("stem"))
@@ -570,7 +826,46 @@ def _parse_special_acyclic(name: str):
     return None
 
 
+def _aromatic_parent(name: str, elements: list[str], hetero_hydrogens: int = 0):
+    atoms = []
+    bonds = []
+    for index, element in enumerate(elements, 1):
+        hydrogens = None
+        if element == "C":
+            hydrogens = 1
+        elif element == "N" and hetero_hydrogens:
+            hydrogens = hetero_hydrogens
+        atoms.append(_atom(f"A{index}", element, hydrogens))
+    for index in range(len(elements)):
+        bonds.append(
+            _bond(f"A{index + 1}", f"A{(index + 1) % len(elements) + 1}", 1.5, aromatic=True)
+        )
+    return _entity(name, atoms, bonds)
+
+
 def _parse_ring(name: str):
+    retained = {
+        "pyridine": (["C", "C", "C", "C", "C", "N"], 0),
+        "furan": (["O", "C", "C", "C", "C"], 0),
+        "thiophene": (["S", "C", "C", "C", "C"], 0),
+        "pyrrole": (["N", "C", "C", "C", "C"], 1),
+    }.get(name)
+    if retained is not None:
+        elements, hydrogens = retained
+        return _aromatic_parent(name, elements, hydrogens)
+    hantzsch = {"oxirane": 3, "oxetane": 4, "oxolane": 5, "oxane": 6}.get(name)
+    if hantzsch is not None:
+        atoms = [_atom("O1", "O")]
+        atoms.extend(_atom(f"C{index}", "C") for index in range(1, hantzsch))
+        bonds = [_bond("O1", "C1", 1.0)]
+        for index in range(1, hantzsch - 1):
+            bonds.append(_bond(f"C{index}", f"C{index + 1}", 1.0))
+        bonds.append(_bond(f"C{hantzsch - 1}", "O1", 1.0))
+        for index, atom in enumerate(atoms):
+            degree = sum(atom.atom_id in {bond.atom1_id, bond.atom2_id} for bond in bonds)
+            target = 2 if atom.element == "O" else 4
+            atoms[index] = _atom(atom.atom_id, atom.element, target - degree)
+        return _entity(name, atoms, bonds)
     match = re.fullmatch(r"cyclo(?P<stem>[a-z]+)(?P<unsat>ane|ene)", name)
     if match:
         count = _stem_count(match.group("stem"))
@@ -668,11 +963,19 @@ def _parse_prefixes(text: str):
     return values
 
 
+def _parse_extended_name(name: str):
+    """Parse names emitted by the shared substitutive grammar."""
+    from .substitutive.engine import parse_extended
+
+    return parse_extended(name)
+
+
 def _parse_name(name: str) -> FiniteChemicalEntity:
     decorated = _parse_decorated(name)
     if decorated is not None:
         return decorated
     for parser in (
+        _parse_extended_name,
         _parse_generic_graph,
         _parse_distinct_components,
         _parse_counted_components,
@@ -864,7 +1167,7 @@ def from_iupac_name(name: str) -> FiniteChemicalEntity:
     # Parse into the shared structured representation before dispatching to
     # the existing graph builders.  The builders retain their narrow grammar
     # and diagnostics; SystematicName supplies one canonical serialization.
-    normalized = SystematicName.parse(name).serialize()
+    normalized = _canonicalize_spelling(SystematicName.parse(name).serialize())
     # The legacy graph builders intentionally accept a lowercase grammar;
     # retain the structured spelling (including capital ``N-``) for the
     # canonical check and feed a case-folded form to those builders.
@@ -973,11 +1276,9 @@ def _lossless_stereo_notation(entity: FiniteChemicalEntity) -> LineNotation:
 
 
 def _is_reversible_entity(entity: FiniteChemicalEntity) -> bool:
-    if any(
-        atom.radical_electrons
-        for atom in entity.atoms
-    ):
-        return False
+    # Radical counts that the bracket-valence policy stored are part of the
+    # graph. Unsupported radicals still fail later, when no substitutive rule
+    # can carry them, instead of being dropped before naming.
     if not all(
         bond.kind is BondKind.COVALENT
         and bond.atom2_image_shift == (0, 0, 0)
@@ -1019,7 +1320,9 @@ def _valence_not_exceeded(entity: FiniteChemicalEntity) -> bool:
             valence = 3.0
         else:
             valence = sum(
-                1.0 if atom.element == "N" and bond.aromatic else bond.order or 0.0
+                1.0
+                if bond.aromatic and atom.element in {"N", "O", "S"}
+                else bond.order or 0.0
                 for bond in adjacency[atom.atom_id]
             )
         hydrogen_count = (atom.explicit_hydrogens or 0) + (
@@ -1069,7 +1372,9 @@ def complete_open_smiles_hydrogens(
     atoms = []
     for atom in entity.atoms:
         if (
-            atom.implicit_hydrogens is not None
+            atom.radical_electrons
+            or atom.formal_charge
+            or atom.implicit_hydrogens is not None
             or atom.explicit_hydrogens is not None
             or any(
                 evidence.source is EvidenceSource.LINE_NOTATION
@@ -1165,7 +1470,7 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
     # both modes.  Completing before dispatch keeps ``CCO`` deterministic in
     # non-strict mode as well as in the reversible strict path.
     if isinstance(entity, FiniteChemicalEntity):
-        entity = complete_open_smiles_hydrogens(entity)
+        entity = normalize_kekule_aromatic(complete_open_smiles_hydrogens(entity))
     if not isinstance(entity, FiniteChemicalEntity) or not _is_reversible_entity(entity):
         if strict:
             if isinstance(entity, FiniteChemicalEntity) and not _valence_not_exceeded(entity):
@@ -1222,9 +1527,13 @@ def smiles_to_iupac(smiles: str, *, strict: bool = True) -> NamingResult:
         from_iupac_name(result.name)
         return result
     try:
-        rebuilt = complete_open_smiles_hydrogens(from_iupac_name(result.name))
-        original = complete_open_smiles_hydrogens(
-            from_line_notation(smiles, dialect="opensmiles")
+        rebuilt = normalize_kekule_aromatic(
+            complete_open_smiles_hydrogens(from_iupac_name(result.name))
+        )
+        original = normalize_kekule_aromatic(
+            complete_open_smiles_hydrogens(
+                from_line_notation(smiles, dialect="opensmiles")
+            )
         )
         if not constitution_equivalent(original, rebuilt):
             raise NamingIndeterminateError(

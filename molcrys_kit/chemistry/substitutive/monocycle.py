@@ -211,6 +211,13 @@ def _ring_name(cycle, graph, atoms):
         # Carbon-substituted benzene is deliberately left to the established
         # benzene/phenol recognizer, which also preserves its retained names.
         return "benzene", True
+    if aromatic and n == 6 and elements.count("C") == 5 and elements.count("N") == 1:
+        return "pyridine", True
+    if aromatic and n == 5 and elements.count("C") == 4:
+        hetero = [element for element in elements if element != "C"]
+        retained = {"O": "furan", "S": "thiophene", "N": "pyrrole"}.get(hetero[0] if len(hetero) == 1 else "")
+        if retained is not None and elements.count(hetero[0]) == 1:
+            return retained, True
     if aromatic and n == 6 and any(element != "C" for element in elements):
         hetero = [(index, element) for index, element in enumerate(elements) if element != "C"]
         if all(element in {"N", "O", "S"} for _, element in hetero):
@@ -238,6 +245,12 @@ def _ring_name(cycle, graph, atoms):
         # unsaturated heterocycle grammar is implemented.
         if not all(b.order == 1.0 for b in edges):
             return None
+        # Retained Hantzsch–Widman names for the unsubstituted saturated
+        # mono-oxygen rings. Skeletal replacement remains the systematic alias.
+        if elements.count("O") == 1 and all(element in {"C", "O"} for element in elements):
+            retained = {3: "oxirane", 4: "oxetane", 5: "oxolane", 6: "oxane"}.get(n)
+            if retained is not None:
+                return retained, False
         # Saturated skeletal replacement, with oxa/aza locants.  Prefer an
         # oxygen start when present (the conventional C1COCCN1 spelling is
         # therefore 1-oxa-4-azacyclohexane).

@@ -9,7 +9,7 @@ chemistry engine.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from urllib.parse import quote, unquote
 
@@ -27,6 +27,7 @@ from .models import (
     PeriodicChemicalEntity,
     PolymerChemicalEntity,
 )
+from .radicals import assign_bracket_radicals, radicals_match_bracket_valence
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,9 @@ def _opensmiles_unsupported(entity: FiniteChemicalEntity) -> list[str]:
     unsupported = []
     if any(atom.oxidation_state is not None for atom in entity.atoms):
         unsupported.append("oxidation states")
-    if any(atom.radical_electrons for atom in entity.atoms):
+    if any(atom.radical_electrons for atom in entity.atoms) and not radicals_match_bracket_valence(
+        entity
+    ):
         unsupported.append("explicit radical-electron counts")
     if any(atom.explicit_hydrogens is not None for atom in entity.atoms):
         unsupported.append("explicit/implicit hydrogen distinction")
@@ -173,6 +176,7 @@ def _atom_signature(atom: ChemicalAtom) -> tuple:
         atom.isotope or 0,
         atom.formal_charge if atom.formal_charge is not None else 999,
         atom.implicit_hydrogens if atom.implicit_hydrogens is not None else 999,
+        int(atom.radical_electrons),
     )
 
 
@@ -340,6 +344,7 @@ def _smiles_atom(atom: ChemicalAtom, *, aromatic: bool = False) -> str:
         and atom.formal_charge in {None, 0}
         and atom.implicit_hydrogens is None
         and atom.stereochemistry is None
+        and not atom.radical_electrons
     )
     if simple:
         if aromatic and atom.element.lower() in _AROMATIC:
@@ -404,10 +409,19 @@ def _read_opensmiles(text: str) -> FiniteChemicalEntity:
     bonds: list[ChemicalBond] = []
     aromatic_atoms: dict[str, bool] = {}
     branch_stack: list[str | None] = []
-    rings: dict[int, tuple[str, tuple[float, bool, str | None] | None]] = {}
+    rings: dict[int, tuple[str, tuple[float, bool, str | None] | None, int]] = {}
     current: str | None = None
     pending_bond: tuple[float, bool, str | None] | None = None
+    # Heavy-atom neighbor order as the SMILES is read. A ring digit reserves
+    # a slot on the atom that carries it; the slot is filled when the ring
+    # closes. Chirality uses this order rather than the later bond list,
+    # because one ring bond cannot sit at both atoms' digit positions in a
+    # single global bond sequence.
+    encounter: dict[str, list[str | tuple[str, int]]] = {}
     index = 0
+
+    def note(atom_id: str, neighbor: str | tuple[str, int]) -> None:
+        encounter.setdefault(atom_id, []).append(neighbor)
 
     def add_atom(token: str, bracketed: bool) -> None:
         nonlocal current, pending_bond
@@ -423,6 +437,8 @@ def _read_opensmiles(text: str) -> FiniteChemicalEntity:
                     else (1.0, False, None)
                 )
             bonds.append(_parsed_bond(current, atom.atom_id, bond_data))
+            note(current, atom.atom_id)
+            note(atom.atom_id, current)
         current = atom.atom_id
         pending_bond = None
 
@@ -467,9 +483,12 @@ def _read_opensmiles(text: str) -> FiniteChemicalEntity:
                 ring = int(char)
                 index += 1
             if ring not in rings:
-                rings[ring] = (current, pending_bond)
+                note(current, ("pending", ring))
+                rings[ring] = (current, pending_bond, len(encounter[current]) - 1)
             else:
-                other, first_bond = rings.pop(ring)
+                other, first_bond, slot = rings.pop(ring)
+                encounter[other][slot] = current
+                note(current, other)
                 bond_data = pending_bond or first_bond
                 if pending_bond is not None and first_bond is not None and pending_bond != first_bond:
                     raise LineNotationError("conflicting ring-closure bond tokens")
@@ -507,14 +526,33 @@ def _read_opensmiles(text: str) -> FiniteChemicalEntity:
         raise LineNotationError("trailing bond token")
     if not atoms:
         raise LineNotationError("OpenSMILES contains no atoms")
+    for atom_index, atom in enumerate(atoms):
+        if atom.stereochemistry not in {"@", "@@"}:
+            continue
+        order = encounter.get(atom.atom_id, [])
+        if not order or any(not isinstance(item, str) for item in order):
+            continue
+        atoms[atom_index] = replace(
+            atom,
+            evidence=(
+                *atom.evidence,
+                Evidence(
+                    EvidenceSource.LINE_NOTATION,
+                    "OpenSMILES chiral neighbor order",
+                    detail=" ".join(order),
+                ),
+            ),
+        )
     evidence = Evidence(EvidenceSource.LINE_NOTATION, "OpenSMILES parser")
-    return FiniteChemicalEntity(
-        entity_id="line:0",
-        atoms=tuple(atoms),
-        bonds=tuple(bonds),
-        net_charge=sum(atom.formal_charge or 0 for atom in atoms),
-        status=InferenceStatus.EXPLICIT,
-        evidence=(evidence,),
+    return assign_bracket_radicals(
+        FiniteChemicalEntity(
+            entity_id="line:0",
+            atoms=tuple(atoms),
+            bonds=tuple(bonds),
+            net_charge=sum(atom.formal_charge or 0 for atom in atoms),
+            status=InferenceStatus.EXPLICIT,
+            evidence=(evidence,),
+        )
     )
 
 

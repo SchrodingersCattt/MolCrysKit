@@ -139,9 +139,9 @@ version = "2013"
 human_reviewed = true
 
 [[case]]
-id = "azabenzene-general"
+id = "pyridine"
 notation = "c1ccncc1"
-expected = "1-azabenzene"
+expected = "pyridine"
 standard = "Blue Book"
 version = "2013"
 human_reviewed = true
