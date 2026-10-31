@@ -1110,15 +1110,20 @@ should already be occupied states. `disorder_policy="exclusive"` returns one
 molecule per orientation, copying ordered atoms into each.
 
 Unlabelled PART labels are resolved per site. Occupancy-only alternatives are
-whole orientations. Values may sum to 1.10. Metal–ligand contacts are not
-counted as covalent valence, and two partial atoms that are bonded to each
-other are not split by a tight angle. A 50:50 shell that is shifted slightly
-off the centre is still one orientation when its angle spread stays in the
-best cluster. The choice prefers the tighter shell, then the smaller radius,
-then geometry, and does not follow atom order. If the class cannot be split,
-it is kept whole and ``UnresolvedDisorderWarning`` is raised. A negative PART
-shell around an ordered centre is split the same way. Shell records store
-parent molecule indices, and a minor ligand atom is not an extra vertex.
-Defaults: occupancy-sum tolerance 0.10, minimum simultaneous angle 80°,
-orientation spread slack 10°, spread-cluster gap 6°, radius standard
-deviation 0.13 Å, and a cap of 20000 substituent combinations.
+whole orientations with one element composition. Values may sum to 1.10.
+Metal–ligand contacts are not counted as covalent valence. At or below that
+sum a tight angle splits two partial atoms even if they are bonded; above it
+they coexist. Radii are compared as distance divided by the pair bond cutoff,
+so different elements can share a shell. A 50:50 shell shifted by 0.2 Å is
+still one orientation when its angle spread is within 10° of the best. A wider
+shift keeps that one orientation and warns. The choice prefers the tighter
+shell, then the smaller radius, then geometry, and does not follow atom order.
+If the class cannot be split at all, it is kept whole and
+``UnresolvedDisorderWarning`` is raised. The same warning covers a partial
+class with no ordered anchor that is not a translated duplicate. A negative
+PART shell around an ordered centre, including a single labelled assembly
+group, is split the same way. Shell records store parent molecule indices,
+and a minor ligand atom is not an extra vertex. Defaults: occupancy-sum
+tolerance 0.10, minimum simultaneous angle 80°, orientation spread slack 10°,
+spread-cluster gap 6°, normalized radius standard deviation 0.08, and a cap
+of 20000 substituent combinations.

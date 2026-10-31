@@ -113,22 +113,29 @@ A second disordered site that reuses the same labels keeps its own majority
 orientation. Occupancy-only sites compete when the values sum to at most 1.10 and they
 cannot be one covalent shell on a shared ordered atom. Metal–ligand contacts
 are not covalent valence, so an ordered oxygen that bridges partial metal
-sites keeps every metal. An acute angle does not split two partial atoms that
-are already bonded, so a small ring stays intact. Equal occupancies are
-gathered into whole orientations whose substituents share one radius
-(standard deviation at most 0.13 Å). A copy shifted by a fraction of an
-angstrom remains in the best angle-spread cluster (gap 6°, and never more
-than 10° worse than the best shell). The tie prefers that tighter shell, then
-the smaller radius, then the placement, so it does not follow atom order. If
-that split fails, the class is kept whole and
-``UnresolvedDisorderWarning`` is emitted; a moiety query can then find no
-shell. Negative PART labels on a symmetry-generated substituent shell are
-split into orientations around the ordered centre. Shell vertices use the
-major component under every policy. The numeric defaults are
-``OCCUPANCY_SUM_TOLERANCE`` 0.10, ``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG`` 80,
+sites keeps every metal. At or below that occupancy sum an acute angle makes
+the pair exclusive, including two positions of one split substituent. Above
+1.10 the atoms must coexist, so a bonded ring stays intact. Equal occupancies
+are gathered into whole orientations that share one element composition.
+Radii are compared as distance divided by that pair's bond cutoff (standard
+deviation at most 0.08), so hydrogen and chlorine can occupy one shell; the
+filter is skipped when the pool composition is not divisible by the number of
+shells, and a failed split warns. A copy shifted by 0.2 Å stays when its angle
+spread is within 10° of the best shell. A wider shift keeps the one regular
+orientation and warns, instead of returning a fused moiety. The tie prefers
+that tighter shell, then the smaller radius, then the placement, so it does
+not follow atom order. A class with no ordered anchor is split when it is a
+translated duplicate; otherwise it is kept whole and
+``UnresolvedDisorderWarning`` is emitted. A moiety query can then find no
+shell. Negative PART labels, including a single labelled assembly group, are
+split into orientations around the ordered centre. An ordered metal uses the
+same rule for partial ligands. Several groups in one labelled assembly stay
+exact. Shell vertices use the major component under every policy. The numeric
+defaults are ``OCCUPANCY_SUM_TOLERANCE`` 0.10,
+``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG`` 80,
 ``OCCUPANCY_ORIENTATION_STD_SLACK_DEG`` 10,
 ``OCCUPANCY_ORIENTATION_STD_GAP_DEG`` 6,
-``OCCUPANCY_ORIENTATION_RADIUS_STD_A`` 0.13, and
+``OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION`` 0.08, and
 ``OCCUPANCY_MAX_ORIENTATION_COMBINATIONS`` 20000.
 
 Fusing both orientations into one component produces a moiety that matches

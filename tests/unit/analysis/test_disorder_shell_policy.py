@@ -8,12 +8,16 @@ major orientation.
 
 from __future__ import annotations
 
+import time
+import warnings
+
 import numpy as np
 import pytest
 from ase import Atoms
 
 from molcrys_kit.analysis.disorder.diagnostics import UnresolvedDisorderWarning
 from molcrys_kit.analysis.disorder.policy import (
+    _bond_cutoff,
     disorder_realizations,
     normalize_disorder_policy,
 )
@@ -771,23 +775,46 @@ def test_coordinated_water_keeps_two_hydrogens():
     assert "O" in kept and "Zn" in kept
 
 
-def test_bonded_partial_atoms_in_a_tight_ring_stay():
-    angle = np.deg2rad(60.0)
-    atoms = Atoms(
-        symbols=["C", "C", "C"],
-        positions=[
-            [0.0, 0.0, 0.0],
-            [1.4, 0.0, 0.0],
-            [1.4 * np.cos(angle), 1.4 * np.sin(angle), 0.0],
-        ],
-        cell=np.eye(3) * CELL,
-        pbc=True,
-    )
-    atoms.set_array(KEY_OCCUPANCY, np.array([1.0, 0.6, 0.4]))
-    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(3, dtype=int))
-    atoms.set_array(KEY_ASSEMBLY, np.array(["", "", ""], dtype=object))
+def _tag(atoms: Atoms, occupancies, groups=None, assemblies=None) -> Atoms:
+    count = len(atoms)
+    atoms.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    if groups is None:
+        groups = np.zeros(count, dtype=int)
+    atoms.set_array(KEY_DISORDER_GROUP, np.asarray(groups, dtype=int))
+    if assemblies is None:
+        assemblies = [""] * count
+    atoms.set_array(KEY_ASSEMBLY, np.asarray(assemblies, dtype=object))
+    return atoms
 
-    assert disorder_realizations(atoms, "major")[0].drops_atoms is False
+
+def test_bonded_partial_atoms_coexist_only_above_the_occupancy_tolerance():
+    """A tight ring stays whole only when the occupancies must overlap.
+
+    Sum 1.0 is an ordinary split and keeps the major position. Sum 1.35
+    cannot be two alternatives of one site, so both atoms stay.
+    """
+    angle = np.deg2rad(60.0)
+    positions = [
+        [0.0, 0.0, 0.0],
+        [1.4, 0.0, 0.0],
+        [1.4 * np.cos(angle), 1.4 * np.sin(angle), 0.0],
+    ]
+
+    def _ring(first: float, second: float) -> Atoms:
+        atoms = Atoms(
+            symbols=["C", "C", "C"],
+            positions=positions,
+            cell=np.eye(3) * CELL,
+            pbc=True,
+        )
+        return _tag(atoms, [1.0, first, second])
+
+    exclusive = disorder_realizations(_ring(0.6, 0.4), "major")[0]
+    together = disorder_realizations(_ring(0.75, 0.60), "major")[0]
+
+    assert exclusive.drops_atoms is True
+    assert int(np.count_nonzero(exclusive.mask)) == 2
+    assert together.drops_atoms is False
 
 
 def test_shifted_equal_occupancy_orientation_still_has_a_shell():
@@ -912,6 +939,391 @@ def test_orientation_choice_does_not_follow_atom_order():
 
     assert len(forward) == 4
     assert forward == backward
+
+
+def _mixed_shell(elements: list[str], rotation: float, *, axis: str = "z", exchange: bool = False) -> Atoms:
+    """Ordered carbon plus two 50:50 substituent shells."""
+    directions = _tetrahedral_offsets(1.0)
+
+    def _place(labels: list[str], rays: np.ndarray) -> np.ndarray:
+        points = []
+        for label, ray in zip(labels, rays):
+            distance = 0.78 * _bond_cutoff("C", label)
+            points.append(ray / np.linalg.norm(ray) * distance)
+        return np.asarray(points, dtype=float)
+
+    if axis == "x":
+        theta = np.deg2rad(rotation)
+        rotation_matrix = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, np.cos(theta), -np.sin(theta)],
+                [0.0, np.sin(theta), np.cos(theta)],
+            ]
+        )
+        rotated = directions @ rotation_matrix.T
+    else:
+        rotated = _rotate_z(directions, rotation)
+    second = list(reversed(elements)) if exchange else list(elements)
+    second_rays = directions if exchange else rotated
+    symbols = ["C"]
+    positions = [np.zeros(3)]
+    occupancies = [1.0]
+    for label, point in zip(elements, _place(elements, directions)):
+        symbols.append(label)
+        positions.append(point)
+        occupancies.append(0.5)
+    for label, point in zip(second, _place(second, second_rays)):
+        symbols.append(label)
+        positions.append(point)
+        occupancies.append(0.5)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    return _tag(atoms, occupancies)
+
+
+@pytest.mark.parametrize(
+    ("elements", "rotation", "axis"),
+    [
+        (["H", "H", "Cl", "Cl"], 90.0, "z"),
+        (["H", "H", "Cl", "Cl"], 60.0, "x"),
+        (["H", "F", "Cl", "H"], 90.0, "z"),
+        (["H", "H", "H", "Br"], 90.0, "z"),
+    ],
+)
+def test_mixed_element_orientations_keep_one_composition(elements, rotation, axis):
+    atoms = _mixed_shell(elements, rotation, axis=axis)
+    major = disorder_realizations(atoms, "major")[0]
+    kept = [
+        symbol
+        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+        if keep and symbol != "C"
+    ]
+
+    assert sorted(kept) == sorted(elements)
+    assert len(disorder_realizations(atoms, "exclusive")) == 2
+
+
+def test_exchanged_substituents_do_not_keep_only_the_light_element():
+    """Swapping H and Cl along the same rays must not drop the chlorine."""
+    atoms = _mixed_shell(["H", "H", "Cl", "Cl"], 0.0, exchange=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        major = disorder_realizations(atoms, "major")[0]
+    kept = [
+        symbol
+        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+        if keep and symbol != "C"
+    ]
+
+    assert sorted(kept) == ["Cl", "Cl", "H", "H"]
+    assert not any(issubclass(item.category, UnresolvedDisorderWarning) for item in caught)
+
+
+@pytest.mark.parametrize("element", ["O", "F", "Cl", "Br"])
+def test_ordinary_split_substituent_keeps_one_position(element):
+    bond = 0.80 * _bond_cutoff("C", element)
+    angle = np.deg2rad(60.0 if element != "F" else 45.0)
+    atoms = Atoms(
+        symbols=["C", "C", element, element],
+        positions=[
+            [-1.5, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [bond, 0.0, 0.0],
+            [bond * np.cos(angle), bond * np.sin(angle), 0.0],
+        ],
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(atoms, [1.0, 1.0, 0.6, 0.4])
+    major = disorder_realizations(atoms, "major")[0]
+    kept = [
+        symbol
+        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+        if keep
+    ]
+
+    assert kept.count(element) == 1
+    assert kept.count("C") == 2
+
+
+@pytest.mark.parametrize("shift", [0.20, 0.25])
+def test_shifted_orientation_up_to_a_quarter_angstrom_has_a_shell(shift):
+    primary = _tetrahedral_offsets(1.45)
+    secondary = _rotate_z(primary, 50.0) + np.array([0.0, 0.0, shift])
+    symbols = ["N"]
+    positions = [SITE.copy()]
+    occupancies = [1.0]
+    for offset in (*primary, *secondary):
+        symbols.append("C")
+        positions.append(SITE + offset)
+        occupancies.append(0.5)
+    cation = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(cation, occupancies)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+        each = disorder_realizations(cation, "exclusive")
+
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+    assert len(each) == 2
+    assert not any(issubclass(item.category, UnresolvedDisorderWarning) for item in caught)
+
+
+def test_wider_shift_keeps_one_shell_and_warns():
+    primary = _tetrahedral_offsets(1.45)
+    secondary = _rotate_z(primary, 50.0) + np.array([0.0, 0.0, 0.30])
+    symbols = ["N"]
+    positions = [SITE.copy()]
+    occupancies = [1.0]
+    for offset in (*primary, *secondary):
+        symbols.append("C")
+        positions.append(SITE + offset)
+        occupancies.append(0.5)
+    cation = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(cation, occupancies)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+    assert any(issubclass(item.category, UnresolvedDisorderWarning) for item in caught)
+
+
+def test_labelled_negative_part_shell_keeps_four_hydrogens():
+    symbols = ["N"]
+    positions = [np.zeros(3)]
+    groups = [0]
+    occupancies = [1.0]
+    assemblies = [""]
+    for step in range(4):
+        for offset in _rotate_z(_tetrahedral_offsets(1.01), step * 40.0):
+            symbols.append("H")
+            positions.append(offset)
+            groups.append(-1)
+            occupancies.append(0.25)
+            assemblies.append("A")
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(atoms, occupancies, groups, assemblies)
+    major = disorder_realizations(atoms, "major")[0]
+    hydrogen_count = sum(
+        symbol == "H" and bool(keep)
+        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+    )
+
+    assert hydrogen_count == 4
+
+
+def test_mixed_occupancy_hydrogen_shell_keeps_four():
+    symbols = ["N"]
+    positions = [np.zeros(3)]
+    occupancies = [1.0]
+    for step in range(3):
+        for offset in _rotate_z(_tetrahedral_offsets(1.01), step * 40.0):
+            symbols.append("H")
+            positions.append(offset)
+            occupancies.append(0.25)
+    for extra in (np.array([0.2, 0.9, 0.3]), np.array([-0.3, 0.2, 0.95])):
+        symbols.append("H")
+        positions.append(extra / np.linalg.norm(extra) * 1.01)
+        occupancies.append(0.5)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(atoms, occupancies)
+    major = disorder_realizations(atoms, "major")[0]
+    hydrogen_count = sum(
+        symbol == "H" and bool(keep)
+        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+    )
+
+    assert hydrogen_count == 4
+
+
+def test_two_negative_part_groups_stay_exact():
+    """Two labelled negative groups are alternatives, not one fused shell."""
+    symbols = ["N"]
+    positions = [SITE.copy()]
+    groups = [0]
+    occupancies = [1.0]
+    assemblies = [""]
+    for group, offsets in (
+        (-1, _tetrahedral_offsets(1.45)),
+        (-2, _rotate_z(_tetrahedral_offsets(1.45), 50.0)),
+    ):
+        for offset in offsets:
+            symbols.append("C")
+            positions.append(SITE + offset)
+            groups.append(group)
+            occupancies.append(0.5)
+            assemblies.append("A")
+    cation = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(cation, occupancies, groups, assemblies)
+    shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+    assert len(disorder_realizations(cation, "exclusive")) == 2
+
+
+def _translated_cation(shift: float, *, group: int | None = None) -> Atoms:
+    primary = _tetrahedral_offsets(1.45)
+    symbols: list[str] = []
+    positions = []
+    occupancies = []
+    groups = []
+    for offset_shift in (np.zeros(3), np.array([shift, 0.0, 0.0])):
+        symbols.append("N")
+        positions.append(SITE + offset_shift)
+        occupancies.append(0.5)
+        groups.append(0 if group is None else group)
+        for offset in primary:
+            symbols.append("C")
+            positions.append(SITE + offset_shift + offset)
+            occupancies.append(0.5)
+            groups.append(0 if group is None else group)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    return _tag(atoms, occupancies, groups)
+
+
+def test_translated_cation_without_an_ordered_anchor_has_a_shell():
+    cation = _translated_cation(0.25)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+    assert not any(issubclass(item.category, UnresolvedDisorderWarning) for item in caught)
+
+
+def test_negative_part_translated_cation_keeps_one_copy():
+    cation = _translated_cation(0.20, group=-1)
+    major = disorder_realizations(cation, "major")[0]
+    kept = [
+        symbol
+        for symbol, keep in zip(cation.get_chemical_symbols(), major.mask)
+        if keep
+    ]
+    assert kept.count("N") == 1
+    assert kept.count("C") == 4
+
+
+def test_unpaired_partial_class_warns_and_keeps_atoms():
+    atoms = Atoms(
+        symbols=["H", "H", "H"],
+        positions=[[0.0, 0.0, 0.0], [0.2, 0.05, 0.0], [0.15, 0.2, 0.1]],
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(atoms, [0.5, 0.5, 0.5])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        major = disorder_realizations(atoms, "major")[0]
+    assert major.drops_atoms is False
+    assert any(issubclass(item.category, UnresolvedDisorderWarning) for item in caught)
+
+
+def test_split_apical_ligands_keep_one_per_side():
+    metal_nitrogen = 0.80 * _bond_cutoff("Zn", "N")
+    metal_oxygen = 0.85 * _bond_cutoff("Zn", "O")
+    equatorial = []
+    for angle in (0.0, 90.0, 180.0, 270.0):
+        theta = np.deg2rad(angle)
+        equatorial.append([metal_nitrogen * np.cos(theta), metal_nitrogen * np.sin(theta), 0.0])
+
+    def _on_axis(sign: float, lateral: float) -> list[float]:
+        height = sign * np.sqrt(max(metal_oxygen**2 - lateral**2, 0.0))
+        return [lateral, 0.0, height]
+
+    apical = [
+        _on_axis(1.0, 0.0),
+        _on_axis(1.0, 0.6),
+        _on_axis(-1.0, 0.0),
+        _on_axis(-1.0, 0.6),
+    ]
+    atoms = Atoms(
+        symbols=["Zn", "N", "N", "N", "N", "O", "O", "O", "O"],
+        positions=np.vstack([[0.0, 0.0, 0.0], *equatorial, *apical]),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(atoms, [1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5])
+    kept = [
+        symbol
+        for symbol, keep in zip(
+            atoms.get_chemical_symbols(),
+            disorder_realizations(atoms, "major")[0].mask,
+        )
+        if keep
+    ]
+    assert kept.count("O") == 2
+    assert kept.count("Zn") == 1
+    assert kept.count("N") == 4
+
+
+def test_major_policy_stays_fast_on_a_long_partial_chain():
+    """Twenty occupancy classes along a chain must not scale like atom pairs."""
+    carbons = 2000
+    occupancy_values = np.linspace(0.30, 0.49, 20)
+    symbols = []
+    positions = []
+    occupancies = []
+    for index in range(carbons):
+        symbols.append("C")
+        positions.append([index * 1.5, 0.0, 0.0])
+        occupancies.append(1.0)
+        symbols.append("H")
+        positions.append([index * 1.5, 1.1, 0.0])
+        occupancies.append(float(occupancy_values[index % 20]))
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=[carbons * 1.5 + 10.0, 20.0, 20.0],
+        pbc=False,
+    )
+    _tag(atoms, occupancies)
+    started = time.perf_counter()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UnresolvedDisorderWarning)
+        major = disorder_realizations(atoms, "major")[0]
+    elapsed = time.perf_counter() - started
+
+    assert major.drops_atoms is False
+    assert elapsed < 3.0
 
 
 def test_invalid_disorder_policy_raises():

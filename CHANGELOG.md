@@ -32,22 +32,29 @@
   keeps its own majority orientation.
 - Occupancy-only atoms are alternatives when their values sum to at most 1.10
   and they cannot share one covalent shell. Metal–ligand contacts do not count
-  toward that shell, and a tight angle does not split two partial atoms that
-  are bonded to each other. Bonded chains and coordinated metals therefore
-  stay intact.
-- Equal occupancies are split into whole orientations. A shell is one radius
-  (standard deviation at most 0.13 Å) whose angle spread stays in the best
-  cluster (gap 6°, at most 10° above the best). The tie prefers the tighter
-  shell, then the smaller radius, then geometry, so it does not follow atom
-  order. A class that cannot be split is kept whole and raises
-  `UnresolvedDisorderWarning`.
-- Negative PART labels on a symmetry-generated substituent shell are split
-  into orientations around the ordered centre.
+  toward that shell. At or below that sum a tight angle splits the pair, even
+  when the atoms are within a bond; above it they coexist. Bridging metals and
+  a bonded ring whose occupancies sum to more than 1.10 stay intact. An
+  ordinary split substituent (sum at most 1.10) keeps one position.
+- Equal occupancies are split into whole orientations with one element
+  composition. Radii are distance/bond-cutoff (standard deviation at most
+  0.08), so a mixed hydrogen/chlorine shell is one orientation and an all-hydrogen
+  subset of that shell is not. A 0.2 Å shifted copy stays within the 10° angle
+  slack. A wider shift keeps the one regular orientation and warns. A class
+  that cannot be split at all is kept whole and raises
+  `UnresolvedDisorderWarning`. A translated duplicate with no ordered anchor is
+  split; any other unanchored class warns.
+- Negative PART labels, including one group inside a labelled assembly, are
+  split into orientations around the ordered centre. Partial ligands of an
+  ordered metal are split the same way. Several groups in one labelled
+  assembly stay exact.
 - Atom-level distances use the periodic minimum image, and shell vertices
   follow the major-ligand rule for unlabelled as well as labelled disorder.
+- Bond cutoffs are cached per element pair and neighbour searches use one
+  spatial query, so occupancy grouping on a long chain stays near-linear.
 - Defaults in `DISORDER_CONFIG`: `OCCUPANCY_SUM_TOLERANCE` 0.10,
   `OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG` 80,
   `OCCUPANCY_ORIENTATION_STD_SLACK_DEG` 10,
   `OCCUPANCY_ORIENTATION_STD_GAP_DEG` 6,
-  `OCCUPANCY_ORIENTATION_RADIUS_STD_A` 0.13,
+  `OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION` 0.08,
   `OCCUPANCY_MAX_ORIENTATION_COMBINATIONS` 20000.

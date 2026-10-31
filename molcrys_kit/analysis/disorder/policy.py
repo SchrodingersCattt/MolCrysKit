@@ -39,17 +39,18 @@ partial occupancies does none of those and stays intact.
 
 Equal occupancies are split into whole orientations around the ordered atom
 they share. Each orientation is one regular shell: pairwise angles at least
-``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG`` and a radius spread no wider than
-``OCCUPANCY_ORIENTATION_RADIUS_STD_A``. A shifted copy is kept when its angle
-spread stays with the best cluster (a gap of
-``OCCUPANCY_ORIENTATION_STD_GAP_DEG``, and never more than
-``OCCUPANCY_ORIENTATION_STD_SLACK_DEG`` above the best). A mixed shell in a
-worse cluster is not. The remaining tie prefers the tighter shell, then the
-smaller radius, then geometry, so the choice does not follow atom order.
-Metal–ligand contacts are not covalent valence, and an acute angle does not
-split two partial atoms that are already bonded to each other. A class that
-cannot be split is kept whole and reported with
-``UnresolvedDisorderWarning``.
+``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG``, the same element composition, and a
+normalized radius spread (distance divided by that pair's bond cutoff) no
+wider than ``OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION``. A shifted copy is
+kept when its angle spread is within ``OCCUPANCY_ORIENTATION_STD_SLACK_DEG``
+of the best shell. A mixed shell that shares atoms with a tighter orientation
+is not. The remaining tie prefers the tighter shell, then the smaller radius,
+then geometry, so the choice does not follow atom order. Metal–ligand
+contacts are not covalent valence. Two partial atoms are exclusive when their
+occupancies sum to at most one plus ``OCCUPANCY_SUM_TOLERANCE``, even if they
+lie within a bond of each other. Above that sum they must coexist. A class
+that cannot be split raises ``UnresolvedDisorderWarning``. One regular
+orientation is kept when it can be found; otherwise the class stays whole.
 
 ``find_polyhedra`` defaults to ``major`` for the central site, and shell
 vertices always use the major ligand component. ``identify_molecules`` and
@@ -62,6 +63,7 @@ from __future__ import annotations
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import lru_cache
 from itertools import combinations
 from typing import Iterable, Sequence
 
@@ -169,13 +171,17 @@ def disorder_realizations(
             _realization(full, (), occupancies, drops_atoms=False, competes=competes)
         ]
 
+    positions = _positions(atoms, n_atoms)
+    symbols = _symbols(atoms, n_atoms)
+    contacts = _Contacts.build(positions, symbols, metric)
     families = _exclusive_families(
         occupancies,
         groups,
         assemblies,
-        _positions(atoms, n_atoms),
-        _symbols(atoms, n_atoms),
+        positions,
+        symbols,
         metric,
+        contacts,
         notes,
         spatial_alternatives=spatial_alternatives,
     )
@@ -366,6 +372,7 @@ def _exclusive_families(
     positions: np.ndarray,
     symbols: Sequence[str],
     metric: "_Metric",
+    contacts: "_Contacts",
     notes: list[str],
     *,
     spatial_alternatives: bool,
@@ -436,6 +443,9 @@ def _exclusive_families(
     # Negative PART labels are SHELX's mark for a symmetry-generated disorder
     # shell. The copies share one group, so they are split into orientations
     # around the ordered centre instead of being kept as one over-complete set.
+    # A labelled assembly with several groups stays exact: each group is
+    # already one alternative. A single negative group, labelled or not, is
+    # the symmetry shell.
     ordered = _ordered_indices(occupancies, groups)
     for component in blank_components:
         if _group_number(component.label) >= 0:
@@ -448,6 +458,26 @@ def _exclusive_families(
                 occupancies,
                 ordered,
                 metric,
+                contacts,
+                notes,
+            )
+        )
+    for assembly in sorted(named):
+        members = named[assembly]
+        if len(members) != 1:
+            continue
+        label, indices = next(iter(members.items()))
+        if _group_number(label) >= 0:
+            continue
+        families.extend(
+            _orientation_families(
+                _component(f"group:{label}", label, indices, occupancies),
+                positions,
+                symbols,
+                occupancies,
+                ordered,
+                metric,
+                contacts,
                 notes,
             )
         )
@@ -463,6 +493,7 @@ def _exclusive_families(
             occupancies,
             groups,
             metric,
+            contacts,
             notes,
         )
     )
@@ -582,14 +613,14 @@ def _occupancy_families(
     occupancies: np.ndarray,
     groups: np.ndarray,
     metric: "_Metric",
+    contacts: "_Contacts",
     notes: list[str],
 ) -> list[list[_Component]]:
     """Exclusive families for group-0 partial occupancies.
 
-    Distinct occupancy values compete as whole classes when they are
-    complementary and cannot occupy one shell. A single occupancy value is
-    split into whole orientations around a shared ordered atom. Selection
-    then picks an orientation, not one atom from each contact.
+    Distinct occupancy values compete when they are complementary and cannot
+    occupy one shell. Each value is split into whole orientations first, so a
+    superimposed shell cannot win just because it contains more atoms.
     """
     if not components:
         return []
@@ -616,6 +647,7 @@ def _occupancy_families(
             symbols,
             ordered,
             metric,
+            contacts,
         ):
             continue
         _union(left, right)
@@ -628,7 +660,22 @@ def _occupancy_families(
     for members in clusters.values():
         if len(members) <= 1:
             continue
-        families.append(members)
+        expanded: list[_Component] = []
+        for member in members:
+            expanded.extend(
+                _expand_orientations(
+                    member,
+                    positions,
+                    symbols,
+                    occupancies,
+                    ordered,
+                    metric,
+                    contacts,
+                    notes,
+                )
+            )
+        if len(expanded) > 1:
+            families.append(expanded)
         consumed.update(id(member) for member in members)
     for component in components:
         if id(component) in consumed:
@@ -641,10 +688,40 @@ def _occupancy_families(
                 occupancies,
                 ordered,
                 metric,
+                contacts,
                 notes,
             )
         )
     return families
+
+
+def _expand_orientations(
+    component: _Component,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+    ordered: Sequence[int],
+    metric: "_Metric",
+    contacts: "_Contacts",
+    notes: list[str],
+) -> list[_Component]:
+    """Replace one class by its orientations, or keep the class."""
+    found = _orientation_families(
+        component,
+        positions,
+        symbols,
+        occupancies,
+        ordered,
+        metric,
+        contacts,
+        notes,
+    )
+    if not found:
+        return [component]
+    expanded: list[_Component] = []
+    for family in found:
+        expanded.extend(family)
+    return expanded or [component]
 
 
 def _ordered_indices(occupancies: np.ndarray, groups: np.ndarray) -> list[int]:
@@ -663,6 +740,7 @@ def _classes_compete(
     symbols: Sequence[str],
     ordered: Sequence[int],
     metric: "_Metric",
+    contacts: "_Contacts",
 ) -> bool:
     try:
         left_occ = float(left.label)
@@ -679,6 +757,7 @@ def _classes_compete(
         symbols,
         ordered,
         metric,
+        contacts,
     ):
         return True
     return _has_alternative_contact(
@@ -693,13 +772,14 @@ def _shared_center_conflict(
     symbols: Sequence[str],
     ordered: Sequence[int],
     metric: "_Metric",
+    contacts: "_Contacts",
 ) -> bool:
     """True when two partial sets cannot both form one covalent shell.
 
     Metal–ligand contacts are coordination, not covalent valence, so they do
-    not use up the centre's covalent slots and do not make the partial atoms
-    alternative substituents. An acute angle is ignored when the two partial
-    atoms are themselves covalently bonded.
+    not use up the centre's covalent slots. Callers only reach this when the
+    occupancies sum to at most one plus the occupancy tolerance, so a close
+    pair is exclusive even if the two atoms are within a covalent distance.
     """
     if not ordered:
         return False
@@ -707,24 +787,32 @@ def _shared_center_conflict(
 
     minimum_angle = float(DISORDER_CONFIG["OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG"])
     ordered_set = set(ordered)
-    for center in ordered:
-        bonded_left = _covalent_bonded_to(center, left, positions, symbols, metric)
-        bonded_right = _covalent_bonded_to(center, right, positions, symbols, metric)
+    left_set = {int(index) for index in left}
+    right_set = {int(index) for index in right}
+    centers: list[int] = []
+    seen: set[int] = set()
+    for atom in left_set:
+        for neigh in contacts.covalent[atom]:
+            if neigh in seen or neigh not in ordered_set:
+                continue
+            seen.add(neigh)
+            if any(other in right_set for other in contacts.covalent[neigh]):
+                centers.append(neigh)
+    for center in centers:
+        bonded_left = [index for index in contacts.covalent[center] if index in left_set]
+        bonded_right = [index for index in contacts.covalent[center] if index in right_set]
         if not bonded_left or not bonded_right:
             continue
         other = [
             index
-            for index in ordered_set
-            if index != center
-            and _is_covalent(center, index, positions, symbols, metric)
+            for index in contacts.covalent[center]
+            if index in ordered_set and index != center
         ]
         limit = int(MAX_COORDINATION_NUMBERS.get(symbols[center], DEFAULT_MAX_COORDINATION))
         if len(bonded_left) + len(bonded_right) + len(other) > limit:
             return True
         for left_index in bonded_left:
             for right_index in bonded_right:
-                if _is_covalent(left_index, right_index, positions, symbols, metric):
-                    continue
                 angle = _bond_angle_deg(positions, center, left_index, right_index, metric)
                 if angle < minimum_angle:
                     return True
@@ -738,11 +826,16 @@ def _orientation_families(
     occupancies: np.ndarray,
     ordered: Sequence[int],
     metric: "_Metric",
+    contacts: "_Contacts",
     notes: list[str],
 ) -> list[list[_Component]]:
     """Split one occupancy class into regular shells around ordered atoms."""
-    if not ordered or component.indices.size < 2:
+    if component.indices.size < 2:
         return []
+    if not ordered:
+        return _unanchored_families(
+            component, positions, symbols, occupancies, metric, contacts, notes
+        )
     from math import comb
 
     from ...constants.config import DEFAULT_MAX_COORDINATION, MAX_COORDINATION_NUMBERS
@@ -751,33 +844,36 @@ def _orientation_families(
     claimed: set[int] = set()
     cap = int(DISORDER_CONFIG["OCCUPANCY_MAX_ORIENTATION_COMBINATIONS"])
     slack = float(DISORDER_CONFIG["OCCUPANCY_ORIENTATION_STD_SLACK_DEG"])
+    ordered_set = set(ordered)
+    component_set = {int(index) for index in component.indices}
     for center in ordered:
-        pool = _covalent_bonded_to(
-            center, np.asarray(component.indices), positions, symbols, metric
-        )
-        pool = [index for index in pool if index not in claimed]
+        metal = _is_metal_symbol(symbols[center])
+        neighbours = contacts.shell[center] if metal else contacts.covalent[center]
+        pool = [index for index in neighbours if index in component_set and index not in claimed]
         if len(pool) < 2:
             continue
-        other = [
-            index
-            for index in ordered
-            if index != center and _is_covalent(center, index, positions, symbols, metric)
-        ]
+        other = [index for index in neighbours if index in ordered_set and index != center]
         slots = int(MAX_COORDINATION_NUMBERS.get(symbols[center], DEFAULT_MAX_COORDINATION)) - len(other)
         if slots < 1 or len(pool) <= slots:
-            if not _has_acute_unbonded_pair(positions, center, pool, symbols, metric):
+            if not _has_acute_unbonded_pair(
+                positions, center, pool, symbols, occupancies, metric
+            ):
                 continue
         if len(pool) < slots or comb(len(pool), slots) > cap:
-            _note_unresolved(notes)
+            _note_unresolved(notes, kept_whole=True)
             continue
+        target = _target_composition(pool, slots, symbols)
         scored: list[tuple[float, tuple[int, ...]]] = []
         for combo in combinations(pool, slots):
-            spread = _shell_angle_std(positions, center, combo, metric)
+            chosen = tuple(sorted(int(index) for index in combo))
+            if target is not None and _composition(chosen, symbols) != target:
+                continue
+            spread = _shell_angle_std(positions, center, chosen, symbols, metric)
             if spread is None:
                 continue
-            scored.append((spread, tuple(sorted(int(index) for index in combo))))
+            scored.append((spread, chosen))
         if not scored:
-            _note_unresolved(notes)
+            _note_unresolved(notes, kept_whole=True)
             continue
         cutoff = _accepted_spread_cutoff([item[0] for item in scored], slack)
         ranked = sorted(
@@ -799,8 +895,11 @@ def _orientation_families(
             accepted.append((spread, combo))
             used.update(combo)
         if len(accepted) < 2:
-            _note_unresolved(notes)
-            continue
+            if len(accepted) == 1:
+                _note_unresolved(notes, kept_whole=False)
+            else:
+                _note_unresolved(notes, kept_whole=True)
+                continue
         members = [
             _component(
                 f"occupancy:{component.label}:orientation:{combo[0]}",
@@ -826,14 +925,23 @@ def _orientation_families(
             )
         families.append(members)
         claimed.update(pool)
+    if component_set - claimed and _has_internal_alternative(component.indices, symbols, positions, metric, contacts):
+        if not families:
+            _note_unresolved(notes, kept_whole=True)
     return families
 
 
-def _note_unresolved(notes: list[str]) -> None:
-    message = (
-        "Equal-occupancy substituents could not be split into regular "
-        "orientations; the class was kept whole."
-    )
+def _note_unresolved(notes: list[str], *, kept_whole: bool) -> None:
+    if kept_whole:
+        message = (
+            "Equal-occupancy substituents could not be split into regular "
+            "orientations; the class was kept whole."
+        )
+    else:
+        message = (
+            "Equal-occupancy substituents produced only one regular "
+            "orientation; the remaining atoms were left out."
+        )
     if message not in notes:
         notes.append(message)
 
@@ -844,31 +952,18 @@ def _spread_bucket(value: float) -> float:
 
 
 def _accepted_spread_cutoff(spreads: Sequence[float], slack: float) -> float:
-    """Keep the best spread cluster, and never past ``slack`` above the best."""
-    unique = sorted({_spread_bucket(value) for value in spreads})
+    """Keep shells within the slack of the best, and at least one gap wide.
+
+    A shifted copy can sit just past the cluster gap (about 6°) and still be
+    the other orientation. Mixed shells inside that window share atoms with a
+    tighter shell, so the disjoint selection drops them.
+    """
+    best = min(_spread_bucket(value) for value in spreads)
     gap = float(DISORDER_CONFIG["OCCUPANCY_ORIENTATION_STD_GAP_DEG"])
-    cutoff = unique[0]
-    for previous, following in zip(unique, unique[1:]):
-        if following - previous > gap:
-            break
-        cutoff = following
-    return min(cutoff, unique[0] + float(slack))
+    return best + max(float(slack), gap)
 
 
-def _covalent_bonded_to(
-    center: int,
-    candidates: np.ndarray,
-    positions: np.ndarray,
-    symbols: Sequence[str],
-    metric: "_Metric",
-) -> list[int]:
-    return [
-        int(index)
-        for index in candidates
-        if int(index) != center and _is_covalent(center, int(index), positions, symbols, metric)
-    ]
-
-
+@lru_cache(maxsize=None)
 def _is_metal_symbol(symbol: str) -> bool:
     from ...constants import is_metal_element
 
@@ -890,6 +985,7 @@ def _is_covalent(
     )
 
 
+@lru_cache(maxsize=None)
 def _bond_cutoff(symbol_i: str, symbol_j: str) -> float:
     from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
     from ..interactions.bonding import get_bonding_threshold
@@ -929,13 +1025,26 @@ def _has_acute_unbonded_pair(
     center: int,
     indices: Sequence[int],
     symbols: Sequence[str],
+    occupancies: np.ndarray,
     metric: "_Metric",
 ) -> bool:
+    """True when two substituents cannot be one shell.
+
+    A pair whose occupancies sum to more than one plus the tolerance must
+    coexist, so a bond between them is not an alternative. At or below that
+    sum the angle rule applies even when the atoms are within a bond length.
+    """
     minimum = float(DISORDER_CONFIG["OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG"])
+    tolerance = float(DISORDER_CONFIG["OCCUPANCY_SUM_TOLERANCE"])
     for left, right in combinations(indices, 2):
-        if _is_covalent(int(left), int(right), positions, symbols, metric):
+        left_index = int(left)
+        right_index = int(right)
+        occupancy_sum = float(occupancies[left_index] + occupancies[right_index])
+        if occupancy_sum > 1.0 + tolerance and _is_covalent(
+            left_index, right_index, positions, symbols, metric
+        ):
             continue
-        if _bond_angle_deg(positions, center, int(left), int(right), metric) < minimum:
+        if _bond_angle_deg(positions, center, left_index, right_index, metric) < minimum:
             return True
     return False
 
@@ -944,15 +1053,18 @@ def _shell_angle_std(
     positions: np.ndarray,
     center: int,
     indices: Sequence[int],
+    symbols: Sequence[str],
     metric: "_Metric",
 ) -> float | None:
     minimum = float(DISORDER_CONFIG["OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG"])
-    distances = [
-        _pair_distance(positions, int(center), int(index), metric) for index in indices
+    normalized = [
+        _pair_distance(positions, int(center), int(index), metric)
+        / _bond_cutoff(symbols[center], symbols[int(index)])
+        for index in indices
     ]
-    if len(distances) >= 2:
-        radius_limit = float(DISORDER_CONFIG["OCCUPANCY_ORIENTATION_RADIUS_STD_A"])
-        if float(np.std(distances)) > radius_limit:
+    if len(normalized) >= 2:
+        fraction = float(DISORDER_CONFIG["OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION"])
+        if float(np.std(normalized)) > fraction:
             return None
     angles: list[float] = []
     for left, right in combinations(indices, 2):
@@ -963,6 +1075,134 @@ def _shell_angle_std(
     if len(angles) < 2:
         return 0.0
     return float(np.std(angles))
+
+
+def _composition(indices: Sequence[int], symbols: Sequence[str]) -> tuple:
+    counts: dict[str, int] = {}
+    for index in indices:
+        symbol = symbols[int(index)]
+        counts[symbol] = counts.get(symbol, 0) + 1
+    return tuple(sorted(counts.items()))
+
+
+def _target_composition(
+    pool: Sequence[int], slots: int, symbols: Sequence[str]
+) -> tuple | None:
+    """Element counts of one orientation, when the pool is k identical shells."""
+    if slots < 1 or len(pool) < slots or len(pool) % slots != 0:
+        return None
+    copies = len(pool) // slots
+    counts: dict[str, int] = {}
+    for index in pool:
+        symbol = symbols[int(index)]
+        counts[symbol] = counts.get(symbol, 0) + 1
+    if any(count % copies != 0 for count in counts.values()):
+        return None
+    return tuple(sorted((symbol, count // copies) for symbol, count in counts.items()))
+
+
+def _has_internal_alternative(
+    indices: Sequence[int],
+    symbols: Sequence[str],
+    positions: np.ndarray,
+    metric: "_Metric",
+    contacts: "_Contacts",
+) -> bool:
+    """True when the class contains a same-element pair too close to coexist."""
+    chosen = {int(index) for index in indices}
+    for index in chosen:
+        for other in contacts.covalent[index]:
+            if other not in chosen or other <= index:
+                continue
+            if symbols[index] != symbols[other]:
+                continue
+            distance = _pair_distance(positions, index, other, metric)
+            if distance <= _alternative_cutoff(symbols[index], symbols[other]):
+                return True
+    return False
+
+
+def _unanchored_families(
+    component: _Component,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+    metric: "_Metric",
+    contacts: "_Contacts",
+    notes: list[str],
+) -> list[list[_Component]]:
+    """Split a fully partial copy when every atom has one alternative image.
+
+    With no ordered anchor the covalent-shell enumeration does not apply. A
+    rigid duplicate is a matching of same-element pairs closer than the
+    alternative cutoff. Anything else is left whole and warned.
+    """
+    indices = [int(index) for index in component.indices]
+    index_set = set(indices)
+    candidates: list[tuple[float, int, int]] = []
+    for index in indices:
+        for other in contacts.covalent[index]:
+            if other not in index_set or other <= index:
+                continue
+            if symbols[index] != symbols[other]:
+                continue
+            distance = _pair_distance(positions, index, other, metric)
+            if distance <= _alternative_cutoff(symbols[index], symbols[other]):
+                candidates.append((distance, index, other))
+    candidates.sort()
+    partner: dict[int, int] = {}
+    for _distance, left, right in candidates:
+        if left in partner or right in partner:
+            continue
+        partner[left] = right
+        partner[right] = left
+    if len(partner) != len(indices):
+        _note_unresolved(notes, kept_whole=True)
+        return []
+    pairs = [(index, partner[index]) for index in indices if index < partner[index]]
+    reference = metric.vector(positions[pairs[0][1]] - positions[pairs[0][0]])
+    if float(np.linalg.norm(reference)) < 1e-8:
+        _note_unresolved(notes, kept_whole=True)
+        return []
+    side_a: list[int] = []
+    side_b: list[int] = []
+    for left, right in pairs:
+        shift = metric.vector(positions[right] - positions[left])
+        # A rigid translation gives one common shift. Opposite endpoints are
+        # flipped so each side is one copy. A rotation or a broken matching
+        # points somewhere else and is left unresolved.
+        if float(np.dot(shift, reference)) <= 0.0:
+            left, right = right, left
+            shift = -shift
+        cosine = float(np.dot(shift, reference) / (np.linalg.norm(shift) * np.linalg.norm(reference)))
+        if cosine < 0.5:
+            _note_unresolved(notes, kept_whole=True)
+            return []
+        side_a.append(left)
+        side_b.append(right)
+
+    def _centroid_key(chosen: Sequence[int]) -> tuple:
+        centroid = positions[list(chosen)].mean(axis=0)
+        return tuple(-round(float(value), 4) for value in centroid)
+
+    return [
+        [
+            _component(
+                f"occupancy:{component.label}:orientation:{min(side_a)}",
+                component.label,
+                side_a,
+                occupancies,
+                geometry_key=_centroid_key(side_a),
+            ),
+            _component(
+                f"occupancy:{component.label}:orientation:{min(side_b)}",
+                component.label,
+                side_b,
+                occupancies,
+                geometry_key=_centroid_key(side_b),
+            ),
+        ]
+    ]
 
 
 def _mean_shell_radius(
@@ -1003,6 +1243,7 @@ def _pair_distance(
     return float(np.linalg.norm(metric.vector(positions[right] - positions[left])))
 
 
+@lru_cache(maxsize=None)
 def _alternative_cutoff(symbol_i: str, symbol_j: str) -> float:
     """Distance below which a partial pair is an alternative site, not a bond."""
     from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
@@ -1122,6 +1363,46 @@ def _winner(family: Sequence[_Component]) -> _Component:
             _tie(component),
         ),
     )
+
+
+@dataclass
+class _Contacts:
+    """Covalent and metal–ligand neighbours, built once per realization."""
+
+    covalent: list[list[int]]
+    shell: list[list[int]]
+
+    @classmethod
+    def build(
+        cls, positions: np.ndarray, symbols: Sequence[str], metric: "_Metric"
+    ) -> "_Contacts":
+        n_atoms = len(symbols)
+        covalent: list[list[int]] = [[] for _ in range(n_atoms)]
+        shell: list[list[int]] = [[] for _ in range(n_atoms)]
+        if n_atoms < 2:
+            return cls(covalent=covalent, shell=shell)
+        present = set(symbols)
+        max_cutoff = 0.0
+        for left in present:
+            for right in present:
+                max_cutoff = max(max_cutoff, _bond_cutoff(left, right))
+        if max_cutoff <= 0:
+            return cls(covalent=covalent, shell=shell)
+        for left, right in _pairs_within(positions, max_cutoff, metric):
+            if _is_covalent(left, right, positions, symbols, metric):
+                covalent[left].append(right)
+                covalent[right].append(left)
+                shell[left].append(right)
+                shell[right].append(left)
+                continue
+            if _is_metal_symbol(symbols[left]) == _is_metal_symbol(symbols[right]):
+                continue
+            if _pair_distance(positions, left, right, metric) <= _bond_cutoff(
+                symbols[left], symbols[right]
+            ):
+                shell[left].append(right)
+                shell[right].append(left)
+        return cls(covalent=covalent, shell=shell)
 
 
 @dataclass(frozen=True)

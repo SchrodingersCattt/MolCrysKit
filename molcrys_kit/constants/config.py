@@ -233,13 +233,19 @@ DISORDER_CONFIG = {
     # best shell. A real shifted orientation (~4°) stays inside; a mixed shell
     # (~19°) does not.
     "OCCUPANCY_ORIENTATION_STD_SLACK_DEG": 10.0,
-    # A jump larger than this in the spread list starts a worse cluster that
-    # is not an orientation. Keeps a 3–4° shifted shell with the best one and
-    # leaves an 8° mixed shell behind.
+    # Spread jump that separates a shifted copy from a mixed shell. The
+    # acceptance window is the larger of this gap and the slack above, so a
+    # copy whose spread sits just past 6° is still kept when it is inside
+    # the slack. A mixed shell is dropped because it reuses atoms of a
+    # tighter orientation.
     "OCCUPANCY_ORIENTATION_STD_GAP_DEG": 6.0,
-    # Substituents in one orientation sit on one shell. 0.13 Å accepts a copy
-    # shifted by 0.2 Å and rejects a mix of two shell radii.
-    "OCCUPANCY_ORIENTATION_RADIUS_STD_A": 0.13,
+    # Standard deviation of distance/bond-cutoff inside one orientation.
+    # 0.08 accepts a same-element shell shifted by 0.2 Å (normalized spread
+    # about 0.06 on a C–N contact) and rejects a mix of two shell radii
+    # (about 0.10). Dividing by the pair cutoff lets different elements share
+    # an orientation. A wider shift is not kept silently: the class raises
+    # UnresolvedDisorderWarning.
+    "OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION": 0.08,
     # Cap on substituent combinations when separating equal-occupancy orientations.
     "OCCUPANCY_MAX_ORIENTATION_COMBINATIONS": 20000,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
