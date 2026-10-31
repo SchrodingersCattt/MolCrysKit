@@ -246,6 +246,9 @@ DISORDER_CONFIG = {
     # an orientation. A wider shift is not kept silently: the class raises
     # UnresolvedDisorderWarning.
     "OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION": 0.08,
+    # Directions closer than this are one substituent vertex. Symmetry copies
+    # piled on one tetrahedron collapse; vertices ~109° apart stay apart.
+    "OCCUPANCY_SAME_VERTEX_ANGLE_DEG": 35.0,
     # Cap on substituent combinations when separating equal-occupancy orientations.
     "OCCUPANCY_MAX_ORIENTATION_COMBINATIONS": 20000,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies

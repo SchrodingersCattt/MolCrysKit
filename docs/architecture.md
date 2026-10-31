@@ -124,18 +124,31 @@ shells, and a failed split warns. A copy shifted by 0.2 Å stays when its angle
 spread is within 10° of the best shell. A wider shift keeps the one regular
 orientation and warns, instead of returning a fused moiety. The tie prefers
 that tighter shell, then the smaller radius, then the placement, so it does
-not follow atom order. A class with no ordered anchor is split when it is a
-translated duplicate; otherwise it is kept whole and
-``UnresolvedDisorderWarning`` is emitted. A moiety query can then find no
-shell. Negative PART labels, including a single labelled assembly group, are
-split into orientations around the ordered centre. An ordered metal uses the
-same rule for partial ligands. Several groups in one labelled assembly stay
-exact. Shell vertices use the major component under every policy. The numeric
-defaults are ``OCCUPANCY_SUM_TOLERANCE`` 0.10,
+not follow atom order. A class with no ordered anchor is split by connectivity.
+The partial centre is the rarest repeated element. Overlapped centres are one
+site and the arms are a shell around them, so a rotation or a cube of two
+tetrahedra keeps one complete copy. Separated centres each keep the regular
+shell bonded to them, including a translation of about an angstrom. When the
+other copy cannot be finished, the complete piece is kept and
+``UnresolvedDisorderWarning`` is emitted; the fused class is not left in place,
+so the shell query is not empty. The element maximum coordination is only an
+upper bound on shell size. Equal occupancy ``1/k`` uses ``|pool| / k`` when
+that is smaller, which keeps three bridges on a cage centre. Directions within
+35° are one vertex, so symmetry copies piled on a tetrahedron collapse.
+Full-occupancy atoms that still leave a kept atom over its covalent maximum
+are named in the warning and are not deleted. The warning is one per call,
+with a count and a short site summary. Negative PART labels, including a
+single labelled assembly group, are split into orientations around the ordered
+centre. An ordered metal uses the same rule for partial ligands. Several
+groups in one labelled assembly stay exact. Shell vertices use the major
+component under every policy. Molecule-level grouping on a long chain is
+near-linear; atom-level shell scoring is one array pass per centre. The
+numeric defaults are ``OCCUPANCY_SUM_TOLERANCE`` 0.10,
 ``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG`` 80,
 ``OCCUPANCY_ORIENTATION_STD_SLACK_DEG`` 10,
 ``OCCUPANCY_ORIENTATION_STD_GAP_DEG`` 6,
-``OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION`` 0.08, and
+``OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION`` 0.08,
+``OCCUPANCY_SAME_VERTEX_ANGLE_DEG`` 35, and
 ``OCCUPANCY_MAX_ORIENTATION_COMBINATIONS`` 20000.
 
 Fusing both orientations into one component produces a moiety that matches

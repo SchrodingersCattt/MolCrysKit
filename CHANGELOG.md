@@ -41,9 +41,13 @@
   0.08), so a mixed hydrogen/chlorine shell is one orientation and an all-hydrogen
   subset of that shell is not. A 0.2 Å shifted copy stays within the 10° angle
   slack. A wider shift keeps the one regular orientation and warns. A class
-  that cannot be split at all is kept whole and raises
-  `UnresolvedDisorderWarning`. A translated duplicate with no ordered anchor is
-  split; any other unanchored class warns.
+  with no ordered anchor is split by connectivity: overlapped centres share a
+  shell (rotation or a cube of two tetrahedra) and separated centres each keep
+  the shell bonded to them (including a translation of about 1 Å). If the other
+  copy cannot be finished, one complete piece is kept. `UnresolvedDisorderWarning`
+  is raised once per call, with a count and a short site summary. Shell size
+  uses the element maximum only as an upper bound; equal occupancy `1/k` uses
+  `|pool| / k` when that is smaller. Directions within 35° are one vertex.
 - Negative PART labels, including one group inside a labelled assembly, are
   split into orientations around the ordered centre. Partial ligands of an
   ordered metal are split the same way. Several groups in one labelled
@@ -51,10 +55,13 @@
 - Atom-level distances use the periodic minimum image, and shell vertices
   follow the major-ligand rule for unlabelled as well as labelled disorder.
 - Bond cutoffs are cached per element pair and neighbour searches use one
-  spatial query, so occupancy grouping on a long chain stays near-linear.
+  spatial query. Molecule-level grouping on a long chain stays near-linear.
+  Atom-level searches on a large crystal score each shell in one array pass
+  rather than once per substituent pair.
 - Defaults in `DISORDER_CONFIG`: `OCCUPANCY_SUM_TOLERANCE` 0.10,
   `OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG` 80,
   `OCCUPANCY_ORIENTATION_STD_SLACK_DEG` 10,
   `OCCUPANCY_ORIENTATION_STD_GAP_DEG` 6,
   `OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION` 0.08,
+  `OCCUPANCY_SAME_VERTEX_ANGLE_DEG` 35,
   `OCCUPANCY_MAX_ORIENTATION_COMBINATIONS` 20000.
