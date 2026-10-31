@@ -375,3 +375,6 @@ COMMON_SOLVENTS = {
         "aliases": ["C2H3N", "Ethanonitrile", "Methyl cyanide", "Cyano methane"],
     },
 }
+
+# Bounded orientation search for explicit chemical-edit placement policies.
+CHEMICAL_EDIT_ORIENTATION_SAMPLES = 32
