@@ -70,6 +70,25 @@ tests/unit/           Pytest regression suite
 
 ## Documentation Maintenance
 
+Stable documentation ships in the same pull request as the change it describes.
+The full rule, out-of-scope list, and `Docs: N/A` declaration are in
+[CONTRIBUTING.md](CONTRIBUTING.md). Pull request expectations are also stated
+in [docs/architecture.md](docs/architecture.md).
+
+- **In-scope changes** (public Python API, CLI, CIF and other I/O contracts,
+  bond / chemistry / symmetry semantics, architecture, or how-to-use flows)
+  must update `docs/api.md`, `docs/cli.md`, `docs/architecture.md`,
+  `docs/bonds.md`, `docs/tutorials.md`, or the focused design note that owns
+  the change. Missing docs on an in-scope pull request is review **P1**.
+  Update this guide when a standing rule changes.
+- **Out of scope** (pure refactor with identical public behavior, test-only
+  or CI-only change, private helper rename, docs-only pull request): put
+  `Docs: N/A` and a one-line reason in the pull request body. Ephemeral
+  change logs are not a substitute for those stable pages. Prefer API docs,
+  golden files, and contract tests as the source of truth.
+- A warn-only CI job may annotate a pull request that edits `molcrys_kit/`
+  without touching `docs/` and without `Docs: N/A`. That job does not fail
+  the build and does not replace the P1 review.
 - When adding or changing a **public API** function or class, update
   `docs/api.md` — both the "Capability Map" and the "Module Index".
 - When adding a new **user-facing feature**, add it to the Capability Map
