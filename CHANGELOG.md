@@ -30,13 +30,24 @@
 - Labelled disorder assemblies are exclusive as a whole. Unlabelled PART labels
   are split into local clusters first, so a distant site that reuses a label
   keeps its own majority orientation.
-- Occupancy-only atoms are alternatives when their values sum to at most one
-  plus a small refinement tolerance, and they cannot share one shell: the
-  union would over-coordinate a shared ordered atom, a bond angle is tighter
-  than a simultaneous pair, or a contact lies well below a covalent bond.
-  Bonded chains of unequal partial occupancy stay intact.
-- Equal occupancies are split into whole orientations before selection. Ties
-  prefer the larger occupancy sum, then more atoms, then the greater component
-  label, then the smaller atom index.
-- Atom-level shell vertices follow the same major-ligand rule, so an
-  unlabelled minor ligand atom is not an extra vertex.
+- Occupancy-only atoms are alternatives when their values sum to at most 1.10
+  and they cannot share one covalent shell. Metal–ligand contacts do not count
+  toward that shell, and a tight angle does not split two partial atoms that
+  are bonded to each other. Bonded chains and coordinated metals therefore
+  stay intact.
+- Equal occupancies are split into whole orientations. A shell is one radius
+  (standard deviation at most 0.13 Å) whose angle spread stays in the best
+  cluster (gap 6°, at most 10° above the best). The tie prefers the tighter
+  shell, then the smaller radius, then geometry, so it does not follow atom
+  order. A class that cannot be split is kept whole and raises
+  `UnresolvedDisorderWarning`.
+- Negative PART labels on a symmetry-generated substituent shell are split
+  into orientations around the ordered centre.
+- Atom-level distances use the periodic minimum image, and shell vertices
+  follow the major-ligand rule for unlabelled as well as labelled disorder.
+- Defaults in `DISORDER_CONFIG`: `OCCUPANCY_SUM_TOLERANCE` 0.10,
+  `OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG` 80,
+  `OCCUPANCY_ORIENTATION_STD_SLACK_DEG` 10,
+  `OCCUPANCY_ORIENTATION_STD_GAP_DEG` 6,
+  `OCCUPANCY_ORIENTATION_RADIUS_STD_A` 0.13,
+  `OCCUPANCY_MAX_ORIENTATION_COMBINATIONS` 20000.

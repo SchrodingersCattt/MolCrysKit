@@ -229,9 +229,17 @@ DISORDER_CONFIG = {
     # (~109°) and octahedral (~90°) shells stay above it; interpenetrating
     # duplicate shells do not.
     "OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG": 80.0,
-    # Orientations kept for one centre must be as regular as the best shell,
-    # within this slack in degrees of angle standard deviation.
-    "OCCUPANCY_ORIENTATION_STD_SLACK_DEG": 2.0,
+    # Cap on how far an accepted orientation's angle spread may sit above the
+    # best shell. A real shifted orientation (~4°) stays inside; a mixed shell
+    # (~19°) does not.
+    "OCCUPANCY_ORIENTATION_STD_SLACK_DEG": 10.0,
+    # A jump larger than this in the spread list starts a worse cluster that
+    # is not an orientation. Keeps a 3–4° shifted shell with the best one and
+    # leaves an 8° mixed shell behind.
+    "OCCUPANCY_ORIENTATION_STD_GAP_DEG": 6.0,
+    # Substituents in one orientation sit on one shell. 0.13 Å accepts a copy
+    # shifted by 0.2 Å and rejects a mix of two shell radii.
+    "OCCUPANCY_ORIENTATION_RADIUS_STD_A": 0.13,
     # Cap on substituent combinations when separating equal-occupancy orientations.
     "OCCUPANCY_MAX_ORIENTATION_COMBINATIONS": 20000,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies

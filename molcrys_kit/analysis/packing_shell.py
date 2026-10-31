@@ -599,6 +599,7 @@ def _atom_disorder_mask(atoms, disorder_policy: str) -> np.ndarray:
         atoms,
         "major",
         spatial_alternatives=True,
+        minimum_image=True,
     )[0]
     mask = np.asarray(realization.mask, dtype=bool)
     if mask.shape[0] != len(atoms):

@@ -1109,12 +1109,16 @@ major = read_mol_crystal(
 should already be occupied states. `disorder_policy="exclusive"` returns one
 molecule per orientation, copying ordered atoms into each.
 
-Unlabelled PART labels are resolved per site. Two far-apart substituents that
-reuse the same labels each keep their own majority orientation. Occupancy-only
-alternatives are whole orientations: values may sum slightly above one, and
-they compete when sharing an ordered atom would over-coordinate it or produce
-an impossible bond angle. A 50:50 pair is chosen as one complete orientation,
-using the smaller atom index only as a tie-break between those orientations.
-Shell records store parent molecule indices in `center_molecule_index` and
-`shell_molecule_indices`. A minor ligand atom, labelled or not, is not an
-extra shell vertex.
+Unlabelled PART labels are resolved per site. Occupancy-only alternatives are
+whole orientations. Values may sum to 1.10. Metal–ligand contacts are not
+counted as covalent valence, and two partial atoms that are bonded to each
+other are not split by a tight angle. A 50:50 shell that is shifted slightly
+off the centre is still one orientation when its angle spread stays in the
+best cluster. The choice prefers the tighter shell, then the smaller radius,
+then geometry, and does not follow atom order. If the class cannot be split,
+it is kept whole and ``UnresolvedDisorderWarning`` is raised. A negative PART
+shell around an ordered centre is split the same way. Shell records store
+parent molecule indices, and a minor ligand atom is not an extra vertex.
+Defaults: occupancy-sum tolerance 0.10, minimum simultaneous angle 80°,
+orientation spread slack 10°, spread-cluster gap 6°, radius standard
+deviation 0.13 Å, and a cap of 20000 substituent combinations.

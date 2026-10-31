@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 
+from molcrys_kit.analysis.disorder.diagnostics import UnresolvedDisorderWarning
 from molcrys_kit.analysis.disorder.policy import (
     disorder_realizations,
     normalize_disorder_policy,
@@ -462,8 +463,9 @@ def test_partial_occupancy_bonds_are_not_alternatives():
 def test_equal_occupancy_alternatives_keep_the_lower_index():
     """50:50 split sites still produce one drawable shell.
 
-    The two orientations share an occupancy, so the tie keeps the atom with
-    the smaller index. That orientation is the centred one.
+    The two orientations share an occupancy and the same angle spread, so the
+    tie keeps the shell closer to the centre. In this fixture that is the
+    inner set.
     """
     major = _tetrahedral_offsets(1.45)
     minor = _tetrahedral_offsets(1.80)
@@ -712,6 +714,204 @@ def test_unlabelled_minor_ligand_is_not_an_atom_shell_vertex():
         assert len(records) == 1
         assert records[0]["coordination_number"] == 6
         assert 7 not in records[0]["shell_indices"]
+
+
+@pytest.mark.parametrize(
+    ("metal", "first", "second"),
+    [("Na", 0.5, 0.5), ("Zn", 0.5, 0.5), ("Ag", 0.6, 0.4)],
+)
+def test_partial_metals_bridging_ordered_oxygen_stay(metal, first, second):
+    atoms = Atoms(
+        symbols=["C", "O", metal, metal],
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.3, 0.0, 0.0],
+            [1.3, 2.2, 0.0],
+            [1.3, -2.2, 0.0],
+        ],
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array([1.0, 1.0, first, second]))
+    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(4, dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * 4, dtype=object))
+
+    realization = disorder_realizations(atoms, "major")[0]
+
+    assert realization.drops_atoms is False
+    assert realization.mask.tolist() == [True, True, True, True]
+
+
+def test_coordinated_water_keeps_two_hydrogens():
+    oxygen = np.zeros(3)
+    hydrogens = [
+        oxygen + 0.97 * np.array([0.0, np.cos(index * np.pi / 2), np.sin(index * np.pi / 2)])
+        for index in range(4)
+    ]
+    atoms = Atoms(
+        symbols=["Zn", "O", "H", "H", "H", "H"],
+        positions=np.vstack([[-2.1, 0.0, 0.0], oxygen, *hydrogens]),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array([1.0, 1.0, 0.5, 0.5, 0.5, 0.5]))
+    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(6, dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * 6, dtype=object))
+
+    kept = [
+        symbol
+        for symbol, keep in zip(
+            atoms.get_chemical_symbols(),
+            disorder_realizations(atoms, "major")[0].mask,
+        )
+        if keep
+    ]
+
+    assert kept.count("H") == 2
+    assert "O" in kept and "Zn" in kept
+
+
+def test_bonded_partial_atoms_in_a_tight_ring_stay():
+    angle = np.deg2rad(60.0)
+    atoms = Atoms(
+        symbols=["C", "C", "C"],
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.4, 0.0, 0.0],
+            [1.4 * np.cos(angle), 1.4 * np.sin(angle), 0.0],
+        ],
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array([1.0, 0.6, 0.4]))
+    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(3, dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array(["", "", ""], dtype=object))
+
+    assert disorder_realizations(atoms, "major")[0].drops_atoms is False
+
+
+def test_shifted_equal_occupancy_orientation_still_has_a_shell():
+    primary = _tetrahedral_offsets(1.45)
+    secondary = _rotate_z(primary, 50.0) + np.array([0.0, 0.0, 0.15])
+    symbols = ["N"]
+    positions = [SITE.copy()]
+    occupancies = [1.0]
+    for offset in (*primary, *secondary):
+        symbols.append("C")
+        positions.append(SITE + offset)
+        occupancies.append(0.5)
+    cation = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    cation.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    cation.set_array(KEY_DISORDER_GROUP, np.zeros(len(cation), dtype=int))
+    cation.set_array(KEY_ASSEMBLY, np.array([""] * len(cation), dtype=object))
+
+    shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+    each = disorder_realizations(cation, "exclusive")
+
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+    assert len(each) == 2
+
+
+def test_unresolved_equal_occupancy_class_warns_and_keeps_atoms():
+    oxygen = np.zeros(3)
+    # Five hydrogens in a tight cone cannot form two regular shells.
+    hydrogens = [
+        oxygen + np.array([0.97, 0.02 * index, 0.0])
+        for index in range(5)
+    ]
+    atoms = Atoms(
+        symbols=["O", "H", "H", "H", "H", "H"],
+        positions=np.vstack([oxygen, *hydrogens]),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.array([1.0, 0.5, 0.5, 0.5, 0.5, 0.5]))
+    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(6, dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * 6, dtype=object))
+
+    with pytest.warns(UnresolvedDisorderWarning):
+        realization = disorder_realizations(atoms, "major")[0]
+
+    assert realization.drops_atoms is False
+
+
+def test_negative_part_tetrahedral_shell_keeps_four_hydrogens():
+    symbols = ["N"]
+    positions = [np.zeros(3)]
+    groups = [0]
+    occupancies = [1.0]
+    for step in range(6):
+        for offset in _rotate_z(_tetrahedral_offsets(1.01), step * 30.0):
+            symbols.append("H")
+            positions.append(offset)
+            groups.append(-1)
+            occupancies.append(1.0 / 6.0)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_DISORDER_GROUP, np.asarray(groups, dtype=int))
+    atoms.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * len(atoms), dtype=object))
+
+    kept = disorder_realizations(atoms, "major")[0]
+    hydrogen_count = sum(
+        symbol == "H" and bool(keep)
+        for symbol, keep in zip(atoms.get_chemical_symbols(), kept.mask)
+    )
+
+    assert hydrogen_count == 4
+
+
+def test_periodic_boundary_pair_is_one_ligand_site():
+    atoms = Atoms(
+        symbols=["Cl", "Cl"],
+        positions=[[0.2, 5.0, 5.0], [9.8, 5.0, 5.0]],
+        cell=np.eye(3) * 10.0,
+        pbc=True,
+    )
+    atoms.set_array(KEY_DISORDER_GROUP, np.array([1, 2], dtype=int))
+    atoms.set_array(KEY_OCCUPANCY, np.array([0.6, 0.4]))
+    atoms.set_array(KEY_ASSEMBLY, np.array(["", ""], dtype=object))
+
+    folded = disorder_realizations(atoms, "major", minimum_image=True)[0]
+    separate = disorder_realizations(atoms, "major", minimum_image=False)[0]
+
+    assert folded.drops_atoms is True
+    assert int(np.count_nonzero(folded.mask)) == 1
+    assert separate.drops_atoms is False
+
+
+def test_orientation_choice_does_not_follow_atom_order():
+    def _kept_vectors(order: np.ndarray) -> set[tuple]:
+        cation = _occupancy_cation(20.0, 0.5, 0.5, interleave=True)
+        cation = cation[order]
+        cation.set_array(KEY_OCCUPANCY, cation.arrays[KEY_OCCUPANCY])
+        realization = disorder_realizations(cation, "major")[0]
+        origin = cation.get_positions()[0]
+        kept = []
+        for index, (symbol, keep) in enumerate(
+            zip(cation.get_chemical_symbols(), realization.mask)
+        ):
+            if symbol != "C" or not keep:
+                continue
+            vector = np.round(cation.get_positions()[index] - origin, 4)
+            kept.append(tuple(float(value) for value in vector))
+        return set(kept)
+
+    forward = _kept_vectors(np.arange(9))
+    backward = _kept_vectors(np.array([0, 8, 7, 6, 5, 4, 3, 2, 1]))
+
+    assert len(forward) == 4
+    assert forward == backward
 
 
 def test_invalid_disorder_policy_raises():

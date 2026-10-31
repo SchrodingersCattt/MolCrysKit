@@ -110,15 +110,26 @@ Labelled CIF disorder assemblies are exclusive by the CIF definition.
 Unlabelled PART numbers are not a global switch: atoms that share a label are
 split into local clusters, and only clusters that approach one another compete.
 A second disordered site that reuses the same labels keeps its own majority
-orientation. Occupancy-only sites compete when the values sum to at most one,
-plus a small tolerance for free refinement, and they cannot be one shell on a
-shared ordered atom (the union would over-coordinate it, or a bond angle is
-tighter than a real simultaneous pair). A bonded chain of unequal partial
-occupancies is left intact. Equal occupancies are gathered into whole
-orientations before any tie-break, so one orientation is kept rather than a
-mix of atoms. The tie-break is occupancy sum, atom count, label, then the
-smaller atom index. Shell vertices use that major component under every
-policy, at both atom level and molecule level.
+orientation. Occupancy-only sites compete when the values sum to at most 1.10 and they
+cannot be one covalent shell on a shared ordered atom. Metal–ligand contacts
+are not covalent valence, so an ordered oxygen that bridges partial metal
+sites keeps every metal. An acute angle does not split two partial atoms that
+are already bonded, so a small ring stays intact. Equal occupancies are
+gathered into whole orientations whose substituents share one radius
+(standard deviation at most 0.13 Å). A copy shifted by a fraction of an
+angstrom remains in the best angle-spread cluster (gap 6°, and never more
+than 10° worse than the best shell). The tie prefers that tighter shell, then
+the smaller radius, then the placement, so it does not follow atom order. If
+that split fails, the class is kept whole and
+``UnresolvedDisorderWarning`` is emitted; a moiety query can then find no
+shell. Negative PART labels on a symmetry-generated substituent shell are
+split into orientations around the ordered centre. Shell vertices use the
+major component under every policy. The numeric defaults are
+``OCCUPANCY_SUM_TOLERANCE`` 0.10, ``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG`` 80,
+``OCCUPANCY_ORIENTATION_STD_SLACK_DEG`` 10,
+``OCCUPANCY_ORIENTATION_STD_GAP_DEG`` 6,
+``OCCUPANCY_ORIENTATION_RADIUS_STD_A`` 0.13, and
+``OCCUPANCY_MAX_ORIENTATION_COMBINATIONS`` 20000.
 
 Fusing both orientations into one component produces a moiety that matches
 neither orientation. A ligand-shell query for the physical formula then
