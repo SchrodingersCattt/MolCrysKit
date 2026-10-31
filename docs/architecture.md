@@ -110,11 +110,15 @@ Labelled CIF disorder assemblies are exclusive by the CIF definition.
 Unlabelled PART numbers are not a global switch: atoms that share a label are
 split into local clusters, and only clusters that approach one another compete.
 A second disordered site that reuses the same labels keeps its own majority
-orientation. Occupancy-only sites compete when the occupancies sum to at most
-one and a contact is well below a covalent bond, so bonded atoms that merely
-have unequal partial occupancy are not alternatives. Equal occupancies then
-break the tie by atom count, label, and finally the smaller atom index. Shell
-vertices use the major ligand component under every policy.
+orientation. Occupancy-only sites compete when the values sum to at most one,
+plus a small tolerance for free refinement, and they cannot be one shell on a
+shared ordered atom (the union would over-coordinate it, or a bond angle is
+tighter than a real simultaneous pair). A bonded chain of unequal partial
+occupancies is left intact. Equal occupancies are gathered into whole
+orientations before any tie-break, so one orientation is kept rather than a
+mix of atoms. The tie-break is occupancy sum, atom count, label, then the
+smaller atom index. Shell vertices use that major component under every
+policy, at both atom level and molecule level.
 
 Fusing both orientations into one component produces a moiety that matches
 neither orientation. A ligand-shell query for the physical formula then

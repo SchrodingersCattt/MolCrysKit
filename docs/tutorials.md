@@ -1111,7 +1111,10 @@ molecule per orientation, copying ordered atoms into each.
 
 Unlabelled PART labels are resolved per site. Two far-apart substituents that
 reuse the same labels each keep their own majority orientation. Occupancy-only
-alternatives require a contact well below a covalent bond and occupancies that
-sum to at most one. A 50:50 contact is kept from the atom with the smaller
-index. Shell records store parent molecule indices in `center_molecule_index`
-and `shell_molecule_indices`, and they do not include a minor ligand position.
+alternatives are whole orientations: values may sum slightly above one, and
+they compete when sharing an ordered atom would over-coordinate it or produce
+an impossible bond angle. A 50:50 pair is chosen as one complete orientation,
+using the smaller atom index only as a tie-break between those orientations.
+Shell records store parent molecule indices in `center_molecule_index` and
+`shell_molecule_indices`. A minor ligand atom, labelled or not, is not an
+extra shell vertex.

@@ -221,6 +221,19 @@ DISORDER_CONFIG = {
     # stay above this fraction of their own threshold; split sites and heavily
     # overlapped orientations fall below it.
     "OCCUPANCY_ALTERNATIVE_BOND_FRACTION": 0.55,
+    # Free-refined occupancies of one split often sum slightly above 1.
+    # 0.10 accepts 0.55+0.50 and still rejects unrelated partials such as 0.91+0.87.
+    "OCCUPANCY_SUM_TOLERANCE": 0.10,
+    # Two substituents of one ordered centre cannot belong to the same
+    # orientation when the bond angle is tighter than this. Tetrahedral
+    # (~109°) and octahedral (~90°) shells stay above it; interpenetrating
+    # duplicate shells do not.
+    "OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG": 80.0,
+    # Orientations kept for one centre must be as regular as the best shell,
+    # within this slack in degrees of angle standard deviation.
+    "OCCUPANCY_ORIENTATION_STD_SLACK_DEG": 2.0,
+    # Cap on substituent combinations when separating equal-occupancy orientations.
+    "OCCUPANCY_MAX_ORIENTATION_COMBINATIONS": 20000,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
     # H-bond detection cutoff for SP clustering: H atoms within this distance of a
     # non-H atom are considered bonded.  Used to decide whether an H needs SP

@@ -546,6 +546,174 @@ def test_minor_ligand_position_is_not_a_shell_vertex():
         assert max(shells[0]["shell_distances"]) < 5.2
 
 
+def _occupancy_cation(rotation_deg: float, first: float, second: float, *, interleave: bool = False) -> Atoms:
+    """Ordered N plus two tetrahedral carbon sets, group 0, given occupancies."""
+    primary = _tetrahedral_offsets(1.45)
+    secondary = _rotate_z(primary, rotation_deg)
+    symbols = ["N"]
+    positions = [SITE.copy()]
+    occupancies = [1.0]
+    if interleave:
+        for left, right in zip(primary, secondary):
+            symbols.extend(["C", "C"])
+            positions.extend([SITE + left, SITE + right])
+            occupancies.extend([first, second])
+    else:
+        for offset in primary:
+            symbols.append("C")
+            positions.append(SITE + offset)
+            occupancies.append(first)
+        for offset in secondary:
+            symbols.append("C")
+            positions.append(SITE + offset)
+            occupancies.append(second)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(len(atoms), dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * len(atoms), dtype=object))
+    return atoms
+
+
+def test_rotated_occupancy_only_orientations_have_a_shell():
+    """60° and 90° duplicates are still one shell, not an empty match."""
+    for rotation in (60.0, 90.0):
+        cation = _occupancy_cation(rotation, 0.62, 0.38)
+        shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+        assert len(shells) == 1, rotation
+        _assert_octahedron(shells[0])
+        kept = disorder_realizations(cation, "major")[0]
+        assert int(np.count_nonzero(kept.mask)) == 5
+
+
+def test_occupancy_sum_slightly_above_one_still_selects_major():
+    cation = _occupancy_cation(25.0, 0.55, 0.50)
+    shells = _shells(_crystal_with(cation, *_ligand_atoms()))
+    assert len(shells) == 1
+    _assert_octahedron(shells[0])
+
+
+def test_interleaved_equal_occupancy_keeps_one_orientation():
+    cation = _occupancy_cation(20.0, 0.5, 0.5, interleave=True)
+    major = disorder_realizations(cation, "major")[0]
+    each = disorder_realizations(cation, "exclusive")
+    primary = _tetrahedral_offsets(1.45)
+    secondary = _rotate_z(primary, 20.0)
+    kept_positions = cation.get_positions()[major.mask][1:]  # drop N
+    primary_at_site = SITE + primary
+    secondary_at_site = SITE + secondary
+
+    def _matches(reference) -> bool:
+        if len(kept_positions) != len(reference):
+            return False
+        unused = list(reference)
+        for position in kept_positions:
+            distances = [np.linalg.norm(position - other) for other in unused]
+            nearest = int(np.argmin(distances))
+            if distances[nearest] > 1e-6:
+                return False
+            unused.pop(nearest)
+        return not unused
+
+    assert _matches(primary_at_site) or _matches(secondary_at_site)
+    # Exactly one pure orientation, not a mix and not one swap per atom.
+    assert len(each) == 2
+    for realization in each:
+        carbons = int(np.count_nonzero(realization.mask)) - 1
+        assert carbons == 4
+
+
+def test_six_tetrahedral_orientations_keep_four_hydrogens():
+    symbols = ["N"]
+    positions = [np.zeros(3)]
+    occupancies = [1.0]
+    for step in range(6):
+        for offset in _rotate_z(_tetrahedral_offsets(1.01), step * 30.0):
+            symbols.append("H")
+            positions.append(offset)
+            occupancies.append(1.0 / 6.0)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    atoms.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    atoms.set_array(KEY_DISORDER_GROUP, np.zeros(len(atoms), dtype=int))
+    atoms.set_array(KEY_ASSEMBLY, np.array([""] * len(atoms), dtype=object))
+
+    major = disorder_realizations(atoms, "major")[0]
+    each = disorder_realizations(atoms, "exclusive")
+    kept_h = [
+        symbol
+        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+        if keep and symbol == "H"
+    ]
+    assert len(kept_h) == 4
+    assert len(each) == 6
+    assert all(
+        sum(symbol == "H" for symbol, keep in zip(atoms.get_chemical_symbols(), item.mask) if keep)
+        == 4
+        for item in each
+    )
+
+
+def test_unlabelled_minor_ligand_is_not_an_atom_shell_vertex():
+    """A nearby unlabelled minor ligand must not add a shell vertex."""
+    positions = [[0.0, 0.0, 0.0]]
+    symbols = ["N"]
+    groups = [0]
+    occupancies = [1.0]
+    assemblies = [""]
+    ligand_offsets = [
+        [2.6, 0.0, 0.0],
+        [-2.6, 0.0, 0.0],
+        [0.0, 2.6, 0.0],
+        [0.0, -2.6, 0.0],
+        [0.0, 0.0, 2.6],
+        [0.0, 0.0, -2.6],
+    ]
+    for offset in ligand_offsets:
+        symbols.append("Cl")
+        positions.append(offset)
+        groups.append(0)
+        occupancies.append(1.0)
+        assemblies.append("")
+    # Minor image of the +x ligand, unlabelled assembly, PART 2.
+    symbols.append("Cl")
+    positions.append([2.95, 0.0, 0.0])
+    groups.append(2)
+    occupancies.append(0.4)
+    assemblies.append("")
+    groups[1] = 1
+    occupancies[1] = 0.6
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * 16.0,
+        pbc=True,
+    )
+    atoms.set_array(KEY_DISORDER_GROUP, np.asarray(groups, dtype=int))
+    atoms.set_array(KEY_OCCUPANCY, np.asarray(occupancies, dtype=float))
+    atoms.set_array(KEY_ASSEMBLY, np.asarray(assemblies, dtype=object))
+
+    for policy in ("major", "exclusive", "as_refined"):
+        records = find_polyhedra(
+            atoms,
+            central="N",
+            ligand="Cl",
+            cutoff=3.5,
+            disorder_policy=policy,
+        )
+        assert len(records) == 1
+        assert records[0]["coordination_number"] == 6
+        assert 7 not in records[0]["shell_indices"]
+
+
 def test_invalid_disorder_policy_raises():
     atoms = Atoms(symbols=["N"], positions=[[0.0, 0.0, 0.0]])
     with pytest.raises(ValueError, match="disorder_policy"):

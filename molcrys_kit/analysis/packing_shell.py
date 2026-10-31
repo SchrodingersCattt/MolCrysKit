@@ -587,10 +587,9 @@ def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarr
 def _atom_disorder_mask(atoms, disorder_policy: str) -> np.ndarray:
     """Major-component mask for a flat atom list.
 
-    Only labelled disorder assemblies are exclusive here. Unlabelled group
-    numbers repeat at unrelated sites, so coupling them across the crystal
-    would delete a real orientation. Molecule-level search applies the full
-    spatial policy per molecule instead.
+    Unlabelled alternatives are collapsed only when they approach each other,
+    so a minor ligand next to its major image is not a second shell vertex.
+    Distant sites that reuse a PART label stay independent.
     """
     from .disorder.policy import disorder_realizations, normalize_disorder_policy
 
@@ -599,7 +598,7 @@ def _atom_disorder_mask(atoms, disorder_policy: str) -> np.ndarray:
     realization = disorder_realizations(
         atoms,
         "major",
-        spatial_alternatives=False,
+        spatial_alternatives=True,
     )[0]
     mask = np.asarray(realization.mask, dtype=bool)
     if mask.shape[0] != len(atoms):
@@ -1197,12 +1196,11 @@ def find_polyhedra(
         ``"exclusive"`` builds one molecule-level shell per orientation.
         ``"as_refined"`` uses every refined central site, which can fuse two
         orientations into a moiety that matches nothing. Ordered structures
-        are unchanged under every policy. Atom-level ``"major"`` only
-        collapses labelled disorder assemblies on the centre; unlabelled
-        alternatives are handled per molecule. Shell vertices use the major
-        ligand component under every policy, so a minor ligand position is
-        not an extra vertex. Ties keep the greater component label, then the
-        smaller atom index.
+        are unchanged under every policy. Shell vertices use the major
+        ligand component under every policy, including an unlabelled minor
+        ligand atom next to its major image. Distant unlabelled sites are
+        not coupled. Ties keep a whole orientation: the greater component
+        label, then the smaller atom index.
     return_diagnostics
         When true, return ``(records, diagnostics)`` where diagnostics has
         one entry per attempted centre with candidate counts and rejection

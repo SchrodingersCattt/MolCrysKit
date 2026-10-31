@@ -30,9 +30,13 @@
 - Labelled disorder assemblies are exclusive as a whole. Unlabelled PART labels
   are split into local clusters first, so a distant site that reuses a label
   keeps its own majority orientation.
-- Occupancy-only atoms are alternatives only when the values sum to at most
-  one and a pair lies well below a covalent bond. Bonded atoms with unequal
-  partial occupancy stay in the molecule.
-- Ties prefer the larger occupancy sum, then more atoms, then the greater
-  component label, then the smaller atom index. Equal-occupancy split sites
-  therefore keep the lower-index atom.
+- Occupancy-only atoms are alternatives when their values sum to at most one
+  plus a small refinement tolerance, and they cannot share one shell: the
+  union would over-coordinate a shared ordered atom, a bond angle is tighter
+  than a simultaneous pair, or a contact lies well below a covalent bond.
+  Bonded chains of unequal partial occupancy stay intact.
+- Equal occupancies are split into whole orientations before selection. Ties
+  prefer the larger occupancy sum, then more atoms, then the greater component
+  label, then the smaller atom index.
+- Atom-level shell vertices follow the same major-ligand rule, so an
+  unlabelled minor ligand atom is not an extra vertex.

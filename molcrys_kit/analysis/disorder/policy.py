@@ -28,12 +28,16 @@ compete only when they approach within
 ``DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]``. A distant second site therefore
 keeps its own majority orientation.
 
-Group-0 atoms that differ only by occupancy are alternatives only when the
-occupancy values sum to at most one and some pair lies well below a covalent
-bond (``OCCUPANCY_ALTERNATIVE_BOND_FRACTION`` of the bonding threshold).
-Ordinary bonded neighbours with unequal partial occupancy stay together.
-Equal occupancies use the same short-contact test inside the class; the
-tie-break above picks the atom with the smaller index.
+Group-0 atoms that differ by occupancy are alternatives when the values sum
+to at most one, plus ``OCCUPANCY_SUM_TOLERANCE``, and they cannot be one
+shell: a short contact well below a covalent bond, a bond angle at a shared
+ordered atom below ``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG``, or a union that
+would exceed that atom's maximum coordination. A bonded chain of unequal
+partial occupancies does none of those and stays intact.
+
+Equal occupancies are split into whole orientations around the ordered atom
+they share. Each orientation is one regular shell (a tetrahedral set stays
+together). The same tie-break then picks an orientation, not a single atom.
 
 ``find_polyhedra`` defaults to ``major`` for the central site, and shell
 vertices always use the major ligand component. ``identify_molecules`` and
@@ -398,7 +402,13 @@ def _exclusive_families(
         for label, indices in occupancy_classes.items()
     ]
     families.extend(
-        _occupancy_families(occupancy_components, positions, symbols, occupancies)
+        _occupancy_families(
+            occupancy_components,
+            positions,
+            symbols,
+            occupancies,
+            groups,
+        )
     )
     return families
 
@@ -497,15 +507,18 @@ def _occupancy_families(
     positions: np.ndarray,
     symbols: Sequence[str],
     occupancies: np.ndarray,
+    groups: np.ndarray,
 ) -> list[list[_Component]]:
     """Exclusive families for group-0 partial occupancies.
 
-    Different occupancy values compete only when they sum to at most one and
-    a pair sits well below a covalent bond. One occupancy value is split only
-    where atoms themselves sit that close; bonded neighbours are left intact.
+    Distinct occupancy values compete as whole classes when they are
+    complementary and cannot occupy one shell. A single occupancy value is
+    split into whole orientations around a shared ordered atom. Selection
+    then picks an orientation, not one atom from each contact.
     """
     if not components:
         return []
+    ordered = _ordered_indices(occupancies, groups)
     parent = list(range(len(components)))
 
     def _find(index: int) -> int:
@@ -521,20 +534,16 @@ def _occupancy_families(
             parent[right_root] = left_root
 
     for left, right in combinations(range(len(components)), 2):
-        try:
-            left_occ = float(components[left].label)
-            right_occ = float(components[right].label)
-        except ValueError:
-            continue
-        if left_occ + right_occ > 1.0 + PARTIAL_OCCUPANCY_TOLERANCE:
-            continue
-        if _has_alternative_contact(
+        if not _classes_compete(
+            components[left],
+            components[right],
             positions,
             symbols,
-            components[left].indices,
-            components[right].indices,
+            occupancies,
+            ordered,
         ):
-            _union(left, right)
+            continue
+        _union(left, right)
 
     clusters: dict[int, list[_Component]] = defaultdict(list)
     for index, component in enumerate(components):
@@ -550,59 +559,239 @@ def _occupancy_families(
         if id(component) in consumed:
             continue
         families.extend(
-            _equal_occupancy_splits(component, positions, symbols, occupancies)
+            _orientation_families(
+                component,
+                positions,
+                symbols,
+                occupancies,
+                ordered,
+            )
         )
     return families
 
 
-def _equal_occupancy_splits(
+def _ordered_indices(occupancies: np.ndarray, groups: np.ndarray) -> list[int]:
+    full = 1.0 - PARTIAL_OCCUPANCY_TOLERANCE
+    return [
+        index
+        for index in range(occupancies.shape[0])
+        if float(occupancies[index]) >= full and not _is_nonzero_group(str(groups[index]))
+    ]
+
+
+def _classes_compete(
+    left: _Component,
+    right: _Component,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+    ordered: Sequence[int],
+) -> bool:
+    try:
+        left_occ = float(left.label)
+        right_occ = float(right.label)
+    except ValueError:
+        return False
+    tolerance = float(DISORDER_CONFIG["OCCUPANCY_SUM_TOLERANCE"])
+    if left_occ + right_occ > 1.0 + tolerance:
+        return False
+    if _shared_center_conflict(
+        left.indices,
+        right.indices,
+        positions,
+        symbols,
+        ordered,
+    ):
+        return True
+    return _has_alternative_contact(positions, symbols, left.indices, right.indices)
+
+
+def _shared_center_conflict(
+    left: np.ndarray,
+    right: np.ndarray,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    ordered: Sequence[int],
+) -> bool:
+    """True when two partial sets cannot both bond to the same ordered atom."""
+    if not ordered:
+        return False
+    from ...constants.config import DEFAULT_MAX_COORDINATION, MAX_COORDINATION_NUMBERS
+
+    minimum_angle = float(DISORDER_CONFIG["OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG"])
+    ordered_set = set(ordered)
+    for center in ordered:
+        bonded_left = _bonded_to(center, left, positions, symbols)
+        bonded_right = _bonded_to(center, right, positions, symbols)
+        if not bonded_left or not bonded_right:
+            continue
+        other = [
+            index
+            for index in ordered_set
+            if index != center and _is_bonded(center, index, positions, symbols)
+        ]
+        limit = int(MAX_COORDINATION_NUMBERS.get(symbols[center], DEFAULT_MAX_COORDINATION))
+        if len(bonded_left) + len(bonded_right) + len(other) > limit:
+            return True
+        for left_index in bonded_left:
+            for right_index in bonded_right:
+                if _bond_angle_deg(positions, center, left_index, right_index) < minimum_angle:
+                    return True
+    return False
+
+
+def _orientation_families(
     component: _Component,
     positions: np.ndarray,
     symbols: Sequence[str],
     occupancies: np.ndarray,
+    ordered: Sequence[int],
 ) -> list[list[_Component]]:
-    """Split one occupancy class at short alternative-site contacts."""
-    indices = component.indices
-    if indices.size < 2:
+    """Split one occupancy class into regular shells around ordered atoms."""
+    if not ordered or component.indices.size < 2:
         return []
-    edges = _alternative_edges(indices, positions, symbols)
-    if not edges:
-        return []
-    parent = list(range(indices.size))
+    from math import comb
 
-    def _find(index: int) -> int:
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = parent[index]
-        return index
+    from ...constants.config import DEFAULT_MAX_COORDINATION, MAX_COORDINATION_NUMBERS
 
-    def _union(left: int, right: int) -> None:
-        left_root = _find(left)
-        right_root = _find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
-    for left, right in edges:
-        _union(left, right)
-    buckets: dict[int, list[int]] = defaultdict(list)
-    for local, global_index in enumerate(indices):
-        buckets[_find(local)].append(int(global_index))
     families: list[list[_Component]] = []
-    for members in buckets.values():
-        if len(members) < 2:
+    claimed: set[int] = set()
+    cap = int(DISORDER_CONFIG["OCCUPANCY_MAX_ORIENTATION_COMBINATIONS"])
+    slack = float(DISORDER_CONFIG["OCCUPANCY_ORIENTATION_STD_SLACK_DEG"])
+    for center in ordered:
+        pool = [
+            int(index)
+            for index in component.indices
+            if int(index) not in claimed and _is_bonded(center, int(index), positions, symbols)
+        ]
+        if len(pool) < 2:
+            continue
+        other = [
+            index
+            for index in ordered
+            if index != center and _is_bonded(center, index, positions, symbols)
+        ]
+        slots = int(MAX_COORDINATION_NUMBERS.get(symbols[center], DEFAULT_MAX_COORDINATION)) - len(other)
+        if slots < 1 or len(pool) <= slots:
+            if not _has_acute_pair(positions, center, pool):
+                continue
+        if len(pool) < slots or comb(len(pool), slots) > cap:
+            # No atom-by-atom fallback: an unresolved class stays intact.
+            continue
+        scored: list[tuple[float, tuple[int, ...]]] = []
+        for combo in combinations(pool, slots):
+            spread = _shell_angle_std(positions, center, combo)
+            if spread is None:
+                continue
+            scored.append((spread, tuple(sorted(int(index) for index in combo))))
+        if not scored:
+            continue
+        best = min(item[0] for item in scored)
+        accepted: list[tuple[int, ...]] = []
+        used: set[int] = set()
+        for _spread, combo in sorted(scored, key=lambda item: (item[0], item[1])):
+            if _spread > best + slack:
+                continue
+            if used.intersection(combo):
+                continue
+            accepted.append(combo)
+            used.update(combo)
+        if len(accepted) < 2:
             continue
         families.append(
             [
                 _component(
-                    f"occupancy:{component.label}:atom:{atom}",
+                    f"occupancy:{component.label}:orientation:{combo[0]}",
                     component.label,
-                    [atom],
+                    combo,
                     occupancies,
                 )
-                for atom in members
+                for combo in accepted
             ]
         )
+        claimed.update(used)
     return families
+
+
+def _bonded_to(
+    center: int,
+    candidates: np.ndarray,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+) -> list[int]:
+    return [
+        int(index)
+        for index in candidates
+        if int(index) != center and _is_bonded(center, int(index), positions, symbols)
+    ]
+
+
+def _is_bonded(
+    left: int,
+    right: int,
+    positions: np.ndarray,
+    symbols: Sequence[str],
+) -> bool:
+    distance = float(np.linalg.norm(positions[left] - positions[right]))
+    return distance <= _bond_cutoff(symbols[left], symbols[right])
+
+
+def _bond_cutoff(symbol_i: str, symbol_j: str) -> float:
+    from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
+    from ..interactions.bonding import get_bonding_threshold
+
+    radius_i = get_atomic_radius(symbol_i) if has_atomic_radius(symbol_i) else 0.5
+    radius_j = get_atomic_radius(symbol_j) if has_atomic_radius(symbol_j) else 0.5
+    return float(
+        get_bonding_threshold(
+            radius_i,
+            radius_j,
+            is_metal_element(symbol_i),
+            is_metal_element(symbol_j),
+        )
+    )
+
+
+def _bond_angle_deg(
+    positions: np.ndarray,
+    center: int,
+    left: int,
+    right: int,
+) -> float:
+    first = positions[left] - positions[center]
+    second = positions[right] - positions[center]
+    first_norm = float(np.linalg.norm(first))
+    second_norm = float(np.linalg.norm(second))
+    if first_norm < 1e-8 or second_norm < 1e-8:
+        return 0.0
+    cosine = float(np.dot(first, second) / (first_norm * second_norm))
+    cosine = max(-1.0, min(1.0, cosine))
+    return float(np.degrees(np.arccos(cosine)))
+
+
+def _has_acute_pair(positions: np.ndarray, center: int, indices: Sequence[int]) -> bool:
+    minimum = float(DISORDER_CONFIG["OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG"])
+    for left, right in combinations(indices, 2):
+        if _bond_angle_deg(positions, center, int(left), int(right)) < minimum:
+            return True
+    return False
+
+
+def _shell_angle_std(
+    positions: np.ndarray,
+    center: int,
+    indices: Sequence[int],
+) -> float | None:
+    minimum = float(DISORDER_CONFIG["OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG"])
+    angles: list[float] = []
+    for left, right in combinations(indices, 2):
+        angle = _bond_angle_deg(positions, center, int(left), int(right))
+        if angle < minimum:
+            return None
+        angles.append(angle)
+    if len(angles) < 2:
+        return 0.0
+    return float(np.std(angles))
 
 
 def _alternative_cutoff(symbol_i: str, symbol_j: str) -> float:
@@ -620,34 +809,6 @@ def _alternative_cutoff(symbol_i: str, symbol_j: str) -> float:
     )
     fraction = float(DISORDER_CONFIG["OCCUPANCY_ALTERNATIVE_BOND_FRACTION"])
     return float(bond) * fraction
-
-
-def _alternative_edges(
-    indices: np.ndarray,
-    positions: np.ndarray,
-    symbols: Sequence[str],
-) -> list[tuple[int, int]]:
-    """Local index pairs closer than the alternative-site cutoff."""
-    if indices.size < 2:
-        return []
-    from scipy.spatial import cKDTree
-
-    points = positions[indices]
-    local_symbols = [symbols[int(index)] for index in indices]
-    search = max(
-        _alternative_cutoff(left, right)
-        for left in set(local_symbols)
-        for right in set(local_symbols)
-    )
-    if search <= 0:
-        return []
-    edges: list[tuple[int, int]] = []
-    for left, right in cKDTree(points).query_pairs(search):
-        distance = float(np.linalg.norm(points[left] - points[right]))
-        cutoff = _alternative_cutoff(local_symbols[left], local_symbols[right])
-        if distance <= cutoff:
-            edges.append((int(left), int(right)))
-    return edges
 
 
 def _has_alternative_contact(
