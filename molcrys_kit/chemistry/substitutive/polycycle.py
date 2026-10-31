@@ -1166,6 +1166,14 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
     else:
         locants = _unsaturation_locants(entity, paths, numbering)
     prefix = _serialize_hetero_prefixes(hetero)
+    if system.aromatic and bracket == "4.4.0" and not prefix and not attachments:
+        return (
+            "naphthalene",
+            False,
+            (
+                "Recognize the fused bicyclic benzenoid hydrocarbon as the retained parent naphthalene.",
+            ),
+        )
     return (
         f"{prefix}bicyclo[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
         False,
@@ -1717,7 +1725,24 @@ def _parse_von_baeyer(name: str):
     return _finish_entity(name, atoms, bonds)
 
 
+def _parse_naphthalene(name: str):
+    atoms = [_atom_record(f"C{index}") for index in range(1, 11)]
+    bonds = []
+    seen = set()
+    for ring in ((1, 2, 3, 4, 5, 10), (5, 6, 7, 8, 9, 10)):
+        for index, left in enumerate(ring):
+            right = ring[(index + 1) % len(ring)]
+            edge = frozenset((left, right))
+            if edge in seen:
+                continue
+            seen.add(edge)
+            bonds.append(_edge(f"C{left}", f"C{right}", 1.5, aromatic=True))
+    return _finish_entity(name, atoms, bonds)
+
+
 def _parse_ring_parent(name: str):
+    if name == "naphthalene":
+        return _parse_naphthalene(name)
     if name == "phenylbenzene":
         return _parse_phenylbenzene(name)
     if re.match(rf"(?:{_HETERO_TEXT})spiro\[", name):

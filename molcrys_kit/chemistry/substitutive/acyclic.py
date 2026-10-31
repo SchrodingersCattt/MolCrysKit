@@ -613,7 +613,7 @@ def _name_alkene(entity):
         bond for bond in entity.bonds
         if bond.order == 2.0 and bond.kind in {BondKind.COVALENT, BondKind.UNKNOWN}
     ]
-    if len(double) != 1:
+    if not double or len(double) > 4:
         return None
     carbon_graph = {
         atom_id: [neighbor for neighbor, _ in adjacency[atom_id] if atoms[neighbor].element == "C"]
@@ -645,22 +645,38 @@ def _name_alkene(entity):
     scored = []
     for path in paths:
         positions = {atom_id: index + 1 for index, atom_id in enumerate(path)}
-        left = positions.get(double[0].atom1_id)
-        right = positions.get(double[0].atom2_id)
-        if left is None or right is None or abs(left - right) != 1:
+        ene = []
+        valid = True
+        for bond in double:
+            left = positions.get(bond.atom1_id)
+            right = positions.get(bond.atom2_id)
+            if left is None or right is None or abs(left - right) != 1:
+                valid = False
+                break
+            ene.append(min(left, right))
+        if not valid:
             continue
-        scored.append((min(left, right), tuple(path), positions))
+        scored.append((tuple(sorted(ene)), tuple(path)))
     if not scored:
         return None
-    _, path, positions = min(scored, key=lambda item: (item[0], item[1]))
-    left = positions[double[0].atom1_id]
-    right = positions[double[0].atom2_id]
+    ene, path = min(scored, key=lambda item: (item[0], item[1]))
     stem = alkane_stem(len(path))
     if stem is None or len(path) < 2:
         return None
+    if len(ene) == 1:
+        return _result(
+            f"{stem}-{ene[0]}-ene",
+            "Select the unbranched carbon chain containing the double bond.",
+        )
+    ending = {2: "diene", 3: "triene", 4: "tetraene"}.get(len(ene))
+    if ending is None:
+        return None
+    head = stem if stem.endswith("a") else stem + "a"
     return _result(
-        f"{stem}-{min(left, right)}-ene",
-        "Select the unbranched carbon chain containing the double bond.",
+        f"{head}-{','.join(map(str, ene))}-{ending}",
+        "Select the unbranched carbon chain containing the double bonds.",
+        "Number the chain so the unsaturation locants are lowest.",
+        "Keep the linking vowel before a multiplied ene ending.",
     )
 
 

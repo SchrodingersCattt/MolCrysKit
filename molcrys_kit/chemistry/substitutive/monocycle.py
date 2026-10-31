@@ -211,6 +211,13 @@ def _ring_name(cycle, graph, atoms):
         # Carbon-substituted benzene is deliberately left to the established
         # benzene/phenol recognizer, which also preserves its retained names.
         return "benzene", True
+    if aromatic and n == 6 and elements.count("C") == 5 and elements.count("N") == 1:
+        return "pyridine", True
+    if aromatic and n == 5 and elements.count("C") == 4:
+        hetero = [element for element in elements if element != "C"]
+        retained = {"O": "furan", "S": "thiophene", "N": "pyrrole"}.get(hetero[0] if len(hetero) == 1 else "")
+        if retained is not None and elements.count(hetero[0]) == 1:
+            return retained, True
     if aromatic and n == 6 and any(element != "C" for element in elements):
         hetero = [(index, element) for index, element in enumerate(elements) if element != "C"]
         if all(element in {"N", "O", "S"} for _, element in hetero):

@@ -128,12 +128,20 @@ _SPELLED_ALIASES = {
     "1-oxacyclobutane": "oxetane",
     "1-oxacyclopentane": "oxolane",
     "1-oxacyclohexane": "oxane",
-    "benzene-1,2-diol": "1,2-dihydroxybenzene",
-    "benzene-1,3-diol": "1,3-dihydroxybenzene",
-    "benzene-1,4-diol": "1,4-dihydroxybenzene",
-    "benzene-1,2,3-triol": "1,2,3-trihydroxybenzene",
-    "benzene-1,2,4-triol": "1,2,4-trihydroxybenzene",
-    "benzene-1,3,5-triol": "1,3,5-trihydroxybenzene",
+    "1,2-dihydroxybenzene": "benzene-1,2-diol",
+    "1,3-dihydroxybenzene": "benzene-1,3-diol",
+    "1,4-dihydroxybenzene": "benzene-1,4-diol",
+    "1,2,3-trihydroxybenzene": "benzene-1,2,3-triol",
+    "1,2,4-trihydroxybenzene": "benzene-1,2,4-triol",
+    "1,3,5-trihydroxybenzene": "benzene-1,3,5-triol",
+    "1-chloroethane": "chloroethane",
+    "1-fluoroethane": "fluoroethane",
+    "1-bromoethane": "bromoethane",
+    "1-iodoethane": "iodoethane",
+    "2-aminoethanol": "2-aminoethan-1-ol",
+    "trichloromethylperoxyl": "(trichloromethyl)peroxyl",
+    "1-azabenzene": "pyridine",
+    "bicyclo[4.4.0]deca-1,3,5,7,9-pentaene": "naphthalene",
     "methylsulfanylmethane": "(methylsulfanyl)methane",
     "ethylsulfanylethane": "(ethylsulfanyl)ethane",
     "methanesulfinylmethane": "(methanesulfinyl)methane",
@@ -381,7 +389,42 @@ def _parse_amino_acid(name: str):
     return _entity(name, atoms, bonds)
 
 
+def _parse_polyene(name: str):
+    match = re.fullmatch(r"([a-z]+)-(\d+(?:,\d+)+)-(diene|triene|tetraene)", name)
+    if match is None:
+        return None
+    head, locant_text, ending = match.groups()
+    locants = tuple(int(item) for item in locant_text.split(","))
+    expected = {"diene": 2, "triene": 3, "tetraene": 4}[ending]
+    if len(locants) != expected or tuple(sorted(locants)) != locants:
+        return None
+    stem = None
+    for candidate in sorted(ALKANE_STEMS.values(), key=len, reverse=True):
+        vowel = candidate if candidate.endswith("a") else candidate + "a"
+        if head == vowel:
+            stem = candidate
+            break
+    count = _stem_count(stem) if stem is not None else None
+    if count is None or count < 2 or any(not 1 <= locant < count for locant in locants):
+        return None
+    atoms, bonds = _carbon_chain(count, name=name)
+    for locant in locants:
+        bond = bonds[locant - 1]
+        bonds[locant - 1] = _bond(bond.atom1_id, bond.atom2_id, 2.0)
+    for index, atom in enumerate(atoms):
+        order_sum = sum(
+            edge.order or 0.0
+            for edge in bonds
+            if atom.atom_id in {edge.atom1_id, edge.atom2_id}
+        )
+        atoms[index] = _atom(atom.atom_id, "C", max(0, int(round(4 - order_sum))))
+    return _entity(name, atoms, bonds)
+
+
 def _parse_alkene(name: str):
+    polyene = _parse_polyene(name)
+    if polyene is not None:
+        return polyene
     match = re.fullmatch(r"(?P<stem>[a-z]+)-(?P<locant>\d+)-ene", name)
     if match is None:
         return None
@@ -447,21 +490,58 @@ def _parse_distinct_components(name: str):
     return _entity(name, atoms, bonds)
 
 
+def _graft_isotopic_hydrogens(entity: FiniteChemicalEntity, mass: int, count: int):
+    """Replace ``count`` implicit hydrogens with explicit nuclide atoms."""
+    atoms = list(entity.atoms)
+    bonds = list(entity.bonds)
+    remaining = count
+    serial = 0
+    for index, atom in enumerate(list(atoms)):
+        available = atom.implicit_hydrogens or 0
+        if atom.element == "H" or available <= 0:
+            continue
+        take = min(available, remaining)
+        atoms[index] = replace(atom, implicit_hydrogens=(available - take) or None)
+        for _ in range(take):
+            serial += 1
+            hydrogen_id = f"H{mass}_{serial}"
+            atoms.append(_atom(hydrogen_id, "H", isotope=mass))
+            bonds.append(_bond(atom.atom_id, hydrogen_id, 1.0))
+        remaining -= take
+        if remaining == 0:
+            break
+    if remaining:
+        raise NamingParseError("isotopic hydrogen count exceeds the parent")
+    return replace(entity, atoms=tuple(atoms), bonds=tuple(bonds))
+
+
 def _parse_decorated(name: str):
     """Parse stage-6 isotope and stereo prefixes around a supported name."""
     isotopes = []
     body = name
     while True:
-        match = re.match(r"^\((\d+)([A-Za-z](?:[a-z]?))(\d*)\)(?!-)(.+)$", body)
+        located = re.match(r"^\((\d+)-(\d+)([A-Za-z][a-z]?)\)(?!-)(.+)$", body)
+        if located:
+            isotopes.append(
+                (
+                    "locant",
+                    int(located.group(2)),
+                    located.group(3).capitalize(),
+                    int(located.group(1)),
+                )
+            )
+            body = located.group(4)
+            continue
+        match = re.match(r"^\((\d+)([A-Za-z][a-z]?)(\d*)\)(?!-)(.+)$", body)
         if match is None:
             break
-        isotopes.append(
-            (
-                int(match.group(1)),
-                match.group(2).capitalize(),
-                int(match.group(3)) if match.group(3) else None,
-            )
-        )
+        mass = int(match.group(1))
+        element = match.group(2).capitalize()
+        suffix = int(match.group(3)) if match.group(3) else None
+        if element == "H":
+            isotopes.append(("hydrogen", mass, "H", suffix or 1))
+        else:
+            isotopes.append(("nuclide", mass, element, suffix))
         body = match.group(4)
     stereo = []
     combined = re.match(
@@ -488,18 +568,31 @@ def _parse_decorated(name: str):
     entity = _parse_name(body)
     if isotopes:
         atoms = list(entity.atoms)
-        for isotope, element, locant in isotopes:
+        bonds = list(entity.bonds)
+        for kind, mass, element, suffix in isotopes:
+            if kind == "hydrogen":
+                entity = _graft_isotopic_hydrogens(replace(entity, atoms=tuple(atoms), bonds=tuple(bonds)), mass, suffix)
+                atoms = list(entity.atoms)
+                bonds = list(entity.bonds)
+                continue
             candidates = [index for index, atom in enumerate(atoms) if atom.element == element]
-            if locant is None:
+            if kind == "locant":
+                preferred = f"C{suffix}" if element == "C" else f"{element}{suffix}"
+                index = next((item for item, atom in enumerate(atoms) if atom.atom_id == preferred), None)
+                if index is None:
+                    if suffix is None or not candidates or not 1 <= suffix <= len(candidates):
+                        raise NamingParseError("isotope atom locant is outside the parent")
+                    index = candidates[suffix - 1]
+            elif suffix is None:
                 if len(candidates) != 1:
                     raise NamingParseError("isotope prefix needs an atom locant")
                 index = candidates[0]
             else:
-                if not 1 <= locant <= len(candidates):
+                if not 1 <= suffix <= len(candidates):
                     raise NamingParseError("isotope atom locant is outside the parent")
-                index = candidates[locant - 1]
-            atoms[index] = replace(atoms[index], isotope=isotope)
-        entity = replace(entity, atoms=tuple(atoms))
+                index = candidates[suffix - 1]
+            atoms[index] = replace(atoms[index], isotope=mass)
+        entity = replace(entity, atoms=tuple(atoms), bonds=tuple(bonds))
     if stereo:
         for locant, descriptor in stereo:
             if descriptor in {"R", "S"}:
@@ -683,7 +776,33 @@ def _parse_special_acyclic(name: str):
     return None
 
 
+def _aromatic_parent(name: str, elements: list[str], hetero_hydrogens: int = 0):
+    atoms = []
+    bonds = []
+    for index, element in enumerate(elements, 1):
+        hydrogens = None
+        if element == "C":
+            hydrogens = 1
+        elif element == "N" and hetero_hydrogens:
+            hydrogens = hetero_hydrogens
+        atoms.append(_atom(f"A{index}", element, hydrogens))
+    for index in range(len(elements)):
+        bonds.append(
+            _bond(f"A{index + 1}", f"A{(index + 1) % len(elements) + 1}", 1.5, aromatic=True)
+        )
+    return _entity(name, atoms, bonds)
+
+
 def _parse_ring(name: str):
+    retained = {
+        "pyridine": (["C", "C", "C", "C", "C", "N"], 0),
+        "furan": (["O", "C", "C", "C", "C"], 0),
+        "thiophene": (["S", "C", "C", "C", "C"], 0),
+        "pyrrole": (["N", "C", "C", "C", "C"], 1),
+    }.get(name)
+    if retained is not None:
+        elements, hydrogens = retained
+        return _aromatic_parent(name, elements, hydrogens)
     hantzsch = {"oxirane": 3, "oxetane": 4, "oxolane": 5, "oxane": 6}.get(name)
     if hantzsch is not None:
         atoms = [_atom("O1", "O")]
@@ -1151,7 +1270,9 @@ def _valence_not_exceeded(entity: FiniteChemicalEntity) -> bool:
             valence = 3.0
         else:
             valence = sum(
-                1.0 if atom.element == "N" and bond.aromatic else bond.order or 0.0
+                1.0
+                if bond.aromatic and atom.element in {"N", "O", "S"}
+                else bond.order or 0.0
                 for bond in adjacency[atom.atom_id]
             )
         hydrogen_count = (atom.explicit_hydrogens or 0) + (

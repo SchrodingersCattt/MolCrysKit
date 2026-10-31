@@ -1,10 +1,10 @@
 """Normalize representations that are the same chemical graph.
 
-The only normalization applied here is a Kekulé six-membered ring whose bond
-pattern is the alternating single/double form of a 6π aromatic ring. Quinones,
-cyclohexadienes, and charged or radical rings are left unchanged. Atom
-identity, isotopes, charges, radical counts, and specified stereo are not
-rewritten.
+Normalization covers a Kekulé six-membered ring whose bond pattern is the
+alternating single/double form of a 6π aromatic ring, and the standard
+Kekulé forms of furan, thiophene, and pyrrole. Quinones, cyclohexadienes,
+and charged or radical rings are left unchanged. Atom identity, isotopes,
+charges, radical counts, and specified stereo are not rewritten.
 """
 
 from __future__ import annotations
@@ -27,17 +27,17 @@ def _heavy_adjacency(entity: FiniteChemicalEntity):
     }
 
 
-def _six_cycles(graph) -> list[tuple[str, ...]]:
+def _cycles(graph, size: int) -> list[tuple[str, ...]]:
     cycles = []
     seen = set()
 
     def walk(start, current, path):
-        if len(path) == 6:
+        if len(path) == size:
             if any(neighbor == start for neighbor, _ in graph[current]):
                 ring = path
                 rotations = []
                 for direction in (ring, tuple(reversed(ring))):
-                    rotations.extend(direction[index:] + direction[:index] for index in range(6))
+                    rotations.extend(direction[index:] + direction[:index] for index in range(size))
                 key = min(rotations)
                 if key not in seen:
                     seen.add(key)
@@ -52,6 +52,10 @@ def _six_cycles(graph) -> list[tuple[str, ...]]:
     return cycles
 
 
+def _six_cycles(graph) -> list[tuple[str, ...]]:
+    return _cycles(graph, 6)
+
+
 def _alternating_kekule(orders: tuple[float, ...]) -> bool:
     if len(orders) != 6:
         return False
@@ -62,12 +66,53 @@ def _alternating_kekule(orders: tuple[float, ...]) -> bool:
     ) > 1e-8
 
 
+def _close(left: float, right: float) -> bool:
+    return abs(left - right) <= 1.0e-8
+
+
+def _five_heteroarene_edges(atoms, cycle, graph) -> set[frozenset[str]] | None:
+    """Standard Kekulé furan, thiophene, or pyrrole: heteroatom between two single bonds."""
+    ring_atoms = [atoms[atom_id] for atom_id in cycle]
+    if any((atom.formal_charge or 0) or atom.radical_electrons for atom in ring_atoms):
+        return None
+    elements = [atom.element for atom in ring_atoms]
+    if elements.count("C") != 4:
+        return None
+    heteroatoms = [element for element in elements if element != "C"]
+    if len(heteroatoms) != 1 or heteroatoms[0] not in {"O", "S", "N"}:
+        return None
+    start = next(index for index, atom in enumerate(ring_atoms) if atom.element != "C")
+    ordered = cycle[start:] + cycle[:start]
+    orders = []
+    edges = []
+    for index, atom_id in enumerate(ordered):
+        nxt = ordered[(index + 1) % 5]
+        bond = next(bond for neighbor, bond in graph[atom_id] if neighbor == nxt)
+        if bond.aromatic or _close(float(bond.order or 0.0), 1.5):
+            return None
+        orders.append(float(bond.order or 0.0))
+        edges.append(frozenset((atom_id, nxt)))
+    expected = (1.0, 2.0, 1.0, 2.0, 1.0)
+    # The other direction from the heteroatom starts with the closing bond.
+    reverse = (orders[4], orders[3], orders[2], orders[1], orders[0])
+    if any(
+        all(_close(order, target) for order, target in zip(candidate, expected))
+        for candidate in (tuple(orders), reverse)
+    ):
+        return set(edges)
+    return None
+
+
 def normalize_kekule_aromatic(entity: FiniteChemicalEntity) -> FiniteChemicalEntity:
     """Rewrite proven Kekulé aromatic sextets as aromatic bonds."""
     if not isinstance(entity, FiniteChemicalEntity) or not entity.bonds:
         return entity
     atoms, graph = _heavy_adjacency(entity)
     aromatic_edges: set[frozenset[str]] = set()
+    for cycle in _cycles(graph, 5):
+        edges = _five_heteroarene_edges(atoms, cycle, graph)
+        if edges:
+            aromatic_edges.update(edges)
     for cycle in _six_cycles(graph):
         ring_atoms = [atoms[atom_id] for atom_id in cycle]
         if any((atom.formal_charge or 0) or atom.radical_electrons for atom in ring_atoms):

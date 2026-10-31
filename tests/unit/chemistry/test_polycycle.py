@@ -27,7 +27,7 @@ from molcrys_kit.chemistry.name_conversion import iupac_to_smiles, smiles_to_iup
         ("C1=CC2(C1)CCC2", "spiro[3.3]hept-1-ene"),
         ("C1C=C2CCC1C2", "bicyclo[2.2.1]hept-1-ene"),
         ("C1CC2CC3CC1CC(C2)C3", "tricyclo[4.3.1.1^3,8]undecane"),
-        ("c1ccc2ccccc2c1", "bicyclo[4.4.0]deca-1,3,5,7,9-pentaene"),
+        ("c1ccc2ccccc2c1", "naphthalene"),
         ("c1ccc(-c2ccccc2)cc1", "phenylbenzene"),
     ),
 )

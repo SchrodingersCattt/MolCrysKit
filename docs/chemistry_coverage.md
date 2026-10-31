@@ -55,7 +55,7 @@ MolCrysKit-specific chemical semantics would be discarded.
 | Purple Book 2008 | partial | Single named repeat-unit `poly(...)` result is provisional; end groups and typed connections remain required. |
 | Full PIN selection | indeterminate outside rows above | `preferred` is never asserted for fallback composition descriptions. |
 | Certified published reference names | implemented (closed registry) | The ten reviewed SMILES fixtures carry their complete source graph, formula, and fixed PubChem IUPAC name; strict conversion accepts only those exact normalized source strings after valence and formula validation. This registry does not claim general PIN coverage. |
-| Name → structure | partial | Canonical spellings emitted by the substitutive grammar are accepted, together with documented aliases (`benzene-1,2-diol`, `oxolane` / `1-oxacyclopentane`, ungrouped replacement prefixes, and the legacy multiplicative-unsaturation vowel). Malformed stems such as `hex-2-one` fail closed. Unsupported graphs stay composition descriptions. |
+| Name → structure | partial | Canonical spellings emitted by the substitutive grammar are accepted, together with documented aliases (`1,2-dihydroxybenzene` for `benzene-1,2-diol`, `oxolane` / `1-oxacyclopentane`, `chloroethane` / `1-chloroethane`, ungrouped replacement prefixes, and the legacy multiplicative-unsaturation vowel). Malformed stems such as `hex-2-one` fail closed. Unsupported graphs stay composition descriptions. |
 
 Forward and inverse naming share one substitutive grammar. It covers the
 earlier neutral parents and, beyond them, multiplied and mixed acyclic
@@ -78,16 +78,23 @@ unsupported sulfur environment, is left indeterminate rather than hydrogenated
 or assigned a guessed radical. A Kekulé six-membered ring with an alternating
 single/double pattern is normalized to the aromatic representation before
 naming, so `C1=CC=CC=C1` and `c1ccccc1` share the benzene result. Saturated
-ketones keep the `an` ending (`hexan-2-one`). Multiplied unsaturation keeps the
-linking vowel (`hepta-2,4-diene`), and repeated skeletal-replacement prefixes
-are grouped (`2,8-dioxa`).
+ketones keep the `an` ending (`hexan-2-one`). Acyclic polyenes keep the
+linking vowel in both directions (`hepta-2,4-diene`, `buta-1,3-diene`).
+Repeated skeletal-replacement prefixes are grouped (`2,8-dioxa`). Retained
+parents are used for pyridine, naphthalene, furan, thiophene, and pyrrole.
+Benzene polyols use the hydroxy suffix (`benzene-1,2-diol`). A single
+substituent on ethane omits the locant (`chloroethane`). Nuclide labels omit
+a redundant locant (`(13C)methane`) and cite isotopic hydrogen by count
+(`(2H4)methane`).
 
-When full duplicate-node CIP cannot rank an explicit `@`/`@@` centre because of
-an aromatic ligand, the stereo module falls back to a cycle-cutting
-atomic-number digraph so the token remains reversible. That fallback is what
-labels the anomeric carbon of a phenyl glucuronide; the resulting general name
-is self-consistent with the token, and it is not claimed as a preferred IUPAC
-name.
+Explicit `@`/`@@` centres are labeled `R`/`S` only when the CIP digraph
+assigns them. An aromatic bond contributes one duplicate node, as a double
+bond does, and a ring digit is ordered where it is written. A centre the
+digraph cannot rank stays unlabeled: no cycle-cutting atomic-number order is
+published as `R`/`S`, and the naming result warns that the token was left
+unpublished. Phenyl β-D-glucuronide is therefore
+`(2S,3S,4S,5R,6S)-3,4,5-trihydroxy-6-phenoxyoxane-2-carboxylic acid`.
+Generated names are general IUPAC names, not preferred names.
 The `strict=False` compatibility path deliberately preserves the lower-level
 parser's unresolved hydrogen fields before one-way naming, so the same
 unbracketed input may remain a composition description there.  Empty or

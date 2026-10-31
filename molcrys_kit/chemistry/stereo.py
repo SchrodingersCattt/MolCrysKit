@@ -6,7 +6,12 @@ applies IUPAC Blue Book 2013 sequence rules in rule order. It assigns ordinary
 tetrahedral ``R``/``S`` centers and double-bond ``E``/``Z`` units using
 sequence rules 1a, 1b, and 2, including multiple-bond and saturated-ring
 duplicate nodes.
-Cases requiring rules 3--5 remain explicitly indeterminate.
+
+An aromatic bond contributes one duplicate node, the same expansion as a
+double bond. A ring that is revisited still produces the ordinary duplicate
+node. Sequence rules 3--5, unresolved bond orders, and any other digraph the
+engine cannot rank stay indeterminate: a non-CIP ordering is not published
+as ``R``/``S``.
 """
 
 from __future__ import annotations
@@ -180,7 +185,15 @@ def _assign_tetrahedral_center(
     if implicit_count > 1:
         return _indeterminate(center.atom_id, rules, "multiple indistinguishable implicit hydrogens")
 
-    ligand_ids = [atom_id for atom_id, _ in explicit_ligands]
+    recorded = _chiral_neighbor_order(center)
+    if recorded:
+        known = {atom_id for atom_id, _ in explicit_ligands}
+        ligand_ids = [atom_id for atom_id in recorded if atom_id in known]
+        ligand_ids.extend(
+            atom_id for atom_id, _ in explicit_ligands if atom_id not in ligand_ids
+        )
+    else:
+        ligand_ids = [atom_id for atom_id, _ in explicit_ligands]
     if implicit_count:
         ligand_ids.append(f"{center.atom_id}:implicit-H")
     try:
@@ -198,18 +211,13 @@ def _assign_tetrahedral_center(
             for ligand_id in ligand_ids
         ]
     except _CIPIndeterminate as exc:
-        if center.stereochemistry in {"@", "@@"}:
-            # An explicit token still carries a usable orientation when a
-            # branch contains an unresolved bond order (for example an
-            # aromatic duplicate-node path).  Fall back to a cycle-cutting
-            # atomic-number digraph so the token remains reversible without
-            # inventing a descriptor for an untokenized centre.
-            priorities = tuple(
-                _fallback_ligand_priority(ligand_id, atoms, adjacency, center.atom_id)
-                for ligand_id in ligand_ids
-            )
-        else:
-            return _indeterminate(center.atom_id, rules, str(exc))
+        # Do not publish a cycle-cutting atomic-number order as R/S. That
+        # ranking is not CIP and can invert an anomeric descriptor.
+        return _indeterminate(
+            center.atom_id,
+            rules,
+            f"CIP ranking is indeterminate ({exc}); a non-CIP ranking is not published as an R/S descriptor",
+        )
 
     # A bracket atom's @/@@ token is an explicit stereochemical assertion.
     # OpenSMILES defines its orientation from the neighbour order in the
@@ -309,10 +317,10 @@ def _assign_double_bond(
     if left_ligands is None or right_ligands is None:
         return None
     try:
-        left_order, left_tied = _rank_alkene_ligands(
+        left_order, left_tied, left_top = _rank_alkene_ligands(
             left_id, left_ligands, atoms, adjacency
         )
-        right_order, right_tied = _rank_alkene_ligands(
+        right_order, right_tied, right_top = _rank_alkene_ligands(
             right_id, right_ligands, atoms, adjacency
         )
     except _CIPIndeterminate as exc:
@@ -331,6 +339,10 @@ def _assign_double_bond(
             "one double-bond end has CIP-equivalent ligands",
             cip_order,
         )
+    # Put an assigned descriptor on the alkene end whose highest ligand is
+    # senior. Atom-id order is not chemical, and an unsymmetric acid otherwise
+    # stores E/Z on opposite ends of two equivalent writings.
+    center_id = left_id if left_top >= right_top else right_id
     # Slash/backslash markers on the two adjacent single bonds encode the
     # relative side of the highest-priority ligands.  Equal markers are E,
     # opposite markers are Z (the OpenSMILES direction convention).
@@ -343,7 +355,7 @@ def _assign_double_bond(
         descriptor, marker_reason = explicit
         return StereoDescriptor(
             kind=StereoKind.DOUBLE_BOND,
-            center_atom_id=left_id,
+            center_atom_id=center_id,
             descriptor=descriptor,
             cip_order=cip_order,
             status=InferenceStatus.INFERRED,
@@ -353,7 +365,7 @@ def _assign_double_bond(
     if embedding is None:
         return _stereo_indeterminate(
             StereoKind.DOUBLE_BOND,
-            left_id,
+            center_id,
             rules,
             "3D embedding is unavailable",
             cip_order,
@@ -384,7 +396,7 @@ def _assign_double_bond(
     except (KeyError, ValueError) as exc:
         return _stereo_indeterminate(
             StereoKind.DOUBLE_BOND,
-            left_id,
+            center_id,
             rules,
             str(exc),
             cip_order,
@@ -392,14 +404,14 @@ def _assign_double_bond(
     if abs(cosine) < STEREOCHEMISTRY_CONFIG["MIN_DOUBLE_BOND_SIDE_COSINE"]:
         return _stereo_indeterminate(
             StereoKind.DOUBLE_BOND,
-            left_id,
+            center_id,
             rules,
             "double-bond side assignment is numerically ambiguous",
             cip_order,
         )
     return StereoDescriptor(
         kind=StereoKind.DOUBLE_BOND,
-        center_atom_id=left_id,
+        center_atom_id=center_id,
         descriptor="Z" if cosine > 0.0 else "E",
         cip_order=cip_order,
         status=InferenceStatus.INFERRED,
@@ -443,36 +455,6 @@ def _assign_explicit_tetrahedral(center, ligand_ids, priorities, rules):
         reason="resolved from explicit OpenSMILES @/@@ token and CIP priorities",
         rules_applied=rules,
     )
-
-
-def _fallback_ligand_priority(ligand_id, atoms, adjacency, origin):
-    """Rank one explicit-token ligand when full duplicate-node CIP is blocked.
-
-    Multiple bonds are noted by repeating the neighbour's atomic number.
-    Rings are cut at the first revisit, which is enough to order ordinary
-    sugar and aryl-substituted centres that the mancude duplicate-node
-    walker refuses.
-    """
-    if str(ligand_id).endswith(":implicit-H"):
-        return (atomic_numbers.get("H", 1), 0, ())
-
-    def rank(atom_id, parent, seen):
-        seen = seen | {atom_id}
-        atom = atoms[atom_id]
-        number = atomic_numbers.get(atom.element, 0)
-        children = []
-        for neighbor, bond in adjacency.get(atom_id, ()):
-            if neighbor == parent or neighbor in seen or neighbor == origin:
-                continue
-            children.append(rank(neighbor, atom_id, seen))
-            if not bond.aromatic and bond.order and float(bond.order) >= 2.0:
-                duplicate = (atomic_numbers.get(atoms[neighbor].element, 0), 0, ())
-                for _extra in range(int(round(float(bond.order))) - 1):
-                    children.append(duplicate)
-        children.sort(reverse=True)
-        return (number, int(atom.isotope or 0), tuple(children))
-
-    return rank(ligand_id, origin, {origin})
 
 
 def _explicit_ligand_priority(ligand_id, atoms):
@@ -544,7 +526,7 @@ def _rank_alkene_ligands(center_id, ligand_ids, atoms, adjacency):
         )
         ranked.append((priority, ligand_id))
     ranked.sort(reverse=True)
-    return tuple(item[1] for item in ranked), ranked[0][0] == ranked[1][0]
+    return tuple(item[1] for item in ranked), ranked[0][0] == ranked[1][0], ranked[0][0]
 
 
 def _alkene_ligand_vector(
@@ -676,9 +658,23 @@ def _duplicate_node(atom: ChemicalAtom, origin_depth: int) -> _DigraphNode:
     return _DigraphNode(atom.element, atom.isotope, origin_depth)
 
 
+def _chiral_neighbor_order(center: ChemicalAtom) -> tuple[str, ...] | None:
+    """Heavy-neighbor order recorded while reading an OpenSMILES chiral atom."""
+    for item in center.evidence:
+        if item.method == "OpenSMILES chiral neighbor order" and item.detail:
+            return tuple(item.detail.split())
+    return None
+
+
 def _bond_multiplicity(bond: ChemicalBond) -> int:
-    if bond.aromatic:
-        raise _CIPIndeterminate("mancude aromatic duplicate-node averaging is not implemented")
+    # An aromatic bond contributes one duplicate node, the same expansion as
+    # a double bond. That duplicate-atom picture is what ranks an aryl oxygen
+    # above a saturated ring oxygen. It is not a cycle-cutting fallback, and
+    # a digraph that still cannot be built does not publish an R/S letter.
+    if bond.aromatic or (
+        bond.order is not None and abs(float(bond.order) - 1.5) <= 1.0e-8
+    ):
+        return 2
     if bond.order is None:
         raise _CIPIndeterminate("bond order is unresolved")
     rounded = round(bond.order)
