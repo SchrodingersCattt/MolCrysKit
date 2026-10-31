@@ -88,3 +88,37 @@ legacy behaviour where symmetry copies are locked together and motif merge keeps
 only the greedy best orientation.
 
 The MWIS solution represents a compromise between maximizing total occupancy (thermodynamic stability) and minimizing steric clashes (geometric feasibility), resulting in physically realistic ordered structures from disordered crystal data.
+
+## Pull request expectations
+
+In-scope changes must update the stable documentation entry points in the same
+pull request. Those entry points are `docs/api.md`, `docs/cli.md`,
+`docs/architecture.md`, `docs/bonds.md`, `docs/tutorials.md`, and a focused
+design note when that note is the stable home for the change. Missing
+documentation on an in-scope pull request is review **P1**.
+
+In scope:
+
+- Public Python API surface (exports, signatures, defaults)
+- CLI flags or subcommands
+- CIF, forward, disorder, or companion contracts
+- Bond, chemistry, or symmetry semantics
+- Architecture or how-to-use flows
+
+Out of scope, declared in the pull request body as `Docs: N/A` plus a one-line
+reason:
+
+- Pure refactors with identical public behavior
+- Test-only or CI-only changes
+- Private helper renames
+- Docs-only pull requests
+
+Ephemeral change logs are not a substitute for these stable pages. Prefer API
+docs, golden files, and contract tests as the source of truth; prose covers
+what those checks cannot.
+
+The canonical write-up for contributors and agents is [CONTRIBUTING.md](../CONTRIBUTING.md).
+Update [AGENTS.md](../AGENTS.md) when a standing rule changes. The **Documentation**
+section of the pull request template records the docs paths touched, whether
+public API / CLI / CIF-I/O contracts / crystallographic invariants changed, and
+whether the agent guide was updated.
