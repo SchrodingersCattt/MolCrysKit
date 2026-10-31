@@ -88,3 +88,73 @@ legacy behaviour where symmetry copies are locked together and motif merge keeps
 only the greedy best orientation.
 
 The MWIS solution represents a compromise between maximizing total occupancy (thermodynamic stability) and minimizing steric clashes (geometric feasibility), resulting in physically realistic ordered structures from disordered crystal data.
+
+### Molecule identity and ligand shells
+
+Resolving a full ordered replica is optional. Molecule identification and
+site-centred ligand-shell construction share a smaller policy for the common
+case in which one molecular site is disordered over alternative orientations:
+
+- `major` keeps the highest-occupancy orientation (and any ordered atoms that
+  belong to every orientation). This is the default for `find_polyhedra`
+  centres. It is not the default for molecule identification.
+- `exclusive` treats the orientations as mutually exclusive and returns one
+  shell per central orientation. Other families stay on their major component.
+- `as_refined` keeps every refined coordinate. `identify_molecules`,
+  `identify_molecule_indices`, `read_mol_crystal`, and
+  `MolecularCrystal.from_cif` / `from_ase` use this default, so a general
+  caller does not lose refined atoms. A later shell search still applies
+  `major` to the centre unless the caller overrides it.
+
+Labelled CIF disorder assemblies are exclusive by the CIF definition.
+Unlabelled PART numbers are not a global switch: atoms that share a label are
+split into local clusters, and only clusters that approach one another compete.
+A second disordered site that reuses the same labels keeps its own majority
+orientation. Occupancy-only sites compete when the values sum to at most 1.10 and they
+cannot be one covalent shell on a shared ordered atom. Metal–ligand contacts
+are not covalent valence, so an ordered oxygen that bridges partial metal
+sites keeps every metal. At or below that occupancy sum an acute angle makes
+the pair exclusive, including two positions of one split substituent. Above
+1.10 the atoms must coexist, so a bonded ring stays intact. Equal occupancies
+are gathered into whole orientations that share one element composition.
+Radii are compared as distance divided by that pair's bond cutoff (standard
+deviation at most 0.08), so hydrogen and chlorine can occupy one shell; the
+filter is skipped when the pool composition is not divisible by the number of
+shells, and a failed split warns. A copy shifted by 0.2 Å stays when its angle
+spread is within 10° of the best shell. A wider shift keeps the one regular
+orientation and warns, instead of returning a fused moiety. The tie prefers
+that tighter shell, then the smaller radius, then the placement, so it does
+not follow atom order. A class with no ordered anchor is split only into whole
+connected copies: every atom of one orientation, not a centre plus the atoms
+nearest to it. A short translation or a mirror is paired atom-to-image. A
+rotation or a cube of two tetrahedra is kept when each piece is one full copy.
+If that cannot be done, the class stays whole and
+``UnresolvedDisorderWarning`` is emitted. Dropping the rest of a chain or ring
+is not allowed. ``exclusive`` flips one family at a time, not the Cartesian
+product of independent sites. The warning is one per ``disorder_realizations``
+call; a shell search or a structure read groups those into one warning for the
+public call. It is not raised for a fully ordered structure. The element maximum coordination is only an
+upper bound on shell size. Equal occupancy ``1/k`` uses ``|pool| / k`` when
+that is smaller, which keeps three bridges on a cage centre. Directions within
+35° are one vertex, so symmetry copies piled on a tetrahedron collapse.
+Full-occupancy atoms that still leave a kept atom over its covalent maximum
+are named in the warning and are not deleted. The warning is one per call,
+with a count and a short site summary. Negative PART labels, including a
+single labelled assembly group, are split into orientations around the ordered
+centre. An ordered metal uses the same rule for partial ligands. Several
+groups in one labelled assembly stay exact. Shell vertices use the major
+component under every policy. Molecule-level grouping on a long chain is
+near-linear; atom-level shell scoring is one array pass per centre. The
+numeric defaults are ``OCCUPANCY_SUM_TOLERANCE`` 0.10,
+``OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG`` 80,
+``OCCUPANCY_ORIENTATION_STD_SLACK_DEG`` 10,
+``OCCUPANCY_ORIENTATION_STD_GAP_DEG`` 6,
+``OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION`` 0.08,
+``OCCUPANCY_SAME_VERTEX_ANGLE_DEG`` 35, and
+``OCCUPANCY_MAX_ORIENTATION_COMBINATIONS`` 20000.
+
+Fusing both orientations into one component produces a moiety that matches
+neither orientation. A ligand-shell query for the physical formula then
+returns no centre. Selecting the major component restores a drawable shell
+around that orientation. Ordered crystals take the same path and are
+unchanged, because they contain no exclusive family.

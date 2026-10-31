@@ -1057,3 +1057,79 @@ when appropriate; the defaults are not project-specific endorsements.
   DOI: [10.1021/acs.jpcc.8b08684](https://doi.org/10.1021/acs.jpcc.8b08684).
   Delta-cluster convergence test in zeolites; basis for the
   diagnostic `rcut` mode.
+
+## Disorder policy for molecule identity and ligand shells
+
+Alternative orientations of one molecular site are mutually exclusive. If they
+share an ordered atom, or if the file only records partial occupancies, bond
+perception can still place both orientations in one component. That component
+is not a chemical molecule, and a moiety search for the real formula finds no
+ligand shell.
+
+`find_polyhedra(..., level="molecule")` defaults to `disorder_policy="major"`:
+the highest-occupancy orientation is the centre, and a shell is built around
+that orientation. Ordered crystals are unchanged.
+
+```python
+from molcrys_kit.analysis.packing_shell import find_polyhedra
+from molcrys_kit.io import read_mol_crystal
+
+# A default read keeps every refined site.
+crystal = read_mol_crystal("disordered.cif", attach_chemistry=False)
+
+# The shell uses the major orientation even when the read kept both.
+shells = find_polyhedra(
+    crystal,
+    "N C4",
+    "Cl",
+    level="molecule",
+    cutoff=8.0,
+    score_shape=True,
+)
+# shells[i]["coordination_number"] is the ligand count around that centre.
+# shells[i]["disorder_component_ids"] names the orientation that was kept.
+
+# One shell per orientation:
+each = find_polyhedra(
+    crystal, "N C4", "Cl", level="molecule",
+    cutoff=8.0, disorder_policy="exclusive",
+)
+
+# Chemical molecules at read time, instead of a fused component:
+major = read_mol_crystal(
+    "disordered.cif",
+    attach_chemistry=False,
+    disorder_policy="major",
+)
+```
+
+`identify_molecules` and `identify_molecule_indices` default to
+`disorder_policy="as_refined"` and keep every refined atom. Pass
+`disorder_policy="major"` or `"exclusive"` only when the returned molecules
+should already be occupied states. `disorder_policy="exclusive"` returns one
+molecule per orientation, copying ordered atoms into each.
+
+Unlabelled PART labels are resolved per site. Occupancy-only alternatives are
+whole orientations with one element composition. Values may sum to 1.10.
+Metal–ligand contacts are not counted as covalent valence. At or below that
+sum a tight angle splits two partial atoms even if they are bonded; above it
+they coexist. Radii are compared as distance divided by the pair bond cutoff,
+so different elements can share a shell. A 50:50 shell shifted by 0.2 Å is
+still one orientation when its angle spread is within 10° of the best. A wider
+shift keeps that one orientation and warns. The choice prefers the tighter
+shell, then the smaller radius, then geometry, and does not follow atom order.
+A copy with no ordered anchor is a whole connected molecule, not a centre
+plus the atoms nearest to it. A short mirror keeps one full copy. If the
+copies cannot be separated, every atom stays and ``UnresolvedDisorderWarning``
+is raised. The warning is one per call. A shell search or a structure read
+groups per-molecule warnings into that one. ``exclusive`` flips one disorder
+family at a time, so two independent split sites give three states, not four. A negative
+PART shell around an ordered centre, including a single labelled assembly
+group, is split the same way. A cage whose bridges are fewer than the
+centre's maximum coordination uses the occupancy count instead. Shell records
+store parent molecule indices, and a minor ligand atom is not an extra
+vertex. Defaults: occupancy-sum tolerance 0.10, minimum simultaneous angle
+80°, orientation spread slack 10°, spread-cluster gap 6°, normalized radius
+standard deviation 0.08, same-vertex angle 35°, and a cap of 20000 substituent
+combinations. Molecule-level grouping on a long chain is near-linear.
+Atom-level scoring is an array pass per centre.

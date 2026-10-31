@@ -4,6 +4,11 @@ Packing-shell geometry analysis.
 The routines here infer and score local shells from distance-ranked points and
 convex-hull geometry. This is distinct from bond-graph chemical environment
 analysis, which lives in :mod:`molcrys_kit.analysis.chemical_env`.
+
+Molecule-level shells default to the ``major`` disorder policy: alternative
+orientations of one site are mutually exclusive, and the highest-occupancy
+component is the centre that is matched and drawn. See
+:mod:`molcrys_kit.analysis.disorder.policy`.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..structures.polyhedra import ideal_polyhedra_for_cn
+from .disorder.policy import DEFAULT_DISORDER_POLICY, collapse_disorder_warnings
 from .formula_moiety import (
     Fragment,
     heavy_signature,
@@ -472,82 +478,32 @@ def _format_molecule_formula(symbols: Sequence[str]) -> str:
 
 
 def _active_disorder_mask(molecule) -> np.ndarray:
-    """Return atoms belonging to the dominant disorder branch of ``molecule``.
+    """Return atoms kept by the default ``major`` disorder policy.
 
-    Molecules returned by disorder-aware bond perception may still contain
-    alternative positions from the same CIF disorder assembly. Counting every
-    alternative position makes a split perchlorate look like ``ClO7`` instead
-    of the physical ``ClO4`` moiety, which in turn breaks molecule-level
-    moiety matching for packing-shell/polyhedron analysis. For each non-empty
-    disorder assembly, keep the disorder group with the largest occupancy sum
-    and drop the other alternatives for centroid/formula/signature purposes.
-    Ties are resolved deterministically by atom count and then group label.
-    Ordered atoms are always kept.
+    Counting every alternative position makes a split anion look like a
+    heavier formula than the physical moiety and breaks molecule-level
+    matching. The mask keeps ordered atoms and, inside each exclusive
+    family, the highest-occupancy component.
     """
+    from .disorder.policy import disorder_realizations
+
     symbols = list(molecule.get_chemical_symbols())
-    n_atoms = len(symbols)
-    mask = np.ones(n_atoms, dtype=bool)
-    if n_atoms == 0:
-        return mask
-
-    try:
-        from ..constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
-    except Exception:  # pragma: no cover - constants are part of MolCrysKit
-        return mask
-
-    try:
-        assemblies = np.asarray(molecule.get_array(KEY_ASSEMBLY), dtype=object)
-    except Exception:
-        return mask
-    if assemblies.shape[0] != n_atoms:
-        return mask
-
-    try:
-        groups = np.asarray(molecule.get_array(KEY_DISORDER_GROUP), dtype=object)
-    except Exception:
-        groups = np.zeros(n_atoms, dtype=object)
-    if groups.shape[0] != n_atoms:
-        groups = np.zeros(n_atoms, dtype=object)
-
-    try:
-        occupancies = np.asarray(molecule.get_array(KEY_OCCUPANCY), dtype=float)
-    except Exception:
-        occupancies = np.ones(n_atoms, dtype=float)
-    if occupancies.shape[0] != n_atoms:
-        occupancies = np.ones(n_atoms, dtype=float)
-
-    blank = {"", ".", "?"}
-    assembly_names = sorted(
-        {str(value).strip() for value in assemblies if str(value).strip() not in blank}
-    )
-    for assembly in assembly_names:
-        indices = [
-            i for i, value in enumerate(assemblies)
-            if str(value).strip() == assembly
-        ]
-        if not indices:
-            continue
-        scores: Dict[str, float] = {}
-        counts: Dict[str, int] = {}
-        for i in indices:
-            group = str(groups[i]).strip()
-            scores[group] = scores.get(group, 0.0) + float(occupancies[i])
-            counts[group] = counts.get(group, 0) + 1
-        if len(scores) <= 1:
-            continue
-        chosen = max(scores, key=lambda g: (scores[g], counts.get(g, 0), g))
-        for i in indices:
-            if str(groups[i]).strip() != chosen:
-                mask[i] = False
+    if not symbols:
+        return np.ones(0, dtype=bool)
+    realization = disorder_realizations(molecule, "major")[0]
+    mask = np.asarray(realization.mask, dtype=bool)
+    if mask.shape[0] != len(symbols):
+        return np.ones(len(symbols), dtype=bool)
     return mask
 
 
-def _molecule_formula_symbols(molecule) -> List[str]:
-    """Chemical symbols after collapsing disorder alternatives."""
+def _molecule_formula_symbols(molecule, mask: np.ndarray = None) -> List[str]:
+    """Chemical symbols after applying ``mask`` or the major disorder policy."""
     symbols = list(molecule.get_chemical_symbols())
     if not symbols:
         return []
-    mask = _active_disorder_mask(molecule)
+    if mask is None:
+        mask = _active_disorder_mask(molecule)
     if mask.shape[0] != len(symbols):
         return symbols
     return [sym for sym, keep in zip(symbols, mask) if bool(keep)]
@@ -559,13 +515,16 @@ def _molecule_heavy_signature(molecule) -> Tuple[Tuple[str, int], ...]:
     return heavy_signature(dict(Counter(s for s in symbols if s != "H")))
 
 
-def _molecule_centre(molecule, kind: str) -> np.ndarray:
+def _molecule_centre(molecule, kind: str, mask: np.ndarray = None) -> np.ndarray:
     """Return the Cartesian centre of ``molecule`` according to ``kind``."""
     positions = np.asarray(molecule.get_positions(), dtype=float)
     if positions.size == 0:
         raise ValueError("Cannot compute molecule centre: empty molecule.")
     symbols = list(molecule.get_chemical_symbols())
-    active_mask = _active_disorder_mask(molecule)
+    if mask is None:
+        active_mask = _active_disorder_mask(molecule)
+    else:
+        active_mask = np.asarray(mask, dtype=bool)
     use_active_mask = active_mask.shape[0] == len(symbols) and active_mask.any()
     if use_active_mask:
         positions = positions[active_mask]
@@ -625,6 +584,92 @@ def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarr
     return np.asarray(translations, dtype=float)
 
 
+def _atom_disorder_mask(atoms, disorder_policy: str) -> np.ndarray:
+    """Major-component mask for a flat atom list.
+
+    Unlabelled alternatives are collapsed only when they approach each other,
+    so a minor ligand next to its major image is not a second shell vertex.
+    Distant sites that reuse a PART label stay independent.
+    """
+    from .disorder.policy import disorder_realizations, normalize_disorder_policy
+
+    if normalize_disorder_policy(disorder_policy) != "major":
+        return np.ones(len(atoms), dtype=bool)
+    realization = disorder_realizations(
+        atoms,
+        "major",
+        spatial_alternatives=True,
+        minimum_image=True,
+    )[0]
+    mask = np.asarray(realization.mask, dtype=bool)
+    if mask.shape[0] != len(atoms):
+        return np.ones(len(atoms), dtype=bool)
+    return mask
+
+
+def _molecule_views(molecules, center_kind: str, disorder_policy: str) -> List[Dict[str, Any]]:
+    """One centre/formula view per disorder realization."""
+    from .disorder.policy import disorder_realizations, normalize_disorder_policy
+
+    policy = normalize_disorder_policy(disorder_policy)
+    views: List[Dict[str, Any]] = []
+    for parent_index, molecule in enumerate(molecules):
+        for realization in disorder_realizations(molecule, policy):
+            symbols = _molecule_formula_symbols(molecule, realization.mask)
+            if not symbols:
+                continue
+            views.append(
+                {
+                    "parent_index": int(parent_index),
+                    "component_ids": tuple(realization.component_ids),
+                    "centre": _molecule_centre(
+                        molecule, center_kind, realization.mask
+                    ),
+                    "signature": heavy_signature(
+                        dict(Counter(symbol for symbol in symbols if symbol != "H"))
+                    ),
+                    "formula": _format_molecule_formula(symbols),
+                    "occupancy_sum": float(realization.occupancy_sum),
+                    "competes": bool(realization.competes_for_site),
+                    "policy": policy,
+                }
+            )
+    if policy == "major":
+        views = _collapse_competing_sites(views)
+    return views
+
+
+def _collapse_competing_sites(views: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep the highest-occupancy disordered view at each overlapping site.
+
+    Ordered views are never dropped. Distinct molecules of the same moiety
+    remain when their centres are farther apart than the disorder clash
+    threshold used for competing orientations.
+    """
+    from ..constants.config import DISORDER_CONFIG
+
+    cutoff = float(DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"])
+    grouped: Dict[Tuple[Tuple[str, int], ...], List[int]] = {}
+    for index, view in enumerate(views):
+        grouped.setdefault(view["signature"], []).append(index)
+    drop: set[int] = set()
+    for indices in grouped.values():
+        competing = [index for index in indices if views[index]["competes"]]
+        competing.sort(key=lambda index: (-views[index]["occupancy_sum"], index))
+        kept_centres: List[np.ndarray] = []
+        for index in competing:
+            centre = np.asarray(views[index]["centre"], dtype=float)
+            too_close = any(
+                float(np.linalg.norm(centre - other)) <= cutoff
+                for other in kept_centres
+            )
+            if too_close:
+                drop.add(index)
+                continue
+            kept_centres.append(centre)
+    return [view for index, view in enumerate(views) if index not in drop]
+
+
 def _find_polyhedra_atom_level(
     structure,
     central: str,
@@ -637,6 +682,7 @@ def _find_polyhedra_atom_level(
     fallback_max: Optional[int],
     score_shape: bool,
     central_indices: Optional[Sequence[int]],
+    disorder_policy: str,
     return_diagnostics: bool = False,
 ) -> List[Dict[str, Any]]:
     try:
@@ -657,6 +703,16 @@ def _find_polyhedra_atom_level(
 
     symbols = list(atoms.get_chemical_symbols())
     positions = np.asarray(atoms.get_positions(), dtype=float)
+    # Shell vertices are the major ligand component under every policy, so a
+    # minor alternative is not drawn as an extra neighbour. The centre follows
+    # ``disorder_policy`` (only ``major`` hides a minor central atom).
+    from .disorder.policy import normalize_disorder_policy
+
+    ligand_active = _atom_disorder_mask(atoms, "major")
+    if normalize_disorder_policy(disorder_policy) == "major":
+        center_active = ligand_active
+    else:
+        center_active = np.ones(len(atoms), dtype=bool)
 
     central_index_set = (
         {int(i) for i in central_indices} if central_indices is not None else None
@@ -665,6 +721,7 @@ def _find_polyhedra_atom_level(
     central_atoms = [
         i for i, sym in enumerate(symbols)
         if sym == central
+        and bool(center_active[i])
         and (central_index_set is None or i in central_index_set)
     ]
     if not central_atoms:
@@ -680,6 +737,8 @@ def _find_polyhedra_atom_level(
         if src_i not in shells:
             continue
         if central == ligand and dst_i == src_i:
+            continue
+        if not bool(ligand_active[dst_i]):
             continue
         candidate_counts[src_i] += 1
         if symbols[dst_i] != ligand:
@@ -744,6 +803,7 @@ def _find_polyhedra_atom_level(
             "enclosure_expanded": cn_info["enclosure_expanded"],
             "cutoff": cn_info["cutoff"],
             "search_cutoff": float(search_cutoff),
+            "disorder_policy": disorder_policy,
         }
 
         if score_shape:
@@ -784,6 +844,7 @@ def _find_polyhedra_molecule_level(
     fallback_max: Optional[int],
     score_shape: bool,
     central_indices: Optional[Sequence[int]],
+    disorder_policy: str,
     return_diagnostics: bool = False,
 ) -> List[Dict[str, Any]]:
     if center_kind not in _MOLECULE_CENTRE_KINDS:
@@ -838,15 +899,31 @@ def _find_polyhedra_molecule_level(
         if hard_cutoff > radius:
             radius = hard_cutoff
 
-    centres = np.array(
-        [_molecule_centre(mol, center_kind) for mol in molecules], dtype=float
+    from .disorder.policy import normalize_disorder_policy
+
+    # Ligand vertices always use the major component, including under
+    # ``exclusive`` and ``as_refined``. Otherwise both positions of one
+    # disordered ligand enter the shell. The centre still follows the
+    # requested policy.
+    requested_policy = normalize_disorder_policy(disorder_policy)
+    ligand_views = _molecule_views(molecules, center_kind, "major")
+    views = (
+        ligand_views
+        if requested_policy == "major"
+        else _molecule_views(molecules, center_kind, requested_policy)
     )
-    sigs: List[Tuple[Tuple[str, int], ...]] = []
-    formulas: List[str] = []
-    for mol in molecules:
-        symbols = _molecule_formula_symbols(mol)
-        sigs.append(heavy_signature(dict(Counter(s for s in symbols if s != "H"))))
-        formulas.append(_format_molecule_formula(symbols))
+    if not views:
+        return ([], []) if return_diagnostics else []
+    centres = np.array([view["centre"] for view in views], dtype=float)
+    sigs: List[Tuple[Tuple[str, int], ...]] = [view["signature"] for view in views]
+    formulas: List[str] = [view["formula"] for view in views]
+    ligand_sigs = [view["signature"] for view in ligand_views]
+    ligand_formulas = [view["formula"] for view in ligand_views]
+    ligand_centres = (
+        np.array([view["centre"] for view in ligand_views], dtype=float)
+        if ligand_views
+        else np.zeros((0, 3), dtype=float)
+    )
 
     central_index_set = (
         {int(i) for i in central_indices} if central_indices is not None else None
@@ -855,9 +932,12 @@ def _find_polyhedra_molecule_level(
     central_mols = [
         i for i, sig in enumerate(sigs)
         if sig == central_sig
-        and (central_index_set is None or i in central_index_set)
+        and (
+            central_index_set is None
+            or views[i]["parent_index"] in central_index_set
+        )
     ]
-    ligand_mols = [i for i, sig in enumerate(sigs) if sig == ligand_sig]
+    ligand_mols = [i for i, sig in enumerate(ligand_sigs) if sig == ligand_sig]
     if not central_mols:
         return ([], []) if return_diagnostics else []
 
@@ -869,8 +949,12 @@ def _find_polyhedra_molecule_level(
     # Without this, centroids near opposite cell corners or in
     # unwrapped molecule reconstructions would silently miss
     # diagonal-image neighbours.
-    if len(centres) > 1:
-        centroid_extent = float(np.linalg.norm(np.ptp(centres, axis=0)))
+    extent_points = [centres]
+    if len(ligand_centres):
+        extent_points.append(ligand_centres)
+    extent = np.vstack(extent_points)
+    if len(extent) > 1:
+        centroid_extent = float(np.linalg.norm(np.ptp(extent, axis=0)))
     else:
         centroid_extent = 0.0
     translations = _lattice_translations(
@@ -901,15 +985,22 @@ def _find_polyhedra_molecule_level(
 
         # Generate every image of every ligand molecule, vectorised
         if ligand_mols:
-            lig_centres = centres[ligand_mols]                       # (L, 3)
+            lig_centres = ligand_centres[ligand_mols]                # (L, 3)
             cand_pts = lig_centres[:, None, :] + translations[None, :, :]  # (L, T, 3)
             cand_vecs = cand_pts - center_pos                       # (L, T, 3)
             dists = np.linalg.norm(cand_vecs, axis=-1)              # (L, T)
             mask = dists <= radius
             if homo_pair:
-                # Exclude the self image (centroid of the same molecule at t=0)
+                # Exclude the self image (centroid of the same molecule at t=0).
+                # Ligand views may be a different list from centre views, so
+                # compare parent molecules rather than list positions.
                 self_mask = np.zeros_like(mask, dtype=bool)
-                same = [pos for pos, idx in enumerate(ligand_mols) if idx == center_mol_idx]
+                center_parent = int(views[center_mol_idx]["parent_index"])
+                same = [
+                    pos
+                    for pos, idx in enumerate(ligand_mols)
+                    if int(ligand_views[idx]["parent_index"]) == center_parent
+                ]
                 if same:
                     zero_t = int(np.argmin(np.linalg.norm(translations, axis=1)))
                     for pos in same:
@@ -947,17 +1038,23 @@ def _find_polyhedra_molecule_level(
         cn = int(cn_info["coordination_number"])
         kept_dists = sorted_dists[:cn].tolist()
         kept_pts = sorted_pts[:cn].tolist()
-        kept_lig_mols = sorted_lig_mols[:cn]
+        kept_lig_mols = [
+            int(ligand_views[sorted_lig_mols[offset]]["parent_index"])
+            for offset in range(cn)
+        ]
         kept_offsets = sorted_offsets[:cn]
+        parent_index = int(views[center_mol_idx]["parent_index"])
 
         record = {
             "level": "molecule",
-            "center_molecule_index": int(center_mol_idx),
+            "center_molecule_index": parent_index,
             "center_formula": formulas[center_mol_idx],
             "center_position": center_pos.tolist(),
             "center_kind": center_kind,
             "shell_molecule_indices": kept_lig_mols,
-            "shell_formula": formulas[ligand_mols[0]] if ligand_mols else "",
+            "disorder_policy": views[center_mol_idx]["policy"],
+            "disorder_component_ids": list(views[center_mol_idx]["component_ids"]),
+            "shell_formula": ligand_formulas[ligand_mols[0]] if ligand_mols else "",
             "shell_offsets": kept_offsets,
             "shell_coords": kept_pts,
             "shell_distances": kept_dists,
@@ -988,7 +1085,7 @@ def _find_polyhedra_molecule_level(
         results.append(record)
         if return_diagnostics:
             diagnostics.append({
-                "centre_index": int(center_mol_idx),
+                "centre_index": parent_index,
                 "centre_position": center_pos.tolist(),
                 "candidate_count": all_candidate_count,
                 "ligand_species_filter_drops": max(0, all_candidate_count - len(sorted_dists)),
@@ -1000,6 +1097,7 @@ def _find_polyhedra_molecule_level(
     return (results, diagnostics) if return_diagnostics else results
 
 
+@collapse_disorder_warnings
 def find_polyhedra(
     structure,
     central: str,
@@ -1015,6 +1113,7 @@ def find_polyhedra(
     fallback_max: Optional[int] = None,
     score_shape: bool = False,
     central_indices: Optional[Sequence[int]] = None,
+    disorder_policy: str = DEFAULT_DISORDER_POLICY,
     return_diagnostics: bool = False,
 ) -> List[Dict[str, Any]]:
     """Enumerate A--B coordination polyhedra in a periodic structure.
@@ -1091,6 +1190,19 @@ def find_polyhedra(
         Optional iterable of indices restricting the search to a subset
         of central atoms (``level="atom"``) or central molecules
         (``level="molecule"``).
+    disorder_policy
+        How alternative orientations are treated before a shell is built.
+        ``"major"`` (default) keeps the highest-occupancy component of each
+        mutually exclusive family and, at molecule level, one centre when
+        several disordered realizations of the same moiety sit on one site.
+        ``"exclusive"`` builds one molecule-level shell per orientation.
+        ``"as_refined"`` uses every refined central site, which can fuse two
+        orientations into a moiety that matches nothing. Ordered structures
+        are unchanged under every policy. Shell vertices use the major
+        ligand component under every policy, including an unlabelled minor
+        ligand atom next to its major image. Distant unlabelled sites are
+        not coupled. Ties keep a whole orientation: the greater component
+        label, then the smaller atom index.
     return_diagnostics
         When true, return ``(records, diagnostics)`` where diagnostics has
         one entry per attempted centre with candidate counts and rejection
@@ -1179,6 +1291,10 @@ def find_polyhedra(
           :func:`detect_coordination_number` received (i.e. the value of
           ``hard_cutoff``), which is the opposite of the kwarg
           ``cutoff=`` semantics on this level.
+        * ``disorder_policy`` and ``disorder_component_ids``: the policy
+          that was applied and the exclusive components kept for that
+          centre. ``disorder_component_ids`` is empty when no alternative
+          had to be rejected.
         * ``best_match`` (only when ``score_shape=True``)
     """
     if level == "atom":
@@ -1200,6 +1316,7 @@ def find_polyhedra(
             fallback_max=fallback_max,
             score_shape=score_shape,
             central_indices=central_indices,
+            disorder_policy=disorder_policy,
             return_diagnostics=return_diagnostics,
         )
     if level == "molecule":
@@ -1216,6 +1333,7 @@ def find_polyhedra(
             fallback_max=fallback_max,
             score_shape=score_shape,
             central_indices=central_indices,
+            disorder_policy=disorder_policy,
             return_diagnostics=return_diagnostics,
         )
     raise ValueError(f"level must be 'atom' or 'molecule', got {level!r}.")
