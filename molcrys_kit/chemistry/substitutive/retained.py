@@ -255,7 +255,22 @@ def name_hydride(entity):
         )
     return None
 
+def _closed_shell_neutral(entity) -> bool:
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in entity.atoms)
+    )
+    if net_charge != 0 or any(
+        (atom.formal_charge or 0) or atom.radical_electrons for atom in entity.atoms
+    ):
+        return False
+    return True
+
+
 def name_anilide(entity):
+    if not _closed_shell_neutral(entity):
+        return None
     adjacency = _adjacency(entity)
     ring = _six_carbon_ring(entity)
     if ring is None:
@@ -330,6 +345,8 @@ def name_anilide(entity):
     return None
 
 def name_benzene_family(entity):
+    if not _closed_shell_neutral(entity):
+        return None
     ring = _six_carbon_ring(entity)
     if ring is None:
         return None

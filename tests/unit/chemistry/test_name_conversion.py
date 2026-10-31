@@ -100,7 +100,7 @@ def test_non_strict_smiles_conversion_keeps_existing_fallback() -> None:
 
 
 @pytest.mark.parametrize(
-    "smiles", ("[CH3+]C", "[C]C", "[CH2]C", "ClC(=O)[O-]", "[NH2+]1CCCCC1")
+    "smiles", ("[CH3+]C", "[C]C", "ClC(=O)[O-]", "[NH2+]1CCCCC1")
 )
 def test_neutral_recognizers_do_not_erase_charge_or_radicals(smiles: str) -> None:
     result = smiles_to_iupac(smiles, strict=False)
@@ -108,6 +108,12 @@ def test_neutral_recognizers_do_not_erase_charge_or_radicals(smiles: str) -> Non
     assert result.status is InferenceStatus.INDETERMINATE
     with pytest.raises(NamingIndeterminateError):
         smiles_to_iupac(smiles, strict=True)
+
+
+def test_ethyl_radical_is_named_without_becoming_ethane() -> None:
+    result = smiles_to_iupac("[CH2]C", strict=True)
+    assert result.name == "ethyl"
+    assert result.kind is naming_module.NamingKind.GENERAL_IUPAC_NAME
 
 
 def test_explicit_radical_electrons_use_the_composition_fallback() -> None:

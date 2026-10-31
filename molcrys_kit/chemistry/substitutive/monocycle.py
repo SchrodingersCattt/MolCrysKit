@@ -238,6 +238,12 @@ def _ring_name(cycle, graph, atoms):
         # unsaturated heterocycle grammar is implemented.
         if not all(b.order == 1.0 for b in edges):
             return None
+        # Retained Hantzsch–Widman names for the unsubstituted saturated
+        # mono-oxygen rings. Skeletal replacement remains the systematic alias.
+        if elements.count("O") == 1 and all(element in {"C", "O"} for element in elements):
+            retained = {3: "oxirane", 4: "oxetane", 5: "oxolane", 6: "oxane"}.get(n)
+            if retained is not None:
+                return retained, False
         # Saturated skeletal replacement, with oxa/aza locants.  Prefer an
         # oxygen start when present (the conventional C1COCCN1 spelling is
         # therefore 1-oxa-4-azacyclohexane).

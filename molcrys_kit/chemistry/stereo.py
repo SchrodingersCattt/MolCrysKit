@@ -201,11 +201,11 @@ def _assign_tetrahedral_center(
         if center.stereochemistry in {"@", "@@"}:
             # An explicit token still carries a usable orientation when a
             # branch contains an unresolved bond order (for example an
-            # aromatic duplicate-node path).  Fall back to atomic-number
-            # ordering and the stable ligand id; this keeps the assertion
-            # reversible while retaining the diagnostic in the rule trace.
+            # aromatic duplicate-node path).  Fall back to a cycle-cutting
+            # atomic-number digraph so the token remains reversible without
+            # inventing a descriptor for an untokenized centre.
             priorities = tuple(
-                _explicit_ligand_priority(ligand_id, atoms)
+                _fallback_ligand_priority(ligand_id, atoms, adjacency, center.atom_id)
                 for ligand_id in ligand_ids
             )
         else:
@@ -443,6 +443,36 @@ def _assign_explicit_tetrahedral(center, ligand_ids, priorities, rules):
         reason="resolved from explicit OpenSMILES @/@@ token and CIP priorities",
         rules_applied=rules,
     )
+
+
+def _fallback_ligand_priority(ligand_id, atoms, adjacency, origin):
+    """Rank one explicit-token ligand when full duplicate-node CIP is blocked.
+
+    Multiple bonds are noted by repeating the neighbour's atomic number.
+    Rings are cut at the first revisit, which is enough to order ordinary
+    sugar and aryl-substituted centres that the mancude duplicate-node
+    walker refuses.
+    """
+    if str(ligand_id).endswith(":implicit-H"):
+        return (atomic_numbers.get("H", 1), 0, ())
+
+    def rank(atom_id, parent, seen):
+        seen = seen | {atom_id}
+        atom = atoms[atom_id]
+        number = atomic_numbers.get(atom.element, 0)
+        children = []
+        for neighbor, bond in adjacency.get(atom_id, ()):
+            if neighbor == parent or neighbor in seen or neighbor == origin:
+                continue
+            children.append(rank(neighbor, atom_id, seen))
+            if not bond.aromatic and bond.order and float(bond.order) >= 2.0:
+                duplicate = (atomic_numbers.get(atoms[neighbor].element, 0), 0, ())
+                for _extra in range(int(round(float(bond.order))) - 1):
+                    children.append(duplicate)
+        children.sort(reverse=True)
+        return (number, int(atom.isotope or 0), tuple(children))
+
+    return rank(ligand_id, origin, {origin})
 
 
 def _explicit_ligand_priority(ligand_id, atoms):

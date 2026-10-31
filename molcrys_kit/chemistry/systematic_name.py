@@ -150,6 +150,9 @@ class SystematicName:
         # tokens are case-insensitive and remain normalized to lowercase.
         if normalized.startswith("n-("):
             normalized = "N-" + normalized[2:]
+        # Nitrogen locants stay capitalized in N- and N,N- prefixes.
+        normalized = re.sub(r"\bn,n-", "N,N-", normalized)
+        normalized = re.sub(r"\bn-", "N-", normalized)
         # Preserve conventional element-symbol case in isotope prefixes while
         # keeping the surrounding name case-insensitive.
         normalized = re.sub(
