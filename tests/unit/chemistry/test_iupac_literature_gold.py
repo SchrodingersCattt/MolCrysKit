@@ -116,8 +116,20 @@ _GOLD = (
     (
         "glucuronide",
         "O[C@@H]1[C@@H](O)[C@H](Oc2c(O)cc(O)cc2)O[C@@H]([C@H]1O)C(=O)O",
-        "(2S,3S,4S,5R,6S)-3,4,5-trihydroxy-6-(2,4-dihydroxyphenoxy)oxane-2-carboxylic acid",
-        "2,4-dihydroxyphenyl glucuronide",
+        "(2S,3S,4S,5R,6S)-6-(2,4-dihydroxyphenoxy)-3,4,5-trihydroxyoxane-2-carboxylic acid",
+        "2,4-dihydroxyphenyl glucuronide; compound prefix keeps its multiplier and sorts under d",
+    ),
+    (
+        "glucuronide",
+        "O[C@@H]1[C@@H](O)[C@H](Oc2c(C)cc(C)cc2)O[C@@H]([C@H]1O)C(=O)O",
+        "(2S,3S,4S,5R,6S)-6-(2,4-dimethylphenoxy)-3,4,5-trihydroxyoxane-2-carboxylic acid",
+        "2,4-dimethylphenyl glucuronide; dimethylphenoxy precedes trihydroxy",
+    ),
+    (
+        "glucuronide",
+        "O[C@@H]1[C@@H](O)[C@H](Oc2c(O)cccc2)O[C@@H]([C@H]1O)C(=O)O",
+        "(2S,3S,4S,5R,6S)-3,4,5-trihydroxy-6-(2-hydroxyphenoxy)oxane-2-carboxylic acid",
+        "2-hydroxyphenoxy has no multiplier and sorts after hydroxy",
     ),
     (
         "sulfate",

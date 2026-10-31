@@ -7,11 +7,12 @@ tetrahedral ``R``/``S`` centers and double-bond ``E``/``Z`` units using
 sequence rules 1a, 1b, and 2, including multiple-bond and saturated-ring
 duplicate nodes.
 
-An aromatic bond contributes one duplicate node, the same expansion as a
-double bond. A ring that is revisited still produces the ordinary duplicate
-node. Sequence rules 3--5, unresolved bond orders, and any other digraph the
-engine cannot rank stay indeterminate: a non-CIP ordering is not published
-as ``R``/``S``.
+A carbocyclic aromatic bond contributes one duplicate node, the same
+expansion as a double bond. That is not the P-92.1.4.4 average used for a
+heteroatom in a mancude ring. A ring that is revisited still produces the
+ordinary duplicate node. Sequence rules 3--5, unresolved bond orders, and any
+other digraph the engine cannot rank stay indeterminate: a non-CIP ordering
+is not published as ``R``/``S``.
 """
 
 from __future__ import annotations

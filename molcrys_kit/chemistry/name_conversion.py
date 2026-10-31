@@ -142,6 +142,7 @@ _SPELLED_ALIASES = {
     "trichloromethylperoxyl": "(trichloromethyl)peroxyl",
     "1-azabenzene": "pyridine",
     "bicyclo[4.4.0]deca-1,3,5,7,9-pentaene": "naphthalene",
+    "(13C1)methane": "(13C)methane",
     "methylsulfanylmethane": "(methylsulfanyl)methane",
     "ethylsulfanylethane": "(ethylsulfanyl)ethane",
     "methanesulfinylmethane": "(methanesulfinyl)methane",
@@ -520,6 +521,25 @@ def _parse_decorated(name: str):
     isotopes = []
     body = name
     while True:
+        grouped = re.match(
+            r"^\((\d+(?:,\d+)*)-(\d+)([A-Za-z][a-z]?)(\d+)\)(?!-)(.+)$",
+            body,
+        )
+        if grouped:
+            locants = tuple(int(part) for part in grouped.group(1).split(","))
+            count = int(grouped.group(4))
+            if count != len(locants) or count < 2:
+                raise NamingParseError("isotope locant count does not match the nuclide subscript")
+            isotopes.append(
+                (
+                    "multi",
+                    int(grouped.group(2)),
+                    grouped.group(3).capitalize(),
+                    locants,
+                )
+            )
+            body = grouped.group(5)
+            continue
         located = re.match(r"^\((\d+)-(\d+)([A-Za-z][a-z]?)\)(?!-)(.+)$", body)
         if located:
             isotopes.append(
@@ -574,6 +594,14 @@ def _parse_decorated(name: str):
                 entity = _graft_isotopic_hydrogens(replace(entity, atoms=tuple(atoms), bonds=tuple(bonds)), mass, suffix)
                 atoms = list(entity.atoms)
                 bonds = list(entity.bonds)
+                continue
+            if kind == "multi":
+                for locant in suffix:
+                    preferred = f"C{locant}" if element == "C" else f"{element}{locant}"
+                    index = next((item for item, atom in enumerate(atoms) if atom.atom_id == preferred), None)
+                    if index is None:
+                        raise NamingParseError("isotope atom locant is outside the parent")
+                    atoms[index] = replace(atoms[index], isotope=mass)
                 continue
             candidates = [index for index, atom in enumerate(atoms) if atom.element == element]
             if kind == "locant":
@@ -650,9 +678,31 @@ def _parse_decorated(name: str):
                 ]
                 if not left or not right:
                     raise NamingParseError("stereo descriptor has no matching double bond")
-                marker = "\\" if descriptor == "Z" else "/"
-                bonds[left[0]] = replace(bonds[left[0]], stereochemistry="/")
-                bonds[right[0]] = replace(bonds[right[0]], stereochemistry=marker)
+                # A conjugated polyene shares the single bond between two
+                # double bonds. Keep a marker that is already set and choose
+                # the free side so equal markers read back as E.
+                left_mark = bonds[left[0]].stereochemistry
+                right_mark = bonds[right[0]].stereochemistry
+
+                def _opposite(marker: str) -> str:
+                    return "\\" if marker == "/" else "/"
+
+                if left_mark not in {"/", "\\"} and right_mark not in {"/", "\\"}:
+                    bonds[left[0]] = replace(bonds[left[0]], stereochemistry="/")
+                    bonds[right[0]] = replace(
+                        bonds[right[0]],
+                        stereochemistry="/" if descriptor == "E" else "\\",
+                    )
+                elif left_mark in {"/", "\\"} and right_mark not in {"/", "\\"}:
+                    bonds[right[0]] = replace(
+                        bonds[right[0]],
+                        stereochemistry=left_mark if descriptor == "E" else _opposite(left_mark),
+                    )
+                elif right_mark in {"/", "\\"} and left_mark not in {"/", "\\"}:
+                    bonds[left[0]] = replace(
+                        bonds[left[0]],
+                        stereochemistry=right_mark if descriptor == "E" else _opposite(right_mark),
+                    )
                 entity = replace(entity, bonds=tuple(bonds))
     return entity
 

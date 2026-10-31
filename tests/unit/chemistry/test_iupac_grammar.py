@@ -268,6 +268,51 @@ def test_equivalent_ketone_traversals_share_one_name() -> None:
     ).name
 
 
+def test_compound_prefix_keeps_its_multiplier_when_alphabetized() -> None:
+    dimethyl = smiles_to_iupac(
+        "O[C@@H]1[C@@H](O)[C@H](Oc2c(C)cc(C)cc2)O[C@@H]([C@H]1O)C(=O)O",
+        strict=True,
+    ).name
+    dihydroxy = smiles_to_iupac(
+        "O[C@@H]1[C@@H](O)[C@H](Oc2c(O)cc(O)cc2)O[C@@H]([C@H]1O)C(=O)O",
+        strict=True,
+    ).name
+    assert dimethyl.startswith("(2S,3S,4S,5R,6S)-6-(2,4-dimethylphenoxy)-3,4,5-trihydroxy")
+    assert dihydroxy.startswith("(2S,3S,4S,5R,6S)-6-(2,4-dihydroxyphenoxy)-3,4,5-trihydroxy")
+    assert iupac_to_smiles(dimethyl).lossless is True
+    assert iupac_to_smiles(dihydroxy).lossless is True
+
+
+def test_polyene_configuration_uses_double_bond_locants() -> None:
+    ee = smiles_to_iupac("C/C=C/C=C/C", strict=True)
+    assert ee.name == "(2E,4E)-hexa-2,4-diene"
+    assert notations_equivalent("C/C=C/C=C/C", iupac_to_smiles(ee.name).value) is True
+    ez = smiles_to_iupac(r"C/C=C/C=C\C", strict=True)
+    assert ez.name == "(2E,4Z)-hexa-2,4-diene"
+    assert smiles_to_iupac(r"C/C=C\C=C\C", strict=True).name == ez.name
+    assert notations_equivalent(r"C/C=C/C=C\C", iupac_to_smiles(ez.name).value) is True
+    zz = smiles_to_iupac(r"C/C=C\C=C/C", strict=True)
+    assert zz.name == "(2Z,4Z)-hexa-2,4-diene"
+    assert notations_equivalent(r"C/C=C\C=C/C", iupac_to_smiles(zz.name).value) is True
+    assert smiles_to_iupac("C/C=C/C", strict=True).name == "(E)-but-2-ene"
+
+
+def test_repeated_nuclide_is_one_grouped_label() -> None:
+    assert smiles_to_iupac("[13CH3][13CH3]", strict=True).name == "(1,2-13C2)ethane"
+    assert iupac_to_smiles("(13C1)methane").lossless is True
+    assert from_iupac_name("(13C1)methane").atoms[0].isotope == 13
+
+
+def test_quinoline_is_the_retained_benzopyridine() -> None:
+    assert smiles_to_iupac("c1ccc2ncccc2c1", strict=True).name == "quinoline"
+    assert smiles_to_iupac("n1cccc2ccccc12", strict=True).name == "quinoline"
+    isoquinoline = smiles_to_iupac("c1ccc2cnccc2c1", strict=True)
+    assert isoquinoline.name != "quinoline"
+    assert "aza" in isoquinoline.name
+    indole = smiles_to_iupac("c1ccc2[nH]ccc2c1", strict=False)
+    assert indole.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+
+
 def test_alkene_configuration_round_trip_checks_stereo() -> None:
     """E and Z are different stereoisomers, not only different constitutions."""
     pairs = (

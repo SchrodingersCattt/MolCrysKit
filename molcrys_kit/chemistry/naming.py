@@ -378,7 +378,36 @@ def _nuclide_prefixes(entity: FiniteChemicalEntity, parent_locants: dict[str, in
     )
     for mass, count in sorted(hydrogens.items()):
         prefixes.append(f"({mass}H{count})" if count > 1 else f"({mass}H)")
-    return prefixes
+    return _group_identical_nuclides(prefixes)
+
+
+def _group_identical_nuclides(prefixes: list[str]) -> list[str]:
+    """Cite one repeated nuclide as ``(1,2-13C2)`` rather than two locants."""
+    grouped: list[str] = []
+    index = 0
+    pattern = re.compile(r"^\((\d+)-(\d+)([A-Z][a-z]?)\)$")
+    while index < len(prefixes):
+        match = pattern.fullmatch(prefixes[index])
+        if match is None:
+            grouped.append(prefixes[index])
+            index += 1
+            continue
+        locants = [match.group(1)]
+        mass, element = match.group(2), match.group(3)
+        cursor = index + 1
+        while cursor < len(prefixes):
+            nxt = pattern.fullmatch(prefixes[cursor])
+            if nxt is None or nxt.group(2) != mass or nxt.group(3) != element:
+                break
+            locants.append(nxt.group(1))
+            cursor += 1
+        if len(locants) == 1:
+            grouped.append(prefixes[index])
+        else:
+            ordered = sorted(locants, key=int)
+            grouped.append(f"({','.join(ordered)}-{mass}{element}{len(ordered)})")
+        index = cursor
+    return grouped
 
 
 def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> tuple[str, tuple[str, ...]]:
@@ -398,6 +427,7 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> tuple[str,
     has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
     has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
     stereo_terms: list[tuple[int, str]] = []
+    double_records: list[tuple[int | None, str, bool]] = []
     if has_atom_tokens or has_bond_tokens:
         report = assign_stereochemistry(entity)
         adjacency = _adjacency(entity)
@@ -438,16 +468,23 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> tuple[str,
                 ends.add(descriptor.center_atom_id)
                 if numbered and not ends <= set(numbered):
                     continue
-                locants = [
-                    numbered[atom_id]
+                locant_map = numbered or _polyene_chain_locants(entity, name)
+                locant_values = [
+                    locant_map[atom_id]
                     for atom_id in ends
-                    if numbered and atom_id in numbered
+                    if atom_id in locant_map
                 ]
-                if len(stereo_terms) or (numbered and locants):
-                    locant = min(locants) if locants else 0
-                    stereo_terms.append((locant, f"{locant}{descriptor.descriptor}" if locant else descriptor.descriptor))
-                else:
-                    stereo_terms.append((0, descriptor.descriptor))
+                locant = min(locant_values) if len(locant_values) == len(ends) and locant_values else None
+                double_records.append((locant, descriptor.descriptor, bool(numbered)))
+    if len(double_records) > 1 and all(locant is not None for locant, _letter, _engine in double_records):
+        for locant, letter, _engine in double_records:
+            stereo_terms.append((locant, f"{locant}{letter}"))
+    else:
+        for locant, letter, engine_numbered in double_records:
+            if engine_numbered and locant:
+                stereo_terms.append((locant, f"{locant}{letter}"))
+            else:
+                stereo_terms.append((0, letter))
     stereo_terms.sort()
     if len(stereo_terms) == 1 and stereo_terms[0][1] in {"E", "Z"}:
         stereo_prefix = f"({stereo_terms[0][1]})-"
@@ -472,6 +509,81 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> tuple[str,
     # Preserve descriptor ordering before isotopic prefixes.  This is the
     # stable spelling used by the reverse parser and the stage-6 snapshots.
     return stereo_prefix + "".join(isotope_prefixes) + name, tuple(warnings)
+
+
+def _polyene_chain_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:
+    """Number an unsubstituted polyene so its ene locants match ``name``."""
+    match = re.fullmatch(r"[a-z]+-(\d+(?:,\d+)+)-(?:diene|triene|tetraene)", name)
+    if match is None:
+        return {}
+    wanted = tuple(int(part) for part in match.group(1).split(","))
+    carbons = {atom.atom_id for atom in entity.atoms if atom.element == "C"}
+    if not carbons or any(atom.element not in {"C", "H"} for atom in entity.atoms):
+        return {}
+    adjacency = {atom_id: [] for atom_id in carbons}
+    doubles = set()
+    for bond in entity.bonds:
+        if bond.atom1_id not in carbons or bond.atom2_id not in carbons:
+            continue
+        adjacency[bond.atom1_id].append(bond.atom2_id)
+        adjacency[bond.atom2_id].append(bond.atom1_id)
+        if bond.order == 2.0:
+            doubles.add(frozenset((bond.atom1_id, bond.atom2_id)))
+    endpoints = [atom_id for atom_id, neighbors in adjacency.items() if len(neighbors) == 1]
+    if len(endpoints) != 2:
+        return {}
+
+    def walk(start: str) -> list[str]:
+        path = [start]
+        previous = None
+        current = start
+        while True:
+            nxt = [neighbor for neighbor in adjacency[current] if neighbor != previous]
+            if len(nxt) != 1:
+                break
+            previous, current = current, nxt[0]
+            path.append(current)
+        return path
+
+    matches = []
+    for start in endpoints:
+        path = walk(start)
+        if len(path) != len(carbons):
+            continue
+        numbering = {atom_id: index + 1 for index, atom_id in enumerate(path)}
+        ene = tuple(
+            sorted(
+                index + 1
+                for index, atom_id in enumerate(path[:-1])
+                if frozenset((atom_id, path[index + 1])) in doubles
+            )
+        )
+        if ene == wanted:
+            matches.append(numbering)
+    if not matches:
+        return {}
+    if len(matches) == 1:
+        return matches[0]
+    # Both directions share the ene locants. Prefer E at the lower locant
+    # so (2E,4Z) is chosen over the reversed (2Z,4E) spelling.
+    report = assign_stereochemistry(entity)
+
+    def signature(numbering: dict[str, int]) -> tuple[tuple[int, str], ...]:
+        pairs = []
+        for descriptor in report.descriptors:
+            if descriptor.kind is not StereoKind.DOUBLE_BOND or not descriptor.descriptor:
+                continue
+            ends = {descriptor.center_atom_id}
+            for bond in entity.bonds:
+                if bond.order == 2.0 and descriptor.center_atom_id in {bond.atom1_id, bond.atom2_id}:
+                    ends.update((bond.atom1_id, bond.atom2_id))
+                    break
+            locants = [numbering[atom_id] for atom_id in ends if atom_id in numbering]
+            if locants:
+                pairs.append((min(locants), descriptor.descriptor))
+        return tuple(sorted(pairs))
+
+    return min(matches, key=signature)
 
 
 def _parent_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:

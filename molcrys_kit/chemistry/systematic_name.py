@@ -156,6 +156,13 @@ class SystematicName:
         # Preserve conventional element-symbol case in isotope prefixes while
         # keeping the surrounding name case-insensitive.
         normalized = re.sub(
+            r"\((\d+(?:,\d+)*)-(\d+)([a-z][a-z]?)(\d+)\)(?!-)",
+            lambda match: (
+                f"({match.group(1)}-{match.group(2)}{match.group(3).capitalize()}{match.group(4)})"
+            ),
+            normalized,
+        )
+        normalized = re.sub(
             r"\((\d+)-(\d+)([a-z][a-z]?)\)(?!-)",
             lambda match: f"({match.group(1)}-{match.group(2)}{match.group(3).capitalize()})",
             normalized,

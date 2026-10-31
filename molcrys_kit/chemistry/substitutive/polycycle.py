@@ -1166,6 +1166,14 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
     else:
         locants = _unsaturation_locants(entity, paths, numbering)
     prefix = _serialize_hetero_prefixes(hetero)
+    if system.aromatic and bracket == "4.4.0" and not attachments and _is_quinoline(entity, system):
+        return (
+            "quinoline",
+            False,
+            (
+                "Recognize the fused benzopyridine as the retained parent quinoline.",
+            ),
+        )
     if system.aromatic and bracket == "4.4.0" and not prefix and not attachments:
         return (
             "naphthalene",
@@ -1725,6 +1733,49 @@ def _parse_von_baeyer(name: str):
     return _finish_entity(name, atoms, bonds)
 
 
+def _is_quinoline(entity: FiniteChemicalEntity, system) -> bool:
+    """Unsubstituted quinoline: one nitrogen next to exactly one bridgehead.
+
+    Isoquinoline's nitrogen is adjacent to neither bridgehead, and a
+    bridgehead nitrogen is a different parent.
+    """
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    ring = [atom_id for atom_id in system.atoms if atoms[atom_id].element != "H"]
+    if len(ring) != 10:
+        return False
+    if any(atoms[atom_id].element not in {"C", "N"} for atom_id in ring):
+        return False
+    nitrogens = [atom_id for atom_id in ring if atoms[atom_id].element == "N"]
+    if len(nitrogens) != 1:
+        return False
+    if any((atoms[atom_id].formal_charge or 0) or atoms[atom_id].radical_electrons for atom_id in ring):
+        return False
+    nitrogen = nitrogens[0]
+    bridge = set(system.bridgeheads)
+    if nitrogen in bridge:
+        return False
+    adjacency = _adj(entity, set(ring))
+    return sum(neighbor in bridge for neighbor, _bond in adjacency[nitrogen]) == 1
+
+
+def _parse_quinoline(name: str):
+    atoms = [
+        _atom_record(f"A{index}", "N" if index == 1 else "C")
+        for index in range(1, 11)
+    ]
+    bonds = []
+    seen = set()
+    for ring in ((1, 2, 3, 4, 5, 10), (5, 6, 7, 8, 9, 10)):
+        for index, left in enumerate(ring):
+            right = ring[(index + 1) % len(ring)]
+            edge = frozenset((left, right))
+            if edge in seen:
+                continue
+            seen.add(edge)
+            bonds.append(_edge(f"A{left}", f"A{right}", 1.5, aromatic=True))
+    return _finish_entity(name, atoms, bonds)
+
+
 def _parse_naphthalene(name: str):
     atoms = [_atom_record(f"C{index}") for index in range(1, 11)]
     bonds = []
@@ -1743,6 +1794,8 @@ def _parse_naphthalene(name: str):
 def _parse_ring_parent(name: str):
     if name == "naphthalene":
         return _parse_naphthalene(name)
+    if name == "quinoline":
+        return _parse_quinoline(name)
     if name == "phenylbenzene":
         return _parse_phenylbenzene(name)
     if re.match(rf"(?:{_HETERO_TEXT})spiro\[", name):

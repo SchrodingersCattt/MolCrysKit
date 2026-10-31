@@ -88,12 +88,20 @@ a redundant locant (`(13C)methane`) and cite isotopic hydrogen by count
 (`(2H4)methane`).
 
 Explicit `@`/`@@` centres are labeled `R`/`S` only when the CIP digraph
-assigns them. An aromatic bond contributes one duplicate node, as a double
-bond does, and a ring digit is ordered where it is written. A centre the
-digraph cannot rank stays unlabeled: no cycle-cutting atomic-number order is
+assigns them. A carbocyclic aromatic bond contributes one duplicate node, as
+a double bond does, and a ring digit is ordered where it is written.
+Heteroatom-containing mancude rings are ranked by P-92.1.4.4 with averaged
+duplicate atomic numbers; this digraph does not apply that average, so a
+heteroaryl ligand is not claimed to be fully CIP-ranked. A centre the digraph
+cannot rank stays unlabeled: no cycle-cutting atomic-number order is
 published as `R`/`S`, and the naming result warns that the token was left
 unpublished. Phenyl β-D-glucuronide is therefore
 `(2S,3S,4S,5R,6S)-3,4,5-trihydroxy-6-phenoxyoxane-2-carboxylic acid`.
+A compound prefix keeps its multiplying prefix in alphabetical order, so
+`(2,4-dimethylphenoxy)` is cited before `trihydroxy`. Unbranched polyenes
+cite each double-bond configuration (`(2E,4E)-hexa-2,4-diene`). Repeated
+identical nuclides are grouped (`(1,2-13C2)ethane`). Quinoline is the
+retained parent of that fused benzopyridine.
 Generated names are general IUPAC names, not preferred names.
 The `strict=False` compatibility path deliberately preserves the lower-level
 parser's unresolved hydrogen fields before one-way naming, so the same
