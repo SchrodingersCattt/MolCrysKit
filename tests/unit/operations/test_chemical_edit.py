@@ -843,19 +843,37 @@ def test_vacancy_policy_builds_cross_stoichiometry_on_template_lattice(tmp_path)
     assert result.provenance["charge"] == sum(ci.charges)
     np.testing.assert_array_equal(result.crystal.lattice, template.lattice)
     kept = [j for j in range(len(template.molecules)) if j not in (1, 6, 7)]
-    assert [change["site"] for change in result.provenance["atom_changes"]] == kept
-    for change in result.provenance["atom_changes"]:
+    changes = result.provenance["atom_changes"]
+    assert [change["site"] for change in changes] == kept + [1, 6, 7]
+    replacements = [change for change in changes if not change.get("vacancy")]
+    vacancies = [change for change in changes if change.get("vacancy")]
+    assert [change["site"] for change in replacements] == kept
+    assert [change["site"] for change in vacancies] == [1, 6, 7]
+    for change in replacements:
         np.testing.assert_allclose(
             result.crystal.molecules[change["output_index"]].get_center_of_mass(),
             template.molecules[change["site"]].get_center_of_mass(),
         )
-    assert result.inventory.orbit_ids == tuple(ti.orbit_ids[j] for j in kept)
+    for change in vacancies:
+        site = change["site"]
+        assert change["deleted"] == _atom_ids(template.molecules[site])
+        assert change["retained"] == []
+        assert change["created"] == []
+        assert change["output_index"] is None
+    assert result.inventory.orbit_ids == ()
+    assert any(
+        "part of an orbit" in limit for limit in result.provenance["validation_limits"]
+    )
     again = transfer_packing(composition, template, plan, seed=21)
     assert result.provenance == again.provenance
     assert_snapshot(composition, saved[0])
     assert_snapshot(template, saved[1])
     paths = write_cf0(result, tmp_path)
-    assert json.loads(paths["provenance"].read_text())["vacant_sites"] == [1, 6, 7]
+    written = json.loads(paths["provenance"].read_text())
+    assert written["vacant_sites"] == [1, 6, 7]
+    assert [
+        change["deleted"] for change in written["atom_changes"] if change.get("vacancy")
+    ] == [_atom_ids(template.molecules[site]) for site in (1, 6, 7)]
     swapped = PackingTransferPlan(
         ci,
         ti,
@@ -936,6 +954,151 @@ def test_vacancy_and_insertion_policy_can_be_combined():
     assert len(result.crystal.molecules) == len(composition.molecules)
     assert Counter(result.inventory.roles) == Counter(ci.roles)
     assert result.provenance["charge"] == sum(ci.charges)
+    vacancies = [c for c in result.provenance["atom_changes"] if c.get("vacancy")]
+    assert [c["site"] for c in result.provenance["atom_changes"]] == [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        None,
+    ]
+    assert [c["site"] for c in vacancies] == [5, 6]
+    for change, site in zip(vacancies, (5, 6)):
+        assert change["deleted"] == _atom_ids(template.molecules[site])
+        assert change["output_index"] is None
+        assert change["vacancy"] is True
+
+
+def _atom_ids(molecule):
+    return [str(atom_id) for atom_id in molecule.arrays[KEY_ATOM_ID]]
+
+
+def _orbit_edit(symbol, charge, index):
+    molecule = ion(symbol)
+    return CrystalEditSpec(
+        ChemicalEdit(
+            molecule,
+            molecule.get_chemical_formula(),
+            charge,
+            charge,
+            PlacementPolicy(0, 0, samples=1),
+            ChemicalAtomMapping(((0, 0),)),
+        ),
+        scope="orbit",
+        indices=(index,),
+    )
+
+
+def test_partial_orbit_vacancy_clears_orbit_ids_for_the_output():
+    composition, ci = synthetic_cell((1, 0, 2))
+    template, ti = synthetic_cell((1, 1, 3))
+    # Template order is A, B, X, X, X. Drop B (a complete orbit) and one X.
+    policy = StoichiometryPolicy(vacant_sites=(1, 4))
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(ci, ti, _placements(ci), stoichiometry_policy=policy),
+        seed=5,
+    )
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert result.inventory.roles == ("A", "X", "X")
+    assert result.inventory.orbit_ids == ()
+    vacancies = [c for c in result.provenance["atom_changes"] if c.get("vacancy")]
+    assert [c["site"] for c in vacancies] == [1, 4]
+    assert len(vacancies[0]["deleted"]) == len(template.molecules[1])
+    assert vacancies[0]["deleted"] == _atom_ids(template.molecules[1])
+    assert len(vacancies[0]["deleted"]) == 5
+    broken = apply_chemical_edit(
+        result.crystal, result.inventory, _orbit_edit("Cl", -1, 1), seed=1
+    )
+    intact = apply_chemical_edit(
+        result.crystal, result.inventory, _orbit_edit("Ca", 2, 0), seed=1
+    )
+    assert broken.status == CounterfactualStatus.INCOMPATIBLE
+    assert intact.status == CounterfactualStatus.INCOMPATIBLE
+    assert broken.crystal is None and intact.crystal is None
+    assert "orbit" in broken.provenance["reason"]
+    assert "orbit" in intact.provenance["reason"]
+
+
+def test_fully_removed_orbit_keeps_ids_of_complete_orbits():
+    composition, ci = synthetic_cell((2, 2, 0))
+    template, ti = synthetic_cell((2, 2, 2))
+    policy = StoichiometryPolicy(vacant_sites=(4, 5))
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(ci, ti, _placements(ci), stoichiometry_policy=policy),
+        seed=6,
+    )
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    assert result.inventory.roles == ("A", "A", "B", "B")
+    assert result.inventory.orbit_ids == ("A", "A", "B", "B")
+    assert all(
+        "part of an orbit" not in limit
+        for limit in result.provenance["validation_limits"]
+    )
+    vacancies = [c for c in result.provenance["atom_changes"] if c.get("vacancy")]
+    assert [c["site"] for c in vacancies] == [4, 5]
+    assert [c["deleted"] for c in vacancies] == [
+        _atom_ids(template.molecules[site]) for site in (4, 5)
+    ]
+    follow = apply_chemical_edit(
+        result.crystal,
+        result.inventory,
+        replace(spec_for(), scope="orbit", role=None, indices=(2,)),
+        seed=3,
+    )
+    assert follow.status == CounterfactualStatus.CONSTRUCTED, follow.provenance
+    assert follow.provenance["selected_sites"] == [2, 3]
+
+
+def test_insertion_anchor_outside_unit_interval_stays_in_that_image():
+    composition, ci = synthetic_cell((2, 1, 5))
+    template, ti = synthetic_cell((1, 1, 3), skew=True)
+    supplied = (1.85, 0.85, -0.25)
+    policy = StoichiometryPolicy(
+        insertions=tuple(
+            MoleculeInsertion(index, anchor)
+            for index, anchor in (
+                (1, supplied),
+                (6, (0.15, 0.85, 0.75)),
+                (7, (0.50, 0.85, 0.75)),
+            )
+        )
+    )
+    result = transfer_packing(
+        composition,
+        template,
+        PackingTransferPlan(
+            ci,
+            ti,
+            {role: PlacementPolicy("com", "com", samples=1) for role in set(ci.roles)},
+            stoichiometry_policy=policy,
+        ),
+        seed=8,
+    )
+    assert result.status == CounterfactualStatus.CONSTRUCTED, result.provenance
+    item = next(
+        record
+        for record in result.provenance["insertions"]
+        if record["composition_index"] == 1
+    )
+    assert item["fractional_anchor"] == [1.85, 0.85, -0.25]
+    placed = result.crystal.molecules[item["output_index"]].get_center_of_mass()
+    np.testing.assert_allclose(placed, np.asarray(supplied) @ template.lattice)
+    image = np.array([0.85, 0.85, 0.75])
+    fractional_delta = (placed - image @ template.lattice) @ np.linalg.inv(
+        template.lattice
+    )
+    np.testing.assert_allclose(fractional_delta, np.round(fractional_delta), atol=1e-8)
+    assert not np.allclose(fractional_delta, 0.0)
+    assert any(
+        "outside [0, 1)" in limit for limit in result.provenance["validation_limits"]
+    )
 
 
 def test_incomplete_or_misapplied_stoichiometry_policy_is_refused():

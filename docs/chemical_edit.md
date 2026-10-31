@@ -178,10 +178,17 @@ geometry. Supply a `StoichiometryPolicy` to construct that what-if cell:
 
 - `vacant_sites` are template molecule indices omitted from the output. A
   vacancy removes the molecule. It is not a partial-occupancy site, and the
-  library does not choose which sites to drop.
+  library does not choose which sites to drop. Provenance `atom_changes` gains
+  one record per vacancy, after the retained-site replacements and before any
+  insertions. `site` is the template index, `vacancy` is true, and `deleted`
+  lists that molecule's stable atom IDs. `retained` and `created` are empty,
+  and `output_index` is null. `vacant_sites` still lists the same indices.
 - `MoleculeInsertion` places a composition molecule that has no template
   counterpart. `fractional_anchor` is the template-cell fractional coordinate
-  of that molecule's placement anchor (`anchor @ lattice`). Orientation uses
+  of that molecule's placement anchor (`anchor @ lattice`). Values outside
+  `[0, 1)` are accepted as supplied. They place the anchor in the lattice
+  image those coordinates name, and provenance stores that same anchor. The
+  periodic clash check includes contacts with that image. Orientation uses
   the role policy. `mapped` orientation is refused because an insertion has no
   template frame; the first sample keeps the supplied orientation.
 - Every remaining composition molecule must map onto every remaining template
@@ -190,8 +197,14 @@ geometry. Supply a `StoichiometryPolicy` to construct that what-if cell:
   template-site replacements; insertions receive new atom IDs.
 - Output order is ascending non-vacant template indices, then insertions in
   the order declared. Formula and charge follow the composition. The template
-  lattice is kept. Orbit IDs are kept only when every output molecule is a
-  retained template site.
+  lattice is kept. Orbit IDs are copied onto the output only when there are
+  no insertions and every retained site still belongs to a complete declared
+  orbit: every template member of that orbit is still present. A vacancy that
+  removes only part of an orbit clears `orbit_ids` for the whole output.
+  `CrystalInventory` stores one ID per molecule or none, so intact orbits in
+  that same output are cleared as well. A later `scope="orbit"` edit then
+  needs new orbit evidence. Fully removing an orbit leaves the IDs of orbits
+  that remain complete.
 
 A policy that does not produce that bijection, names an out-of-range index, or
 is supplied when the reduced role counts and the full-cell counts already match

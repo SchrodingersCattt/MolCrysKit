@@ -230,8 +230,11 @@ class MoleculeInsertion:
 
     ``fractional_anchor`` is where that molecule's placement anchor lands, in
     fractional coordinates of the template cell (row vector times the lattice).
-    The role ``PlacementPolicy`` supplies the molecule anchor and orientation.
-    ``mapped`` orientation is refused: an insertion has no template frame.
+    Coordinates outside ``[0, 1)`` are stored and applied as supplied, so the
+    anchor sits in the lattice image those numbers name. The periodic clash
+    check includes that image. The role ``PlacementPolicy`` supplies the
+    molecule anchor and orientation. ``mapped`` orientation is refused: an
+    insertion has no template frame.
     """
 
     composition_index: int
@@ -840,6 +843,18 @@ def _construct(
                     "output_index": output_of[index],
                 }
             )
+        for site in sorted(omit):
+            source = parent.molecules[site]
+            identity_records.append(
+                {
+                    "site": int(site),
+                    "vacancy": True,
+                    "retained": [],
+                    "deleted": [str(atom_id) for atom_id in source.arrays[KEY_ATOM_ID]],
+                    "created": [],
+                    "output_index": None,
+                }
+            )
         inserted_molecules = []
         for n, (lineage, target, policy, anchor) in enumerate(insertions):
             rotation = insertion_frames[n]
@@ -1120,6 +1135,30 @@ def _transfer_jobs(composition, template, source_inv, template_inv, plan, pairs)
     return jobs
 
 
+def _anchor_outside_unit_cell(anchor):
+    """True when a fractional anchor names a lattice image other than [0, 1)."""
+    return any(coordinate < 0.0 or coordinate >= 1.0 for coordinate in anchor)
+
+
+def _broken_orbit_ids(orbit_ids, vacant):
+    """Declared orbits that lost some, but not all, of their template sites.
+
+    A fully removed orbit is absent from the output and leaves complete orbits
+    untouched. An empty ``orbit_ids`` tuple means the template declared none.
+    """
+    if not orbit_ids:
+        return ()
+    members = {}
+    for index, orbit_id in enumerate(orbit_ids):
+        members.setdefault(orbit_id, set()).add(index)
+    removed = set(vacant)
+    return tuple(
+        orbit_id
+        for orbit_id, sites in members.items()
+        if sites & removed and not sites <= removed
+    )
+
+
 def transfer_packing(
     composition: MolecularCrystal,
     template: MolecularCrystal,
@@ -1134,7 +1173,9 @@ def transfer_packing(
     inserted composition molecules. Without that policy the result is a
     refusal and contains no geometry. A multiplicity-only mismatch is refused
     with ``CELL_MULTIPLICITY_MAPPING_REQUIRED`` before a supplied policy is
-    considered.
+    considered. Each vacancy records its deleted template atom IDs in
+    ``atom_changes``. Output orbit IDs are kept for complete retained orbits
+    and cleared when a vacancy leaves an orbit only partly occupied.
     """
     source_inv, template_inv = plan.composition_inventory, plan.template_inventory
     record = _record(template, template_inv, seed, plan)
@@ -1165,11 +1206,13 @@ def transfer_packing(
             composition_at = {j: i for i, j in pairs}
             roles = [source_inv.roles[composition_at[j]] for j in kept]
             charges = [source_inv.charges[composition_at[j]] for j in kept]
-            orbits = (
-                [template_inv.orbit_ids[j] for j in kept]
-                if template_inv.orbit_ids
-                else []
-            )
+            broken_orbits = _broken_orbit_ids(template_inv.orbit_ids, omit)
+            # One ID per molecule or none. A partial orbit cannot keep its
+            # label while intact orbits in the same output keep theirs.
+            if template_inv.orbit_ids and not policy.insertions and not broken_orbits:
+                orbits = tuple(template_inv.orbit_ids[index] for index in kept)
+            else:
+                orbits = ()
             lattice = np.asarray(template.lattice, float)
             insertion_specs = tuple(
                 (
@@ -1192,17 +1235,24 @@ def transfer_packing(
                 }
                 for n, item in enumerate(policy.insertions)
             ]
-            record["validation_limits"] = list(record["validation_limits"]) + [
+            limits = [
                 "vacancies omit template molecules; they are not partial-occupancy sites",
                 "insertion anchors are caller coordinates, not optimized positions",
             ]
-            out = CrystalInventory(
-                tuple(roles),
-                tuple(charges),
-                tuple(orbits)
-                if template_inv.orbit_ids and not policy.insertions
-                else (),
-            )
+            if any(
+                _anchor_outside_unit_cell(item.fractional_anchor)
+                for item in policy.insertions
+            ):
+                limits.append(
+                    "an insertion anchor outside [0, 1) is stored as supplied "
+                    "and places the molecule in that lattice image"
+                )
+            if broken_orbits:
+                limits.append(
+                    "a vacancy that empties only part of an orbit clears output orbit IDs"
+                )
+            record["validation_limits"] = list(record["validation_limits"]) + limits
+            out = CrystalInventory(tuple(roles), tuple(charges), orbits)
         elif comparison["site_count_change"]:
             # Equal reduced stoichiometry with a different full-cell count is not
             # a vacancy or insertion, even when the caller supplied a policy.
