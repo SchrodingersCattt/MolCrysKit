@@ -202,14 +202,15 @@ def _multiplier(count: int) -> str:
 
 
 def _alphabet_key(text: str) -> str:
-    """Alphabetical order of a prefix, ignoring locants and multiplying prefixes."""
+    """Alphabetical order of a compound prefix.
+
+    P-14.5 cites a simple prefix under the parent substituent (``trihydroxy``
+    under hydroxy). A parenthesized compound prefix is cited under the first
+    letter of its complete name, multiplier included, so
+    ``(2,4-dimethylphenoxy)`` belongs under ``d``. Locants are ignored.
+    """
     bare = re.sub(r"[()\[\]]", "", str(text)).lower()
-    bare = re.sub(r"^\d+(?:,\d+)*-", "", bare)
-    for multiplier in ("tetra", "tri", "di"):
-        if bare.startswith(multiplier) and len(bare) > len(multiplier):
-            bare = bare[len(multiplier):]
-            break
-    return bare
+    return re.sub(r"^\d+(?:,\d+)*-", "", bare)
 
 
 def _join_prefs(items: list[_Pref]) -> str:

@@ -12,4 +12,9 @@
   `(2H4)methane`.
 - Older spellings that still denote the same graph are accepted only as
   documented aliases, including `1,2-dihydroxybenzene`, `1-chloroethane`,
-  and `1-azabenzene`.
+  `1-azabenzene`, and `(13C1)methane` for `(13C)methane`.
+- Repeated identical nuclides use one grouped label, `(1,2-13C2)ethane`.
+  Unbranched polyene configuration uses locants, `(2E,4E)-hexa-2,4-diene`.
+  Quinoline is the retained name of that fused system. A compound prefix
+  such as `(2,4-dimethylphenoxy)` is alphabetized with its multiplier, ahead
+  of `trihydroxy`.

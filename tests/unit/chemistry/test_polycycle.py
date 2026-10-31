@@ -28,6 +28,7 @@ from molcrys_kit.chemistry.name_conversion import iupac_to_smiles, smiles_to_iup
         ("C1C=C2CCC1C2", "bicyclo[2.2.1]hept-1-ene"),
         ("C1CC2CC3CC1CC(C2)C3", "tricyclo[4.3.1.1^3,8]undecane"),
         ("c1ccc2ccccc2c1", "naphthalene"),
+        ("c1ccc2ncccc2c1", "quinoline"),
         ("c1ccc(-c2ccccc2)cc1", "phenylbenzene"),
     ),
 )
