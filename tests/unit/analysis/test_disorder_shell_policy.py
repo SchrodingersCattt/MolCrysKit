@@ -1374,7 +1374,7 @@ def _assert_cation_shell(atoms: Atoms) -> None:
 def test_unanchored_cation_orientations_keep_a_shell(name, second, shift):
     cation = _unanchored_cation(second, shift)
     _assert_cation_shell(cation)
-    assert disorder_realizations(cation, "exclusive")
+    assert len(disorder_realizations(cation, "exclusive")) == 2
 
 
 def test_negative_part_rotated_cation_keeps_a_shell():
@@ -1411,7 +1411,19 @@ def test_equal_occupancy_cage_keeps_three_bridges(twist):
     )
     assert len(shells) == 1
     assert shells[0]["coordination_number"] == 6
-    assert len(disorder_realizations(cage, "exclusive")) == 2
+    each = disorder_realizations(cage, "exclusive")
+    carbon_sets = [
+        frozenset(
+            index
+            for index, (symbol, keep) in enumerate(zip(cage.get_chemical_symbols(), item.mask))
+            if keep and symbol == "C"
+        )
+        for item in each
+    ]
+    assert carbon_sets == [frozenset(range(2, 5)), frozenset(range(5, 8))] or carbon_sets == [
+        frozenset(range(5, 8)),
+        frozenset(range(2, 5)),
+    ]
 
 
 def test_unequal_occupancy_cage_keeps_the_major_bridges():
@@ -1457,8 +1469,8 @@ def test_piled_symmetry_hydrogens_keep_four():
     assert hydrogen_count == 4
 
 
-def test_overcoordinated_linker_ends_warn():
-    """Full-occupancy copies that over-bond a centre are reported, not deleted."""
+def test_ordered_overcoordination_does_not_warn():
+    """A fully occupied cluster is not disorder, even if a radius looks short."""
     directions = _tetrahedral_offsets(1.8)
     symbols = ["C"]
     positions = [np.zeros(3)]
@@ -1478,9 +1490,9 @@ def test_overcoordinated_linker_ends_warn():
         warnings.simplefilter("always")
         major = disorder_realizations(atoms, "major")[0]
     assert int(np.count_nonzero(major.mask)) == len(atoms)
-    assert len([item for item in caught if issubclass(item.category, UnresolvedDisorderWarning)]) == 1
-    assert "unresolved disorder" in str(caught[0].message)
-    assert "over-coordinated" in str(caught[0].message)
+    assert not [
+        item for item in caught if issubclass(item.category, UnresolvedDisorderWarning)
+    ]
 
 
 def test_unresolved_warnings_are_aggregated():
@@ -1512,14 +1524,14 @@ def test_unresolved_warnings_are_aggregated():
     assert "0.50000@0" in message and "0.50000@6" in message
 
 
-def test_atom_level_orientation_search_stays_bounded():
-    """Many local equal-occupancy shells must not scale like substituent pairs."""
+def _orientation_grid(n_sites: int) -> Atoms:
     directions = _tetrahedral_offsets(1.01)
     symbols: list[str] = []
     positions = []
     occupancies = []
-    for index in range(400):
-        origin = np.array([(index % 20) * 6.0, ((index // 20) % 20) * 6.0, 0.0])
+    side = int(np.ceil(np.sqrt(n_sites)))
+    for index in range(n_sites):
+        origin = np.array([(index % side) * 8.0, (index // side) * 8.0, 0.0])
         symbols.append("N")
         positions.append(origin)
         occupancies.append(1.0)
@@ -1531,21 +1543,240 @@ def test_atom_level_orientation_search_stays_bounded():
     atoms = Atoms(
         symbols=symbols,
         positions=np.asarray(positions, dtype=float),
-        cell=[130.0, 130.0, 20.0],
+        cell=[side * 8.0 + 10.0, side * 8.0 + 10.0, 20.0],
+        pbc=True,
+    )
+    return _tag(atoms, occupancies)
+
+
+def test_atom_level_orientation_search_scales_gently():
+    """Four times as many centres stays far below a quadratic cost."""
+
+    def _elapsed(n_sites: int) -> float:
+        atoms = _orientation_grid(n_sites)
+        started = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UnresolvedDisorderWarning)
+            major = disorder_realizations(atoms, "major", minimum_image=True)[0]
+        hydrogens = sum(
+            symbol == "H" and bool(keep)
+            for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+        )
+        assert hydrogens == n_sites * 4
+        return time.perf_counter() - started
+
+    small = _elapsed(40)
+    large = _elapsed(160)
+    assert large <= small * 10.0 + 2.0
+
+
+def _mirrored_chain(n_carbon: int, separation: float, occupancy=(0.5, 0.5), group: int = 0) -> Atoms:
+    """A zigzag chain and its mirror copy. Bonds are ordinary C–C / C–N lengths."""
+    symbols: list[str] = []
+    positions = []
+    occupancies = []
+    groups = []
+    for copy, y in ((0, 0.0), (1, separation)):
+        symbols.append("N")
+        positions.append([0.0, y, 0.0])
+        occupancies.append(occupancy[copy])
+        groups.append(group)
+        x = 0.0
+        for index in range(n_carbon):
+            x += 1.25
+            z = 0.5 if index % 2 == 0 else -0.4
+            symbols.append("C")
+            positions.append([x, y, z])
+            occupancies.append(occupancy[copy])
+            groups.append(group)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * 30.0,
+        pbc=True,
+    )
+    return _tag(atoms, occupancies, groups)
+
+
+@pytest.mark.parametrize("n_carbon", [3, 6, 9])
+@pytest.mark.parametrize("separation", [0.3, 0.7, 1.2])
+def test_mirrored_chain_keeps_a_whole_copy(n_carbon, separation):
+    """A centre-plus-nearest-atom split must not truncate the chain."""
+    atoms = _mirrored_chain(n_carbon, separation)
+    one_copy = 1 + n_carbon
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        major = disorder_realizations(atoms, "major")[0]
+    kept = int(np.count_nonzero(major.mask))
+    warned = [item for item in caught if issubclass(item.category, UnresolvedDisorderWarning)]
+    if separation < 1.0:
+        assert kept == one_copy
+        assert len(disorder_realizations(atoms, "exclusive")) == 2
+        assert warned == []
+    else:
+        assert kept == len(atoms)
+        assert len(warned) == 1
+
+
+def test_mirrored_chain_with_negative_part_keeps_one_copy():
+    atoms = _mirrored_chain(6, 0.7, group=-1)
+    major = disorder_realizations(atoms, "major")[0]
+    assert int(np.count_nonzero(major.mask)) == 7
+
+
+def test_unequal_mirrored_chain_keeps_one_copy():
+    atoms = _mirrored_chain(9, 0.7, occupancy=(0.6, 0.4))
+    major = disorder_realizations(atoms, "major")[0]
+    assert int(np.count_nonzero(major.mask)) == 10
+
+
+def test_mirrored_ring_keeps_one_whole_ring():
+    symbols = []
+    positions = []
+    occupancies = []
+    angles = np.linspace(0.0, 2.0 * np.pi, 6, endpoint=False)
+    for y in (0.0, 0.4):
+        for angle in angles:
+            symbols.append("C")
+            positions.append([1.4 * np.cos(angle), y, 1.4 * np.sin(angle)])
+            occupancies.append(0.5)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * 25.0,
         pbc=True,
     )
     _tag(atoms, occupancies)
-    started = time.perf_counter()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UnresolvedDisorderWarning)
-        major = disorder_realizations(atoms, "major", minimum_image=True)[0]
-    elapsed = time.perf_counter() - started
-    hydrogens = sum(
-        symbol == "H" and bool(keep)
-        for symbol, keep in zip(atoms.get_chemical_symbols(), major.mask)
+    major = disorder_realizations(atoms, "major")[0]
+    assert int(np.count_nonzero(major.mask)) == 6
+    assert len(disorder_realizations(atoms, "exclusive")) == 2
+
+
+def test_close_dication_copy_keeps_every_heavy_atom_of_one_copy():
+    """Two nitrogens plus a chain, duplicated by 0.07 Å, stay one full cation."""
+    def _one(y: float) -> tuple[list[str], list[list[float]]]:
+        symbols = ["N"]
+        positions = [[0.0, y, 0.0]]
+        x = 0.0
+        for _index in range(4):
+            x += 1.45
+            symbols.append("C")
+            positions.append([x, y, 0.0])
+        symbols.append("N")
+        positions.append([x + 1.45, y, 0.0])
+        return symbols, positions
+
+    symbols: list[str] = []
+    positions: list[list[float]] = []
+    for y in (0.0, 0.07):
+        more_symbols, more_positions = _one(y)
+        symbols.extend(more_symbols)
+        positions.extend(more_positions)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * 25.0,
+        pbc=True,
     )
-    assert hydrogens == 400 * 4
-    assert elapsed < 8.0
+    _tag(atoms, np.full(len(atoms), 0.5))
+    major = disorder_realizations(atoms, "major")[0]
+    assert int(np.count_nonzero(major.mask)) == len(atoms) // 2
+
+
+def test_ordered_molecule_keeps_every_heavy_atom():
+    symbols = ["C"] * 8
+    positions = [[index * 1.4, 0.0, 0.0] for index in range(8)]
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * 20.0,
+        pbc=True,
+    )
+    _tag(atoms, np.ones(len(atoms)))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        major = disorder_realizations(atoms, "major")[0]
+    assert int(np.count_nonzero(major.mask)) == 8
+    assert not [item for item in caught if issubclass(item.category, UnresolvedDisorderWarning)]
+
+
+def test_bridged_cage_exclusive_realizations_are_pure():
+    symbols = ["N", "N"]
+    positions = [SITE + np.array([0.0, 0.0, 1.2]), SITE + np.array([0.0, 0.0, -1.2])]
+    occupancies = [1.0, 1.0]
+    for z, angle in ((0.45, 0.0), (-0.45, 0.0), (0.45, 40.0), (-0.45, 40.0)):
+        for step in range(3):
+            theta = np.deg2rad(angle + step * 120.0)
+            symbols.append("C")
+            positions.append(
+                SITE + np.array([1.2 * np.cos(theta), 1.2 * np.sin(theta), z])
+            )
+            occupancies.append(0.5)
+    cage = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(cage, occupancies)
+    each = disorder_realizations(cage, "exclusive")
+    carbon_sets = [
+        frozenset(
+            index
+            for index, (symbol, keep) in enumerate(zip(cage.get_chemical_symbols(), item.mask))
+            if keep and symbol == "C"
+        )
+        for item in each
+    ]
+    assert carbon_sets == [frozenset(range(2, 8)), frozenset(range(8, 14))] or carbon_sets == [
+        frozenset(range(8, 14)),
+        frozenset(range(2, 8)),
+    ]
+
+
+def test_independent_split_sites_are_not_a_full_product():
+    """``exclusive`` flips one family at a time, so two binary sites give 3 states.
+
+    The fourth state, with both sites on their minor component at once, is not
+    enumerated.
+    """
+    symbols = []
+    positions = []
+    groups = []
+    occupancies = []
+    for origin, first_group in ((np.zeros(3), 1), (np.array([10.0, 0.0, 0.0]), 3)):
+        for offset, group, occupancy in (
+            (np.zeros(3), first_group, 0.6),
+            (np.array([0.35, 0.0, 0.0]), first_group + 1, 0.4),
+        ):
+            symbols.append("Cl")
+            positions.append(origin + offset)
+            groups.append(group)
+            occupancies.append(occupancy)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=np.eye(3) * CELL,
+        pbc=True,
+    )
+    _tag(atoms, occupancies, groups)
+    assert len(disorder_realizations(atoms, "exclusive")) == 3
+
+
+def test_identify_molecules_emits_one_disorder_warning():
+    left = _mirrored_chain(6, 1.2)
+    right = _mirrored_chain(6, 1.2)
+    right.translate([15.0, 0.0, 0.0])
+    symbols = list(left.get_chemical_symbols()) + list(right.get_chemical_symbols())
+    positions = np.vstack([left.get_positions(), right.get_positions()])
+    occupancies = np.concatenate([left.arrays[KEY_OCCUPANCY], right.arrays[KEY_OCCUPANCY]])
+    atoms = Atoms(symbols=symbols, positions=positions, cell=np.eye(3) * 40.0, pbc=True)
+    _tag(atoms, occupancies)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        identify_molecules(atoms, disorder_policy="major")
+    notes = [item for item in caught if issubclass(item.category, UnresolvedDisorderWarning)]
+    assert len(notes) == 1
 
 
 def test_invalid_disorder_policy_raises():

@@ -45,11 +45,11 @@ wider than ``OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION``. A shifted copy is
 kept when its angle spread is within ``OCCUPANCY_ORIENTATION_STD_SLACK_DEG``
 of the best shell. A mixed shell that shares atoms with a tighter orientation
 is not. The element maximum coordination is an upper bound on that shell;
-equal occupancy ``1/k`` uses ``|pool| / k`` when that is smaller. With no
-ordered anchor, copies are matched by connectivity: overlapped centres share
-one shell, and separated centres each keep the shell bonded to them. If the
-other copy cannot be finished, one complete piece is kept rather than the
-fused class. The remaining tie prefers the tighter shell, then the smaller
+equal occupancy ``1/k`` uses ``|pool| / k`` when that is smaller. With no ordered anchor, the choice is between whole connected copies. A
+centre plus its nearest atoms is not a copy. Image pairing and the intra-copy
+bond graph are used first. A centre-plus-shell split is kept only when each
+piece is one full copy and the pieces cover the class. Otherwise the class
+stays whole and a warning is recorded. The remaining tie prefers the tighter shell, then the smaller
 radius, then geometry, so the choice does not follow atom order. Metal–ligand
 contacts are not covalent valence. Two partial atoms are exclusive when their
 occupancies sum to at most one plus ``OCCUPANCY_SUM_TOLERANCE``, even if they
@@ -68,10 +68,12 @@ from __future__ import annotations
 
 import warnings
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, wraps
 from itertools import combinations
-from typing import Iterable, Sequence
+from typing import Iterable, Iterator, Sequence
 
 import numpy as np
 
@@ -88,6 +90,11 @@ from ...constants.config import (
 DISORDER_POLICIES = ("major", "exclusive", "as_refined")
 DEFAULT_DISORDER_POLICY = "major"
 _BLANK_ASSEMBLY = {"", ".", "?"}
+# Notes collected by ``grouped_disorder_warnings``. ``None`` means each
+# ``disorder_realizations`` call warns on its own.
+_DISORDER_NOTES: ContextVar[list[str] | None] = ContextVar(
+    "molcrys_disorder_notes", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -191,17 +198,22 @@ def disorder_realizations(
         notes,
         spatial_alternatives=spatial_alternatives,
     )
+    if _structure_has_disorder(occupancies, groups):
+        if not families:
+            _note_overcoordination(full, contacts, symbols, notes)
+        else:
+            preview_mask, _preview_ids = _mask_for(
+                n_atoms, families, [_winner(family) for family in families]
+            )
+            _note_overcoordination(preview_mask, contacts, symbols, notes)
+    _emit_notes(notes)
     if not families:
-        _note_overcoordination(full, contacts, symbols, notes)
-        _warn_unresolved(notes)
         return [
             _realization(full, (), occupancies, drops_atoms=False, competes=competes)
         ]
 
     winners = [_winner(family) for family in families]
     major_mask, _major_ids = _mask_for(n_atoms, families, winners)
-    _note_overcoordination(major_mask, contacts, symbols, notes)
-    _warn_unresolved(notes)
     if canonical == "major":
         return [
             _realization(
@@ -920,7 +932,172 @@ def _orientation_families(
     ):
         if not families:
             _note_unresolved(notes, kept_whole=True, label=component.label)
-    return families
+    return _join_linked_orientation_families(
+        families, positions, symbols, occupancies, metric, contacts
+    )
+
+
+def _join_linked_orientation_families(
+    families: list[list[_Component]],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+    metric: "_Metric",
+    contacts: "_Contacts",
+) -> list[list[_Component]]:
+    """Pair orientation choices at the two ends of one connected molecule.
+
+    Independent sites are not linked by a bond and stay separate, so
+    ``exclusive`` still flips one site at a time. A cage whose bridges connect
+    the ends becomes one family of pure copies instead of a mix of halves.
+    """
+    pending = list(families)
+    changed = True
+    while changed and len(pending) >= 2:
+        changed = False
+        linked_pairs = _linked_family_pairs(pending, contacts)
+        for left_index, right_index in linked_pairs:
+            joint = _paired_family(
+                pending[left_index],
+                pending[right_index],
+                positions,
+                symbols,
+                occupancies,
+                metric,
+                contacts,
+            )
+            if joint is None:
+                continue
+            pending = [
+                family
+                for index, family in enumerate(pending)
+                if index not in (left_index, right_index)
+            ]
+            pending.append(joint)
+            changed = True
+            break
+    return pending
+
+
+def _linked_family_pairs(
+    families: Sequence[Sequence[_Component]],
+    contacts: "_Contacts",
+) -> list[tuple[int, int]]:
+    """Family index pairs that share a covalent bond. Independent sites are absent."""
+    owner: dict[int, int] = {}
+    for family_index, family in enumerate(families):
+        for shell in _family_shells(family):
+            for index in shell.indices:
+                owner[int(index)] = family_index
+    pairs: set[tuple[int, int]] = set()
+    for index, family_index in owner.items():
+        for other in contacts.covalent[index]:
+            other_family = owner.get(int(other))
+            if other_family is None or other_family == family_index:
+                continue
+            pairs.add((min(family_index, other_family), max(family_index, other_family)))
+    return sorted(pairs)
+
+
+def _family_shells(family: Sequence[_Component]) -> list[_Component]:
+    return [component for component in family if component.selectable and component.indices.size]
+
+
+def _mean_nearest_distance(
+    left: Sequence[int],
+    right: Sequence[int],
+    positions: np.ndarray,
+    metric: "_Metric",
+) -> float:
+    if len(left) == 0 or len(right) == 0:
+        return float("inf")
+    total = 0.0
+    for left_index in left:
+        total += min(
+            _pair_distance(positions, int(left_index), int(right_index), metric)
+            for right_index in right
+        )
+    return total / len(left)
+
+
+def _cross_bond_count(
+    left: Sequence[int],
+    right: Sequence[int],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    metric: "_Metric",
+) -> int:
+    count = 0
+    for left_index in left:
+        for right_index in right:
+            if _is_real_bond(positions, int(left_index), int(right_index), symbols, metric):
+                count += 1
+    return count
+
+
+def _paired_family(
+    left_family: Sequence[_Component],
+    right_family: Sequence[_Component],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+    metric: "_Metric",
+    contacts: "_Contacts",
+) -> list[_Component] | None:
+    del contacts
+    left_shells = _family_shells(left_family)
+    right_shells = _family_shells(right_family)
+    if len(left_shells) < 2 or len(left_shells) != len(right_shells):
+        return None
+    linked = False
+    for left in left_shells:
+        for right in right_shells:
+            if _cross_bond_count(left.indices, right.indices, positions, symbols, metric):
+                linked = True
+                break
+        if linked:
+            break
+    if not linked:
+        return None
+    used: set[int] = set()
+    pairs: list[tuple[_Component, _Component]] = []
+    for left in left_shells:
+        # The matching half is the one sitting nearest this half. A mixed
+        # twist sits farther away and would break the bridges.
+        ranked = sorted(
+            (
+                (
+                    _mean_nearest_distance(left.indices, right.indices, positions, metric),
+                    index,
+                    right,
+                )
+                for index, right in enumerate(right_shells)
+                if index not in used
+            ),
+            key=lambda item: item[0],
+        )
+        if not ranked:
+            return None
+        _distance, index, right = ranked[0]
+        used.add(index)
+        pairs.append((left, right))
+    if len(used) != len(right_shells):
+        return None
+    members: list[_Component] = []
+    for left, right in pairs:
+        indices = [int(index) for index in left.indices] + [int(index) for index in right.indices]
+        members.append(
+            _component(
+                f"{left.component_id}+{right.component_id}",
+                left.label,
+                indices,
+                occupancies,
+                geometry_key=left.geometry_key or right.geometry_key,
+                angle_spread=max(left.angle_spread, right.angle_spread),
+                mean_radius=max(left.mean_radius, right.mean_radius),
+            )
+        )
+    return members
 
 
 def _note_unresolved(notes: list[str], *, kept_whole: bool, label: str = "occupancy") -> None:
@@ -931,16 +1108,69 @@ def _note_unresolved(notes: list[str], *, kept_whole: bool, label: str = "occupa
 
 
 def _warn_unresolved(notes: list[str]) -> None:
-    """One warning per call, with a count and a short site summary."""
-    if not notes:
+    """One warning for these notes, with a count and a short site summary."""
+    unique: list[str] = []
+    for note in notes:
+        if note not in unique:
+            unique.append(note)
+    if not unique:
         return
-    preview = "; ".join(notes[:6])
-    extra = f" (+{len(notes) - 6} more)" if len(notes) > 6 else ""
+    preview = "; ".join(unique[:6])
+    extra = f" (+{len(unique) - 6} more)" if len(unique) > 6 else ""
     warnings.warn(
-        f"unresolved disorder at {len(notes)} site(s): {preview}{extra}.",
+        f"unresolved disorder at {len(unique)} site(s): {preview}{extra}.",
         UnresolvedDisorderWarning,
         stacklevel=3,
     )
+
+
+def _emit_notes(notes: list[str]) -> None:
+    """Warn now, or store the notes for ``grouped_disorder_warnings``."""
+    buffer = _DISORDER_NOTES.get()
+    if buffer is None:
+        _warn_unresolved(notes)
+        return
+    for note in notes:
+        if note not in buffer:
+            buffer.append(note)
+
+
+def _structure_has_disorder(occupancies: np.ndarray, groups: np.ndarray) -> bool:
+    """True when some atom is partial or carries a non-zero disorder group."""
+    if np.any(occupancies < (1.0 - PARTIAL_OCCUPANCY_TOLERANCE)):
+        return True
+    return any(_is_nonzero_group(str(label)) for label in groups)
+
+
+def collapse_disorder_warnings(func):
+    """Emit at most one disorder warning for a public structure call."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with grouped_disorder_warnings():
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
+@contextmanager
+def grouped_disorder_warnings() -> Iterator[None]:
+    """Collect disorder warnings and emit one when the public call returns.
+
+    ``disorder_realizations`` warns once per call. Shell searches and molecule
+    identification call it once per molecule; this groups those into a single
+    ``UnresolvedDisorderWarning``.
+    """
+    if _DISORDER_NOTES.get() is not None:
+        yield
+        return
+    buffer: list[str] = []
+    token = _DISORDER_NOTES.set(buffer)
+    try:
+        yield
+    finally:
+        _DISORDER_NOTES.reset(token)
+        _warn_unresolved(buffer)
 
 
 def _note_overcoordination(
@@ -1392,49 +1622,234 @@ def _unanchored_families(
     contacts: "_Contacts",
     notes: list[str],
 ) -> list[list[_Component]]:
-    """Split a fully partial molecule into whole orientations.
+    """Split a fully partial class into whole connected copies.
 
-    Copies are matched by connectivity, not by a shared translation. The
-    rarest element with at least two atoms is the partial centre. Overlapped
-    centres are one site and the arms are split as a shell around them.
-    Separated centres take the arms for which they are the nearest real bond.
-    If that pairing fails, one complete centre-plus-arms piece is kept and
-    the rest is dropped, and the call warns. The fused class is not returned
-    as a molecule.
+    A copy is every atom of one orientation, not a centre plus its nearest
+    neighbours. Image pairing and bond-graph components are tried first.
+    A centre-plus-shell split is kept only when each piece is exactly one
+    full copy and the pieces cover the class. Otherwise the class stays whole
+    and a warning is recorded.
     """
     indices = [int(index) for index in component.indices]
-    hubs = _partial_hubs(indices, symbols, occupancies, contacts)
-    if not hubs:
+    if len(indices) < 2:
+        return []
+    occupancy = float(min(float(occupancies[int(index)]) for index in indices))
+    copies = int(round(1.0 / occupancy)) if occupancy > 0 else 1
+    if copies < 2 or len(indices) % copies != 0:
         if _has_internal_alternative(indices, symbols, positions, metric, contacts):
             _note_unresolved(notes, kept_whole=True, label=component.label)
         return []
-    overlapped = _hubs_are_one_site(positions, hubs, symbols, metric)
-    if overlapped:
-        family = _shells_around_overlapped_hubs(
-            component, indices, hubs, positions, symbols, occupancies, metric, notes
+    full = len(indices) // copies
+    pieces = _image_copies(indices, positions, symbols, metric)
+    if not _covers_whole_copies(pieces, indices, full):
+        pieces = _bonded_copy_components(indices, positions, symbols, metric, full, copies)
+    if not _covers_whole_copies(pieces, indices, full):
+        pieces = _hub_shell_copies(
+            indices, positions, symbols, occupancies, metric, contacts, full
         )
-        if family:
-            return family
-    matched = _match_hub_shells(
-        component, indices, hubs, positions, symbols, occupancies, metric, notes
-    )
-    if matched:
-        return matched
-    assigned = _assign_arms_to_hubs(indices, hubs, positions, symbols, metric)
-    grouped = _groups_with_shared_composition(assigned, symbols)
-    if len(grouped) >= 2:
-        return [
-            _orientation_members(
-                component, grouped, positions, occupancies, exclude=indices
-            )
-        ]
-    piece = grouped[0] if grouped else _largest_hub_piece(assigned)
-    if not piece or len(piece) >= len(indices):
-        if _has_internal_alternative(indices, symbols, positions, metric, contacts):
-            _note_unresolved(notes, kept_whole=True, label=component.label)
+    if not _covers_whole_copies(pieces, indices, full):
+        _note_unresolved(notes, kept_whole=True, label=component.label)
         return []
-    _note_unresolved(notes, kept_whole=False, label=component.label)
-    return [_orientation_members(component, [piece], positions, occupancies, exclude=indices)]
+    return [_orientation_members(component, pieces, positions, occupancies)]
+
+
+def _covers_whole_copies(
+    pieces: Sequence[Sequence[int]] | None,
+    indices: Sequence[int],
+    full: int,
+) -> bool:
+    """True when every piece is one full copy and nothing is left over."""
+    if not pieces or full < 1:
+        return False
+    seen: set[int] = set()
+    for piece in pieces:
+        chosen = [int(index) for index in piece]
+        if len(chosen) != full or seen.intersection(chosen):
+            return False
+        seen.update(chosen)
+    return seen == {int(index) for index in indices}
+
+
+def _image_copies(
+    indices: Sequence[int],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    metric: "_Metric",
+) -> list[list[int]] | None:
+    """Pair each atom with its same-element image when the shift is one direction.
+
+    A mirror or a short translation gives that pairing and keeps the whole
+    chain on each side. A rotation does not, and is left for another strategy.
+    """
+    if len(indices) % 2 != 0:
+        return None
+    partner: dict[int, int] = {}
+    for index in indices:
+        best_distance = float("inf")
+        best = None
+        cutoff = 0.0
+        for other in indices:
+            if int(other) == int(index) or symbols[int(other)] != symbols[int(index)]:
+                continue
+            distance = _pair_distance(positions, int(index), int(other), metric)
+            limit = _alternative_cutoff(symbols[int(index)], symbols[int(other)])
+            if distance <= limit and distance < best_distance:
+                best_distance = distance
+                best = int(other)
+                cutoff = limit
+        if best is None or best_distance > cutoff:
+            return None
+        partner[int(index)] = best
+    if any(partner.get(other) != index for index, other in partner.items()):
+        return None
+    pairs = [(index, partner[index]) for index in indices if index < partner[index]]
+    if len(pairs) * 2 != len(indices):
+        return None
+    reference = metric.vector(positions[pairs[0][1]] - positions[pairs[0][0]])
+    reference_norm = float(np.linalg.norm(reference))
+    if reference_norm < 1e-8:
+        return None
+    side_a: list[int] = []
+    side_b: list[int] = []
+    for left, right in pairs:
+        shift = metric.vector(positions[right] - positions[left])
+        if float(np.dot(shift, reference)) < 0.0:
+            left, right = right, left
+            shift = -shift
+        shift_norm = float(np.linalg.norm(shift))
+        if shift_norm < 1e-8:
+            return None
+        cosine = float(np.dot(shift, reference) / (shift_norm * reference_norm))
+        if cosine < 0.5:
+            return None
+        side_a.append(int(left))
+        side_b.append(int(right))
+    if _composition(side_a, symbols) != _composition(side_b, symbols):
+        return None
+    if not _side_is_connected(side_a, positions, symbols, metric):
+        return None
+    if not _side_is_connected(side_b, positions, symbols, metric):
+        return None
+    return [side_a, side_b]
+
+
+def _side_is_connected(
+    side: Sequence[int],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    metric: "_Metric",
+) -> bool:
+    if len(side) <= 1:
+        return True
+    members = [int(index) for index in side]
+    parent = {index: index for index in members}
+
+    def _find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for left, right in combinations(members, 2):
+        if not _is_real_bond(positions, left, right, symbols, metric):
+            continue
+        parent[_find(right)] = _find(left)
+    return len({_find(index) for index in members}) == 1
+
+
+def _bonded_copy_components(
+    indices: Sequence[int],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    metric: "_Metric",
+    full: int,
+    copies: int,
+) -> list[list[int]] | None:
+    """Connected pieces of the intra-copy bond graph, when they are the copies."""
+    members = [int(index) for index in indices]
+    parent = {index: index for index in members}
+
+    def _find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for left, right in combinations(members, 2):
+        if not _is_real_bond(positions, left, right, symbols, metric):
+            continue
+        parent[_find(right)] = _find(left)
+    buckets: dict[int, list[int]] = defaultdict(list)
+    for index in members:
+        buckets[_find(index)].append(index)
+    pieces = list(buckets.values())
+    if len(pieces) != copies or any(len(piece) != full for piece in pieces):
+        return None
+    composition = _composition(pieces[0], symbols)
+    if any(_composition(piece, symbols) != composition for piece in pieces[1:]):
+        return None
+    return pieces
+
+
+def _hub_shell_copies(
+    indices: Sequence[int],
+    positions: np.ndarray,
+    symbols: Sequence[str],
+    occupancies: np.ndarray,
+    metric: "_Metric",
+    contacts: "_Contacts",
+    full: int,
+) -> list[list[int]] | None:
+    """One centre plus a regular shell, only when that is the entire copy.
+
+    A tetrahedron is a centre and four arms. A chain is not: the shell would
+    drop every atom past the first bond, so this returns nothing.
+    """
+    hubs = _partial_hubs(indices, symbols, occupancies, contacts)
+    if len(hubs) < 2 or full <= len(hubs):
+        return None
+    slots = full - 1
+    if slots < 1 or (len(indices) - len(hubs)) != slots * len(hubs):
+        return None
+    arms = [int(index) for index in indices if int(index) not in set(hubs)]
+    cap = int(DISORDER_CONFIG["OCCUPANCY_MAX_ORIENTATION_COMBINATIONS"])
+    slack = float(DISORDER_CONFIG["OCCUPANCY_ORIENTATION_STD_SLACK_DEG"])
+    from math import comb
+
+    offers: list[tuple[float, int, tuple[int, ...]]] = []
+    for hub in hubs:
+        pool = [
+            arm
+            for arm in arms
+            if _is_real_bond(positions, int(arm), int(hub), symbols, metric)
+            or _pair_distance(positions, int(arm), int(hub), metric)
+            <= _alternative_cutoff(symbols[int(arm)], symbols[int(hub)])
+        ]
+        # Arms of an overlapped centre sit on both centres. Use every arm then.
+        if _hubs_are_one_site(positions, hubs, symbols, metric):
+            pool = list(arms)
+        if len(pool) < slots or comb(len(pool), slots) > cap:
+            continue
+        for spread, combo in _score_combinations(
+            positions, int(hub), pool, symbols, slots, metric
+        ):
+            offers.append((spread, int(hub), combo))
+    offers.sort(key=lambda item: (_spread_bucket(item[0]), item[1], item[2]))
+    used_hubs: set[int] = set()
+    used_arms: set[int] = set()
+    pieces: list[list[int]] = []
+    best = offers[0][0] if offers else 0.0
+    for spread, hub, combo in offers:
+        if hub in used_hubs or used_arms.intersection(combo):
+            continue
+        if pieces and _spread_bucket(spread) > _spread_bucket(best) + slack:
+            continue
+        used_hubs.add(hub)
+        used_arms.update(combo)
+        pieces.append([hub, *combo])
+    if not _covers_whole_copies(pieces, indices, full):
+        return None
+    return pieces
 
 
 def _partial_hubs(
@@ -1946,9 +2361,17 @@ class _Metric:
         return cls(cell=cell, pbc=pbc)
 
     def enabled(self) -> bool:
-        if self.cell is None or self.cell.shape != (3, 3) or not any(self.pbc):
-            return False
-        return abs(float(np.linalg.det(self.cell))) > 1e-8
+        cached = getattr(self, "_enabled_cached", None)
+        if cached is not None:
+            return bool(cached)
+        ok = (
+            self.cell is not None
+            and self.cell.shape == (3, 3)
+            and any(self.pbc)
+            and abs(float(np.linalg.det(self.cell))) > 1e-8
+        )
+        object.__setattr__(self, "_enabled_cached", ok)
+        return ok
 
     def vector(self, delta: np.ndarray) -> np.ndarray:
         return self.vectors(np.asarray(delta, dtype=float))
@@ -1958,10 +2381,13 @@ class _Metric:
         deltas = np.asarray(deltas, dtype=float)
         if not self.enabled():
             return deltas
-        try:
-            transform = np.linalg.inv(self.cell)
-        except np.linalg.LinAlgError:
-            return deltas
+        transform = getattr(self, "_inverse_cell", None)
+        if transform is None:
+            try:
+                transform = np.linalg.inv(self.cell)
+            except np.linalg.LinAlgError:
+                return deltas
+            object.__setattr__(self, "_inverse_cell", transform)
         fractional = np.array(deltas @ transform, dtype=float, copy=True)
         for axis, periodic in enumerate(self.pbc):
             if periodic:

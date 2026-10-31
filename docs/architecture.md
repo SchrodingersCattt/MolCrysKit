@@ -124,14 +124,16 @@ shells, and a failed split warns. A copy shifted by 0.2 Å stays when its angle
 spread is within 10° of the best shell. A wider shift keeps the one regular
 orientation and warns, instead of returning a fused moiety. The tie prefers
 that tighter shell, then the smaller radius, then the placement, so it does
-not follow atom order. A class with no ordered anchor is split by connectivity.
-The partial centre is the rarest repeated element. Overlapped centres are one
-site and the arms are a shell around them, so a rotation or a cube of two
-tetrahedra keeps one complete copy. Separated centres each keep the regular
-shell bonded to them, including a translation of about an angstrom. When the
-other copy cannot be finished, the complete piece is kept and
-``UnresolvedDisorderWarning`` is emitted; the fused class is not left in place,
-so the shell query is not empty. The element maximum coordination is only an
+not follow atom order. A class with no ordered anchor is split only into whole
+connected copies: every atom of one orientation, not a centre plus the atoms
+nearest to it. A short translation or a mirror is paired atom-to-image. A
+rotation or a cube of two tetrahedra is kept when each piece is one full copy.
+If that cannot be done, the class stays whole and
+``UnresolvedDisorderWarning`` is emitted. Dropping the rest of a chain or ring
+is not allowed. ``exclusive`` flips one family at a time, not the Cartesian
+product of independent sites. The warning is one per ``disorder_realizations``
+call; a shell search or a structure read groups those into one warning for the
+public call. It is not raised for a fully ordered structure. The element maximum coordination is only an
 upper bound on shell size. Equal occupancy ``1/k`` uses ``|pool| / k`` when
 that is smaller, which keeps three bridges on a cage centre. Directions within
 35° are one vertex, so symmetry copies piled on a tetrahedron collapse.

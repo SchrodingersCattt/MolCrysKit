@@ -38,6 +38,7 @@ from ..constants.config import (
     CIF_SYMMETRY_TOLERANCE,
 )
 from ..utils.geometry import unwrap_positions_along_bonds
+from functools import wraps
 
 
 logger = logging.getLogger(__name__)
@@ -703,6 +704,19 @@ def _build_molecule_graph(
     return crystal_graph
 
 
+def _collapse_disorder_warnings(func):
+    """One disorder warning for this call, even if each molecule warns."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        from ..analysis.disorder.policy import grouped_disorder_warnings
+
+        with grouped_disorder_warnings():
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
 def _component_atom_indices(
     crystal_graph: nx.Graph,
     exclude_indices: Optional[set[int]] = None,
@@ -720,6 +734,7 @@ def _component_atom_indices(
     return components
 
 
+@_collapse_disorder_warnings
 def identify_molecule_indices(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
@@ -756,6 +771,7 @@ def identify_molecule_indices(
     return _indices_under_disorder_policy(atoms, components, disorder_policy)
 
 
+@_collapse_disorder_warnings
 def identify_molecules(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
@@ -2395,6 +2411,7 @@ def scan_cif_disorder(
     )
 
 
+@_collapse_disorder_warnings
 def read_mol_crystal(
     filepath: Optional[str] = None,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,

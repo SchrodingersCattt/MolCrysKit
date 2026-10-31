@@ -1118,10 +1118,12 @@ so different elements can share a shell. A 50:50 shell shifted by 0.2 Å is
 still one orientation when its angle spread is within 10° of the best. A wider
 shift keeps that one orientation and warns. The choice prefers the tighter
 shell, then the smaller radius, then geometry, and does not follow atom order.
-A copy with no ordered anchor is matched by connectivity, including a
-rotation or a translation of about an angstrom. If one complete copy can be
-built and the other cannot, that copy is kept. ``UnresolvedDisorderWarning``
-is raised once per call, with a count and a short site summary. A negative
+A copy with no ordered anchor is a whole connected molecule, not a centre
+plus the atoms nearest to it. A short mirror keeps one full copy. If the
+copies cannot be separated, every atom stays and ``UnresolvedDisorderWarning``
+is raised. The warning is one per call. A shell search or a structure read
+groups per-molecule warnings into that one. ``exclusive`` flips one disorder
+family at a time, so two independent split sites give three states, not four. A negative
 PART shell around an ordered centre, including a single labelled assembly
 group, is split the same way. A cage whose bridges are fewer than the
 centre's maximum coordination uses the occupancy count instead. Shell records

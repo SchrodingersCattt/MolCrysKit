@@ -20,7 +20,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..structures.polyhedra import ideal_polyhedra_for_cn
-from .disorder.policy import DEFAULT_DISORDER_POLICY
+from .disorder.policy import DEFAULT_DISORDER_POLICY, collapse_disorder_warnings
 from .formula_moiety import (
     Fragment,
     heavy_signature,
@@ -1097,6 +1097,7 @@ def _find_polyhedra_molecule_level(
     return (results, diagnostics) if return_diagnostics else results
 
 
+@collapse_disorder_warnings
 def find_polyhedra(
     structure,
     central: str,

@@ -41,13 +41,15 @@
   0.08), so a mixed hydrogen/chlorine shell is one orientation and an all-hydrogen
   subset of that shell is not. A 0.2 Å shifted copy stays within the 10° angle
   slack. A wider shift keeps the one regular orientation and warns. A class
-  with no ordered anchor is split by connectivity: overlapped centres share a
-  shell (rotation or a cube of two tetrahedra) and separated centres each keep
-  the shell bonded to them (including a translation of about 1 Å). If the other
-  copy cannot be finished, one complete piece is kept. `UnresolvedDisorderWarning`
-  is raised once per call, with a count and a short site summary. Shell size
-  uses the element maximum only as an upper bound; equal occupancy `1/k` uses
-  `|pool| / k` when that is smaller. Directions within 35° are one vertex.
+  with no ordered anchor is split only into whole connected copies. A centre
+  plus its nearest atoms is never returned. If the copies cannot be separated
+  cleanly, the class stays whole and warns. `exclusive` flips one family at a
+  time rather than the Cartesian product of independent sites.
+  `UnresolvedDisorderWarning` is one per `disorder_realizations` call; shell
+  searches and structure reads group those into one warning. Fully ordered
+  structures do not warn. Shell size uses the element maximum only as an upper
+  bound; equal occupancy `1/k` uses `|pool| / k` when that is smaller.
+  Directions within 35° are one vertex.
 - Negative PART labels, including one group inside a labelled assembly, are
   split into orientations around the ordered centre. Partial ligands of an
   ordered metal are split the same way. Several groups in one labelled
