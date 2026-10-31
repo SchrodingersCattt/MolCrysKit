@@ -43,6 +43,9 @@ _CLOSED_SHELL: dict[str, dict[int, tuple[int, ...]]] = {
     "F": {0: (1,), -1: (0,)},
     "P": {0: (3, 5), 1: (4,), -1: (2, 4)},
     "S": {0: (2, 4, 6), 1: (3, 5), -1: (1, 3, 5)},
+    # Silicon's closed shell is tetravalent, as for carbon. A bare ``[Si]``
+    # is therefore four radical electrons, not an unset count.
+    "Si": {0: (4,), 1: (3,), -1: (3,)},
     "Cl": {0: (1,), -1: (0,)},
     "Br": {0: (1,), -1: (0,)},
     "I": {0: (1,), -1: (0,)},

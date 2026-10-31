@@ -356,7 +356,32 @@ def _name_disconnected(entity: FiniteChemicalEntity):
     return (description, False, *trace)
 
 
-def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
+def _nuclide_prefixes(entity: FiniteChemicalEntity, parent_locants: dict[str, int]) -> list[str]:
+    """Blue Book nuclide labels: ``(13C)methane``, ``(1-13C)ethane``, ``(2H4)methane``."""
+    heavy = [atom for atom in entity.atoms if atom.element != "H"]
+    counts = Counter(atom.element for atom in heavy)
+    seen: Counter[str] = Counter()
+    prefixes = []
+    for atom in entity.atoms:
+        if atom.element == "H" or atom.isotope is None:
+            continue
+        seen[atom.element] += 1
+        if counts[atom.element] == 1:
+            prefixes.append(f"({atom.isotope}{atom.element})")
+        else:
+            locant = parent_locants.get(atom.atom_id, seen[atom.element])
+            prefixes.append(f"({locant}-{atom.isotope}{atom.element})")
+    hydrogens = Counter(
+        atom.isotope
+        for atom in entity.atoms
+        if atom.element == "H" and atom.isotope is not None
+    )
+    for mass, count in sorted(hydrogens.items()):
+        prefixes.append(f"({mass}H{count})" if count > 1 else f"({mass}H)")
+    return prefixes
+
+
+def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> tuple[str, tuple[str, ...]]:
     """Add explicitly specified isotope and stereochemical descriptors."""
     from .substitutive.engine import parent_numbering
 
@@ -364,18 +389,12 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
     parent_locants = numbered if numbered else _parent_locants(entity, name)
     element_indices = {}
     element_counts = {}
-    isotope_prefixes = []
     for atom in entity.atoms:
         if atom.element == "H":
             continue
         element_counts[atom.element] = element_counts.get(atom.element, 0) + 1
         element_indices[atom.atom_id] = element_counts[atom.element]
-        if atom.isotope is not None:
-            # The occurrence locant disambiguates isotopes on multi-atom
-            # parents while preserving the compact legacy spelling for the
-            # element and mass number.
-            locant = parent_locants.get(atom.atom_id, element_indices[atom.atom_id])
-            isotope_prefixes.append(f"({atom.isotope}{atom.element}{locant})")
+    isotope_prefixes = _nuclide_prefixes(entity, parent_locants)
     has_atom_tokens = any(atom.stereochemistry in {"@", "@@"} for atom in entity.atoms)
     has_bond_tokens = any(bond.stereochemistry in {"/", "\\"} for bond in entity.bonds)
     stereo_terms: list[tuple[int, str]] = []
@@ -436,9 +455,23 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> str:
         stereo_prefix = "(" + ",".join(term for _, term in stereo_terms) + ")-"
     else:
         stereo_prefix = ""
+    warnings = []
+    if has_atom_tokens:
+        assigned_centers = {
+            item.center_atom_id
+            for item in report.descriptors
+            if item.descriptor and item.kind is StereoKind.TETRAHEDRAL
+        }
+        if any(
+            atom.stereochemistry in {"@", "@@"} and atom.atom_id not in assigned_centers
+            for atom in entity.atoms
+        ):
+            warnings.append(
+                "explicit tetrahedral token was not published as an R/S descriptor because CIP ranking is indeterminate"
+            )
     # Preserve descriptor ordering before isotopic prefixes.  This is the
     # stable spelling used by the reverse parser and the stage-6 snapshots.
-    return stereo_prefix + "".join(isotope_prefixes) + name
+    return stereo_prefix + "".join(isotope_prefixes) + name, tuple(warnings)
 
 
 def _parent_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:
@@ -535,7 +568,7 @@ def _organic_result(entity, name, preferred, *trace):
     # retains its historical string-only public shape.  This gives reverse
     # conversion one canonical representation for every generated name.
     name = SystematicName.parse(name).serialize()
-    name = _decorate_stage6_name(entity, name)
+    name, stereo_warnings = _decorate_stage6_name(entity, name)
     # Isotopic and explicitly stereochemical variants are general systematic
     # names; the preferred flag is reserved for the existing retained/golden
     # names.
@@ -549,9 +582,17 @@ def _organic_result(entity, name, preferred, *trace):
         if source_status in {InferenceStatus.EXPLICIT, InferenceStatus.CONFIRMED}
         else InferenceStatus.PROVISIONAL
     )
-    warnings = ()
+    warnings = stereo_warnings
+    if stereo_warnings:
+        trace = (
+            *trace,
+            "An explicit stereochemical token was left unpublished because CIP ranking is indeterminate.",
+        )
     if status is InferenceStatus.PROVISIONAL:
-        warnings = ("name depends on provisional or inferred chemical connectivity",)
+        warnings = (
+            *stereo_warnings,
+            "name depends on provisional or inferred chemical connectivity",
+        )
     return NamingResult(
         name=name,
         kind=(

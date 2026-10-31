@@ -180,13 +180,14 @@ def test_strict_smiles_conversion_normalizes_empty_input_error(smiles: str) -> N
         smiles_to_iupac(smiles)
 
 
-def test_aromatic_nitrogen_reports_subset_boundary_not_overvalence() -> None:
-    result = smiles_to_iupac("c1ccncc1")
-    assert result.name == "1-azabenzene"
-    assert result.preferred is False
-    pyrrole = smiles_to_iupac("[nH]1cccc1", strict=False)
-    assert pyrrole.kind is naming_module.NamingKind.IUPAC_COMPOSITION_DESCRIPTION
-    assert pyrrole.status is InferenceStatus.INDETERMINATE
+def test_retained_heterocycles_are_not_skeletal_replacement_names() -> None:
+    pyridine = smiles_to_iupac("c1ccncc1")
+    assert pyridine.name == "pyridine"
+    assert pyridine.preferred is False
+    assert smiles_to_iupac("C1=CC=NC=C1").name == "pyridine"
+    assert smiles_to_iupac("[nH]1cccc1").name == "pyrrole"
+    assert smiles_to_iupac("c1ccoc1").name == "furan"
+    assert smiles_to_iupac("c1ccsc1").name == "thiophene"
 
 
 def test_valence_gates_share_one_default_table() -> None:
@@ -251,7 +252,7 @@ def test_stereochemical_systematic_name_uses_lossless_extension() -> None:
 
 
 def test_multi_hydroxy_benzene_beyond_di_is_parsed() -> None:
-    name = "1,2,3-trihydroxybenzene"
+    name = "benzene-1,2,3-triol"
     entity = from_iupac_name(name)
     assert name_entity(entity, strict=True).name == name
     assert iupac_to_smiles(name).lossless is True

@@ -1,9 +1,10 @@
-"""Bidirectional grammar checks for issue 206.
+"""Bidirectional grammar checks for the substitutive naming rules.
 
-Expected strings are general IUPAC names emitted by the shared substitutive
-grammar. They are not a preferred-name certificate. A round trip must preserve
-constitution, charge, and radical count; a self-generated spelling is not
-treated as proof that every alias is canonical.
+Expected strings are Blue Book or literature spellings chosen independently
+of a generator snapshot: retained suffixes (``benzene-1,2-diol``), standard
+stems (``hexan-2-one``, ``hepta-2,4-diene``), and published glucuronide and
+sulfate names. They are general IUPAC names, not a preferred-name certificate.
+A round trip must preserve constitution, charge, and radical count.
 """
 
 from __future__ import annotations
@@ -48,14 +49,14 @@ _EXACT = (
         "(2R)-2-acetamido-3-(cyclohexa-2,4-dien-1-ylsulfanyl)propanoic acid",
     ),
     ("OC1C(O)C=CC=C1", "cyclohexa-3,5-diene-1,2-diol"),
-    ("Oc1ccccc1O", "1,2-dihydroxybenzene"),
-    ("C1=C(O)C(O)=CC=C1", "1,2-dihydroxybenzene"),
+    ("Oc1ccccc1O", "benzene-1,2-diol"),
+    ("C1=C(O)C(O)=CC=C1", "benzene-1,2-diol"),
     ("O=C1C=CC=CC1=O", "cyclohexa-3,5-diene-1,2-dione"),
     ("Oc1ccccc1", "phenol"),
     ("C1=CC=C(O)C=C1", "phenol"),
-    ("Oc1ccc(O)cc1", "1,4-dihydroxybenzene"),
+    ("Oc1ccc(O)cc1", "benzene-1,4-diol"),
     ("O=C1C=CC(=O)C=C1", "cyclohexa-2,5-diene-1,4-dione"),
-    ("Oc1ccc(O)c(O)c1", "1,2,4-trihydroxybenzene"),
+    ("Oc1ccc(O)c(O)c1", "benzene-1,2,4-triol"),
     ("[O]c1ccc([O-])cc1", "4-oxidophenoxyl"),
     ("[O-]c1ccc([O-])cc1", "benzene-1,4-diolate"),
     ("[O]c1ccc(O)cc1", "4-hydroxyphenoxyl"),
@@ -66,7 +67,7 @@ _EXACT = (
     ("ClC(Cl)(Cl)Cl", "tetrachloromethane"),
     ("[C](Cl)(Cl)Cl", "trichloromethyl"),
     ("ClC(Cl)Cl", "trichloromethane"),
-    ("[O]OC(Cl)(Cl)Cl", "trichloromethylperoxyl"),
+    ("[O]OC(Cl)(Cl)Cl", "(trichloromethyl)peroxyl"),
     ("OOC(Cl)(Cl)Cl", "trichloromethyl hydroperoxide"),
     ("OC(Cl)(Cl)Cl", "trichloromethanol"),
     ("[CH](Cl)Cl", "dichloromethyl"),
@@ -88,7 +89,7 @@ _EXACT = (
     ("CN=C=O", "methyl isocyanate"),
     (
         "CC(=O)N[C@@H](CSC(=O)N(C)O)C(=O)O",
-        "(2R)-2-acetamido-3-(N-hydroxy-N-methylcarbamoylsulfanyl)propanoic acid",
+        "(2R)-2-acetamido-3-[(N-hydroxy-N-methylcarbamoyl)sulfanyl]propanoic acid",
     ),
     ("CS(C)=O", "(methanesulfinyl)methane"),
     ("CS(C)(=O)=O", "(methanesulfonyl)methane"),
@@ -131,13 +132,36 @@ _EXACT = (
     ("OC1CCCC1", "cyclopentanol"),
     ("OC1CCCCC1", "cyclohexanol"),
     ("[CH2]C", "ethyl"),
+    ("CCCl", "chloroethane"),
+    ("C=CC=C", "buta-1,3-diene"),
+    ("CC=CC=CC", "hexa-2,4-diene"),
+    ("CC=CC=CCC", "hepta-2,4-diene"),
+    ("NCCO", "2-aminoethan-1-ol"),
+    ("c1ccncc1", "pyridine"),
+    ("C1=CC=NC=C1", "pyridine"),
+    ("c1ccc2ccccc2c1", "naphthalene"),
+    ("c1ccoc1", "furan"),
+    ("C1=COC=C1", "furan"),
+    ("c1ccsc1", "thiophene"),
+    ("[nH]1cccc1", "pyrrole"),
+    ("[13CH4]", "(13C)methane"),
+    ("[2H]C([2H])([2H])[2H]", "(2H4)methane"),
+    (
+        "O[C@@H]1[C@@H](O)[C@H](Oc2ccccc2)O[C@@H]([C@H]1O)C(=O)O",
+        "(2S,3S,4S,5R,6S)-3,4,5-trihydroxy-6-phenoxyoxane-2-carboxylic acid",
+    ),
+    ("[O-]S(=O)(=O)Oc2c(O)cc(O)cc2", "2,4-dihydroxyphenyl sulfate"),
+    ("[O-]S(=O)(=O)Oc2c(C)cc(C)cc2", "2,4-dimethylphenyl sulfate"),
 )
 
 
 _ALIASES = (
-    ("benzene-1,2-diol", "Oc1ccccc1O"),
-    ("benzene-1,4-diol", "Oc1ccc(O)cc1"),
-    ("benzene-1,2,4-triol", "Oc1ccc(O)c(O)c1"),
+    ("1,2-dihydroxybenzene", "Oc1ccccc1O"),
+    ("1,4-dihydroxybenzene", "Oc1ccc(O)cc1"),
+    ("1,2,4-trihydroxybenzene", "Oc1ccc(O)c(O)c1"),
+    ("1-chloroethane", "CCCl"),
+    ("2-aminoethanol", "NCCO"),
+    ("bicyclo[4.4.0]deca-1,3,5,7,9-pentaene", "c1ccc2ccccc2c1"),
     ("oxolane", "C1CCOC1"),
     ("1-oxacyclopentane", "C1CCOC1"),
     ("methylsulfanylmethane", "CSC"),
@@ -225,6 +249,10 @@ def test_bracket_radicals_are_stored_on_the_atom() -> None:
     phenolate = from_line_notation("[O-]c1ccc(O)cc1")
     assert sum(atom.radical_electrons for atom in phenolate.atoms) == 0
     assert sum(atom.formal_charge or 0 for atom in phenolate.atoms) == -1
+    assert from_line_notation("[C]").atoms[0].radical_electrons == 4
+    assert from_line_notation("[B]").atoms[0].radical_electrons == 3
+    assert from_line_notation("[P]").atoms[0].radical_electrons == 3
+    assert from_line_notation("[Si]").atoms[0].radical_electrons == 4
 
 
 def test_hydroperoxide_and_peroxyl_remain_distinct() -> None:
@@ -238,6 +266,21 @@ def test_equivalent_ketone_traversals_share_one_name() -> None:
     assert smiles_to_iupac("CC(=O)CCC", strict=True).name == smiles_to_iupac(
         "CCCC(=O)C", strict=True
     ).name
+
+
+def test_alkene_configuration_round_trip_checks_stereo() -> None:
+    """E and Z are different stereoisomers, not only different constitutions."""
+    pairs = (
+        ("C/C=C/C(=O)O", "(2E)-but-2-enoic acid", "(2Z)-but-2-enoic acid"),
+        ("C/C=C\\C(=O)O", "(2Z)-but-2-enoic acid", "(2E)-but-2-enoic acid"),
+        ("C/C=C/C", "(E)-but-2-ene", "(Z)-but-2-ene"),
+    )
+    for smiles, name, other in pairs:
+        result = smiles_to_iupac(smiles, strict=True)
+        assert result.name == name
+        assert notations_equivalent(smiles, iupac_to_smiles(name).value) is True
+        assert notations_equivalent(smiles, iupac_to_smiles(other).value) is False
+    assert notations_equivalent("C/C=C/C(=O)O", "OC(=O)/C=C/C") is True
 
 
 def test_bis_glutathione_carbonyl_stays_outside_the_grammar() -> None:

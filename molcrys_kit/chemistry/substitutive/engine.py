@@ -201,6 +201,17 @@ def _multiplier(count: int) -> str:
     return _MULTIPLIERS.get(count, f"{count}-")
 
 
+def _alphabet_key(text: str) -> str:
+    """Alphabetical order of a prefix, ignoring locants and multiplying prefixes."""
+    bare = re.sub(r"[()\[\]]", "", str(text)).lower()
+    bare = re.sub(r"^\d+(?:,\d+)*-", "", bare)
+    for multiplier in ("tetra", "tri", "di"):
+        if bare.startswith(multiplier) and len(bare) > len(multiplier):
+            bare = bare[len(multiplier):]
+            break
+    return bare
+
+
 def _join_prefs(items: list[_Pref]) -> str:
     ordered = sorted(items, key=lambda item: (item.sort_name, item.locant, item.rendered))
     return "-".join(item.rendered for item in ordered)
@@ -478,7 +489,7 @@ def _fragment(entity, atoms, adj, root, blocked, depth=0):
             return ("complex", f"{dienyl}sulfanyl", True)
         carbamoyl = _carbamoyl_text(entity, atoms, adj, other, root)
         if carbamoyl is not None:
-            return ("complex", f"{carbamoyl}sulfanyl", True)
+            return ("complex", f"[({carbamoyl})sulfanyl]", False)
     if atom.element == "N":
         named = _amino_text(entity, atoms, adj, root, blocked, depth)
         if named is not None:
@@ -852,7 +863,12 @@ def _analyze_peroxide(entity, atoms, adj):
         if represented != _heavy_set(atoms):
             continue
         if kind == "peroxyl":
-            return _result(f"{label}peroxyl", {}, *_trace("Name the alkyl peroxyl radical."))
+            shown = (
+                f"{label}peroxyl"
+                if label in {"methyl", "ethyl", "propyl", "butyl"}
+                else f"({label})peroxyl"
+            )
+            return _result(shown, {}, *_trace("Name the alkyl peroxyl radical."))
         return _result(f"{label} hydroperoxide", {}, *_trace("Name the alkyl hydroperoxide."))
     return None
 
@@ -1169,9 +1185,16 @@ def _analyze_chain(entity, atoms, adj):
                 stem = alkane_stem(len(ordered))
                 if stem is None:
                     continue
-                omit = len(ordered) == 1
+                omit = len(ordered) == 1 or (
+                    len(ordered) == 2
+                    and len(simple) == 1
+                    and not complex_prefs
+                    and simple[0][0] == 1
+                )
                 prefix = _join_prefs([*_group_simple(simple, omit_locants=omit), *complex_prefs])
                 parent = _render_parent(stem, len(ordered), principal_kind, principal_locants, tuple(ene))
+                if parent == "ethanol" and prefix:
+                    parent = "ethan-1-ol"
                 if parent is None:
                     continue
                 name = f"{prefix}{parent}" if prefix else parent
@@ -1462,7 +1485,7 @@ def _analyze_heterocycle(entity, atoms, adj):
                 rendered = f"{locant}-({text})"
             else:
                 rendered = f"{locant}-{text}"
-            sort_name = re.sub(r"[()\[\]]", "", str(text))
+            sort_name = _alphabet_key(text)
             rendered_complex.append(_Pref(sort_name, locant, rendered))
         score = (
             acid_locants or (99,),
@@ -2121,6 +2144,8 @@ def _attach_dienyl(build: _Build, anchor: str, text: str) -> bool:
 
 
 def _attach_carbamoyl(build: _Build, anchor: str, text: str) -> bool:
+    if text.startswith("(") and text.endswith(")"):
+        text = text[1:-1]
     match = re.fullmatch(r"(n-hydroxy-n-methyl|n-methyl|n,n-dimethyl)?carbamoyl", text.lower())
     if match is None:
         return False
@@ -2227,9 +2252,12 @@ def _parse_special_name(name: str):
         for _index in range(count):
             build.bond("C1", build.fresh("Cl"))
         return build.entity(name)
-    peroxide = re.fullmatch(r"(methyl|ethyl|trichloromethyl)(peroxyl| hydroperoxide)", name)
+    peroxide = re.fullmatch(
+        r"(\(trichloromethyl\)|methyl|ethyl|trichloromethyl)(peroxyl| hydroperoxide)",
+        name,
+    )
     if peroxide:
-        label, kind = peroxide.groups()
+        label, kind = peroxide.group(1).strip("()"), peroxide.group(2)
         carbon = build.atom("C1", "C")
         inner = build.fresh("O")
         outer = build.fresh("O", radical=1 if kind == "peroxyl" else 0)
@@ -2340,6 +2368,14 @@ def _parse_special_name(name: str):
     if name == "ethyl":
         build.atom("C1", "C", radical=1)
         build.bond("C1", build.fresh("C"))
+        return build.entity(name)
+    haloethane = re.fullmatch(r"(fluoro|chloro|bromo|iodo)ethane", name)
+    if haloethane:
+        build.atom("C1", "C")
+        build.atom("C2", "C")
+        build.bond("C1", "C2")
+        element = {value: key for key, value in HALOGEN_PREFIX.items()}[haloethane.group(1)]
+        build.bond("C1", build.fresh(element))
         return build.entity(name)
     return None
 
