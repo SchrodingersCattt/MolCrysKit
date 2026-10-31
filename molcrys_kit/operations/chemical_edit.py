@@ -1132,7 +1132,9 @@ def transfer_packing(
     Changed reduced stoichiometry constructs only when
     ``plan.stoichiometry_policy`` names the vacant template sites and the
     inserted composition molecules. Without that policy the result is a
-    refusal and contains no geometry.
+    refusal and contains no geometry. A multiplicity-only mismatch is refused
+    with ``CELL_MULTIPLICITY_MAPPING_REQUIRED`` before a supplied policy is
+    considered.
     """
     source_inv, template_inv = plan.composition_inventory, plan.template_inventory
     record = _record(template, template_inv, seed, plan)
@@ -1201,18 +1203,19 @@ def transfer_packing(
                 if template_inv.orbit_ids and not policy.insertions
                 else (),
             )
-        elif plan.stoichiometry_policy is not None:
-            record["refusal_code"] = "STOICHIOMETRY_POLICY_INVALID"
-            raise ValueError(
-                "an explicit stoichiometry policy applies only when reduced role counts differ; "
-                "multiplicity-only mismatches still require commensurate full cells"
-            )
         elif comparison["site_count_change"]:
+            # Equal reduced stoichiometry with a different full-cell count is not
+            # a vacancy or insertion, even when the caller supplied a policy.
             record["refusal_code"] = "CELL_MULTIPLICITY_MAPPING_REQUIRED"
             raise ValueError(
                 "equal reduced role stoichiometry has different full-cell multiplicities; "
                 "provide commensurate full cells for a complete site bijection; "
                 "implicit expansion or removal is unsupported"
+            )
+        elif plan.stoichiometry_policy is not None:
+            record["refusal_code"] = "STOICHIOMETRY_POLICY_INVALID"
+            raise ValueError(
+                "an explicit stoichiometry policy applies only when reduced role counts differ"
             )
         else:
             pairs = list(plan.site_mapping)

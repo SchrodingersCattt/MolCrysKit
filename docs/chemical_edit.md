@@ -194,11 +194,12 @@ geometry. Supply a `StoichiometryPolicy` to construct that what-if cell:
   retained template site.
 
 A policy that does not produce that bijection, names an out-of-range index, or
-is passed when the reduced role counts already match returns
-`STOICHIOMETRY_POLICY_INVALID`. A multiplicity-only mismatch is not a vacancy
-or an insertion: it still returns `CELL_MULTIPLICITY_MAPPING_REQUIRED` even if
-a policy object is supplied. Different chemistry or charge per reduced inventory
-also sets `composition_change=true`, even at unchanged role stoichiometry. At
+is supplied when the reduced role counts and the full-cell counts already match
+returns `STOICHIOMETRY_POLICY_INVALID`. A multiplicity-only mismatch is checked
+first. It is not a vacancy or an insertion, and it returns
+`CELL_MULTIPLICITY_MAPPING_REQUIRED` even if a policy object is supplied.
+Different chemistry or charge per reduced inventory also sets
+`composition_change=true`, even at unchanged role stoichiometry. At
 matching full-cell counts, output formula and charge default to the supplied
 composition's inventory. Do not compare raw energies across unlike compositions
 without a common thermodynamic reference.
@@ -238,8 +239,9 @@ StoichiometryPolicy(insertions=(
 A successful `CounterfactualResult` contains a new crystal, output inventory and
 one provenance object. Refusals contain no candidate crystal or output inventory.
 `INCOMPATIBLE` covers source guards, charge/formula mismatches, occupancy,
-undefined placement/mapping, a missing or incomplete stoichiometry policy, and
-a stoichiometry policy supplied for a multiplicity-only mismatch. Partial
+undefined placement/mapping, and a missing or incomplete stoichiometry policy.
+A multiplicity-only mismatch, including one that also carries a stoichiometry
+policy, uses `CELL_MULTIPLICITY_MAPPING_REQUIRED`. Partial
 occupancy and declared periodic bonded frameworks require another representation
 and are refused. Inputs must already be finite contiguous molecular components;
 the editor does not discover or unwrap periodic networks. Invalid typed object

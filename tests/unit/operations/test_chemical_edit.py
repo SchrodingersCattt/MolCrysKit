@@ -985,9 +985,29 @@ def test_incomplete_or_misapplied_stoichiometry_policy_is_refused():
     )
     assert rejected.status == CounterfactualStatus.INCOMPATIBLE
     assert rejected.crystal is None
-    assert rejected.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_INVALID"
+    assert rejected.provenance["refusal_code"] == "CELL_MULTIPLICITY_MAPPING_REQUIRED"
+    assert rejected.provenance["inventory_comparison"]["site_count_change"]
     assert not rejected.provenance["inventory_comparison"]["stoichiometry_change"]
-    assert "commensurate" in rejected.provenance["reason"]
+    assert (
+        "implicit expansion or removal is unsupported" in rejected.provenance["reason"]
+    )
+    matched, matched_inventory = synthetic_cell((1, 1, 3))
+    unused = transfer_packing(
+        matched,
+        matched,
+        PackingTransferPlan(
+            matched_inventory,
+            matched_inventory,
+            _placements(matched_inventory),
+            stoichiometry_policy=StoichiometryPolicy(vacant_sites=(0,)),
+        ),
+        seed=0,
+    )
+    assert unused.status == CounterfactualStatus.INCOMPATIBLE
+    assert unused.crystal is None
+    assert unused.provenance["refusal_code"] == "STOICHIOMETRY_POLICY_INVALID"
+    assert not unused.provenance["inventory_comparison"]["site_count_change"]
+    assert not unused.provenance["inventory_comparison"]["stoichiometry_change"]
 
 
 def test_overlapping_insertion_anchor_reports_clash_without_a_crystal():
