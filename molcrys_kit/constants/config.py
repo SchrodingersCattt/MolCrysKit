@@ -212,6 +212,45 @@ DISORDER_CONFIG = {
     "HARD_SPHERE_THRESHOLD": 0.85,  # Small threshold. Applied to compatible atoms to allow normal packing
     "OVERLAP_SITE_THRESHOLD": 0.4,  # Below this distance, two atoms are at the same site (not a real bond)
     "DISORDER_CLASH_THRESHOLD": 2.2,  # Large threshold. Applied to COMPETING disorder parts to ensure split sites are exclusive
+    # Decimal places used to treat two partial occupancies as one orientation.
+    # CIF occupancies are commonly reported to three or four places; five
+    # places keeps 1/3-style values distinct without splitting float noise.
+    "OCCUPANCY_KEY_DECIMALS": 5,
+    # Fraction of the covalent-bond threshold below which two partial-occupancy
+    # atoms are alternative sites. Ordinary bonds (C-C ~1.5 Å, O-H ~0.96 Å)
+    # stay above this fraction of their own threshold; split sites and heavily
+    # overlapped orientations fall below it.
+    "OCCUPANCY_ALTERNATIVE_BOND_FRACTION": 0.55,
+    # Free-refined occupancies of one split often sum slightly above 1.
+    # 0.10 accepts 0.55+0.50 and still rejects unrelated partials such as 0.91+0.87.
+    "OCCUPANCY_SUM_TOLERANCE": 0.10,
+    # Two substituents of one ordered centre cannot belong to the same
+    # orientation when the bond angle is tighter than this. Tetrahedral
+    # (~109°) and octahedral (~90°) shells stay above it; interpenetrating
+    # duplicate shells do not.
+    "OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG": 80.0,
+    # Cap on how far an accepted orientation's angle spread may sit above the
+    # best shell. A real shifted orientation (~4°) stays inside; a mixed shell
+    # (~19°) does not.
+    "OCCUPANCY_ORIENTATION_STD_SLACK_DEG": 10.0,
+    # Spread jump that separates a shifted copy from a mixed shell. The
+    # acceptance window is the larger of this gap and the slack above, so a
+    # copy whose spread sits just past 6° is still kept when it is inside
+    # the slack. A mixed shell is dropped because it reuses atoms of a
+    # tighter orientation.
+    "OCCUPANCY_ORIENTATION_STD_GAP_DEG": 6.0,
+    # Standard deviation of distance/bond-cutoff inside one orientation.
+    # 0.08 accepts a same-element shell shifted by 0.2 Å (normalized spread
+    # about 0.06 on a C–N contact) and rejects a mix of two shell radii
+    # (about 0.10). Dividing by the pair cutoff lets different elements share
+    # an orientation. A wider shift is not kept silently: the class raises
+    # UnresolvedDisorderWarning.
+    "OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION": 0.08,
+    # Directions closer than this are one substituent vertex. Symmetry copies
+    # piled on one tetrahedron collapse; vertices ~109° apart stay apart.
+    "OCCUPANCY_SAME_VERTEX_ANGLE_DEG": 35.0,
+    # Cap on substituent combinations when separating equal-occupancy orientations.
+    "OCCUPANCY_MAX_ORIENTATION_COMBINATIONS": 20000,
     "ASSEMBLY_CONFLICT_THRESHOLD": 2.2,  # Large threshold for overlapping Assemblies
     # H-bond detection cutoff for SP clustering: H atoms within this distance of a
     # non-H atom are considered bonded.  Used to decide whether an H needs SP

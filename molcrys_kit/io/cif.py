@@ -38,6 +38,7 @@ from ..constants.config import (
     CIF_SYMMETRY_TOLERANCE,
 )
 from ..utils.geometry import unwrap_positions_along_bonds
+from functools import wraps
 
 
 logger = logging.getLogger(__name__)
@@ -703,6 +704,19 @@ def _build_molecule_graph(
     return crystal_graph
 
 
+def _collapse_disorder_warnings(func):
+    """One disorder warning for this call, even if each molecule warns."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        from ..analysis.disorder.policy import grouped_disorder_warnings
+
+        with grouped_disorder_warnings():
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
 def _component_atom_indices(
     crystal_graph: nx.Graph,
     exclude_indices: Optional[set[int]] = None,
@@ -720,12 +734,15 @@ def _component_atom_indices(
     return components
 
 
+@_collapse_disorder_warnings
 def identify_molecule_indices(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
     explicit_bonds: Optional[List[Tuple[int, int]]] = None,
+    *,
+    disorder_policy: str = "as_refined",
 ) -> List[List[int]]:
     """
     Identify discrete molecular units and return their original atom indices.
@@ -734,7 +751,10 @@ def identify_molecule_indices(
     that need molecule membership without constructing CrystalMolecule objects
     or changing the original ASE Atoms ordering. Bond perception is identical
     to ``identify_molecules``. Atoms in ``exclude_indices`` are removed from
-    the returned groups.
+    the returned groups. ``disorder_policy`` matches
+    :func:`identify_molecules`. The default ``"as_refined"`` returns every
+    bond-graph component and does not drop refined sites. ``"major"`` and
+    ``"exclusive"`` are explicit.
     """
     crystal_graph = _build_molecule_graph(
         atoms,
@@ -743,13 +763,15 @@ def identify_molecule_indices(
         bond_scale=bond_scale,
         explicit_bonds=explicit_bonds,
     )
-    return _component_atom_indices(
+    components = _component_atom_indices(
         crystal_graph,
         exclude_indices=exclude_indices,
         include_excluded=False,
     )
+    return _indices_under_disorder_policy(atoms, components, disorder_policy)
 
 
+@_collapse_disorder_warnings
 def identify_molecules(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
@@ -757,6 +779,8 @@ def identify_molecules(
     exclude_indices: Optional[set[int]] = None,
     bond_scale: float = 1.0,
     explicit_bonds: Optional[List[Tuple[int, int]]] = None,
+    *,
+    disorder_policy: str = "as_refined",
 ) -> List[CrystalMolecule]:
     """
     Identify discrete molecular units using robust vector-based unwrapping.
@@ -773,6 +797,16 @@ def identify_molecules(
     same non-zero PART group must also come from the same generated image
     before they can bond. ``exclude_indices`` remains available for callers
     that need to remove atoms from bond perception entirely.
+
+    ``disorder_policy`` decides what happens when those rules still leave
+    alternative orientations inside one component (a shared ordered atom, or
+    partial occupancies with no disorder group). The default is
+    ``"as_refined"``: every refined atom stays in the result, so existing
+    callers keep full atom coverage. ``"major"`` keeps the highest-occupancy
+    orientation plus ordered atoms. ``"exclusive"`` emits one molecule per
+    orientation, copying ordered atoms into each. Shell construction applies
+    ``"major"`` itself; pass it here only when the molecules should already
+    be occupied states. See :mod:`molcrys_kit.analysis.disorder.policy`.
     """
     from ..constants.config import (
         KEY_ASSEMBLY,
@@ -878,7 +912,101 @@ def identify_molecules(
             edge_data["image_shift"] = np.zeros(3, dtype=int)
         molecules.append(molecule)
 
-    return molecules
+    return _molecules_under_disorder_policy(molecules, disorder_policy)
+
+
+def _indices_under_disorder_policy(
+    atoms: Atoms,
+    components: List[List[int]],
+    disorder_policy: str,
+) -> List[List[int]]:
+    """Apply a disorder policy to graph components without copying molecules."""
+    from ..analysis.disorder.policy import (
+        disorder_realizations,
+        normalize_disorder_policy,
+    )
+
+    policy = normalize_disorder_policy(disorder_policy)
+    if policy == "as_refined":
+        return components
+    selected: List[List[int]] = []
+    for component in components:
+        if not component:
+            continue
+        subset = atoms[component]
+        realizations = disorder_realizations(subset, policy)
+        if len(realizations) == 1 and not realizations[0].drops_atoms:
+            selected.append(component)
+            continue
+        for realization in realizations:
+            chosen = [
+                component[int(local_index)]
+                for local_index in np.flatnonzero(realization.mask)
+            ]
+            if chosen:
+                selected.append(chosen)
+    return selected
+
+
+def _molecules_under_disorder_policy(
+    molecules: List[CrystalMolecule],
+    disorder_policy: str,
+) -> List[CrystalMolecule]:
+    """Split or trim identified molecules under ``disorder_policy``."""
+    from ..analysis.disorder.policy import (
+        disorder_realizations,
+        normalize_disorder_policy,
+    )
+
+    policy = normalize_disorder_policy(disorder_policy)
+    if policy == "as_refined":
+        return molecules
+    selected: List[CrystalMolecule] = []
+    for molecule in molecules:
+        realizations = disorder_realizations(molecule, policy)
+        if len(realizations) == 1 and not realizations[0].drops_atoms:
+            selected.append(molecule)
+            continue
+        for realization in realizations:
+            selected.append(_subset_molecule_realization(molecule, realization, policy))
+    return selected
+
+
+def _subset_molecule_realization(
+    molecule: CrystalMolecule,
+    realization,
+    disorder_policy: str,
+) -> CrystalMolecule:
+    """Return one orientation, preserving bonds among the atoms it keeps."""
+    local_indices = [int(index) for index in np.flatnonzero(realization.mask)]
+    sliced = molecule[local_indices]
+    subset = CrystalMolecule(sliced, check_pbc=False)
+    global_indices = list(molecule.info.get("atom_indices", range(len(molecule))))
+    kept_global = [global_indices[index] for index in local_indices]
+    kept_global_set = set(kept_global)
+    subset.info["atom_indices"] = kept_global
+    subset.info["unwrap_completed"] = molecule.info.get("unwrap_completed", True)
+    subset.info["disorder_policy"] = disorder_policy
+    subset.info["disorder_component_ids"] = list(realization.component_ids)
+    subset.info["bond_pairs"] = [
+        (int(left), int(right))
+        for left, right in molecule.info.get("bond_pairs", [])
+        if int(left) in kept_global_set and int(right) in kept_global_set
+    ]
+    subset.info["bond_records"] = [
+        dict(record)
+        for record in molecule.info.get("bond_records", [])
+        if int(record.get("left", -1)) in kept_global_set
+        and int(record.get("right", -1)) in kept_global_set
+    ]
+    graph = getattr(molecule, "_graph", None)
+    if graph is not None:
+        mapping = {old: new for new, old in enumerate(local_indices)}
+        relabeled = nx.relabel_nodes(
+            graph.subgraph(local_indices).copy(), mapping, copy=True
+        )
+        subset._graph = relabeled
+    return subset
 
 
 @dataclass
@@ -2283,6 +2411,7 @@ def scan_cif_disorder(
     )
 
 
+@_collapse_disorder_warnings
 def read_mol_crystal(
     filepath: Optional[str] = None,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
@@ -2292,6 +2421,7 @@ def read_mol_crystal(
     *,
     cif_text: Optional[str] = None,
     attach_chemistry: bool = True,
+    disorder_policy: str = "as_refined",
 ) -> MolecularCrystal:
     """
     Parse a CIF with advanced molecular grouping.
@@ -2316,6 +2446,13 @@ def read_mol_crystal(
     attach_chemistry : bool
         Attach the default inferred chemistry snapshot. Set to ``False`` for
         geometry-only callers that need to avoid the perception pass.
+    disorder_policy : str
+        ``"as_refined"`` (default) keeps every refined site, including
+        alternative orientations that share an ordered atom. ``"major"``
+        keeps the highest-occupancy orientation of each exclusive family.
+        ``"exclusive"`` returns one molecule per orientation. Shell searches
+        apply ``"major"`` themselves, so a default read can still be used
+        with :func:`molcrys_kit.analysis.packing_shell.find_polyhedra`.
 
     Returns
     -------
@@ -2636,8 +2773,13 @@ def read_mol_crystal(
             n_partial = sum(1 for o in disorder_info.occupancies if o < 1.0)
             warnings.warn(
                 f"Structure contains disorder ({n_partial} atoms with occupancy < 1.0). "
-                "Molecule identification may include disorder fragments. "
-                "Use resolve_disorder=True or 'mck operate disorder' to resolve.",
+                "Molecule identification keeps every refined site "
+                f"(disorder_policy={disorder_policy!r}). "
+                "Pass disorder_policy='major' to keep the highest-occupancy "
+                "orientation, or use find_polyhedra, which applies that policy "
+                "when it builds a ligand shell. "
+                "Use resolve_disorder=True or 'mck operate disorder' for a "
+                "fully ordered replica.",
                 stacklevel=2,
             )
 
@@ -2749,6 +2891,7 @@ def read_mol_crystal(
         max_atoms=max_atoms,
         bond_scale=bond_scale,
         explicit_bonds=explicit_bonds,
+        disorder_policy=disorder_policy,
     )
 
     pbc = (True, True, True)
@@ -3042,6 +3185,7 @@ def _identify_molecules_asu_first(
     max_atoms: Optional[int] = None,
     bond_scale: float = 1.0,
     special_position_tol: float = 0.5,
+    disorder_policy: str = "as_refined",
 ) -> MolecularCrystal:
     """
     ASU-first molecule identification: identify molecules on the asymmetric unit,
@@ -3089,6 +3233,7 @@ def _identify_molecules_asu_first(
         bond_thresholds=bond_thresholds,
         max_atoms=max_atoms,
         bond_scale=bond_scale,
+        disorder_policy=disorder_policy,
     )
 
     def _complete_shared_h_center(mol: CrystalMolecule) -> Optional[int]:
@@ -3405,6 +3550,7 @@ def _identify_molecules_asu_first(
                 bond_thresholds=bond_thresholds,
                 max_atoms=max_atoms,
                 bond_scale=bond_scale,
+                disorder_policy="as_refined",
             )
             all_molecules = final_normal + merged_special
         else:
