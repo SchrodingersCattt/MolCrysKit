@@ -52,6 +52,7 @@ import numpy as np
 from ..chemistry.topology import integer_translation_basis
 from ..constants.config import (
     DISORDER_CONFIG,
+    KEY_OCCUPANCY,
     PARTIAL_OCCUPANCY_TOLERANCE,
     PERIODIC_NEIGHBOR_TOLERANCE_A,
     SHELL_TIER_DISTANCE_TOLERANCE_A,
@@ -207,6 +208,8 @@ class ShellVertex:
     formula: str
     species_id: str
     disorder_component_ids: tuple[str, ...] = ()
+    occupancy_sum: float | None = None
+    competes_for_site: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,6 +221,10 @@ class ShellVertex:
             "formula": self.formula,
             "species_id": self.species_id,
             "disorder_component_ids": list(self.disorder_component_ids),
+            "occupancy_sum": None
+            if self.occupancy_sum is None
+            else float(self.occupancy_sum),
+            "competes_for_site": self.competes_for_site,
         }
 
     @property
@@ -239,6 +246,8 @@ class ShellCandidate:
     formula: str
     species_id: str
     disorder_component_ids: tuple[str, ...] = ()
+    occupancy_sum: float | None = None
+    competes_for_site: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -250,6 +259,10 @@ class ShellCandidate:
             "formula": self.formula,
             "species_id": self.species_id,
             "disorder_component_ids": list(self.disorder_component_ids),
+            "occupancy_sum": None
+            if self.occupancy_sum is None
+            else float(self.occupancy_sum),
+            "competes_for_site": self.competes_for_site,
         }
 
 
@@ -276,6 +289,8 @@ class CoordinationShell:
     enclosed: bool | None = None
     rejection_reason: str | None = None
     disorder_component_ids: tuple[str, ...] = ()
+    occupancy_sum: float | None = None
+    competes_for_site: bool | None = None
 
     @property
     def centre(self) -> CentreId:
@@ -310,6 +325,10 @@ class CoordinationShell:
             "enclosed": self.enclosed,
             "rejection_reason": self.rejection_reason,
             "disorder_component_ids": list(self.disorder_component_ids),
+            "occupancy_sum": None
+            if self.occupancy_sum is None
+            else float(self.occupancy_sum),
+            "competes_for_site": self.competes_for_site,
         }
 
 
@@ -1285,6 +1304,8 @@ def _vertex_from_candidate(
         formula=candidate.formula,
         species_id=candidate.species_id,
         disorder_component_ids=tuple(candidate.disorder_component_ids),
+        occupancy_sum=candidate.occupancy_sum,
+        competes_for_site=candidate.competes_for_site,
     )
 
 
@@ -1517,8 +1538,79 @@ def _view_from_realization(
         "formula": _format_molecule_formula(symbols),
         "occupancy_sum": float(realization.occupancy_sum),
         "competes": bool(realization.competes_for_site),
+        "partial_occupancy": _mask_is_partial(molecule, mask),
         "policy": policy,
     }
+
+
+def _mask_is_partial(molecule, mask: np.ndarray) -> bool:
+    """True when a kept site is occupied below a full site."""
+    count = len(molecule)
+    kept = np.asarray(mask, dtype=bool)
+    if count == 0 or kept.shape[0] != count or not kept.any():
+        return False
+    arrays = getattr(molecule, "arrays", {})
+    if KEY_OCCUPANCY in arrays:
+        occupancies = np.asarray(arrays[KEY_OCCUPANCY], dtype=float)
+    else:
+        occupancies = np.ones(count, dtype=float)
+    if occupancies.shape[0] != count:
+        return False
+    return bool(np.any(occupancies[kept] < 1.0 - PARTIAL_OCCUPANCY_TOLERANCE))
+
+
+def _view_key(view: dict[str, Any]) -> tuple[int, int]:
+    return (int(view["molecule_index"]), int(view["realization_index"]))
+
+
+def _has_site_alternative(
+    view: dict[str, Any], pool: Sequence[dict[str, Any]], molecule
+) -> bool:
+    """True when another exclusive realization or a competing neighbour exists."""
+    if len(disorder_realizations(molecule, "exclusive")) > 1:
+        return True
+    clash = float(DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"])
+    identity = _view_key(view)
+    for other in pool:
+        if _view_key(other) == identity:
+            continue
+        if other["signature"] != view["signature"]:
+            continue
+        if not view["competes"] or not other["competes"]:
+            continue
+        distance = float(np.linalg.norm(view["centre"] - other["centre"]))
+        if distance <= clash:
+            return True
+    return False
+
+
+def _orphan_partial_keys(
+    molecules, views: Sequence[dict[str, Any]]
+) -> set[tuple[int, int]]:
+    """Partial sites that enter with no alternative realization to choose."""
+    keys: set[tuple[int, int]] = set()
+    for view in views:
+        if not view.get("partial_occupancy"):
+            continue
+        molecule = molecules[int(view["molecule_index"])]
+        if _has_site_alternative(view, views, molecule):
+            continue
+        keys.add(_view_key(view))
+    return keys
+
+
+def _network_uses_orphan_partial(networks, orphan_keys: set[tuple[int, int]]) -> bool:
+    for network in networks:
+        for shell in network.shells:
+            if (int(shell.molecule_index), int(shell.realization_index)) in orphan_keys:
+                return True
+            for vertex in shell.vertices:
+                if (
+                    int(vertex.molecule_index),
+                    int(vertex.realization_index),
+                ) in orphan_keys:
+                    return True
+    return False
 
 
 def _policy_views(molecules, center_kind: str, policy: str) -> list[dict[str, Any]]:
@@ -1848,6 +1940,8 @@ def _shell_from_centre(
             disorder_component_ids=tuple(
                 str(item) for item in view.get("component_ids") or ()
             ),
+            occupancy_sum=float(view["occupancy_sum"]),
+            competes_for_site=bool(view["competes"]),
         )
 
     vertices = tuple(_vertex(entry, entry[0]) for entry in entries[:count])
@@ -1863,6 +1957,8 @@ def _shell_from_centre(
             disorder_component_ids=tuple(
                 str(item) for item in entry[1].get("component_ids") or ()
             ),
+            occupancy_sum=float(entry[1]["occupancy_sum"]),
+            competes_for_site=bool(entry[1]["competes"]),
         )
         for entry in entries[count:]
     )
@@ -1888,6 +1984,8 @@ def _shell_from_centre(
         disorder_component_ids=tuple(
             str(item) for item in centre_view.get("component_ids") or ()
         ),
+        occupancy_sum=float(centre_view["occupancy_sum"]),
+        competes_for_site=bool(centre_view["competes"]),
     )
 
 
@@ -1920,17 +2018,29 @@ def _require_known_species(requested: str | None, known: set[str], role: str) ->
     )
 
 
-def _warnings_for(status: str, policy: str) -> tuple[str, ...]:
+def _warnings_for(
+    status: str,
+    policy: str,
+    *,
+    unresolved_components: bool,
+    partial_occupancy: bool,
+) -> tuple[str, ...]:
     warnings: list[str] = []
     if policy == "exclusive":
         warnings.append(
             "exclusive polyhedron networks are local diagnostics, one alternative "
             "at a time; they are not a joint configuration of the whole crystal."
         )
-    if status == "unresolved":
+    if unresolved_components:
         warnings.append(
             "as_refined keeps mutually exclusive components in one polyhedron "
             "network; it is not a simultaneously occupied crystal."
+        )
+    if partial_occupancy:
+        warnings.append(
+            "a centre or ligand that enters this network has partial occupancy "
+            "and no exclusive alternative; reported contacts and dimensionality "
+            "are conditional on that undetermined occupancy."
         )
     if status == "tie_broken":
         warnings.append(
@@ -1969,12 +2079,16 @@ def molecular_polyhedron_network(
     disorder component. The centre follows ``disorder_policy``.
 
     ``major`` returns one network. Its status is ``resolved`` when the kept
-    realization is unique and ``tie_broken`` when equal occupancies were split
-    by the existing tie-break. ``exclusive`` returns one
+    realization is unique and fully occupied, and ``tie_broken`` when equal
+    occupancies were split by the existing tie-break. It is ``unresolved`` when
+    a centre or ligand that enters the network still has partial occupancy and
+    no exclusive alternative; the reported contacts and dimensionality are then
+    conditional on that undetermined occupancy. ``exclusive`` returns one
     ``conditional_local`` network per local alternative, including one flip of
     a competing centre at a time rather than their Cartesian product.
     ``as_refined`` returns one network and marks it ``unresolved`` while a
-    selected centre or ligand molecule still has mutually exclusive components.
+    selected centre or ligand molecule still has mutually exclusive components
+    or the same undetermined partial occupancy.
 
     ``central_species`` and ``ligand_species`` are replica-local ``formula_k``
     labels. ``ligand_indices`` and ``ligand_species`` remove candidates before
@@ -2034,24 +2148,25 @@ def molecular_polyhedron_network(
             )
         ]
 
-    unresolved = False
+    unresolved_components = False
     if policy == "as_refined":
         watched = {int(view["molecule_index"]) for view in ligand_views}
         for replica in replicas:
             watched.update(int(view["molecule_index"]) for view in replica)
         if any(_has_alternatives(molecules[index]) for index in watched):
-            unresolved = True
+            unresolved_components = True
         if any(_competing_views(replica) for replica in replicas):
-            unresolved = True
+            unresolved_components = True
 
-    if policy == "exclusive":
-        status = "conditional_local"
-    elif unresolved:
-        status = "unresolved"
-    elif tie_broken:
-        status = "tie_broken"
-    else:
-        status = "resolved"
+    candidate_views = list(raw_major)
+    seen_views = {_view_key(view) for view in candidate_views}
+    for replica in replicas:
+        for view in replica:
+            identity = _view_key(view)
+            if identity not in seen_views:
+                candidate_views.append(view)
+                seen_views.add(identity)
+    orphan_partial = _orphan_partial_keys(molecules, candidate_views)
 
     major_masks = {int(view["molecule_index"]): view["mask"] for view in major_views}
     homo = central_signature == ligand_signature
@@ -2131,12 +2246,26 @@ def molecular_polyhedron_network(
                 include_cycle_translations=include_cycle_translations,
             )
         )
+    partial_occupancy = _network_uses_orphan_partial(networks, orphan_partial)
+    if policy == "exclusive":
+        status = "conditional_local"
+    elif unresolved_components or partial_occupancy:
+        status = "unresolved"
+    elif tie_broken:
+        status = "tie_broken"
+    else:
+        status = "resolved"
     return PolyhedronNetworkReport(
         networks=tuple(networks),
         configuration_status=status,
         centre_disorder=policy,
         ligand_disorder="major",
-        warnings=_warnings_for(status, policy),
+        warnings=_warnings_for(
+            status,
+            policy,
+            unresolved_components=unresolved_components,
+            partial_occupancy=partial_occupancy,
+        ),
     )
 
 

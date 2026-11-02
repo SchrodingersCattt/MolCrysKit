@@ -1087,3 +1087,118 @@ def test_changed_contact_records_shared_vertices_before_and_after():
     payload = diff.to_dict()
     assert len(payload["before_shared_vertices"]) == 3
     assert len(payload["after_shared_vertices"]) == 4
+
+
+def _bridge_crystal(
+    axes,
+    *,
+    lattice=None,
+    cell: float = 10.0,
+    ligand_occupancy: dict[int, float] | None = None,
+    centre_occupancy: float | None = None,
+) -> MolecularCrystal:
+    if lattice is None:
+        lattice = np.eye(3) * cell
+    centre = _atom("N", np.zeros(3), lattice)
+    if centre_occupancy is not None:
+        centre.set_array(KEY_OCCUPANCY, np.array([centre_occupancy], dtype=float))
+    molecules = [centre]
+    for axis in axes:
+        ligand = _atom("Cl", 0.5 * np.asarray(lattice[axis], dtype=float), lattice)
+        if ligand_occupancy is not None and axis in ligand_occupancy:
+            ligand.set_array(
+                KEY_OCCUPANCY, np.array([ligand_occupancy[axis]], dtype=float)
+            )
+        molecules.append(ligand)
+    return _crystal(molecules, lattice=lattice)
+
+
+def _bridge_report(crystal: MolecularCrystal, **kwargs):
+    return molecular_polyhedron_network(
+        crystal,
+        "N",
+        "Cl",
+        cutoff=6.0,
+        hard_cutoff=6.0,
+        classify_boundary=False,
+        **kwargs,
+    )
+
+
+def test_ideal_network_rank_for_finite_layer_and_framework():
+    finite_cell = np.eye(3) * 30.0
+    finite = _crystal(
+        [
+            _atom("N", [0.0, 0.0, 0.0], finite_cell),
+            _atom("Cl", [4.0, 0.0, 0.0], finite_cell),
+        ],
+        lattice=finite_cell,
+    )
+    finite_report = _bridge_report(finite)
+    assert finite_report.configuration_status == "resolved"
+    assert finite_report.warnings == ()
+    assert finite_report.networks[0].components[0].rank == 0
+    assert finite_report.networks[0].components[0].translation_generators == ()
+
+    layer = _bridge_report(_bridge_crystal((0, 1)))
+    assert layer.configuration_status == "resolved"
+    assert layer.networks[0].components[0].rank == 2
+    assert set(layer.networks[0].components[0].translation_generators) == {
+        (1, 0, 0),
+        (0, 1, 0),
+    }
+
+    cubic = _bridge_crystal((0, 1, 2))
+    framework = _bridge_report(cubic)
+    assert framework.configuration_status == "resolved"
+    assert framework.networks[0].components[0].rank == 3
+    assert framework.networks[0].components[0].translation_generators == (
+        (1, 0, 0),
+        (0, 1, 0),
+        (0, 0, 1),
+    )
+    oblique = np.array(
+        [[10.0, 0.0, 0.0], [3.0, 8.0, 0.0], [0.4, 0.2, 10.0]],
+        dtype=float,
+    )
+    oblique_report = _bridge_report(_bridge_crystal((0, 1, 2), lattice=oblique))
+    assert oblique_report.networks[0].components[0].rank == 3
+    supercell = _bridge_report(cubic.get_supercell(2, 1, 1))
+    assert [component.rank for component in supercell.networks[0].components] == [3]
+
+
+def test_orphan_partial_occupancy_is_not_a_resolved_network():
+    ordered = _bridge_report(_bridge_crystal((0, 1, 2)))
+    partial_ligand = _bridge_report(
+        _bridge_crystal((0, 1, 2), ligand_occupancy={0: 0.5})
+    )
+    assert ordered.configuration_status == "resolved"
+    assert ordered.warnings == ()
+    assert partial_ligand.configuration_status == "unresolved"
+    assert any(
+        "undetermined occupancy" in warning for warning in partial_ligand.warnings
+    )
+    assert ordered.to_dict() != partial_ligand.to_dict()
+    assert ordered.networks[0].components[0].rank == 3
+    assert partial_ligand.networks[0].components[0].rank == 3
+    ligand_sums = [
+        vertex.occupancy_sum for vertex in partial_ligand.networks[0].shells[0].vertices
+    ]
+    assert 0.5 in ligand_sums
+    assert all(
+        vertex.occupancy_sum == pytest.approx(1.0)
+        for vertex in ordered.networks[0].shells[0].vertices
+    )
+    assert ordered.networks[0].shells[0].occupancy_sum == pytest.approx(1.0)
+
+    partial_centre = _bridge_report(_bridge_crystal((0, 1, 2), centre_occupancy=0.5))
+    assert partial_centre.configuration_status == "unresolved"
+    assert partial_centre.networks[0].shells[0].occupancy_sum == pytest.approx(0.5)
+    assert partial_centre.to_dict() != ordered.to_dict()
+
+    refined = _bridge_report(
+        _bridge_crystal((0, 1, 2), ligand_occupancy={0: 0.5}),
+        disorder_policy="as_refined",
+    )
+    assert refined.configuration_status == "unresolved"
+    assert any("undetermined occupancy" in warning for warning in refined.warnings)
