@@ -334,16 +334,14 @@ def test_isomers_are_split_before_the_shell_is_chosen():
         ligand_indices=[2],
     )
     assert charged_moiety.networks[0].shells[0].vertices[0].molecule_index == 2
-    assert (
+    with pytest.raises(ValueError, match="central_species"):
         molecular_polyhedron_network(
             crystal,
             "N",
             "C2O",
             cutoff=8.0,
             central_species="N_2",
-        ).networks
-        == ()
-    )
+        )
 
 
 def test_exclusive_centres_are_not_merged_and_as_refined_stays_unresolved():
@@ -933,3 +931,159 @@ def test_polyhedron_network_cli_reports_one_centre_type(tmp_path):
         len(network["shells"][0]["vertices"])
         == len(network["contacts"][0]["shared_vertices"]) + 1
     )
+
+
+def test_split_distance_tier_is_indeterminate_and_keeps_enclosure():
+    lattice = np.eye(3) * 30.0
+    crystal = _crystal(
+        [_atom("N", [0.0, 0.0, 0.0], lattice)]
+        + [
+            _atom("Cl", point, lattice)
+            for point in [(3, 0, 0), (-3, 0, 0), (0, 3, 0), (0, -3, 0)]
+        ],
+        lattice=lattice,
+    )
+    report = molecular_polyhedron_network(crystal, "N", "Cl", cutoff=6.0)
+    shell = report.networks[0].shells[0]
+    assert len(shell.vertices) == 1
+    assert [
+        candidate.distance_A for candidate in shell.outside_candidates
+    ] == pytest.approx([3.0, 3.0, 3.0])
+    assert shell.enclosed is False
+    assert shell.rejection_reason == "centre_not_enclosed"
+    added = report.networks[0].boundary.add_next_tier
+    assert added.status == "indeterminate"
+    assert added.reason == "split_distance_tier"
+    assert added.added is None
+    assert added.removed is None
+    assert added.changed is None
+    assert added.coordination is None
+    with pytest.raises(ValueError, match="ligand_species"):
+        molecular_polyhedron_network(
+            crystal, "N", "Cl", cutoff=6.0, ligand_species="Cl_999"
+        )
+    with pytest.raises(ValueError, match="central_species"):
+        molecular_polyhedron_network(
+            crystal, "N", "Cl", cutoff=6.0, central_species="N_999"
+        )
+
+
+def test_shallow_pyramid_contact_does_not_depend_on_origin():
+    def contact_at(dx: float):
+        points = [
+            (-1 + dx, -1, 0),
+            (1 + dx, -1, 0),
+            (1 + dx, 1, 0),
+            (-1 + dx, 1, 0),
+            (dx, 0, 0.01),
+        ]
+        left = _shell(
+            10,
+            (dx, 0, 2),
+            [_vertex(index, point) for index, point in enumerate(points, start=1)],
+        )
+        right = _shell(
+            11,
+            (dx, 0, -2),
+            [
+                _vertex(1, points[0]),
+                _vertex(2, points[1]),
+                _vertex(5, points[4]),
+            ],
+        )
+        contact = polyhedron_network_from_shells(
+            [left, right], np.eye(3) * 30.0, classify_boundary=False
+        ).contacts[0]
+        return contact.relation, contact.ambiguity
+
+    assert contact_at(0) == contact_at(10) == ("ambiguous", "tolerance_sensitive")
+
+
+def test_exclusive_shell_keeps_disorder_component_ids():
+    lattice = np.eye(3) * 30.0
+    site = np.array([10.0, 10.0, 10.0])
+    tetra = np.array(
+        [[1.0, 1.0, 1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]],
+        dtype=float,
+    )
+    tetra *= 1.45 / np.sqrt(3.0)
+    theta = np.deg2rad(55.0)
+    rotation = np.array(
+        [
+            [np.cos(theta), -np.sin(theta), 0.0],
+            [np.sin(theta), np.cos(theta), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    minor = tetra @ rotation.T + np.array([0.25, 0.0, 0.0])
+    centre = Atoms(
+        ["N"] + ["C"] * 8,
+        positions=np.vstack([site, site + tetra, site + minor]),
+        cell=lattice,
+        pbc=True,
+    )
+    centre.set_array(KEY_DISORDER_GROUP, np.array([0] + [1] * 4 + [2] * 4, dtype=int))
+    centre.set_array(KEY_OCCUPANCY, np.array([1.0] + [0.65] * 4 + [0.35] * 4))
+    centre.set_array(KEY_ASSEMBLY, np.array([""] * 9, dtype=object))
+    ligands = []
+    for axis in range(3):
+        for sign in (-1.0, 1.0):
+            offset = np.zeros(3)
+            offset[axis] = sign * 5.0
+            ligands.append(_atom("Cl", site + offset, lattice))
+    crystal = _crystal([centre, *ligands], lattice=lattice)
+    legacy = find_polyhedra(
+        crystal, "N C4", "Cl", level="molecule", cutoff=8.0, disorder_policy="exclusive"
+    )
+    report = molecular_polyhedron_network(
+        crystal, "N C4", "Cl", cutoff=8.0, disorder_policy="exclusive"
+    )
+    assert {tuple(record["disorder_component_ids"]) for record in legacy} == {
+        ("group:1",),
+        ("group:2",),
+    }
+    assert {
+        tuple(network.shells[0].disorder_component_ids) for network in report.networks
+    } == {("group:1",), ("group:2",)}
+    for network in report.networks:
+        assert network.shells[0].vertices
+        assert all(
+            vertex.disorder_component_ids == () for vertex in network.shells[0].vertices
+        )
+        assert "disorder_component_ids" in network.shells[0].vertices[0].to_dict()
+
+
+def test_changed_contact_records_shared_vertices_before_and_after():
+    triangle = [(1, (0, 0, 0)), (2, (2, 0, 0)), (3, (0, 2, 0))]
+    left = _shell(
+        10,
+        (0, 0, 1),
+        [_vertex(index, point) for index, point in triangle + [(5, (0, 0, 2))]],
+        [_candidate(4, (2, 2, 0))],
+    )
+    right = _shell(
+        11,
+        (0, 0, -1),
+        [_vertex(index, point) for index, point in triangle + [(6, (0, 0, -2))]],
+        [_candidate(4, (2, 2, 0))],
+    )
+    network = polyhedron_network_from_shells([left, right], np.eye(3) * 30.0)
+    changed = network.boundary.add_next_tier.changed
+    assert len(changed) == 1
+    diff = changed[0]
+    assert diff.before_relation == diff.after_relation == "face"
+    assert diff.before_ambiguity is None and diff.after_ambiguity is None
+    assert {vertex.molecule_index for vertex in diff.before_shared_vertices} == {
+        1,
+        2,
+        3,
+    }
+    assert {vertex.molecule_index for vertex in diff.after_shared_vertices} == {
+        1,
+        2,
+        3,
+        4,
+    }
+    payload = diff.to_dict()
+    assert len(payload["before_shared_vertices"]) == 3
+    assert len(payload["after_shared_vertices"]) == 4

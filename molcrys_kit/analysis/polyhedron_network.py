@@ -36,6 +36,7 @@ of that replica, in the ``formula_k`` style used by
 
 from __future__ import annotations
 
+import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
@@ -71,7 +72,7 @@ from .packing_shell import (
     _parse_moiety_signature,
     detect_coordination_number,
 )
-from ..structures.polyhedra import _group_coplanar_hull_faces, _ordered_face_edges
+from ..structures.polyhedra import _ordered_face_edges
 
 try:
     from scipy.spatial import ConvexHull
@@ -81,6 +82,9 @@ except Exception:  # pragma: no cover - optional dependency
 
 _FULL_PBC = (True, True, True)
 _FACE_MERGE_DEG = 1.0
+# Same absolute plane tolerance used when merged hull triangles are one facet.
+# A pair inside the angle window but outside this distance is tolerance-sensitive.
+_HULL_PLANE_TOLERANCE = 1e-6
 
 
 def _require_full_pbc(pbc) -> tuple[bool, bool, bool]:
@@ -199,6 +203,7 @@ class ShellVertex:
     distance_A: float
     formula: str
     species_id: str
+    disorder_component_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -209,6 +214,7 @@ class ShellVertex:
             "distance_A": float(self.distance_A),
             "formula": self.formula,
             "species_id": self.species_id,
+            "disorder_component_ids": list(self.disorder_component_ids),
         }
 
     @property
@@ -229,6 +235,7 @@ class ShellCandidate:
     distance_A: float
     formula: str
     species_id: str
+    disorder_component_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -239,6 +246,7 @@ class ShellCandidate:
             "distance_A": float(self.distance_A),
             "formula": self.formula,
             "species_id": self.species_id,
+            "disorder_component_ids": list(self.disorder_component_ids),
         }
 
 
@@ -262,6 +270,9 @@ class CoordinationShell:
     ligand_disorder_policy: str | None = None
     outside_candidates: tuple[ShellCandidate, ...] | None = None
     hard_cutoff_A: float | None = None
+    enclosed: bool | None = None
+    rejection_reason: str | None = None
+    disorder_component_ids: tuple[str, ...] = ()
 
     @property
     def centre(self) -> CentreId:
@@ -293,6 +304,9 @@ class CoordinationShell:
             "hard_cutoff_A": None
             if self.hard_cutoff_A is None
             else float(self.hard_cutoff_A),
+            "enclosed": self.enclosed,
+            "rejection_reason": self.rejection_reason,
+            "disorder_component_ids": list(self.disorder_component_ids),
         }
 
 
@@ -367,6 +381,8 @@ class ContactChange:
     after_relation: str
     before_ambiguity: str | None
     after_ambiguity: str | None
+    before_shared_vertices: tuple[SharedVertex, ...] = ()
+    after_shared_vertices: tuple[SharedVertex, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -377,6 +393,12 @@ class ContactChange:
             "after_relation": self.after_relation,
             "before_ambiguity": self.before_ambiguity,
             "after_ambiguity": self.after_ambiguity,
+            "before_shared_vertices": [
+                vertex.to_dict() for vertex in self.before_shared_vertices
+            ],
+            "after_shared_vertices": [
+                vertex.to_dict() for vertex in self.after_shared_vertices
+            ],
         }
 
 
@@ -521,6 +543,8 @@ class _BoundaryModel:
     non_vertices: set[int]
     edges: set[tuple[int, int]]
     faces: set[frozenset[int]]
+    loose_edges: set[tuple[int, int]] | None = None
+    loose_faces: set[frozenset[int]] | None = None
 
 
 _FAILED_MODEL = _BoundaryModel(True, -1, set(), set(), set())
@@ -750,6 +774,100 @@ def _model_2d(points: np.ndarray) -> _BoundaryModel:
     )
 
 
+def _simplex_frame(points: np.ndarray, simplex, equation) -> tuple | None:
+    indices = tuple(int(index) for index in simplex)
+    origin = points[indices[0]]
+    normal = np.cross(
+        points[indices[1]] - origin,
+        points[indices[2]] - origin,
+    )
+    scale = float(np.linalg.norm(normal))
+    if scale < 1e-12:
+        return None
+    normal = normal / scale
+    hull_normal = np.asarray(equation[:3], dtype=float)
+    hull_scale = float(np.linalg.norm(hull_normal))
+    if hull_scale >= 1e-12 and float(np.dot(normal, hull_normal / hull_scale)) < 0.0:
+        normal = -normal
+    return normal, origin, indices
+
+
+def _plane_gap(points: np.ndarray, left, right) -> float:
+    normal, origin, _indices = left
+    return max(abs(float(np.dot(normal, points[index] - origin))) for index in right[2])
+
+
+def _grouped_hull_faces(
+    points: np.ndarray,
+    hull,
+    *,
+    merge_parallel: bool,
+) -> list[tuple[np.ndarray, tuple[int, ...]]] | None:
+    """Group hull triangles with a translation-invariant plane test.
+
+    ``merge_parallel`` joins every pair whose normals lie within the face
+    angle, ignoring plane separation. The strict grouping also requires the
+    vertices to sit on one plane. The two results disagree exactly when the
+    angle tolerance would merge a shallow, non-coplanar pair.
+    """
+    frames = []
+    for simplex, equation in zip(hull.simplices, hull.equations):
+        frame = _simplex_frame(points, simplex, equation)
+        if frame is not None:
+            frames.append(frame)
+    parent = list(range(len(frames)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    cos_tol = math.cos(math.radians(_FACE_MERGE_DEG))
+    for left, right in combinations(range(len(frames)), 2):
+        if float(np.dot(frames[left][0], frames[right][0])) < cos_tol:
+            continue
+        gap = max(
+            _plane_gap(points, frames[left], frames[right]),
+            _plane_gap(points, frames[right], frames[left]),
+        )
+        if gap <= _HULL_PLANE_TOLERANCE or merge_parallel:
+            union(left, right)
+    grouped: dict[int, set[int]] = defaultdict(set)
+    normals: dict[int, list[np.ndarray]] = defaultdict(list)
+    for index, (normal, _origin, indices) in enumerate(frames):
+        root = find(index)
+        grouped[root].update(indices)
+        normals[root].append(normal)
+    faces = []
+    for root, vertices in grouped.items():
+        normal = np.mean(np.vstack(normals[root]), axis=0)
+        faces.append((normal, tuple(sorted(vertices))))
+    return faces
+
+
+def _edges_and_faces(
+    points: np.ndarray,
+    grouped: list[tuple[np.ndarray, tuple[int, ...]]],
+) -> tuple[set[tuple[int, int]], set[frozenset[int]]] | None:
+    edges: set[tuple[int, int]] = set()
+    faces: set[frozenset[int]] = set()
+    for normal, vertices in grouped:
+        faces.add(frozenset(vertices))
+        try:
+            face_edges = _ordered_face_edges(points, normal, vertices)
+        except Exception:
+            return None
+        edges.update(tuple(sorted(int(index) for index in edge)) for edge in face_edges)
+    return edges, faces
+
+
 def _model_3d(points: np.ndarray) -> _BoundaryModel:
     if ConvexHull is None:
         return _FAILED_MODEL
@@ -758,27 +876,31 @@ def _model_3d(points: np.ndarray) -> _BoundaryModel:
     except Exception:
         return _FAILED_MODEL
     try:
-        grouped = _group_coplanar_hull_faces(
-            points,
-            hull,
-            face_merge_tol_deg=_FACE_MERGE_DEG,
-        )
+        strict = _grouped_hull_faces(points, hull, merge_parallel=False)
+        loose = _grouped_hull_faces(points, hull, merge_parallel=True)
     except Exception:
         return _FAILED_MODEL
-    edges: set[tuple[int, int]] = set()
-    faces: set[frozenset[int]] = set()
-    for normal, vertices in grouped:
-        faces.add(frozenset(int(index) for index in vertices))
-        try:
-            face_edges = _ordered_face_edges(points, normal, vertices)
-        except Exception:
-            return _FAILED_MODEL
-        edges.update(tuple(sorted(int(index) for index in edge)) for edge in face_edges)
+    if strict is None or loose is None:
+        return _FAILED_MODEL
+    strict_boundary = _edges_and_faces(points, strict)
+    loose_boundary = _edges_and_faces(points, loose)
+    if strict_boundary is None or loose_boundary is None:
+        return _FAILED_MODEL
+    edges, faces = strict_boundary
+    loose_edges, loose_faces = loose_boundary
     corners: set[int] = set()
     for face in faces:
         corners.update(face)
     corners.update(int(index) for index in hull.vertices)
-    return _BoundaryModel(False, 3, set(range(len(points))) - corners, edges, faces)
+    return _BoundaryModel(
+        False,
+        3,
+        set(range(len(points))) - corners,
+        edges,
+        faces,
+        loose_edges,
+        loose_faces,
+    )
 
 
 def _boundary_model(points: np.ndarray) -> _BoundaryModel:
@@ -792,9 +914,19 @@ def _boundary_model(points: np.ndarray) -> _BoundaryModel:
     return _model_3d(points)
 
 
-def _classify_subset(model: _BoundaryModel, subset: set[int]) -> tuple[str, str | None]:
+def _classify_subset(
+    model: _BoundaryModel,
+    subset: set[int],
+    *,
+    loose: bool = False,
+) -> tuple[str, str | None]:
     if model.failed or not subset:
         return ("ambiguous", "degenerate_shell")
+    edges = model.edges
+    faces = model.faces
+    if loose and model.loose_edges is not None and model.loose_faces is not None:
+        edges = model.loose_edges
+        faces = model.loose_faces
     if model.dimension <= 0:
         return ("corner", None)
     if any(index in model.non_vertices for index in subset):
@@ -803,12 +935,20 @@ def _classify_subset(model: _BoundaryModel, subset: set[int]) -> tuple[str, str 
         return ("corner", None)
     if len(subset) == 2:
         edge = tuple(sorted(subset))
-        if edge in model.edges:
+        if edge in edges:
             return ("edge", None)
         return ("ambiguous", "non_edge")
-    if frozenset(subset) in model.faces:
+    if frozenset(subset) in faces:
         return ("face", None)
     return ("ambiguous", "not_a_single_facet")
+
+
+def _tolerance_sensitive(model: _BoundaryModel, subset: set[int]) -> bool:
+    if model.loose_faces is None:
+        return False
+    return _classify_subset(model, subset) != _classify_subset(
+        model, subset, loose=True
+    )
 
 
 def _combine_relations(
@@ -988,6 +1128,10 @@ def _relation_for_share(
         right_subset.add(right_at)
     if not consistent:
         return ("ambiguous", "inconsistent_geometry")
+    if _tolerance_sensitive(left_model, left_subset) or _tolerance_sensitive(
+        right_model, right_subset
+    ):
+        return ("ambiguous", "tolerance_sensitive")
     return _combine_relations(
         _classify_subset(left_model, left_subset),
         _classify_subset(right_model, right_subset),
@@ -1118,6 +1262,8 @@ def _diff_contacts(
                 after_relation=new[key].relation,
                 before_ambiguity=old[key].ambiguity,
                 after_ambiguity=new[key].ambiguity,
+                before_shared_vertices=old[key].shared_vertices,
+                after_shared_vertices=new[key].shared_vertices,
             )
         )
     return added, removed, tuple(changed)
@@ -1135,6 +1281,7 @@ def _vertex_from_candidate(
         distance_A=distance,
         formula=candidate.formula,
         species_id=candidate.species_id,
+        disorder_component_ids=tuple(candidate.disorder_component_ids),
     )
 
 
@@ -1162,6 +1309,12 @@ def _add_next(
     tiers = _distance_tiers(distances)
     if not tiers:
         return "outside_candidates_missing", None
+    shell_distances = _vertex_distances(shell)
+    if shell_distances:
+        farthest_shell = max(shell_distances)
+        nearest_outside = min(distances)
+        if nearest_outside - farthest_shell <= SHELL_TIER_DISTANCE_TOLERANCE_A:
+            return "split_distance_tier", None
     chosen = tiers[0]
     farthest = max(distances[index] for index in chosen)
     cutoff = shell.search_cutoff_A
@@ -1202,9 +1355,10 @@ def _boundary_shift(
     blocked_tuple = tuple(sorted(blocked))
     if blocked_tuple:
         reasons = {item.reason for item in blocked_tuple}
+        status = "indeterminate" if "split_distance_tier" in reasons else "insufficient"
         return BoundaryShift(
             kind=kind,
-            status="insufficient",
+            status=status,
             reason=reasons.pop() if len(reasons) == 1 else None,
             unperturbed_centres=blocked_tuple,
             added=None,
@@ -1688,6 +1842,9 @@ def _shell_from_centre(
             distance_A=float(distance),
             formula=view["formula"],
             species_id=species_of_ligand(view),
+            disorder_component_ids=tuple(
+                str(item) for item in view.get("component_ids") or ()
+            ),
         )
 
     vertices = tuple(_vertex(entry, entry[0]) for entry in entries[:count])
@@ -1700,6 +1857,9 @@ def _shell_from_centre(
             distance_A=float(entry[0]),
             formula=entry[1]["formula"],
             species_id=species_of_ligand(entry[1]),
+            disorder_component_ids=tuple(
+                str(item) for item in entry[1].get("component_ids") or ()
+            ),
         )
         for entry in entries[count:]
     )
@@ -1720,6 +1880,11 @@ def _shell_from_centre(
         ligand_disorder_policy="major",
         outside_candidates=outside,
         hard_cutoff_A=None if hard_cutoff is None else float(hard_cutoff),
+        enclosed=bool(cn_info["enclosed"]),
+        rejection_reason=cn_info.get("rejection_reason"),
+        disorder_component_ids=tuple(
+            str(item) for item in centre_view.get("component_ids") or ()
+        ),
     )
 
 
@@ -1740,6 +1905,16 @@ def _select_views(
         if view["signature"] == signature
         and (indices is None or int(view["molecule_index"]) in indices)
     ]
+
+
+def _require_known_species(requested: str | None, known: set[str], role: str) -> None:
+    if requested is None or requested in known:
+        return
+    available = ", ".join(sorted(known)) if known else "none"
+    raise ValueError(
+        f"{role} {requested!r} is not a species in this structure; "
+        f"known {role} ids: {available}."
+    )
 
 
 def _warnings_for(status: str, policy: str) -> tuple[str, ...]:
@@ -1877,6 +2052,18 @@ def molecular_polyhedron_network(
 
     major_masks = {int(view["molecule_index"]): view["mask"] for view in major_views}
     homo = central_signature == ligand_signature
+    base_assignment = _species_maps(molecules, major_views, [])
+    known_ligand_species = {
+        base_assignment[("major", int(view["molecule_index"]))] for view in ligand_views
+    }
+    known_central_species: set[str] = set()
+    for replica in replicas:
+        replica_assignment = _species_maps(molecules, major_views, replica)
+        known_central_species.update(
+            _species_of(replica_assignment, view, major_masks) for view in replica
+        )
+    _require_known_species(ligand_species, known_ligand_species, "ligand_species")
+    _require_known_species(central_species, known_central_species, "central_species")
     networks: list[PolyhedronNetwork] = []
     for replica in replicas:
         assignment = _species_maps(molecules, major_views, replica)
