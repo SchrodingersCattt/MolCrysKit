@@ -105,15 +105,3 @@ Release steps (manual → automated):
 
 CI checkouts use `fetch-depth: 0` so `setuptools_scm` sees full tag history;
 do not lower it.
-
----
-
-## Cursor Cloud specific instructions
-
-The Cloud Agent image needs the `python3.12-venv` apt package. Environment install creates `/opt/molcrys-venv` and runs `pip install -e ".[dev]"` from the repository root (Python 3.12, the same interpreter CI uses for coverage). `mck`, `pytest`, `ruff`, and `pre-commit` are linked onto the default `PATH`. `python` and `python3` are wrapper scripts that exec `/opt/molcrys-venv/bin/python3`; that path is what loads the virtualenv site-packages. Keep those wrappers. A direct symlink of the venv interpreter into `/usr/local/bin` resolves to system Python and drops the installed packages.
-
-- Lint: `ruff==0.15.14` from the `dev` extra. Pre-commit runs `ruff-check` on staged files. CI does not lint the whole tree.
-- Tests: `COVERAGE_CORE=sysmon pytest tests/unit --cov=molcrys_kit --cov-report=term-missing -n 4 --dist worksteal --timeout=180`. GitHub Actions uses `-n 8` on larger runners. This VM has 4 CPUs, so 4 workers matches the machine.
-- Product check: build the README two-water crystal with `MolecularCrystal.from_ase`, then run `mck io info tests/data/cif/MAP.cif` and `mck analyze summary tests/data/cif/PETN_PERYTN10.cif`.
-- Nothing has to stay running after install. The Cambridge Structural Database Python API is not part of this environment. Unit tests that mention it supply their own stand-in. Listing skills with `mck skills list` works; running `query-csd-structures` needs a licensed CSD install.
-- `setuptools_scm` writes gitignored `molcrys_kit/_version.py` at install time from git tags. Checkouts that must report a real version need tag history.
