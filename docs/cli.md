@@ -93,7 +93,10 @@ mck skills show analyze-molecular-crystal --all
 | `mck analyze bond-orders INPUT` | Infer covalent bond orders and formal charges | `--json`, `--strict`, `--charge INT` |
 | `mck analyze cell-integrity INPUT` | Audit lattice, molecule images, and transform provenance | `--json` |
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
+| `mck analyze polyhedron-network INPUT` | Periodic coordination-polyhedron network for one centre type | `--central STR` (required), `--ligand STR` (required), `--center-kind {centroid,com,heavy_centroid}`, `--cutoff FLOAT`, `--hard-cutoff FLOAT`, `--central-species STR`, `--ligand-species STR`, `--central-index INT` (repeatable), `--ligand-index INT` (repeatable), `--disorder-policy {major,exclusive,as_refined}`, `--json` |
 | `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--profile {complete-crystal,fragment}`, `--skip-check NAME` (repeatable), `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |
+
+`mck analyze polyhedron-network --json` includes `occupancy_sum` and `competes_for_site` on each shell and ligand vertex. `configuration_status` is `unresolved` when one of those sites has partial occupancy and no exclusive alternative; the report warning says the contacts and dimensionality are conditional on that occupancy.
 
 `mck io info` is the human-readable molecular-crystal inventory: it reports
 recognized molecular units alongside cell and disorder details. Use

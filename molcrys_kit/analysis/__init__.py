@@ -50,6 +50,24 @@ from .packing_shell import (
     hull_encloses_center,
     planarity_analysis,
 )
+from .polyhedron_network import (
+    BoundaryShift,
+    CentreId,
+    ContactChange,
+    CoordinationShell,
+    CoordinationSnapshot,
+    PolyhedronComponent,
+    PolyhedronNetwork,
+    PolyhedronNetworkReport,
+    SharedContact,
+    SharedVertex,
+    ShellBoundary,
+    ShellCandidate,
+    ShellVertex,
+    UnperturbedCentre,
+    molecular_polyhedron_network,
+    polyhedron_network_from_shells,
+)
 from .periodic_validation import validate_periodic_bundle
 from .ring_conformation import (
     DegenerateRingGeometryError,
@@ -91,7 +109,11 @@ from .volume import (
     calculate_total_volume,
     min_distance_to_boundary,
 )
-from .site_symmetry import SiteSymmetryAnalysis, analyze_molecular_pose, analyze_site_symmetry
+from .site_symmetry import (
+    SiteSymmetryAnalysis,
+    analyze_molecular_pose,
+    analyze_site_symmetry,
+)
 
 __all__ = [
     "DEFAULT_CENTROID_OFFSET_FRAC",
@@ -162,6 +184,22 @@ __all__ = [
     "find_pi_stacking",
     "find_pi_stacks",
     "find_polyhedra",
+    "BoundaryShift",
+    "CentreId",
+    "ContactChange",
+    "CoordinationShell",
+    "CoordinationSnapshot",
+    "PolyhedronComponent",
+    "PolyhedronNetwork",
+    "PolyhedronNetworkReport",
+    "SharedContact",
+    "SharedVertex",
+    "ShellBoundary",
+    "ShellCandidate",
+    "ShellVertex",
+    "UnperturbedCentre",
+    "molecular_polyhedron_network",
+    "polyhedron_network_from_shells",
     "find_ring_systems",
     "get_bonding_threshold",
     "heavy_signature",
