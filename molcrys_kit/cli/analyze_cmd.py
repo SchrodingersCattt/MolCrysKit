@@ -40,8 +40,7 @@ def summary(input: Path, symprec: float, as_json: bool) -> None:
     click.echo(
         "  Species: "
         + ", ".join(
-            f"{symbol}={count}"
-            for symbol, count in report["species_counts"].items()
+            f"{symbol}={count}" for symbol, count in report["species_counts"].items()
         )
     )
     click.echo(f"  PBC: {tuple(report['pbc'])}")
@@ -104,7 +103,9 @@ def bfdh(input: Path, max_index: int, top_n: int, as_json: bool) -> None:
         raise click.UsageError("--max-index must be >= 1.")
     if top_n < 1:
         raise click.UsageError("--top-n must be >= 1.")
-    facets = enumerate_bfdh_facets(load_crystal(input), max_index=max_index, top_n=top_n)
+    facets = enumerate_bfdh_facets(
+        load_crystal(input), max_index=max_index, top_n=top_n
+    )
     if as_json:
         click.echo(rows_to_json(facets))
         return
@@ -112,8 +113,12 @@ def bfdh(input: Path, max_index: int, top_n: int, as_json: bool) -> None:
     click.echo("miller       d_hkl      importance")
     click.echo("-----------------------------------")
     for facet in facets:
-        importance = getattr(facet, "morphological_importance", getattr(facet, "importance", ""))
-        click.echo(f"{_miller_text(facet.miller_index):<12} {facet.d_hkl:>8.4f} {importance}")
+        importance = getattr(
+            facet, "morphological_importance", getattr(facet, "importance", "")
+        )
+        click.echo(
+            f"{_miller_text(facet.miller_index):<12} {facet.d_hkl:>8.4f} {importance}"
+        )
 
 
 @click.command()
@@ -140,9 +145,20 @@ def interactions(input: Path, as_json: bool) -> None:
 
 @click.command("bond-orders")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--json", "as_json", is_flag=True, help="Print the auditable result as JSON.")
-@click.option("--strict", is_flag=True, help="Fail when a complete, unambiguous assignment is unavailable.")
-@click.option("--charge", type=int, default=None, help="Require this total formal charge per component.")
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print the auditable result as JSON."
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="Fail when a complete, unambiguous assignment is unavailable.",
+)
+@click.option(
+    "--charge",
+    type=int,
+    default=None,
+    help="Require this total formal charge per component.",
+)
 def bond_orders(input: Path, as_json: bool, strict: bool, charge: int | None) -> None:
     """Infer covalent bond orders and formal charges for INPUT.
 
@@ -152,7 +168,11 @@ def bond_orders(input: Path, as_json: bool, strict: bool, charge: int | None) ->
     """
     import json as json_mod
 
-    from molcrys_kit.chemistry import BondOrderOptions, annotate_chemistry, infer_bond_orders
+    from molcrys_kit.chemistry import (
+        BondOrderOptions,
+        annotate_chemistry,
+        infer_bond_orders,
+    )
 
     try:
         # ``MolecularCrystal.copy`` preserves stable atom IDs while isolating
@@ -174,8 +194,13 @@ def bond_orders(input: Path, as_json: bool, strict: bool, charge: int | None) ->
     statuses = [_status_value(report) for report in reports]
     payload = {
         "file": str(input),
-        "status": "indeterminate" if not statuses else (statuses[0] if len(set(statuses)) == 1 else "mixed"),
-        "components": [report.to_dict() if hasattr(report, "to_dict") else report for report in reports],
+        "status": "indeterminate"
+        if not statuses
+        else (statuses[0] if len(set(statuses)) == 1 else "mixed"),
+        "components": [
+            report.to_dict() if hasattr(report, "to_dict") else report
+            for report in reports
+        ],
     }
     if as_json:
         click.echo(json_mod.dumps(payload, indent=2, default=_json_default))
@@ -212,7 +237,9 @@ def _json_default(value):
 
 @click.command("cell-integrity")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a summary.")
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print JSON instead of a summary."
+)
 def cell_integrity(input: Path, as_json: bool) -> None:
     """Audit lattice handedness, molecule images, and transform provenance."""
     import json as json_mod
@@ -246,16 +273,32 @@ def cell_integrity(input: Path, as_json: bool) -> None:
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--central", required=True, help="Central atom symbol or moiety string.")
 @click.option("--ligand", required=True, help="Ligand atom symbol or moiety string.")
-@click.option("--level", type=click.Choice(["atom", "molecule"]), default="atom", show_default=True)
-@click.option("--cutoff", type=float, default=None, help="Coordination cutoff in Angstrom.")
+@click.option(
+    "--level",
+    type=click.Choice(["atom", "molecule"]),
+    default="atom",
+    show_default=True,
+)
+@click.option(
+    "--cutoff", type=float, default=None, help="Coordination cutoff in Angstrom."
+)
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
-def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float | None, as_json: bool) -> None:
+def polyhedra(
+    input: Path,
+    central: str,
+    ligand: str,
+    level: str,
+    cutoff: float | None,
+    as_json: bool,
+) -> None:
     """Enumerate coordination polyhedra."""
     if cutoff is not None and cutoff <= 0:
         raise click.UsageError("--cutoff must be positive.")
     from molcrys_kit.analysis import find_polyhedra
 
-    rows = find_polyhedra(load_crystal(input), central=central, ligand=ligand, level=level, cutoff=cutoff)
+    rows = find_polyhedra(
+        load_crystal(input), central=central, ligand=ligand, level=level, cutoff=cutoff
+    )
     if as_json:
         click.echo(rows_to_json(rows))
         return
@@ -268,9 +311,110 @@ def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float 
         click.echo(f"  [{idx}] center={center} cn={cn} shape={shape}")
 
 
+@click.command("polyhedron-network")
+@click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--central", required=True, help="Central moiety string.")
+@click.option("--ligand", required=True, help="Ligand moiety string.")
+@click.option(
+    "--center-kind",
+    type=click.Choice(["centroid", "com", "heavy_centroid"]),
+    default="centroid",
+    show_default=True,
+)
+@click.option(
+    "--cutoff", type=float, default=None, help="Candidate search radius in Angstrom."
+)
+@click.option(
+    "--hard-cutoff", type=float, default=None, help="Hard shell radius in Angstrom."
+)
+@click.option(
+    "--central-species", default=None, help="Replica-local central species id."
+)
+@click.option("--ligand-species", default=None, help="Replica-local ligand species id.")
+@click.option(
+    "--central-index",
+    type=int,
+    multiple=True,
+    help="Central molecule index; repeatable.",
+)
+@click.option(
+    "--ligand-index", type=int, multiple=True, help="Ligand molecule index; repeatable."
+)
+@click.option(
+    "--disorder-policy",
+    type=click.Choice(["major", "exclusive", "as_refined"]),
+    default="major",
+    show_default=True,
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print JSON instead of a summary."
+)
+def polyhedron_network(
+    input: Path,
+    central: str,
+    ligand: str,
+    center_kind: str,
+    cutoff: float | None,
+    hard_cutoff: float | None,
+    central_species: str | None,
+    ligand_species: str | None,
+    central_index: tuple[int, ...],
+    ligand_index: tuple[int, ...],
+    disorder_policy: str,
+    as_json: bool,
+) -> None:
+    """Report one periodic coordination-polyhedron network for a single centre type."""
+    if cutoff is not None and cutoff <= 0:
+        raise click.UsageError("--cutoff must be positive.")
+    if hard_cutoff is not None and hard_cutoff <= 0:
+        raise click.UsageError("--hard-cutoff must be positive.")
+    from molcrys_kit.analysis import molecular_polyhedron_network
+
+    report = molecular_polyhedron_network(
+        load_crystal(input),
+        central,
+        ligand,
+        center_kind=center_kind,
+        cutoff=cutoff,
+        hard_cutoff=hard_cutoff,
+        central_species=central_species,
+        ligand_species=ligand_species,
+        central_indices=list(central_index) or None,
+        ligand_indices=list(ligand_index) or None,
+        disorder_policy=disorder_policy,
+    )
+    if as_json:
+        click.echo(rows_to_json(report))
+        return
+    click.echo(f"Polyhedron networks: {len(report.networks)}")
+    click.echo(f"Configuration: {report.configuration_status}")
+    click.echo(f"Centre disorder: {report.centre_disorder}")
+    click.echo(f"Ligand disorder: {report.ligand_disorder}")
+    for warning in report.warnings:
+        click.echo(f"Warning: {warning}")
+    for index, network in enumerate(report.networks):
+        ranks = [component.rank for component in network.components]
+        click.echo(
+            f"Network {index}: shells={len(network.shells)} "
+            f"contacts={len(network.contacts)} "
+            f"components={len(network.components)} ranks={ranks}"
+        )
+        for shell in network.shells:
+            click.echo(
+                f"  centre molecule={shell.molecule_index} "
+                f"realization={shell.realization_index} "
+                f"cn={len(shell.vertices)} species={shell.species_id}"
+            )
+
+
 @click.command("sanity-check")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--checks", type=str, default=None, help="Comma-separated list of checks to run (default: all).")
+@click.option(
+    "--checks",
+    type=str,
+    default=None,
+    help="Comma-separated list of checks to run (default: all).",
+)
 @click.option(
     "--profile",
     type=click.Choice(["complete-crystal", "fragment"]),
@@ -280,28 +424,82 @@ def polyhedra(input: Path, central: str, ligand: str, level: str, cutoff: float 
 @click.option(
     "--skip-check",
     "skip_checks",
-    type=click.Choice([
-        "hard_clash",
-        "intermolecular_clash",
-        "isolated_atoms",
-        "hydrogen_presence",
-        "formula_consistency",
-        "bond_distances",
-    ]),
+    type=click.Choice(
+        [
+            "hard_clash",
+            "intermolecular_clash",
+            "isolated_atoms",
+            "hydrogen_presence",
+            "formula_consistency",
+            "bond_distances",
+        ]
+    ),
     multiple=True,
     help="Skip a check while retaining a machine-readable skipped result; repeatable.",
 )
-@click.option("--hard-clash-scale", type=float, default=None, help="Scale factor for hard clash detection.")
-@click.option("--hard-clash-tolerance", type=float, default=None, help="Absolute tolerance for hard clash.")
-@click.option("--intermolecular-clash-scale", type=float, default=None, help="Scale factor for intermolecular clash.")
-@click.option("--intermolecular-clash-tolerance", type=float, default=None, help="Tolerance for intermolecular clash.")
-@click.option("--ignore-hh/--no-ignore-hh", default=None, help="Ignore H-H intermolecular clashes.")
-@click.option("--max-clashes", type=int, default=None, help="Maximum allowed intermolecular clashes.")
-@click.option("--bond-min-factor", type=float, default=None, help="Min factor for bond distance check.")
-@click.option("--bond-max-factor", type=float, default=None, help="Max factor for bond distance check.")
-@click.option("--isolated-elements", type=str, default=None, help="Comma-separated elements for isolated atom check.")
-@click.option("--output", "-o", type=click.Path(dir_okay=False, path_type=Path), default=None, help="Write JSON report to file.")
-@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of table to stdout.")
+@click.option(
+    "--hard-clash-scale",
+    type=float,
+    default=None,
+    help="Scale factor for hard clash detection.",
+)
+@click.option(
+    "--hard-clash-tolerance",
+    type=float,
+    default=None,
+    help="Absolute tolerance for hard clash.",
+)
+@click.option(
+    "--intermolecular-clash-scale",
+    type=float,
+    default=None,
+    help="Scale factor for intermolecular clash.",
+)
+@click.option(
+    "--intermolecular-clash-tolerance",
+    type=float,
+    default=None,
+    help="Tolerance for intermolecular clash.",
+)
+@click.option(
+    "--ignore-hh/--no-ignore-hh",
+    default=None,
+    help="Ignore H-H intermolecular clashes.",
+)
+@click.option(
+    "--max-clashes",
+    type=int,
+    default=None,
+    help="Maximum allowed intermolecular clashes.",
+)
+@click.option(
+    "--bond-min-factor",
+    type=float,
+    default=None,
+    help="Min factor for bond distance check.",
+)
+@click.option(
+    "--bond-max-factor",
+    type=float,
+    default=None,
+    help="Max factor for bond distance check.",
+)
+@click.option(
+    "--isolated-elements",
+    type=str,
+    default=None,
+    help="Comma-separated elements for isolated atom check.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write JSON report to file.",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print JSON instead of table to stdout."
+)
 def sanity_check_cmd(
     input: Path,
     checks: str | None,
@@ -327,9 +525,12 @@ def sanity_check_cmd(
     import json as json_mod
 
     from molcrys_kit.analysis.sanity_check import sanity_check
+
     # Parse options
     check_list = [c.strip() for c in checks.split(",")] if checks else None
-    iso_elems = {e.strip() for e in isolated_elements.split(",")} if isolated_elements else None
+    iso_elems = (
+        {e.strip() for e in isolated_elements.split(",")} if isolated_elements else None
+    )
 
     # Load frames
     if input.suffix.lower() == ".extxyz":
@@ -405,4 +606,5 @@ def register_analyze_commands(group: click.Group) -> None:
     group.add_command(bond_orders)
     group.add_command(cell_integrity)
     group.add_command(polyhedra)
+    group.add_command(polyhedron_network)
     group.add_command(sanity_check_cmd)

@@ -22,7 +22,12 @@ from .crystal_stereo import (
     classify_entity_relationship,
 )
 from .equivalence import notations_equivalent
-from .perception import BondOrderOptions, BondOrderResult, infer_bond_orders, infer_chemistry
+from .perception import (
+    BondOrderOptions,
+    BondOrderResult,
+    infer_bond_orders,
+    infer_chemistry,
+)
 from .adapters import (
     infer_bond_orders_array,
     infer_bond_orders_arrays,
@@ -48,7 +53,11 @@ from .name_conversion import (
     iupac_to_smiles,
     smiles_to_iupac,
 )
-from .topology import PeriodicTopology, analyze_periodic_topology
+from .topology import (
+    PeriodicTopology,
+    analyze_periodic_topology,
+    integer_translation_basis,
+)
 from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
 from .models import (
     BondKind,
@@ -105,6 +114,7 @@ __all__ = [
     "StereoReport",
     "analyze_crystal_stereochemistry",
     "analyze_periodic_topology",
+    "integer_translation_basis",
     "annotate_chemistry",
     "assign_stereochemistry",
     "classify_entity_relationship",

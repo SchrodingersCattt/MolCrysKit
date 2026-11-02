@@ -306,14 +306,18 @@ def compute_angular_signature(
     coords = _array(shell_coords)
     if len(coords) == 0:
         return {"angles": [], "sorted_angles": [], "count": 0}
-    center_vec = np.zeros(3, dtype=float) if center is None else np.array(center, dtype=float)
+    center_vec = (
+        np.zeros(3, dtype=float) if center is None else np.array(center, dtype=float)
+    )
     vectors = coords - center_vec
     norms = np.linalg.norm(vectors, axis=1)
     angles = []
     for i, j in itertools.combinations(range(len(vectors)), 2):
         if norms[i] < 1e-8 or norms[j] < 1e-8:
             continue
-        cosang = np.clip(np.dot(vectors[i], vectors[j]) / (norms[i] * norms[j]), -1.0, 1.0)
+        cosang = np.clip(
+            np.dot(vectors[i], vectors[j]) / (norms[i] * norms[j]), -1.0, 1.0
+        )
         angles.append(float(np.degrees(np.arccos(cosang))))
     angles.sort()
     return {"angles": angles, "sorted_angles": angles, "count": len(angles)}
@@ -334,7 +338,9 @@ def angular_rmsd_vs_ideals(
     actual = np.array(signature["sorted_angles"], dtype=float)
     results = []
     for name, ideal in ideal_polyhedra_for_cn(cn).items():
-        ideal_signature = np.array(compute_angular_signature(ideal)["sorted_angles"], dtype=float)
+        ideal_signature = np.array(
+            compute_angular_signature(ideal)["sorted_angles"], dtype=float
+        )
         size = min(len(actual), len(ideal_signature))
         if size == 0:
             rmsd = float("inf")
@@ -384,7 +390,9 @@ def planarity_analysis(
     }
 
 
-def detect_prism_vs_antiprism(shell_coords: Iterable[Iterable[float]]) -> Dict[str, Any]:
+def detect_prism_vs_antiprism(
+    shell_coords: Iterable[Iterable[float]],
+) -> Dict[str, Any]:
     coords = _array(shell_coords)
     if len(coords) < 10:
         return {"classification": None, "twist_deg": None}
@@ -549,7 +557,9 @@ def _molecule_centre(molecule, kind: str, mask: np.ndarray = None) -> np.ndarray
     )
 
 
-def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarray:
+def _lattice_translations(
+    lattice: np.ndarray, search_radius: float
+) -> Tuple[np.ndarray, np.ndarray]:
     """Enumerate every lattice translation whose Cartesian length is
     ``<= search_radius``.
 
@@ -559,7 +569,15 @@ def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarr
     in-radius translation for an arbitrary triclinic lattice, including
     elongated and oblique cells where ``max(|a|, |b|, |c|)`` would
     silently miss diagonal images (``|t| = sqrt(2)·a`` for a cubic cell,
-    etc.). Returns the translations as Cartesian Å vectors.
+    etc.).
+
+    Returns
+    -------
+    translations, image_shifts
+        Cartesian Å vectors of shape ``(T, 3)`` and the integer
+        ``(na, nb, nc)`` shifts of shape ``(T, 3)`` that produced them.
+        The shifts are kept here so callers do not have to invert
+        ``shell_offsets`` on an oblique cell.
     """
     lattice = np.asarray(lattice, dtype=float)
     if lattice.shape != (3, 3):
@@ -575,13 +593,23 @@ def _lattice_translations(lattice: np.ndarray, search_radius: float) -> np.ndarr
     n_b = int(np.ceil(search_radius / d_b))
     n_c = int(np.ceil(search_radius / d_c))
     translations: List[np.ndarray] = []
+    image_shifts: List[Tuple[int, int, int]] = []
     for ia in range(-n_a, n_a + 1):
         for ib in range(-n_b, n_b + 1):
             for ic in range(-n_c, n_c + 1):
                 t = ia * a + ib * b + ic * c
                 if np.linalg.norm(t) <= search_radius:
                     translations.append(t)
-    return np.asarray(translations, dtype=float)
+                    image_shifts.append((int(ia), int(ib), int(ic)))
+    if not translations:
+        return (
+            np.zeros((0, 3), dtype=float),
+            np.zeros((0, 3), dtype=int),
+        )
+    return (
+        np.asarray(translations, dtype=float),
+        np.asarray(image_shifts, dtype=int),
+    )
 
 
 def _atom_disorder_mask(atoms, disorder_policy: str) -> np.ndarray:
@@ -607,7 +635,9 @@ def _atom_disorder_mask(atoms, disorder_policy: str) -> np.ndarray:
     return mask
 
 
-def _molecule_views(molecules, center_kind: str, disorder_policy: str) -> List[Dict[str, Any]]:
+def _molecule_views(
+    molecules, center_kind: str, disorder_policy: str
+) -> List[Dict[str, Any]]:
     """One centre/formula view per disorder realization."""
     from .disorder.policy import disorder_realizations, normalize_disorder_policy
 
@@ -622,9 +652,7 @@ def _molecule_views(molecules, center_kind: str, disorder_policy: str) -> List[D
                 {
                     "parent_index": int(parent_index),
                     "component_ids": tuple(realization.component_ids),
-                    "centre": _molecule_centre(
-                        molecule, center_kind, realization.mask
-                    ),
+                    "centre": _molecule_centre(molecule, center_kind, realization.mask),
                     "signature": heavy_signature(
                         dict(Counter(symbol for symbol in symbols if symbol != "H"))
                     ),
@@ -719,7 +747,8 @@ def _find_polyhedra_atom_level(
     )
 
     central_atoms = [
-        i for i, sym in enumerate(symbols)
+        i
+        for i, sym in enumerate(symbols)
         if sym == central
         and bool(center_active[i])
         and (central_index_set is None or i in central_index_set)
@@ -727,7 +756,9 @@ def _find_polyhedra_atom_level(
     if not central_atoms:
         return ([], []) if return_diagnostics else []
 
-    i_arr, j_arr, d_arr, D_arr = neighbor_list("ijdD", atoms, cutoff=float(search_cutoff))
+    i_arr, j_arr, d_arr, D_arr = neighbor_list(
+        "ijdD", atoms, cutoff=float(search_cutoff)
+    )
 
     shells: Dict[int, list] = {idx: [] for idx in central_atoms}
     candidate_counts: Dict[int, int] = {idx: 0 for idx in central_atoms}
@@ -781,9 +812,7 @@ def _find_polyhedra_atom_level(
         kept_distances = distances[:cn]
         kept_indices = ligand_indices[:cn]
         kept_offsets = offsets[:cn]
-        kept_coords = (
-            shell_coords[:cn].tolist() if len(shell_coords) else []
-        )
+        kept_coords = shell_coords[:cn].tolist() if len(shell_coords) else []
 
         record = {
             "level": "atom",
@@ -817,15 +846,21 @@ def _find_polyhedra_atom_level(
         results.append(record)
         if return_diagnostics:
             candidate_count = int(candidate_counts.get(center_idx, 0))
-            diagnostics.append({
-                "centre_index": int(center_idx),
-                "centre_position": center_pos.tolist(),
-                "candidate_count": candidate_count,
-                "ligand_species_filter_drops": max(0, candidate_count - len(entries)),
-                "cn_info": cn_info,
-                "rejection_reason": cn_info.get("rejection_reason"),
-                "accepted": bool(cn > 0 and (not enforce_enclosure or cn_info.get("enclosed"))),
-            })
+            diagnostics.append(
+                {
+                    "centre_index": int(center_idx),
+                    "centre_position": center_pos.tolist(),
+                    "candidate_count": candidate_count,
+                    "ligand_species_filter_drops": max(
+                        0, candidate_count - len(entries)
+                    ),
+                    "cn_info": cn_info,
+                    "rejection_reason": cn_info.get("rejection_reason"),
+                    "accepted": bool(
+                        cn > 0 and (not enforce_enclosure or cn_info.get("enclosed"))
+                    ),
+                }
+            )
 
     return (results, diagnostics) if return_diagnostics else results
 
@@ -887,9 +922,7 @@ def _find_polyhedra_molecule_level(
     else:
         radius = float(radius)
     if radius <= 0:
-        raise ValueError(
-            f"cutoff/search_cutoff must be positive, got {radius!r}."
-        )
+        raise ValueError(f"cutoff/search_cutoff must be positive, got {radius!r}.")
     if hard_cutoff is not None:
         hard_cutoff = float(hard_cutoff)
         if hard_cutoff <= 0:
@@ -930,12 +963,10 @@ def _find_polyhedra_molecule_level(
     )
 
     central_mols = [
-        i for i, sig in enumerate(sigs)
+        i
+        for i, sig in enumerate(sigs)
         if sig == central_sig
-        and (
-            central_index_set is None
-            or views[i]["parent_index"] in central_index_set
-        )
+        and (central_index_set is None or views[i]["parent_index"] in central_index_set)
     ]
     ligand_mols = [i for i, sig in enumerate(ligand_sigs) if sig == ligand_sig]
     if not central_mols:
@@ -957,7 +988,7 @@ def _find_polyhedra_molecule_level(
         centroid_extent = float(np.linalg.norm(np.ptp(extent, axis=0)))
     else:
         centroid_extent = 0.0
-    translations = _lattice_translations(
+    translations, image_shifts = _lattice_translations(
         np.asarray(lattice, dtype=float),
         radius + centroid_extent,
     )
@@ -975,7 +1006,11 @@ def _find_polyhedra_molecule_level(
             all_vecs = all_pts - center_pos
             all_dists = np.linalg.norm(all_vecs, axis=-1)
             all_mask = all_dists <= radius
-            same_rows = [pos for pos, idx in enumerate(range(len(centres))) if idx == center_mol_idx]
+            same_rows = [
+                pos
+                for pos, idx in enumerate(range(len(centres)))
+                if idx == center_mol_idx
+            ]
             if same_rows:
                 zero_t = int(np.argmin(np.linalg.norm(translations, axis=1)))
                 for pos in same_rows:
@@ -985,10 +1020,10 @@ def _find_polyhedra_molecule_level(
 
         # Generate every image of every ligand molecule, vectorised
         if ligand_mols:
-            lig_centres = ligand_centres[ligand_mols]                # (L, 3)
+            lig_centres = ligand_centres[ligand_mols]  # (L, 3)
             cand_pts = lig_centres[:, None, :] + translations[None, :, :]  # (L, T, 3)
-            cand_vecs = cand_pts - center_pos                       # (L, T, 3)
-            dists = np.linalg.norm(cand_vecs, axis=-1)              # (L, T)
+            cand_vecs = cand_pts - center_pos  # (L, T, 3)
+            dists = np.linalg.norm(cand_vecs, axis=-1)  # (L, T)
             mask = dists <= radius
             if homo_pair:
                 # Exclude the self image (centroid of the same molecule at t=0).
@@ -1019,11 +1054,15 @@ def _find_polyhedra_molecule_level(
             sorted_pts = cand_pts[rows, cols][order]
             sorted_lig_mols = [int(ligand_mols[r]) for r in rows[order]]
             sorted_offsets = [translations[c].tolist() for c in cols[order]]
+            sorted_shifts = [
+                [int(component) for component in image_shifts[c]] for c in cols[order]
+            ]
         else:
             sorted_dists = np.empty(0, dtype=float)
             sorted_pts = np.empty((0, 3), dtype=float)
             sorted_lig_mols = []
             sorted_offsets = []
+            sorted_shifts = []
 
         cn_info = detect_coordination_number(
             sorted_dists.tolist(),
@@ -1043,6 +1082,7 @@ def _find_polyhedra_molecule_level(
             for offset in range(cn)
         ]
         kept_offsets = sorted_offsets[:cn]
+        kept_shifts = sorted_shifts[:cn]
         parent_index = int(views[center_mol_idx]["parent_index"])
 
         record = {
@@ -1056,6 +1096,7 @@ def _find_polyhedra_molecule_level(
             "disorder_component_ids": list(views[center_mol_idx]["component_ids"]),
             "shell_formula": ligand_formulas[ligand_mols[0]] if ligand_mols else "",
             "shell_offsets": kept_offsets,
+            "shell_image_shifts": kept_shifts,
             "shell_coords": kept_pts,
             "shell_distances": kept_dists,
             "coordination_number": cn,
@@ -1084,15 +1125,21 @@ def _find_polyhedra_molecule_level(
 
         results.append(record)
         if return_diagnostics:
-            diagnostics.append({
-                "centre_index": parent_index,
-                "centre_position": center_pos.tolist(),
-                "candidate_count": all_candidate_count,
-                "ligand_species_filter_drops": max(0, all_candidate_count - len(sorted_dists)),
-                "cn_info": cn_info,
-                "rejection_reason": cn_info.get("rejection_reason"),
-                "accepted": bool(cn > 0 and (not enforce_enclosure or cn_info.get("enclosed"))),
-            })
+            diagnostics.append(
+                {
+                    "centre_index": parent_index,
+                    "centre_position": center_pos.tolist(),
+                    "candidate_count": all_candidate_count,
+                    "ligand_species_filter_drops": max(
+                        0, all_candidate_count - len(sorted_dists)
+                    ),
+                    "cn_info": cn_info,
+                    "rejection_reason": cn_info.get("rejection_reason"),
+                    "accepted": bool(
+                        cn > 0 and (not enforce_enclosure or cn_info.get("enclosed"))
+                    ),
+                }
+            )
 
     return (results, diagnostics) if return_diagnostics else results
 
@@ -1278,9 +1325,13 @@ def find_polyhedra(
         * ``shell_molecule_indices``: indices into ``structure.molecules``
         * ``shell_formula``: Hill-ish formula of the ligand species
         * ``shell_offsets``: lattice translation vectors in Å, one per
-          shell entry (these are *Cartesian translations*, not integer
-          ``(na, nb, nc)`` images, because the molecule list does not
-          carry per-atom image bookkeeping)
+          shell entry. These stay Cartesian translations.
+        * ``shell_image_shifts``: integer ``(na, nb, nc)`` images, one per
+          shell entry and in the same order as ``shell_molecule_indices``.
+          The integers are the ones enumerated for ``shell_offsets``; they
+          are not recovered by inverting those Cartesian vectors. The key
+          is present on every molecule-level record, including the records
+          returned alongside diagnostics. Atom-level records do not carry it.
         * ``shell_coords``: translated Cartesian centroids
         * ``shell_distances``: A--B centroid distances, ascending
         * ``hard_cutoff``: ``None`` in gap+enclosure mode, or the float

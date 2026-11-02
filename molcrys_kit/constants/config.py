@@ -13,6 +13,11 @@ BFDH_GEOMETRY_TOLERANCE = 1e-10
 # Cartesian tolerance passed to periodic neighbor searches, in Angstrom.
 PERIODIC_NEIGHBOR_TOLERANCE_A = 1e-8
 
+# Distances within this tolerance, in Angstrom, belong to one polyhedron
+# shell tier. Boundary checks also refuse a tier that sits closer than this
+# to the search radius, because that tier may be incomplete.
+SHELL_TIER_DISTANCE_TOLERANCE_A = 1e-4
+
 # Occupancy tolerance shared by disorder predicates and summary reporting.
 PARTIAL_OCCUPANCY_TOLERANCE = 1e-6
 

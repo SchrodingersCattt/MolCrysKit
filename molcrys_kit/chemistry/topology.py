@@ -8,7 +8,9 @@ computes those cycle translations and their exact rank in three dimensions.
 
 from __future__ import annotations
 
+import operator
 from dataclasses import dataclass
+from typing import Sequence
 
 from .models import ChemicalBond, ImageShift
 
@@ -51,7 +53,8 @@ def analyze_periodic_topology(
     }
     for bond in bonds:
         shift = tuple(
-            int(value) * periodic for value, periodic in zip(bond.atom2_image_shift, mask)
+            int(value) * periodic
+            for value, periodic in zip(bond.atom2_image_shift, mask)
         )
         reverse = tuple(-value for value in shift)
         adjacency[bond.atom1_id].append((bond.atom2_id, shift))
@@ -89,6 +92,116 @@ def analyze_periodic_topology(
         if len(independent) == 3:
             break
     return PeriodicTopology(len(independent), tuple(independent))
+
+
+def integer_translation_basis(
+    vectors: Sequence[Sequence[int]],
+) -> tuple[ImageShift, ...]:
+    """Return the column-style Hermite basis of an integer translation lattice.
+
+    ``vectors`` are the columns of a 3×n integer matrix. Unimodular column
+    operations reduce that matrix to lower-triangular Hermite form: positive
+    pivots, zeros strictly above each pivot, and entries below a pivot reduced
+    into ``[0, pivot)``. The nonzero columns are the basis of every integer
+    combination of the input. A single ``(2, 0, 0)`` therefore stays
+    ``(2, 0, 0)``; ``(2, 0, 0)`` together with ``(3, 0, 0)`` becomes
+    ``(1, 0, 0)``.
+
+    This is the lattice basis used by coordination-polyhedron networks. It is
+    intentionally separate from :func:`analyze_periodic_topology`, whose
+    generators are an independent subset of the input cycle translations and
+    are not replaced by their Hermite reduction.
+    """
+    columns: list[list[int]] = []
+    for vector in vectors:
+        if len(vector) != 3:
+            raise ValueError("a translation vector must have three components")
+        column = [_exact_int(component) for component in vector]
+        if any(column):
+            columns.append(column)
+    return tuple(tuple(column) for column in _column_hermite_form(columns))
+
+
+def _exact_int(value: object) -> int:
+    if isinstance(value, bool):
+        raise TypeError("translation components must be exact integers, got bool")
+    try:
+        return int(operator.index(value))
+    except TypeError as exc:
+        raise TypeError(
+            f"translation components must be exact integers, got {type(value).__name__}"
+        ) from exc
+
+
+def _extended_gcd(left: int, right: int) -> tuple[int, int, int]:
+    """Return ``(g, s, t)`` with ``g = s * left + t * right`` and ``g > 0``."""
+    old_r, current_r = left, right
+    old_s, current_s = 1, 0
+    old_t, current_t = 0, 1
+    while current_r != 0:
+        quotient = old_r // current_r
+        old_r, current_r = current_r, old_r - quotient * current_r
+        old_s, current_s = current_s, old_s - quotient * current_s
+        old_t, current_t = current_t, old_t - quotient * current_t
+    if old_r < 0:
+        return -old_r, -old_s, -old_t
+    return old_r, old_s, old_t
+
+
+def _column_hermite_form(columns: list[list[int]]) -> list[list[int]]:
+    """Lower-triangular column Hermite form; zero columns are dropped."""
+    if not columns:
+        return []
+    matrix = [list(column) for column in columns]
+    width = len(matrix)
+    pivot_column = 0
+    for row in range(3):
+        if pivot_column >= width:
+            break
+        source = next(
+            (
+                column
+                for column in range(pivot_column, width)
+                if matrix[column][row] != 0
+            ),
+            None,
+        )
+        if source is None:
+            continue
+        if source != pivot_column:
+            matrix[pivot_column], matrix[source] = matrix[source], matrix[pivot_column]
+        for other in range(pivot_column + 1, width):
+            if matrix[other][row] == 0:
+                continue
+            pivot_value = matrix[pivot_column][row]
+            other_value = matrix[other][row]
+            gcd, pivot_coeff, other_coeff = _extended_gcd(pivot_value, other_value)
+            combined = [
+                pivot_coeff * matrix[pivot_column][index]
+                + other_coeff * matrix[other][index]
+                for index in range(3)
+            ]
+            complement_pivot = -(other_value // gcd)
+            complement_other = pivot_value // gcd
+            complement = [
+                complement_pivot * matrix[pivot_column][index]
+                + complement_other * matrix[other][index]
+                for index in range(3)
+            ]
+            matrix[pivot_column] = combined
+            matrix[other] = complement
+        if matrix[pivot_column][row] < 0:
+            matrix[pivot_column] = [-value for value in matrix[pivot_column]]
+        pivot_value = matrix[pivot_column][row]
+        for earlier in range(pivot_column):
+            quotient = matrix[earlier][row] // pivot_value
+            if quotient:
+                matrix[earlier] = [
+                    value - quotient * pivot
+                    for value, pivot in zip(matrix[earlier], matrix[pivot_column])
+                ]
+        pivot_column += 1
+    return [column for column in matrix[:pivot_column] if any(column)]
 
 
 def _canonical_translation(vector) -> ImageShift:
@@ -131,4 +244,8 @@ def _cross(left: ImageShift, right: ImageShift) -> ImageShift:
     )
 
 
-__all__ = ["PeriodicTopology", "analyze_periodic_topology"]
+__all__ = [
+    "PeriodicTopology",
+    "analyze_periodic_topology",
+    "integer_translation_basis",
+]
