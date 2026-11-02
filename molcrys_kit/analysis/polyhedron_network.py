@@ -23,9 +23,12 @@ the same integers.
 Shell-boundary checks start from the original shells and are not chained.
 ``drop_farthest_tier`` removes the farthest complete distance tier.
 ``add_next_tier`` appends the next complete tier that sits inside the search
-radius by at least ``SHELL_TIER_DISTANCE_TOLERANCE_A``. If any centre cannot
-take that step, the whole difference is ``insufficient`` and carries no
-partial contact or coordination diff.
+radius by at least ``SHELL_TIER_DISTANCE_TOLERANCE_A``. If the selected shell
+cuts through one distance tier, ``add_next_tier`` is ``indeterminate`` with
+reason ``split_distance_tier`` instead of reporting those neighbours as a new
+tier. If any centre cannot take that step, the whole difference is
+``insufficient`` or ``indeterminate`` and carries no partial contact or
+coordination diff.
 
 The first public entry accepts only ``pbc=(True, True, True)``. ``exclusive``
 returns one network per local alternative and does not assemble a joint
