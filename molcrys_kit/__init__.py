@@ -142,6 +142,12 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "smiles_to_iupac": (".chemistry", "smiles_to_iupac"),
     "classify_entity_relationship": (".chemistry", "classify_entity_relationship"),
     "to_line_notation": (".chemistry", "to_line_notation"),
+    # periodic quotient graph
+    "PeriodicQuotientGraph": (".periodic", "PeriodicQuotientGraph"),
+    "adapt_periodic_graph": (".periodic", "adapt_periodic_graph"),
+    "analyze_periodic_graph": (".periodic", "analyze_periodic_graph"),
+    "periodic_rank": (".periodic", "periodic_rank"),
+    "to_periodic_quotient_graph": (".periodic", "to_periodic_quotient_graph"),
 }
 
 
@@ -172,6 +178,7 @@ def __getattr__(name: str):
         "operations",
         "analysis",
         "constants",
+        "periodic",
     }
     if name in _SUBPACKAGES:
         import importlib
@@ -268,6 +275,11 @@ __all__ = [
     "smiles_to_iupac",
     "classify_entity_relationship",
     "to_line_notation",
+    "PeriodicQuotientGraph",
+    "adapt_periodic_graph",
+    "analyze_periodic_graph",
+    "periodic_rank",
+    "to_periodic_quotient_graph",
     # Backward compatibility
     "Molecule",
 ]

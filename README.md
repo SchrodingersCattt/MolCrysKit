@@ -182,7 +182,7 @@ The command groups roughly mirror the Python package layout:
 
 | You are… | Start here |
 |---|---|
-| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) · [Periodic chains](docs/periodic-chains.md) |
+| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) · [Periodic chains](docs/periodic-chains.md) · [Periodic quotient graphs](docs/periodic-graph.md) |
 | **AI agent (using the library)** | [API & Capabilities](docs/api.md) — read "Capability Map" then "Module Index" |
 | **AI agent (modifying code)** | [AGENTS.md](AGENTS.md) · [Architecture](docs/architecture.md) |
 | **Docker / cloud** | [Docker Guide](docs/docker.md) |

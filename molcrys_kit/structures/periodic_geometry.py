@@ -1,4 +1,9 @@
-"""Geometry-native data structures for periodic fragment chains."""
+"""Geometry-native data structures for periodic fragment chains.
+
+``PeriodicGraph.winding_cycles`` is the chain builder's optimized winding
+path. The domain-neutral quotient in :mod:`molcrys_kit.periodic` adapts this
+graph without replacing that path.
+"""
 
 from __future__ import annotations
 from dataclasses import dataclass, field
