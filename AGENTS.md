@@ -18,6 +18,7 @@ molcrys_kit/
   operations/         Cluster carving, surface, hydrogens, perturbation, …
   structures/         MolecularCrystal, Molecule, CrystalCluster types
   periodic/           Domain-neutral periodic quotient multigraph
+  nets/               Periodic-net topology, linking, and duality on that graph
   constants/          Element radii, bond lengths, config thresholds
 examples/             
 scripts/              Best practice; one-off diagnosis scripts

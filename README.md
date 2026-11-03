@@ -174,7 +174,7 @@ The command groups roughly mirror the Python package layout:
 
 - `mck io ...` — inspect molecular-crystal contents, extract molecules, and convert structures (`info`, `molecules`, `extract-molecule`, `convert`).
 - `mck operate ...` — generate modified structures (`disorder`, `disorder-supercell`, `add-h`, `slab`, `cluster`, `nanocluster`, `void`, `supercell`, `vacancy`, `desolvate`, `interpolate`, `reorient`).
-- `mck analyze ...` — print analysis reports (`summary`, `bfdh`, `interactions`, `bond-orders`, `polyhedra`, `polyhedron-network`, `sanity-check`).
+- `mck analyze ...` — print analysis reports (`summary`, `bfdh`, `interactions`, `bond-orders`, `polyhedra`, `polyhedron-network`, `net-topology`, `sanity-check`).
 - `mck build chain ...` — construct a geometry-native periodic chain bundle.
 - `mck validate-periodic-bundle ...` — validate a periodic bundle and its sidecar.
 
@@ -182,7 +182,7 @@ The command groups roughly mirror the Python package layout:
 
 | You are… | Start here |
 |---|---|
-| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) · [Periodic chains](docs/periodic-chains.md) · [Periodic quotient graphs](docs/periodic-graph.md) |
+| **Using the library** | [API & Capabilities](docs/api.md) · [Tutorials](docs/tutorials.md) · [Periodic chains](docs/periodic-chains.md) · [Periodic quotient graphs](docs/periodic-graph.md) · [Periodic net topology](docs/net-topology.md) |
 | **AI agent (using the library)** | [API & Capabilities](docs/api.md) — read "Capability Map" then "Module Index" |
 | **AI agent (modifying code)** | [AGENTS.md](AGENTS.md) · [Architecture](docs/architecture.md) |
 | **Docker / cloud** | [Docker Guide](docs/docker.md) |

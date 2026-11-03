@@ -599,6 +599,299 @@ def sanity_check_cmd(
             click.echo("  All frames passed.")
 
 
+def _load_net_policy(path: Path) -> dict[str, object]:
+    import json
+
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() in {".yml", ".yaml"}:
+        try:
+            import yaml
+        except ImportError as exc:
+            raise click.UsageError(
+                "YAML net-topology policies require PyYAML, which is not installed."
+            ) from exc
+        payload = yaml.safe_load(text)
+    else:
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise click.UsageError(f"policy file is not valid JSON: {exc}") from exc
+    from molcrys_kit.nets import policies_from_mapping
+
+    try:
+        return policies_from_mapping(payload)
+    except (TypeError, ValueError) as exc:
+        raise click.UsageError(str(exc)) from exc
+
+
+def _node_id(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and isinstance(value.get("node_id"), str):
+        return value["node_id"]
+    raise click.UsageError("each graph node must be an id or an object with node_id")
+
+
+def _load_net_graph(path: Path):
+    import json
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise click.UsageError(f"graph file is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise click.UsageError("a net graph file must be a JSON object")
+    unknown = set(payload) - {"nodes", "edges", "pbc", "embedding"}
+    if unknown:
+        raise click.UsageError(f"unknown graph keys: {sorted(unknown)}")
+    if "nodes" not in payload or "edges" not in payload:
+        raise click.UsageError("a net graph file needs nodes and edges")
+    nodes = [_node_id(node) for node in payload["nodes"]]
+    edges = []
+    for index, edge in enumerate(payload["edges"]):
+        if isinstance(edge, dict):
+            try:
+                edges.append(
+                    (
+                        str(edge["edge_id"]) if "edge_id" in edge else None,
+                        str(edge["source"]),
+                        str(edge["target"]),
+                        tuple(int(value) for value in edge["image_shift"]),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise click.UsageError(f"edge {index} is not a quotient edge") from exc
+            if edges[-1][0] is None:
+                edges[-1] = edges[-1][1:]
+            continue
+        if not isinstance(edge, list) or len(edge) not in {3, 4}:
+            raise click.UsageError(
+                "an edge must be [source, target, shift] or [id, source, target, shift]"
+            )
+        if len(edge) == 3:
+            edges.append(
+                (str(edge[0]), str(edge[1]), tuple(int(value) for value in edge[2]))
+            )
+        else:
+            edges.append(
+                (
+                    str(edge[0]),
+                    str(edge[1]),
+                    str(edge[2]),
+                    tuple(int(value) for value in edge[3]),
+                )
+            )
+    pbc = tuple(payload.get("pbc", (True, True, True)))
+    from molcrys_kit.periodic import PeriodicEmbedding, PeriodicQuotientGraph
+
+    try:
+        graph = PeriodicQuotientGraph.from_edges(nodes, edges, pbc=pbc)
+    except (TypeError, ValueError) as exc:
+        raise click.UsageError(str(exc)) from exc
+    embedding_payload = payload.get("embedding")
+    if embedding_payload is None:
+        return graph, None
+    if not isinstance(embedding_payload, dict):
+        raise click.UsageError("embedding must be an object")
+    try:
+        positions = tuple(
+            (str(row[0]), tuple(float(value) for value in row[1]))
+            for row in embedding_payload["positions_A"]
+        )
+        lattice = tuple(
+            tuple(float(value) for value in row)
+            for row in embedding_payload["lattice_A"]
+        )
+        fractional = embedding_payload.get("fractional")
+        fractional_rows = None
+        if fractional is not None:
+            fractional_rows = tuple(
+                (str(row[0]), tuple(float(value) for value in row[1]))
+                for row in fractional
+            )
+        embedding = PeriodicEmbedding(positions, lattice, fractional=fractional_rows)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise click.UsageError(f"embedding could not be read: {exc}") from exc
+    return graph, embedding
+
+
+@click.command("net-topology")
+@click.argument(
+    "input",
+    required=False,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--graph",
+    "graph_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="JSON quotient graph. Mutually exclusive with a crystal file.",
+)
+@click.option(
+    "--policy",
+    "policy_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="JSON policy. YAML is accepted only when PyYAML is installed.",
+)
+@click.option(
+    "--nodes",
+    type=click.Choice(
+        ["atom_sites", "molecular_units", "coordination_centres", "explicit_nodes"]
+    ),
+    default=None,
+    help="Crystal node policy. Overrides the policy file.",
+)
+@click.option(
+    "--edges",
+    type=click.Choice(
+        ["supplied", "coordination_shell", "contacts", "hydrogen_bonds", "user_edges"]
+    ),
+    default=None,
+    help="Crystal edge policy. Overrides the policy file.",
+)
+@click.option("--cutoff", type=float, default=None, help="Contact cutoff in Angstrom.")
+@click.option(
+    "--disorder",
+    type=click.Choice(["major", "as_refined", "explicit"]),
+    default=None,
+    help="Which refined sites may be occupied together.",
+)
+@click.option(
+    "--independent-assemblies",
+    is_flag=True,
+    default=False,
+    help="Allow one major group from each disorder assembly.",
+)
+@click.option("--ring-length", type=int, default=None, help="Cover-cycle length cap.")
+@click.option(
+    "--coordination-depth",
+    type=int,
+    default=None,
+    help="Coordination-sequence depth on the periodic cover.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the typed JSON report.")
+def net_topology(
+    input: Path | None,
+    graph_path: Path | None,
+    policy_path: Path | None,
+    nodes: str | None,
+    edges: str | None,
+    cutoff: float | None,
+    disorder: str | None,
+    independent_assemblies: bool,
+    ring_length: int | None,
+    coordination_depth: int | None,
+    as_json: bool,
+) -> None:
+    """Report periodic-net topology, linking, and duality status."""
+    import json
+    from dataclasses import replace
+
+    crystal_options = [nodes, edges, cutoff, disorder, independent_assemblies or None]
+    if input is not None and graph_path is not None:
+        raise click.UsageError("pass a crystal file or --graph, not both.")
+    if input is None and graph_path is None:
+        raise click.UsageError("pass a crystal file or --graph.")
+    if graph_path is not None and any(option is not None for option in crystal_options):
+        raise click.UsageError(
+            "node, edge, cutoff, and disorder options apply to a crystal file."
+        )
+    if cutoff is not None and cutoff <= 0:
+        raise click.UsageError("--cutoff must be positive.")
+    if ring_length is not None and ring_length < 0:
+        raise click.UsageError("--ring-length must be zero or positive.")
+    if coordination_depth is not None and coordination_depth < 0:
+        raise click.UsageError("--coordination-depth must be zero or positive.")
+
+    parsed = (
+        _load_net_policy(policy_path)
+        if policy_path is not None
+        else {
+            "nodes": None,
+            "edges": None,
+            "disorder": None,
+            "partition": None,
+            "limits": {},
+        }
+    )
+    from molcrys_kit.nets import (
+        NetAnalysisLimits,
+        analyze_periodic_net_system,
+        build_periodic_site_graph,
+        limits_from_mapping,
+    )
+    from molcrys_kit.nets.policies import DisorderPolicy, EdgePolicy, NodePolicy
+
+    node_policy = parsed["nodes"] or NodePolicy()
+    edge_policy = parsed["edges"] or EdgePolicy()
+    disorder_policy = parsed["disorder"] or DisorderPolicy()
+    if nodes is not None:
+        node_policy = replace(node_policy, kind=nodes)
+    if edges is not None:
+        edge_policy = replace(edge_policy, kind=edges)
+    if cutoff is not None:
+        edge_policy = replace(edge_policy, cutoff_A=cutoff)
+    if disorder is not None:
+        disorder_policy = replace(disorder_policy, mode=disorder)
+    if independent_assemblies:
+        disorder_policy = replace(disorder_policy, independent_assemblies=True)
+    try:
+        limits = limits_from_mapping(NetAnalysisLimits.from_config(), parsed["limits"])
+    except (TypeError, ValueError) as exc:
+        raise click.UsageError(str(exc)) from exc
+    if ring_length is not None:
+        limits = replace(limits, ring_length_limit=ring_length)
+    if coordination_depth is not None:
+        limits = replace(limits, coordination_depth=coordination_depth)
+
+    if graph_path is not None:
+        graph, embedding = _load_net_graph(graph_path)
+        report = analyze_periodic_net_system(
+            [(graph, embedding)],
+            limits=limits,
+            partition_policy=parsed["partition"],
+        )
+    else:
+        report = analyze_periodic_net_system(
+            build_periodic_site_graph(
+                load_crystal(input),
+                node_policy,
+                edge_policy,
+                disorder_policy,
+                limits,
+            ),
+            limits=limits,
+            partition_policy=parsed["partition"],
+        )
+    payload = report.to_dict()
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    click.echo(f"schema: {payload['schema']}")
+    click.echo(f"disorder: {payload['disorder_status']} ({payload['disorder_reason']})")
+    click.echo(f"primary: {payload['primary_proposal_id']}")
+    if payload["primary_is_not_unique"]:
+        click.echo("primary partition is not unique")
+    if payload["truncated"]:
+        click.echo("discovery truncated")
+    for note in payload["ambiguities"]:
+        click.echo(f"ambiguity: {note}")
+    for proposal in payload["proposals"]:
+        if proposal["proposal_id"] != payload["primary_proposal_id"]:
+            continue
+        for candidate in proposal["candidates"]:
+            topology = candidate["topology"]
+            click.echo(
+                f"{candidate['candidate_id']}: "
+                f"periodic_rank={candidate['periodic_rank']} "
+                f"quotient_cycle_rank={candidate['quotient_cycle_rank']} "
+                f"topology={topology['status']} "
+                f"proof={topology['proof']}"
+            )
+
+
 def register_analyze_commands(group: click.Group) -> None:
     group.add_command(summary)
     group.add_command(bfdh)
@@ -607,4 +900,5 @@ def register_analyze_commands(group: click.Group) -> None:
     group.add_command(cell_integrity)
     group.add_command(polyhedra)
     group.add_command(polyhedron_network)
+    group.add_command(net_topology)
     group.add_command(sanity_check_cmd)

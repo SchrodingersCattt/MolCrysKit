@@ -1138,3 +1138,28 @@ vertex. Defaults: occupancy-sum tolerance 0.10, minimum simultaneous angle
 standard deviation 0.08, same-vertex angle 35°, and a cap of 20000 substituent
 combinations. Molecule-level grouping on a long chain is near-linear.
 Atom-level scoring is an array pass per centre.
+
+## Periodic net topology
+
+`mck analyze net-topology structure.cif --json` writes schema
+`mck.net_topology/v1`. The same report is `analyze_periodic_net_system` in
+Python. Pass a crystal, or pass a quotient graph that was already built with
+`molcrys_kit.periodic`.
+
+```python
+import molcrys_kit as mck
+from molcrys_kit.nets import EdgePolicy, NodePolicy
+
+site_graph = mck.build_periodic_site_graph(
+    crystal,
+    NodePolicy("molecular_units"),
+    EdgePolicy("contacts", cutoff_A=3.5),
+)
+report = mck.analyze_periodic_net_system(site_graph)
+```
+
+A candidate's `periodic_rank` is not its `quotient_cycle_rank`. Matching
+coordination sequences do not prove isomorphism. A link needs a linking-number
+witness, and a dual needs a tiling whose faces are cover cycles. With no
+tiling the duality status is `not_assessed`. The algorithm, the statuses, and
+the search limits are in [Periodic net topology](net-topology.md).

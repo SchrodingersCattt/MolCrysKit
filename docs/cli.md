@@ -28,7 +28,7 @@ Validate a periodic structure bundle and its JSON sidecar before downstream use.
 mck validate-periodic-bundle structure.cif --json
 ```
 
-`mck build chain` and `mck validate-periodic-bundle` are unchanged, including the structure-sidecar JSON. The periodic quotient graph is a Python library. It adds no `mck` subcommand and does not classify nets. See [Periodic quotient graphs](periodic-graph.md).
+`mck build chain` and `mck validate-periodic-bundle` are unchanged, including the structure-sidecar JSON. The periodic quotient graph is a Python library and adds no subcommand of its own. Net topology is `mck analyze net-topology`. See [Periodic quotient graphs](periodic-graph.md) and [Periodic net topology](net-topology.md).
 
 ## Global Options
 
@@ -97,6 +97,7 @@ mck skills show analyze-molecular-crystal --all
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
 | `mck analyze polyhedron-network INPUT` | Periodic coordination-polyhedron network for one centre type | `--central STR` (required), `--ligand STR` (required), `--center-kind {centroid,com,heavy_centroid}`, `--cutoff FLOAT`, `--hard-cutoff FLOAT`, `--central-species STR`, `--ligand-species STR`, `--central-index INT` (repeatable), `--ligand-index INT` (repeatable), `--disorder-policy {major,exclusive,as_refined}`, `--json` |
 | `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--profile {complete-crystal,fragment}`, `--skip-check NAME` (repeatable), `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |
+| `mck analyze net-topology [INPUT]` | Report periodic rank, topology proof, linking, and duality | `--graph PATH`, `--policy PATH`, `--nodes {atom_sites,molecular_units,coordination_centres,explicit_nodes}`, `--edges {supplied,coordination_shell,contacts,hydrogen_bonds,user_edges}`, `--cutoff FLOAT`, `--disorder {major,as_refined,explicit}`, `--independent-assemblies`, `--ring-length INT`, `--coordination-depth INT`, `--json` |
 
 `mck analyze polyhedron-network --json` includes `occupancy_sum` and `competes_for_site` on each shell and ligand vertex. `configuration_status` is `unresolved` when one of those sites has partial occupancy and no exclusive alternative; the report warning says the contacts and dimensionality are conditional on that occupancy.
 
@@ -262,3 +263,4 @@ mck operate reorient structure.cif -o reoriented.cif --direction 1 1 1 --target-
 - [Tutorials](tutorials.md) — Step-by-step guides
 - [Architecture](architecture.md) — Design rationale
 - [Periodic quotient graphs](periodic-graph.md) — shared periodic multigraph
+- [Periodic net topology](net-topology.md) — nets, linking, and duality

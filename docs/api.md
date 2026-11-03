@@ -30,6 +30,7 @@
 | Calibrate aromaticity geometry | `calibrate_aromaticity_geometry` | CSD-exported ring and bond observations | reviewable calibration snapshot with pair coverage and uncertainty bands | [Chemistry perception design](chemistry_perception_design.md) |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Adapt a periodic graph and measure its rank | `to_periodic_quotient_graph`, `periodic_rank`, `adapt_periodic_graph` | fragment graph, chemical entity, polyhedron network, or caller edges | immutable quotient graph and integer periodic rank | [Periodic quotient graphs](periodic-graph.md) |
+| Analyze periodic nets, linking, and duality | `build_periodic_site_graph`, `decompose_periodic_nets`, `analyze_periodic_net_system` | crystal plus node/edge/disorder policies, or an existing quotient graph | typed report `mck.net_topology/v1` with proof status | [Periodic net topology](net-topology.md) |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
 | Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / OpenSMILES or MCK-LN | `LineNotation` / chemical entity | source docstring |
@@ -40,6 +41,7 @@
 | List molecule inventory | `mck io molecules --json` | crystal file | JSON molecule records | `mck io molecules --help` |
 | Extract molecule file | `mck io extract-molecule` | crystal file + selector | `.xyz` / `.cif` / `.extxyz` molecule file | `mck io extract-molecule --help` |
 | Summarize structure | `mck analyze summary --json` | structure file | JSON composition, cell, symmetry, and disorder report | `mck analyze summary --help` |
+| Report net topology | `mck analyze net-topology --json` | crystal file or JSON quotient graph | JSON rank, topology proof, linking, and duality status | [Periodic net topology](net-topology.md) |
 | Transform periodic cell | `MolecularCrystal.transform_cell` | target lattice or row-basis matrix | molecule-safe `MolecularCrystal` copy | source docstring |
 | Audit periodic cell | `check_cell_integrity` | `MolecularCrystal` (+ optional reference) | integrity report with hashes and seam contacts | source docstring |
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
@@ -220,6 +222,16 @@ Domain-neutral periodic quotient multigraph. Orientation, gauge, basis, adapters
 - Transforms: `EmbeddedQuotientGraph`, `SupercellQuotientGraph`, `SupercellReplication`, `apply_node_gauge`, `apply_unimodular_basis`, `equivalent_supercell`, `relabel_nodes`, `replace_lattice`, `shift_embedding_origin`
 - Adapters: `CallerGraphProvenance`, `ChemicalGraphProvenance`, `FragmentEdgeProvenance`, `FragmentGraphProvenance`, `GraphAttribute`, `PeriodicGraphAdaptation`, `PeriodicGraphProvenance`, `PolyhedronGraphProvenance`, `QuotientGraphProvenance`, `adapt_caller_graph`, `adapt_chemical_entity`, `adapt_fragment_graph`, `adapt_periodic_graph`, `adapt_polyhedron_network`, `fragment_graph_from_provenance`, `to_periodic_quotient_graph`
 
+### `mck.nets`
+Material-agnostic net topology, linking, and duality on the shared quotient graph. The algorithm and its limits are in [Periodic net topology](net-topology.md).
+
+- Policies: `DISORDER_MODES`, `EDGE_KINDS`, `NODE_KINDS`, `PARTITION_MODES`, `DisorderPolicy`, `EdgePolicy`, `NodePolicy`, `PartitionPolicy`, `policies_from_mapping`
+- Site graph: `EdgeProvenance`, `NodeProvenance`, `PeriodicSiteGraph`, `build_periodic_site_graph`, `site_graph_from_quotient`
+- Decomposition: `NetCandidate`, `NetDecomposition`, `NetProposal`, `decompose_periodic_nets`
+- Equivalence: `ComponentTopology`, `NetEquivalence`, `TopologyCharacterization`, `characterize_periodic_net`, `compare_periodic_nets`, `verify_topology_witness`
+- Embedding and duality: `LinkingAssessment`, `assess_linking`, `DualityAssessment`, `PeriodicTiling`, `TilingAdjacency`, `TilingFace`, `assess_duality`
+- Report: `SCHEMA`, `NetAnalysisLimits`, `NetTopologyReport`, `analyze_periodic_net_system`, `limits_from_mapping`
+
 ## See Also
 
 - Detailed workflows: [Tutorials](tutorials.md)
@@ -228,3 +240,4 @@ Domain-neutral periodic quotient multigraph. Orientation, gauge, basis, adapters
 - Docker/cloud usage: [Docker Guide](docker.md)
 - Exact function signatures: source docstrings
 - Periodic quotient graphs: [Periodic quotient graphs](periodic-graph.md)
+- Periodic net topology: [Periodic net topology](net-topology.md)
