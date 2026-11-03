@@ -10,7 +10,13 @@ from typing import Any
 
 import click
 
-from ._common import load_crystal, rows_to_json, write_structure
+from ._common import (
+    INDEPENDENT_ASSEMBLIES,
+    STRICT_FORMULA,
+    load_crystal,
+    rows_to_json,
+    write_structure,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -170,11 +176,25 @@ def _write_sidecar(path: Path, row: dict[str, Any], output_path: Path) -> None:
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--resolve-disorder", is_flag=True, default=False,
               help="Resolve crystallographic disorder before molecule identification.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 @click.option("--bond-scale", type=float, default=1.0, show_default=True,
               help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
-def info(input: Path, resolve_disorder: bool, bond_scale: float) -> None:
+def info(
+    input: Path,
+    resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
+    bond_scale: float,
+) -> None:
     """Print a concise molecular-crystal summary."""
-    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
+    crystal = load_crystal(
+        input,
+        resolve_disorder=resolve_disorder,
+        bond_scale=bond_scale,
+        strict_formula=strict_formula,
+        independent_assemblies=independent_assemblies,
+    )
     click.echo(crystal.summary().rstrip())
     try:
         a, b, c, alpha, beta, gamma = crystal.get_lattice_parameters()
@@ -242,11 +262,26 @@ def info(input: Path, resolve_disorder: bool, bond_scale: float) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
 @click.option("--resolve-disorder", is_flag=True, default=False,
               help="Resolve crystallographic disorder before molecule identification.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 @click.option("--bond-scale", type=float, default=1.0, show_default=True,
               help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
-def molecules(input: Path, as_json: bool, resolve_disorder: bool, bond_scale: float) -> None:
+def molecules(
+    input: Path,
+    as_json: bool,
+    resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
+    bond_scale: float,
+) -> None:
     """List molecule inventory for a crystal."""
-    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
+    crystal = load_crystal(
+        input,
+        resolve_disorder=resolve_disorder,
+        bond_scale=bond_scale,
+        strict_formula=strict_formula,
+        independent_assemblies=independent_assemblies,
+    )
     rows = _molecule_inventory(crystal)
     if as_json:
         click.echo(rows_to_json(rows))
@@ -277,6 +312,8 @@ def molecules(input: Path, as_json: bool, resolve_disorder: bool, bond_scale: fl
 @click.option("--json-sidecar", type=click.Path(dir_okay=False, path_type=Path), help="Write JSON metadata for the extracted molecule. With --all, this also acts as a template.")
 @click.option("--resolve-disorder", is_flag=True, default=False,
               help="Resolve crystallographic disorder before molecule identification.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 @click.option("--bond-scale", type=float, default=1.0, show_default=True,
               help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
 def extract_molecule(
@@ -291,13 +328,21 @@ def extract_molecule(
     pbc: bool,
     json_sidecar: Path | None,
     resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
     bond_scale: float,
 ) -> None:
     """Extract one or more molecules from a crystal."""
     if center_vacuum is not None and center_vacuum < 0:
         raise click.UsageError("--center-vacuum must be non-negative.")
 
-    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
+    crystal = load_crystal(
+        input,
+        resolve_disorder=resolve_disorder,
+        bond_scale=bond_scale,
+        strict_formula=strict_formula,
+        independent_assemblies=independent_assemblies,
+    )
     rows = _molecule_inventory(crystal)
     selected = _selected_molecule_indices(
         rows,
@@ -335,11 +380,26 @@ def extract_molecule(
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Output path; extension selects the format.")
 @click.option("--resolve-disorder", is_flag=True, default=False,
               help="Resolve crystallographic disorder before molecule identification.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 @click.option("--bond-scale", type=float, default=1.0, show_default=True,
               help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
-def convert(input: Path, output: Path, resolve_disorder: bool, bond_scale: float) -> None:
+def convert(
+    input: Path,
+    output: Path,
+    resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
+    bond_scale: float,
+) -> None:
     """Convert a structure file by output extension."""
-    crystal = load_crystal(input, resolve_disorder=resolve_disorder, bond_scale=bond_scale)
+    crystal = load_crystal(
+        input,
+        resolve_disorder=resolve_disorder,
+        bond_scale=bond_scale,
+        strict_formula=strict_formula,
+        independent_assemblies=independent_assemblies,
+    )
     write_structure(crystal, output)
     click.echo(f"Wrote {output}")
 

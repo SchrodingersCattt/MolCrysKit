@@ -632,6 +632,11 @@ shape = ImplicitShape.bfdh(
 particle = carve_nanocluster(ordered, shape, vacuum=10.0)
 ```
 
+`strict_formula` and `independent_assemblies` are optional keyword arguments
+on that read. Both default to false. Pass them only when the CIF metadata
+support strict composition checks or independent multi-group assemblies.
+Omitting them keeps the legacy resolver.
+
 Without explicit symmetry, `MolecularCrystal` and lattice inputs use
 lattice-metric facet families and cannot apply space-group translational
 absences. Use `miller_indices=[...]` to replace automatic facet enumeration.

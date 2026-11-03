@@ -341,7 +341,8 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
         "n_partial_occ": sum(1 for d in atom_data if d["occ"] < 0.999),
         "n_aniso": len(aniso_atoms),
         "n_bonds": len(bonds),
-        "output": str(output_path),
+        # Basename only: absolute paths are not portable in result JSON.
+        "output": output_path.name,
     }
 
 
@@ -473,7 +474,8 @@ def write_ordered_cell(atoms: Atoms, state: dict, output_path: Path) -> dict:
         "description": state["description"],
         "n_atoms": int(mask.sum()),
         "molecules": dict(formulas),
-        "output": str(output_path),
+        # Basename only: workflow_summary.json must not record absolute paths.
+        "output": output_path.name,
     }
 
 
@@ -566,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
             mol_str = ", ".join(f"{f}×{c}" for f, c in sorted(result["molecules"].items()))
             print(f"      ✓ {out_path.name}: {result['n_atoms']} atoms | {mol_str}")
 
-        all_results.append({"source": str(cif_path), "states": ref_results})
+        all_results.append({"source": cif_path.name, "states": ref_results})
 
     # Summary
     summary_path = args.output_dir / "workflow_summary.json"

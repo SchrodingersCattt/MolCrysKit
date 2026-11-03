@@ -1362,3 +1362,196 @@ def test_operate_disorder_independent_assemblies_option(tmp_path):
     ])
     assert result.exit_code == 0, result.output
     assert output.exists()
+
+
+WATER = Path("tests/data/cif/synthetic_water_orientation.cif")
+
+
+def _missing_formula_cif(tmp_path: Path) -> Path:
+    path = tmp_path / "missing_formula.cif"
+    path.write_text(WATER.read_text().replace("_chemical_formula_moiety 'H2 O'", ""))
+    return path
+
+
+def _resolver_spy(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Record kwargs that reach the disorder resolver, then call the real one."""
+    import molcrys_kit.analysis.disorder as disorder_api
+    import molcrys_kit.analysis.disorder.process as process
+
+    calls: list[dict] = []
+    real = process.generate_ordered_replicas_from_disordered_sites
+
+    def spy(*args, **kwargs):
+        calls.append(dict(kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(process, "generate_ordered_replicas_from_disordered_sites", spy)
+    monkeypatch.setattr(
+        disorder_api,
+        "generate_ordered_replicas_from_disordered_sites",
+        spy,
+    )
+    return calls
+
+
+def test_read_and_load_forward_disorder_flags(tmp_path, monkeypatch) -> None:
+    """resolve_disorder loads must pass opt-in flags through, and default them off."""
+    import click
+
+    from molcrys_kit.cli._common import load_crystal
+    from molcrys_kit.io import read_mol_crystal
+
+    calls = _resolver_spy(monkeypatch)
+    read_mol_crystal(str(WATER), resolve_disorder=True)
+    assert calls[-1]["strict_formula"] is False
+    assert calls[-1]["independent_assemblies"] is False
+
+    read_mol_crystal(
+        str(WATER),
+        resolve_disorder=True,
+        strict_formula=True,
+        independent_assemblies=True,
+    )
+    assert calls[-1]["strict_formula"] is True
+    assert calls[-1]["independent_assemblies"] is True
+
+    load_crystal(
+        WATER,
+        resolve_disorder=True,
+        strict_formula=True,
+        independent_assemblies=True,
+    )
+    assert calls[-1]["strict_formula"] is True
+    assert calls[-1]["independent_assemblies"] is True
+
+    with pytest.raises(click.UsageError, match="resolve_disorder is true"):
+        load_crystal(WATER, strict_formula=True)
+
+    bad = _missing_formula_cif(tmp_path)
+    legacy = read_mol_crystal(str(bad), resolve_disorder=True)
+    assert legacy.molecules
+    with pytest.raises(ValueError, match="requires a parseable formula moiety"):
+        read_mol_crystal(str(bad), resolve_disorder=True, strict_formula=True)
+    with pytest.raises(click.ClickException, match="requires a parseable formula moiety"):
+        load_crystal(bad, resolve_disorder=True, strict_formula=True)
+    assert load_crystal(bad, resolve_disorder=True).molecules
+
+
+def test_operate_disorder_supercell_forwards_semantics_flags(tmp_path, monkeypatch) -> None:
+    calls = _resolver_spy(monkeypatch)
+    source = _missing_formula_cif(tmp_path)
+    output = tmp_path / "supercell.cif"
+    base = [
+        "operate",
+        "disorder-supercell",
+        str(source),
+        "-o",
+        str(output),
+        "--scale",
+        "1",
+        "1",
+        "1",
+        "--replica-index",
+        "0",
+    ]
+    legacy = CliRunner().invoke(main, base)
+    assert legacy.exit_code == 0, legacy.output
+    assert output.exists()
+    assert calls[-1]["strict_formula"] is False
+    assert calls[-1]["independent_assemblies"] is False
+
+    output.unlink()
+    strict = CliRunner().invoke(main, [*base, "--strict-formula", "--independent-assemblies"])
+    assert strict.exit_code != 0
+    assert "requires a parseable formula moiety" in strict.output
+    assert not output.exists()
+    assert calls[-1]["strict_formula"] is True
+    assert calls[-1]["independent_assemblies"] is True
+
+    ordered = tmp_path / "ordered_super.cif"
+    renumbered = tmp_path / "renumbered.cif"
+    fixture = Path("tests/data/cif/synthetic_two_assemblies.cif")
+    renumbered.write_text(
+        fixture.read_text().replace("0.6 B 1", "0.6 B 3").replace("0.4 B 2", "0.4 B 4")
+    )
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "disorder-supercell",
+            str(renumbered),
+            "-o",
+            str(ordered),
+            "--scale",
+            "1",
+            "1",
+            "1",
+            "--replica-index",
+            "0",
+            "--independent-assemblies",
+            "--strict-formula",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert ordered.exists()
+    assert calls[-1]["independent_assemblies"] is True
+    assert calls[-1]["strict_formula"] is True
+
+
+@pytest.mark.parametrize(
+    ("command", "tail"),
+    [
+        ("io info", []),
+        ("io molecules", []),
+        ("io convert", ["-o", "{output}"]),
+        ("io extract-molecule", ["-o", "{output}"]),
+        ("operate supercell", ["-o", "{output}", "--scale", "1", "1", "1"]),
+        (
+            "operate nanocluster",
+            ["-o", "{output}", "--shape", "sphere", "--radius", "20"],
+        ),
+        (
+            "operate void",
+            ["-o", "{output}", "--shape", "sphere", "--radius", "20"],
+        ),
+    ],
+)
+def test_resolve_disorder_cli_forwards_flags(tmp_path, monkeypatch, command, tail) -> None:
+    calls = _resolver_spy(monkeypatch)
+    output = tmp_path / "out.cif"
+    argv = command.split()
+    argv.append(str(WATER))
+    argv.extend(part.replace("{output}", str(output)) for part in tail)
+    argv.extend(["--resolve-disorder", "--strict-formula", "--independent-assemblies"])
+    result = CliRunner().invoke(main, argv)
+    assert calls[-1]["strict_formula"] is True
+    assert calls[-1]["independent_assemblies"] is True
+    if command == "operate void":
+        # One-molecule water: a sphere that contains the cell cannot leave a host.
+        # The flags still have to reach the resolver before that refusal.
+        assert result.exit_code != 0
+        assert "remove every molecule" in result.output
+        return
+    assert result.exit_code == 0, result.output
+
+
+def test_semantics_flags_require_resolve_disorder(tmp_path) -> None:
+    output = tmp_path / "super.cif"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "supercell",
+            str(WATER),
+            "-o",
+            str(output),
+            "--scale",
+            "1",
+            "1",
+            "1",
+            "--strict-formula",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "resolve_disorder is true" in result.output
+    assert not output.exists()
