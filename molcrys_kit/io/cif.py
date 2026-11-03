@@ -2422,6 +2422,8 @@ def read_mol_crystal(
     cif_text: Optional[str] = None,
     attach_chemistry: bool = True,
     disorder_policy: str = "as_refined",
+    strict_formula: bool = False,
+    independent_assemblies: bool = False,
 ) -> MolecularCrystal:
     """
     Parse a CIF with advanced molecular grouping.
@@ -2441,6 +2443,16 @@ def read_mol_crystal(
         Scale factor for bonding thresholds.
     resolve_disorder : bool
         Resolve crystallographic disorder before molecule identification.
+    strict_formula : bool, optional
+        Keyword-only. When resolving disorder, require a parseable formula
+        moiety and Z and reject candidates that do not match. Default false
+        warns on mismatch and keeps legacy best-effort output. Ignored unless
+        ``resolve_disorder`` is true.
+    independent_assemblies : bool, optional
+        Keyword-only. When resolving disorder, treat distinct multi-group
+        assemblies as independent. Enable only when the source confirms that
+        convention. Default false preserves legacy geometry heuristics.
+        Ignored unless ``resolve_disorder`` is true.
     cif_text : str, optional
         Raw CIF content as a string (mutually exclusive with *filepath*).
     attach_chemistry : bool
@@ -2753,6 +2765,8 @@ def read_mol_crystal(
                 filepath,
                 generate_count=1,
                 method="optimal",
+                strict_formula=strict_formula,
+                independent_assemblies=independent_assemblies,
             )
             resolved = crystals[0]
             cif_chemistry = dict(disorder_info.cif_chemistry)

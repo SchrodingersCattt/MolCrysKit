@@ -102,3 +102,10 @@ independent, use `mck operate disorder ... --independent-assemblies`;
 otherwise retain legacy behavior and review the source model. Some CIFs use
 assembly labels for alternative fragments rather than separate choices, and
 this switch is not an automatic chemical-identity check.
+
+`mck operate disorder-supercell` accepts the same two flags and forwards
+them into replica resolution. Commands that load with `--resolve-disorder`
+(`io info`, `io molecules`, `io extract-molecule`, `io convert`,
+`operate supercell`, `operate nanocluster`, `operate void`) do too, and
+those flags require `--resolve-disorder`. Leaving them off keeps legacy
+resolution. Exporter group numbers are local to each assembly.

@@ -60,10 +60,10 @@ mck skills show analyze-molecular-crystal --all
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `mck io info INPUT` | Print molecular-crystal summary | `--resolve-disorder`, `--bond-scale FLOAT` |
-| `mck io molecules INPUT` | List molecule inventory | `--json`, `--resolve-disorder`, `--bond-scale FLOAT` |
-| `mck io extract-molecule INPUT` | Extract molecule(s) to separate file(s) | `-o/--output OUTPUT` (required), `--index INT`, `--formula STR`, `--species-id STR`, `--largest`, `--all`, `--center-vacuum FLOAT`, `--pbc BOOL`, `--json-sidecar PATH`, `--resolve-disorder`, `--bond-scale FLOAT` |
-| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--resolve-disorder`, `--bond-scale FLOAT` |
+| `mck io info INPUT` | Print molecular-crystal summary | `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+| `mck io molecules INPUT` | List molecule inventory | `--json`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+| `mck io extract-molecule INPUT` | Extract molecule(s) to separate file(s) | `-o/--output OUTPUT` (required), `--index INT`, `--formula STR`, `--species-id STR`, `--largest`, `--all`, `--center-vacuum FLOAT`, `--pbc BOOL`, `--json-sidecar PATH`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
 
 ### `mck operate` — Generate modified structures
 
@@ -73,10 +73,10 @@ mck skills show analyze-molecular-crystal --all
 | `mck operate add-h INPUT` | Add missing hydrogen atoms | `-o/--output OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
 | `mck operate slab INPUT` | Generate surface slab models | `-o/--output OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all,INDEX}` |
 | `mck operate cluster INPUT` | Carve molecular clusters | `-o/--output OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--cut-cc-bonds I,J;K,L`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable), `--seed-merge-radius FLOAT`, `--convention-reference STR`, `--no-stop-at-non-seed-metals` |
-| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,bfdh}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--max-dimension FLOAT`, `--max-index INT`, `--miller H K L` (repeatable), `--extinction-filter/--no-extinction-filter`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
-| `mck operate void INPUT` | Remove complete molecular/ionic units to form a shaped void | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,through-cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--direction-hkl H K L`, `--center X Y Z`, `--center-frac U V W`, `--hit-mode {centroid,any_atom,all_atoms}`, `--boundary-policy {inside,cover}`, `--target-units INT`, `--species SPECIES_ID COUNT`, `--species-charge SPECIES_ID CHARGE`, `--periodic-images/--no-periodic-images`, `--batch-size INT`, `--resolve-disorder`, `--json-sidecar PATH` |
-| `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C`, `--resolve-disorder` |
-| `mck operate disorder-supercell INPUT` | Assemble selected disorder replicas into translated cells | `-o/--output OUTPUT`, `--scale A B C`, `--replica-index INT` (repeat once per cell), `--method {optimal,random,enumerate}`, `--seed INT`, `--coupled` |
+| `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,bfdh}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--max-dimension FLOAT`, `--max-index INT`, `--miller H K L` (repeatable), `--extinction-filter/--no-extinction-filter`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--json-sidecar PATH` |
+| `mck operate void INPUT` | Remove complete molecular/ionic units to form a shaped void | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,through-cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--direction-hkl H K L`, `--center X Y Z`, `--center-frac U V W`, `--hit-mode {centroid,any_atom,all_atoms}`, `--boundary-policy {inside,cover}`, `--target-units INT`, `--species SPECIES_ID COUNT`, `--species-charge SPECIES_ID CHARGE`, `--periodic-images/--no-periodic-images`, `--batch-size INT`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--json-sidecar PATH` |
+| `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies` |
+| `mck operate disorder-supercell INPUT` | Assemble selected disorder replicas into translated cells | `-o/--output OUTPUT`, `--scale A B C`, `--replica-index INT` (repeat once per cell), `--method {optimal,random,enumerate}`, `--seed INT`, `--coupled`, `--strict-formula`, `--independent-assemblies` |
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
 | `mck operate interpolate START END` | Interpolate between structures | `-o/--output OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
@@ -123,6 +123,14 @@ mck operate disorder-supercell structure.cif -o supercell.cif \
   --scale 2 2 1 --method enumerate \
   --replica-index 0 --replica-index 1 --replica-index 2 --replica-index 3
 ```
+
+`--strict-formula` and `--independent-assemblies` are opt-in on
+`disorder`, `disorder-supercell`, and on any command that loads a CIF with
+`--resolve-disorder` (`io info`, `io molecules`, `io extract-molecule`,
+`io convert`, `operate nanocluster`, `operate void`, `operate supercell`).
+Omitting them keeps legacy assembly heuristics and soft formula filtering.
+On the load commands the two flags require `--resolve-disorder`. See
+[Disorder export and ordered-structure integrity](disorder-integrity.md).
 
 ### Molecule Extraction
 

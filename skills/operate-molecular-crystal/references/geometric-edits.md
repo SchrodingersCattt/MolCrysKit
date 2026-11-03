@@ -36,6 +36,9 @@ mck operate supercell bulk.cif -o bulk_2x2x2.cif --scale 2 2 2
 Choose replication from the physical cutoff or convergence question. Confirm
 vectors and atom/component counts scale by the product. Use
 `--resolve-disorder` only when one ordered realization is intended.
+`--strict-formula` and `--independent-assemblies` are optional, default off,
+and on this command apply only together with `--resolve-disorder`.
+`disorder-supercell` accepts the same flags for replica assembly.
 
 ## Finite particle or periodic void
 

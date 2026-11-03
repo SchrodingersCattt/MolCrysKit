@@ -14,6 +14,8 @@ from molcrys_kit.constants.config import (
 )
 
 from ._common import (
+    INDEPENDENT_ASSEMBLIES,
+    STRICT_FORMULA,
     echo_paths,
     load_crystal,
     rows_to_json,
@@ -77,8 +79,8 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
 @click.option("--count", type=int, default=1, show_default=True, help="Number of structures for random/enumerate modes.")
 @click.option("--seed", type=int, default=None, help="Random seed for random mode.")
 @click.option("--coupled", is_flag=True, help="Couple symmetry-expanded copies of the same disorder assembly.")
-@click.option("--strict-formula", is_flag=True, help="Require formula moiety and Z and reject mismatched candidates.")
-@click.option("--independent-assemblies", is_flag=True, help="Treat complete multi-group assemblies as independent; verify source semantics first.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 def disorder(input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool, strict_formula: bool, independent_assemblies: bool) -> None:
     """Resolve CIF disorder into ordered replica structures."""
     from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
@@ -485,6 +487,8 @@ def _write_stats_sidecar(path: Path | None, info: Mapping[str, object]) -> None:
     show_default=True,
 )
 @click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 @click.option(
     "--json-sidecar",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -513,6 +517,8 @@ def nanocluster(
     vacuum: float,
     batch_size: int,
     resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
     json_sidecar: Path | None,
 ) -> None:
     """Carve a topology-preserving nanocluster without cutting molecules."""
@@ -529,7 +535,12 @@ def nanocluster(
             if shape_name == "bfdh" and input.suffix.lower() == ".cif"
             else None
         )
-        crystal = load_crystal(input, resolve_disorder=resolve_disorder)
+        crystal = load_crystal(
+            input,
+            resolve_disorder=resolve_disorder,
+            strict_formula=strict_formula,
+            independent_assemblies=independent_assemblies,
+        )
         if shape_name == "bfdh":
             shape = ImplicitShape.bfdh(
                 crystal,
@@ -611,6 +622,8 @@ def nanocluster(
 )
 @click.option("--batch-size", type=int, default=DEFAULT_SHAPE_BATCH_SIZE, show_default=True)
 @click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before carving.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 @click.option(
     "--json-sidecar",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -638,13 +651,20 @@ def void(
     periodic_images: bool,
     batch_size: int,
     resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
     json_sidecar: Path | None,
 ) -> None:
     """Remove complete molecular/ionic units to form an implicit-shape void."""
     from molcrys_kit.operations import VoidCarver
 
     try:
-        crystal = load_crystal(input, resolve_disorder=resolve_disorder)
+        crystal = load_crystal(
+            input,
+            resolve_disorder=resolve_disorder,
+            strict_formula=strict_formula,
+            independent_assemblies=independent_assemblies,
+        )
         shape = _implicit_shape_from_cli(
             shape_name,
             size=size,
@@ -687,18 +707,30 @@ def void(
 @click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path))
 @click.option("--scale", nargs=3, type=int, required=True, metavar="A B C", help="Supercell replication factors.")
 @click.option("--resolve-disorder", is_flag=True, help="Resolve CIF disorder before replication.")
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 def supercell(
     input: Path,
     output: Path,
     scale: tuple[int, int, int],
     resolve_disorder: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
 ) -> None:
     """Create a supercell."""
     from molcrys_kit.operations import create_supercell
 
     if any(s < 1 for s in scale):
         raise click.UsageError("--scale factors must each be >= 1.")
-    result = create_supercell(load_crystal(input, resolve_disorder=resolve_disorder), scale)
+    result = create_supercell(
+        load_crystal(
+            input,
+            resolve_disorder=resolve_disorder,
+            strict_formula=strict_formula,
+            independent_assemblies=independent_assemblies,
+        ),
+        scale,
+    )
     write_structure(result, output)
     click.echo(f"Wrote {output}")
 
@@ -736,6 +768,8 @@ def supercell(
     is_flag=True,
     help="Couple symmetry-expanded copies of the same disorder assembly.",
 )
+@STRICT_FORMULA
+@INDEPENDENT_ASSEMBLIES
 def disorder_supercell(
     input: Path,
     output: Path,
@@ -744,6 +778,8 @@ def disorder_supercell(
     method: str,
     seed: int | None,
     coupled: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
 ) -> None:
     """Assemble explicitly selected disorder replicas into a supercell."""
     from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
@@ -757,13 +793,20 @@ def disorder_supercell(
             f"--scale {' '.join(str(value) for value in scale)}."
         )
 
-    replicas = generate_ordered_replicas_from_disordered_sites(
-        str(input),
-        generate_count=max(replica_indices) + 1,
-        method=method,
-        random_seed=seed,
-        coupled=coupled,
-    )
+    try:
+        replicas = generate_ordered_replicas_from_disordered_sites(
+            str(input),
+            generate_count=max(replica_indices) + 1,
+            method=method,
+            random_seed=seed,
+            coupled=coupled,
+            strict_formula=strict_formula,
+            independent_assemblies=independent_assemblies,
+        )
+    except ValueError as exc:
+        if strict_formula or independent_assemblies:
+            raise click.ClickException(str(exc)) from exc
+        raise
     crystals = [item[0] if isinstance(item, tuple) else item for item in replicas]
     try:
         from molcrys_kit.operations import assemble_replica_supercell

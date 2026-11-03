@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -254,6 +255,17 @@ def test_root_exporter_filters_null_coordinate_adps_and_bonds(monkeypatch):
     assert result["n_atoms"] == 2
     assert result["n_aniso"] == 1
     assert result["n_bonds"] == 0
+    assert result["output"] == output.name
+
+    class _AbsolutePath(_MemoryPath):
+        def __str__(self) -> str:
+            return "example/output/NULLADP.cif"
+
+    absolute = _AbsolutePath()
+    absolute_result = module.export_full_cif_from_csd("NULLADP", absolute)
+    assert absolute_result["output"] == absolute.name
+    assert "/" not in absolute_result["output"]
+    assert "example/output" not in json.dumps(absolute_result)
     assert " H1 H " not in output.text
     aniso_section = output.text.split("_atom_site_aniso_label", 1)[1]
     assert "H1" not in aniso_section.split("#END", 1)[0]
@@ -307,6 +319,24 @@ def test_skill_exporter_reports_unassigned_partial_occupancy():
     result = MODULE.export_full_cif_from_csd(_Reader(_Crystal(_Molecule([a], []))), "SYNTH", out)
     assert result["status"] == "ok"
     assert any("no explicit disorder group" in w for w in result["warnings"])
+
+
+def test_root_demo_summary_json_uses_basenames(tmp_path: Path) -> None:
+    """workflow_summary.json must stay portable if the output directory moves."""
+    module = _load_root_exporter()
+    cif = Path("tests/data/cif/synthetic_water_orientation.cif").resolve()
+    code = module.main(["--cifs", str(cif), "--output-dir", str(tmp_path), "--mode", "major"])
+    assert code == 0
+    summary_path = tmp_path / "workflow_summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert payload[0]["source"] == cif.name
+    assert payload[0]["states"]
+    for state in payload[0]["states"]:
+        assert state["output"] == Path(state["output"]).name
+        assert "/" not in state["output"]
+    text = summary_path.read_text(encoding="utf-8")
+    assert str(tmp_path) not in text
+    assert str(cif.parent) not in text
 
 
 def test_group_numbering_is_local_to_each_assembly():
