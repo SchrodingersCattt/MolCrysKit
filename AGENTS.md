@@ -83,12 +83,14 @@ in [docs/architecture.md](docs/architecture.md).
   Update this guide when a standing rule changes.
 - **Out of scope** (pure refactor with identical public behavior, test-only
   or CI-only change, private helper rename, docs-only pull request): put
-  `Docs: N/A` and a one-line reason in the pull request body. Ephemeral
-  change logs are not a substitute for those stable pages. Prefer API docs,
-  golden files, and contract tests as the source of truth.
+  `Docs: N/A` and a one-line reason in the pull request body. A bare
+  `Docs: N/A` does not count. Ephemeral change logs are not a substitute
+  for those stable pages. Prefer API docs, golden files, and contract tests
+  as the source of truth.
 - A warn-only CI job may annotate a pull request that edits `molcrys_kit/`
-  without touching `docs/` and without `Docs: N/A`. That job does not fail
-  the build and does not replace the P1 review.
+  without touching `docs/` and without a `Docs: N/A` line that includes a
+  one-line reason. A bare `Docs: N/A` does not silence that job. The job
+  does not fail the build and does not replace the P1 review.
 - When adding or changing a **public API** function or class, update
   `docs/api.md` — both the "Capability Map" and the "Module Index".
 - When adding a new **user-facing feature**, add it to the Capability Map

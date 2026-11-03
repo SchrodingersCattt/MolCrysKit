@@ -1,7 +1,8 @@
 """Contracts for the warn-only docs ship-with-code check.
 
 The check must warn when public modules change without docs and without a
-visible ``Docs: N/A`` declaration, and it must exit 0 in every case.
+visible ``Docs: N/A`` line that includes a one-line reason. A bare
+``Docs: N/A`` does not count. The check must exit 0 in every case.
 """
 
 from __future__ import annotations
@@ -40,9 +41,29 @@ def test_docs_change_or_declaration_suppresses_warning(checker) -> None:
     package = ["molcrys_kit/operations/surface.py"]
     assert not checker.should_warn(package + ["docs/api.md"], body="")
     assert not checker.should_warn(package, body="Docs: N/A — private helper rename.")
+    assert not checker.should_warn(package, body="Docs: N/A - test-only change")
+    assert not checker.should_warn(package, body="Docs: N/A: internal refactor")
+    assert not checker.should_warn(package, body="Docs: N/A -- CI-only helper")
+    assert not checker.should_warn(package, body="- Docs: N/A — private helper")
     assert not checker.should_warn(
         package,
         body="Intro\nDocs: N/A — test-only follow-up stays out of scope.\n",
+    )
+
+
+def test_bare_declaration_without_reason_still_warns(checker) -> None:
+    package = ["molcrys_kit/io/cif.py"]
+    assert checker.should_warn(package, body="Docs: N/A")
+    assert checker.should_warn(package, body="Docs: N/A\n")
+    assert checker.should_warn(package, body="Docs: N/A —")
+    assert checker.should_warn(package, body="Docs: N/A —   ")
+    assert checker.should_warn(package, body="Docs: N/A -")
+    assert checker.should_warn(package, body="Docs: N/A:")
+    assert checker.should_warn(package, body="Docs: N/A — .")
+    assert checker.should_warn(package, body="See Docs: N/A in the template.")
+    assert checker.should_warn(
+        package,
+        body="We did not write Docs: N/A because the API changed.",
     )
 
 
@@ -81,7 +102,12 @@ def test_template_example_does_not_self_satisfy(checker) -> None:
     assert "private paths" in raw
     assert "unpublished data or CIF files" in raw
     assert checker.NA_DECLARATION in raw
-    assert checker.NA_DECLARATION not in checker.visible_pull_request_body(raw)
+    assert "A bare `Docs: N/A` does not count." in raw
+    visible = checker.visible_pull_request_body(raw)
+    # The example stays inside the fence. The visible prose mention has no reason.
+    assert "Docs: N/A — one-line reason" not in visible
+    assert not checker.has_docs_na_declaration(raw)
+    assert checker.should_warn(["molcrys_kit/io/cif.py"], body=raw)
 
 
 def test_workflow_job_is_warn_only() -> None:
@@ -108,6 +134,13 @@ def test_main_always_exits_zero(
     assert warned == 0
     assert "::warning::" in captured.out
     assert "does not fail the build" in captured.out
+    assert "A bare Docs: N/A does not count." in captured.out
+
+    body.write_text("Docs: N/A\n", encoding="utf-8")
+    bare = checker.main(["--files", str(files), "--body-file", str(body)])
+    captured = capsys.readouterr()
+    assert bare == 0
+    assert "::warning::" in captured.out
 
     body.write_text("Docs: N/A — CI-only helper.\n", encoding="utf-8")
     quiet = checker.main(["--files", str(files), "--body-file", str(body)])

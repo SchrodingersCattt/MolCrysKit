@@ -176,7 +176,7 @@ In scope:
 - Architecture or how-to-use flows
 
 Out of scope, declared in the pull request body as `Docs: N/A` plus a one-line
-reason:
+reason. A bare `Docs: N/A` does not count:
 
 - Pure refactors with identical public behavior
 - Test-only or CI-only changes

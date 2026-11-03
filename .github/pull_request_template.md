@@ -15,8 +15,9 @@ pull request: `docs/api.md`, `docs/cli.md`, `docs/architecture.md`,
 on an in-scope pull request is review P1. See `CONTRIBUTING.md`.
 
 When no stable-doc update is required, copy the declaration below onto its
-own line, outside this fence and outside HTML comments, and add a one-line
-reason. Text left inside the fence does not count.
+own line, outside this fence and outside HTML comments, and replace the
+placeholder with a one-line reason. A bare `Docs: N/A` does not count. Text
+left inside the fence does not count.
 
 ```
 Docs: N/A — one-line reason

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Warn when molcrys_kit changes without docs or a Docs: N/A declaration.
+"""Warn when molcrys_kit changes without docs or a reasoned Docs: N/A line.
 
 Warn-only: this process always exits 0. A missing declaration prints a
 GitHub Actions warning annotation and does not fail the build.
+
+A declaration is ``Docs: N/A`` followed on the same line by a separator
+(``—``, ``–``, ``--``, ``-``, or ``:``) and a non-empty reason. A bare
+``Docs: N/A`` does not count.
 
 The pull request template keeps an example declaration inside a fenced block.
 HTML comments and fenced code blocks are ignored so that example does not
@@ -22,6 +26,9 @@ from pathlib import Path
 NA_DECLARATION = "Docs: N/A"
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+# Same-line reason: separator, then text that contains a word character.
+# Longer dashes are listed before "-" so "--" is one separator.
+_TAIL_REASON = re.compile(r"[ \t]*(?:—|–|--|-|:)[ \t]*(.*)")
 
 
 def visible_pull_request_body(body: str | None) -> str:
@@ -32,9 +39,33 @@ def visible_pull_request_body(body: str | None) -> str:
     return _FENCE_RE.sub("", without_comments)
 
 
+def _tail_has_reason(tail: str) -> bool:
+    """Return whether text after ``Docs: N/A`` is a separator plus a reason."""
+    matched = _TAIL_REASON.match(tail)
+    if matched is None:
+        return False
+    reason = matched.group(1).strip().strip("`\"'")
+    return bool(re.search(r"\w", reason))
+
+
 def has_docs_na_declaration(body: str | None) -> bool:
-    """Return whether the visible body contains the out-of-scope declaration."""
-    return NA_DECLARATION in visible_pull_request_body(body)
+    """Return whether the visible body declares ``Docs: N/A`` with a reason.
+
+    The reason must follow the token on the same line. A bare ``Docs: N/A``,
+    a separator with no reason, and a prose mention of the token do not count.
+    """
+    visible = visible_pull_request_body(body)
+    token_length = len(NA_DECLARATION)
+    for line in visible.splitlines():
+        start = 0
+        while True:
+            index = line.find(NA_DECLARATION, start)
+            if index < 0:
+                break
+            if _tail_has_reason(line[index + token_length :]):
+                return True
+            start = index + token_length
+    return False
 
 
 def normalize_path(path: str) -> str:
@@ -61,7 +92,9 @@ def should_warn(paths: Iterable[str], body: str | None) -> bool:
     """Return whether this change set should produce a non-blocking warning.
 
     Warn only when a public module changed, no docs file changed, and the
-    pull request body lacks ``Docs: N/A`` outside comments and code fences.
+    visible pull request body lacks ``Docs: N/A`` followed by a one-line
+    reason. A bare ``Docs: N/A`` does not count. HTML comments and fenced
+    code blocks are ignored.
     """
     public_changed = False
     docs_changed = False
@@ -81,7 +114,8 @@ def warning_message(paths: Sequence[str]) -> str:
         shown = f"{shown}, ..."
     return (
         "molcrys_kit/ changed, no docs/** file changed, and the pull request "
-        "body has no Docs: N/A declaration outside comments and code fences. "
+        "body has no Docs: N/A declaration with a one-line reason outside "
+        "comments and code fences. A bare Docs: N/A does not count. "
         "In-scope public API, CLI, CIF/I-O, or crystallographic-invariant "
         "changes need a stable docs update in this pull request "
         "(docs/api.md, docs/cli.md, docs/architecture.md, docs/bonds.md, "

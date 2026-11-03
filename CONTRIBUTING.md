@@ -38,7 +38,7 @@ people and agents who modify this repository.
 
 These changes do not need a stable-doc edit. Write the following declaration
 on its own line in the pull request body, outside HTML comments and fenced
-code blocks, and add a one-line reason:
+code blocks, followed by a one-line reason. A bare `Docs: N/A` does not count:
 
 ```
 Docs: N/A — one-line reason
@@ -68,7 +68,8 @@ as a substitute for the stable handbook, API, CLI, or contract pages.
 
 `.github/pull_request_template.md` asks for:
 
-- docs paths touched, or the `Docs: N/A` declaration and a one-line reason
+- docs paths touched, or `Docs: N/A` with a one-line reason (a bare
+  `Docs: N/A` does not count)
 - whether the public API, CLI, CIF/I-O contracts, or crystallographic invariants changed (yes/no)
 - whether `AGENTS.md` was updated if a standing rule changed
 - a project-agnostic checkbox confirming the pull request has no internal project names, private paths, or unpublished data or CIF files
@@ -81,7 +82,8 @@ Copy it out of the fence when you use it.
 On pull requests, `Docs ship with code (warn)` in
 `.github/workflows/unit-tests.yml` warns when files under `molcrys_kit/`
 change, no file under `docs/` changes, and the body has no `Docs: N/A`
-declaration outside HTML comments and fenced code blocks. The job emits a
+declaration with a one-line reason outside HTML comments and fenced code
+blocks. A bare `Docs: N/A` does not silence the warning. The job emits a
 warning annotation and does not fail the build. Silence from that job is not
 approval: reviewers still apply the P1 bar when an in-scope change updates
 the wrong page, or when a contract changes without a `molcrys_kit/` diff.
