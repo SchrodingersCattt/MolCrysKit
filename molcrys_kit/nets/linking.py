@@ -4,6 +4,11 @@ A verified link is an integer linking number of two disjoint cover cycles,
 computed with exact coordinates after an orientation-preserving shear. Close
 approaches, projection crossings of trees, and a search that stops early are
 not links. Failure to find a cycle pair is not proof that none exists.
+
+Cover images are limited by the Chebyshev window
+``max(|h|, |k|, |l|) <= link_image_limit``. A step that would leave the
+window sets the same capped flag as the ring caps. A linking number already
+found inside the window is still a link.
 """
 
 from __future__ import annotations
@@ -411,7 +416,8 @@ def _cover_cycles(
                 continue
             stack[-1] = (node_id, image, cursor + 1)
             neighbor, step = stubs[cursor]
-            nxt = (neighbor, add(image, step))
+            nxt_image = add(image, step)
+            nxt = (neighbor, nxt_image)
             if nxt == (start, (0, 0, 0)) and len(path) >= 3:
                 cycle = _canonical_cycle(tuple(path))
                 if cycle not in found:
@@ -420,6 +426,9 @@ def _cover_cycles(
                         capped = True
                         stack.clear()
                         break
+                continue
+            if _outside_image_window(nxt_image, limits.link_image_limit):
+                capped = True
                 continue
             if nxt in visited or len(path) >= limits.ring_length_limit:
                 continue
@@ -431,6 +440,11 @@ def _cover_cycles(
     if _could_have_longer_cycles(graph, graph, limits):
         capped = True
     return tuple(found), capped
+
+
+def _outside_image_window(image: ImageShift, limit: int) -> bool:
+    """Return whether ``image`` is outside the Chebyshev linking window."""
+    return max(abs(component) for component in image) > limit
 
 
 def _could_have_longer_cycles(

@@ -178,6 +178,43 @@ def test_inexact_coordinates_are_not_a_linking_number():
     assert assessment.reason == "inexact_geometry"
 
 
+def _shifted_hopf_partner():
+    """Same Hopf geometry, with the return edge stored in the next image."""
+    nodes = ("b0", "b1", "b2", "b3")
+    points = (
+        (0.5, 0.5, 0.25),
+        (-1.0, 0.5, 0.25),
+        (-1.0, 0.5, 0.75),
+        (0.5, 0.5, 0.75),
+    )
+    edges = [
+        ("b0", "b1", (1, 0, 0)),
+        ("b1", "b2", (0, 0, 0)),
+        ("b2", "b3", (-1, 0, 0)),
+        ("b3", "b0", (0, 0, 0)),
+    ]
+    return _graph(nodes, edges), _embed(list(zip(nodes, points)))
+
+
+def test_image_window_caps_a_cover_cycle_that_leaves_the_origin():
+    left, left_embedding = _square()
+    right, right_embedding = _shifted_hopf_partner()
+    linked = assess_linking(left, left_embedding, right, right_embedding)
+    assert linked.status == "linked", linked.reason
+    assert linked.witness is not None
+    assert abs(int(linked.witness["linking_number"])) == 1
+    capped = assess_linking(
+        left,
+        left_embedding,
+        right,
+        right_embedding,
+        limits=_limits(link_image_limit=0),
+    )
+    assert capped.status in {"unverified", "not_detected_within_bounds"}
+    assert capped.status != "linked"
+    assert capped.status != "coexistence"
+
+
 def test_capped_ring_search_does_not_prove_absence():
     left, left_embedding = _square()
     right, right_embedding = _hopf_partner()

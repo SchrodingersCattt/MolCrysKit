@@ -5,6 +5,8 @@ a limit is not a negative proof.
 
 ``basis_entry_limit`` and ``lll_step_limit`` are part of that report. The
 isomorphism proof is a Hermite form, so those two fields do not decide it.
+``link_image_limit`` is the Chebyshev bound on cover images visited by the
+linking search. Leaving that window is a cap, not a proof that no link exists.
 """
 
 from __future__ import annotations

@@ -9,6 +9,9 @@ two nets the same.
 
 The canonical search is finite. If the quotient is larger than the node cap,
 or the labeling budget is exhausted, the status is ``undetermined``.
+
+A disconnected quotient joins one key per component. Those keys are sorted
+before they are joined, so the system key does not follow source node ids.
 """
 
 from __future__ import annotations
@@ -283,14 +286,19 @@ def _assemble(
             tuple(components),
             census,
         )
-    key = "||".join(component.canonical_key or "" for component in components)
+    # Sort by each component key. Source-node order changes under a relabel
+    # when the components are different, and that order is not an invariant.
+    ordered = tuple(
+        sorted(components, key=lambda component: component.canonical_key or "")
+    )
+    key = "||".join(component.canonical_key or "" for component in ordered)
     return TopologyCharacterization(
         "identified",
         "canonical_form",
         key,
         periodic_rank,
         cycle_rank,
-        tuple(components),
+        ordered,
         census,
     )
 

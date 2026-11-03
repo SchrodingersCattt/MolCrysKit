@@ -11,6 +11,7 @@ from molcrys_kit.cli import main
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CU = REPO_ROOT / "examples" / "Cu.cif"
+NACL = REPO_ROOT / "examples" / "NaCl.cif"
 
 
 def _square_graph() -> dict[str, object]:
@@ -54,6 +55,39 @@ def test_crystal_text_output_has_no_prototype_name():
     assert result.exit_code == 0, result.output
     assert "periodic_rank=" in result.output
     assert "topology=" in result.output
+    for name in ("sql", "dia", "pcu", "hcb", "srs"):
+        assert name not in result.output
+
+
+def test_nacl_contacts_are_a_second_public_crystal_path():
+    result = CliRunner().invoke(
+        main,
+        [
+            "analyze",
+            "net-topology",
+            str(NACL),
+            "--nodes",
+            "atom_sites",
+            "--edges",
+            "contacts",
+            "--cutoff",
+            "3.5",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["schema"] == "mck.net_topology/v1"
+    candidate = next(
+        item
+        for proposal in payload["proposals"]
+        if proposal["proposal_id"] == payload["primary_proposal_id"]
+        for item in proposal["candidates"]
+    )
+    assert candidate["edge_ids"]
+    assert candidate["periodic_rank"] == 3
+    assert isinstance(candidate["quotient_cycle_rank"], int)
+    assert candidate["topology"]["status"] in {"identified", "undetermined"}
     for name in ("sql", "dia", "pcu", "hcb", "srs"):
         assert name not in result.output
 

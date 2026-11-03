@@ -250,7 +250,7 @@ def _candidate_block(candidate, proposal, disorder_status, *, topology: bool, li
     compared = compare_periodic_nets(candidate.graph, candidate.graph, limits)
     record = compared.left
     block["topology"] = {
-        "status": record.status if disorder_status == "resolved" else record.status,
+        "status": record.status,
         "proof": compared.proof if record.status == "identified" else "none",
         "reason": record.reason,
         "canonical_key": record.canonical_key,
@@ -259,7 +259,6 @@ def _candidate_block(candidate, proposal, disorder_status, *, topology: bool, li
         "components": [component.to_dict() for component in record.components],
     }
     if disorder_status == "conditional":
-        block["topology"]["status"] = record.status
         block["topology"]["reason"] = f"conditional:{record.reason}"
     return block
 

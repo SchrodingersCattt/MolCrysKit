@@ -16,7 +16,7 @@ from molcrys_kit.periodic import (
     equivalent_supercell,
     relabel_nodes,
 )
-from molcrys_kit.periodic.algorithms import analyze_periodic_graph
+from molcrys_kit.periodic.algorithms import analyze_periodic_graph, quotient_components
 
 
 def _graph(nodes, edges, pbc=(True, True, True)):
@@ -183,6 +183,46 @@ def test_edge_order_does_not_change_the_canonical_key():
     assert compared.status == "isomorphic"
     assert compared.proof == "explicit_isomorphism"
     assert compared.left.canonical_key == compared.right.canonical_key
+
+
+def test_site_relabel_preserves_a_multi_component_canonical_key():
+    cycle = ("a", "b", "c", "d")
+    original = _graph(
+        (*cycle, "m"),
+        [
+            ("ab", "a", "b", (0, 0, 0)),
+            ("bc", "b", "c", (0, 0, 0)),
+            ("cd", "c", "d", (0, 0, 0)),
+            ("da", "d", "a", (0, 0, 0)),
+            ("wind", "m", "m", (1, 0, 0)),
+        ],
+    )
+    relabeled = relabel_nodes(
+        original, {"a": "v", "b": "w", "c": "x", "d": "y", "m": "a"}
+    ).graph
+    original_order = [
+        len(component.node_ids) for component in quotient_components(original)
+    ]
+    relabeled_order = [
+        len(component.node_ids) for component in quotient_components(relabeled)
+    ]
+    assert original_order != relabeled_order
+    left = characterize_periodic_net(original)
+    right = characterize_periodic_net(relabeled)
+    assert left.status == "identified"
+    assert right.status == "identified"
+    component_keys = [component.canonical_key for component in left.components]
+    assert len(set(component_keys)) == 2
+    assert left.canonical_key == "||".join(sorted(component_keys))
+    assert left.canonical_key == right.canonical_key
+    compared = compare_periodic_nets(original, relabeled)
+    assert compared.status == "isomorphic", (
+        compared.status,
+        compared.proof,
+        compared.reason,
+    )
+    assert compared.proof == "explicit_isomorphism"
+    assert verify_topology_witness(original, relabeled, compared)
 
 
 def test_empty_graph_is_identified():

@@ -184,9 +184,12 @@ Rank and a completed coordination census are negative tests. They can return
 budget is zero. They cannot return `isomorphic`.
 
 The same key is stable under relabeling, edge order, integer gauge, a
-unimodular change of basis, and an equivalent supercell. A skew embedding
-does not change the quotient. Equal keys with different embeddings are
-allowed. Topology and catenation are independent.
+unimodular change of basis, and an equivalent supercell. Several components
+are joined in lexicographic order of their own keys. The joined key does not
+follow the order of the source node ids, so a relabel that changes which
+component is encountered first leaves the system key unchanged. A skew
+embedding does not change the quotient. Equal keys with different embeddings
+are allowed. Topology and catenation are independent.
 
 ## Linking
 
@@ -217,11 +220,15 @@ The decision order is:
    `not_detected_within_bounds` when they do not.
 
 Any nonzero image shift, or a quotient larger than `ring_length_limit`, means
-a longer cover cycle may exist. Stopping there is not proof that the nets are
-unlinked. The Hopf pair used in the tests is one ring and a second ring with
-a single edge through its interior. Translating that second ring aside is
-`coexistence`. Capping the ring length below 4 leaves the same pair
-`unverified` or `not_detected_within_bounds`.
+a longer cover cycle may exist. The search also stays inside the image window
+`max(|h|, |k|, |l|) <= link_image_limit`. A step that would leave that window,
+or a pair count that reaches `link_pair_limit`, stops further exploration.
+Stopping there is not proof that the nets are unlinked. A linking number
+already found inside the window is still `linked`. The Hopf pair used in the
+tests is one ring and a second ring with a single edge through its interior.
+Translating that second ring aside is `coexistence`. Capping the ring length
+below 4, or capping the image window so the linking cycle is not entered,
+leaves the same pair `unverified` or `not_detected_within_bounds`.
 
 Brunnian links and links of more than two components are not given a class.
 A missing embedding is `not_assessed`.
@@ -270,7 +277,8 @@ rank, topology status, and proof. It does not print a prototype name.
 | `backtrack_limit` | Cap on labelings times parallel-edge orders. |
 | `basis_entry_limit`, `lll_step_limit` | Stored only. Not used by the proof. |
 | `ring_length_limit`, `ring_count_limit`, `ring_state_limit` | Cover-cycle search. |
-| `link_pair_limit`, `link_image_limit` | Pair and image caps for linking. |
+| `link_pair_limit` | Maximum cycle pairs whose linking number is computed. Reaching it is a cap. |
+| `link_image_limit` | Chebyshev bound on cover images visited while searching for cycles. A step outside the window is a cap. |
 | `discovery_partition_limit` | Largest orbit partition that is returned. |
 | `contact_borderline_margin_A` | Width of the borderline contact shell. |
 | `fraction_residual_A`, `fraction_denominator_limit` | Exact-coordinate gate for linking. |
