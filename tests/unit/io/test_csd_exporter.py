@@ -258,3 +258,67 @@ def test_root_exporter_filters_null_coordinate_adps_and_bonds(monkeypatch):
     aniso_section = output.text.split("_atom_site_aniso_label", 1)[1]
     assert "H1" not in aniso_section.split("#END", 1)[0]
     assert "_geom_bond_atom_site_label_1" not in output.text
+
+
+def _load_root_exporter():
+    spec = importlib.util.spec_from_file_location("root_csd_integrity_test", Path("scripts/demo_csd_disorder_workflow.py"))
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_both_exporters_keep_group_objects_distinct_when_ids_missing_or_duplicate():
+    # Synthetic labels only: no CSD data are used in this regression.
+    atom_a = _Atom("C1", "C", _Coords(.1, .1, .1), .6)
+    atom_b = _Atom("C2", "C", _Coords(.11, .1, .1), .4)
+    group_a = _Group(None, [atom_a])
+    group_b = _Group(None, [atom_b])
+    crystal = _Crystal(_Molecule([atom_a, atom_b], []), _Disorder([_Assembly(4, [group_a, group_b])]))
+    for module in (MODULE, _load_root_exporter()):
+        mapping, warnings = module._disorder_lookup(crystal)
+        assert not warnings
+        assert mapping["C1"][0] > 0 and mapping["C2"][0] > 0
+        assert mapping["C1"] != mapping["C2"]
+        assert mapping["C1?"] == mapping["C1"]
+
+
+def test_both_exporters_never_overwrite_exact_label_with_question_alias():
+    a = _Atom("C1", "C", _Coords(.1, .1, .1), .5)
+    b = _Atom("C1?", "C", _Coords(.11, .1, .1), .5)
+    crystal = _Crystal(_Molecule([a, b], []), _Disorder([_Assembly(0, [_Group(0, [a]), _Group(1, [b])])]))
+    for module in (MODULE, _load_root_exporter()):
+        mapping, _ = module._disorder_lookup(crystal)
+        assert mapping["C1"] != mapping["C1?"]
+
+
+def test_both_exporters_reject_exact_label_in_multiple_groups():
+    import pytest
+    a = _Atom("C1", "C", _Coords(.1, .1, .1), .5)
+    crystal = _Crystal(_Molecule([a], []), _Disorder([_Assembly(0, [_Group(0, [a]), _Group(1, [a])])]))
+    for module in (MODULE, _load_root_exporter()):
+        with pytest.raises(ValueError, match="multiple groups"):
+            module._disorder_lookup(crystal)
+
+
+def test_skill_exporter_reports_unassigned_partial_occupancy():
+    a = _Atom("C1", "C", _Coords(.1, .1, .1), .5)
+    out = _MemoryPath()
+    result = MODULE.export_full_cif_from_csd(_Reader(_Crystal(_Molecule([a], []))), "SYNTH", out)
+    assert result["status"] == "ok"
+    assert any("no explicit disorder group" in w for w in result["warnings"])
+
+
+def test_group_numbering_is_local_to_each_assembly():
+    a = _Atom("C1", "C", _Coords(.1, .1, .1), .5)
+    b = _Atom("C2", "C", _Coords(.11, .1, .1), .5)
+    c = _Atom("C3", "C", _Coords(.5, .5, .5), .5)
+    d = _Atom("C4", "C", _Coords(.51, .5, .5), .5)
+    crystal = _Crystal(_Molecule([a, b, c, d], []), _Disorder([
+        _Assembly(0, [_Group(0, [a]), _Group(1, [b])]),
+        _Assembly(1, [_Group(0, [c]), _Group(1, [d])]),
+    ]))
+    for module in (MODULE, _load_root_exporter()):
+        mapping, _ = module._disorder_lookup(crystal)
+        assert mapping["C1"] == (1, "0") and mapping["C2"] == (2, "0")
+        assert mapping["C3"] == (1, "1") and mapping["C4"] == (2, "1")

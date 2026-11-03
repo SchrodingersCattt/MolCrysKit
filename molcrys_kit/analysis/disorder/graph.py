@@ -39,6 +39,7 @@ class DisorderGraphBuilder:
         info: DisorderInfo,
         lattice: np.ndarray,
         coupled: bool = False,
+        independent_assemblies: bool = False,
     ):
         """Initialize the graph builder.
 
@@ -60,6 +61,27 @@ class DisorderGraphBuilder:
         self.sp_completion_pairs = []
         self._sp_completion_pair_keys = set()
         self._centroid_cache = {}
+        # A labelled assembly with multiple explicit groups has a complete
+        # local choice set. Single-group assembly labels occur in legacy CIFs
+        # as fragment labels rather than independent disorder families; keep
+        # the existing geometry heuristic for those ambiguous encodings.
+        groups_by_assembly = defaultdict(set)
+        for index, group in enumerate(info.disorder_groups):
+            assembly = info.assemblies[index] if index < len(info.assemblies) else ""
+            if assembly and group != 0:
+                groups_by_assembly[assembly].add(group)
+        complete_families = {
+            assembly for assembly, groups in groups_by_assembly.items()
+            if len(groups) > 1
+        }
+        self._multi_group_assemblies = complete_families if independent_assemblies else set()
+        if not independent_assemblies and len(complete_families) > 1:
+            logger.warning(
+                "Multiple multi-group assemblies detected. Legacy disorder "
+                "heuristics may couple or exclude choices across assemblies. "
+                "If source metadata confirms independent assemblies, enable "
+                "independent_assemblies; verify molecular composition and topology."
+            )
 
         # Add nodes
         for i in range(len(info.labels)):
@@ -196,7 +218,12 @@ class DisorderGraphBuilder:
                     if has_sym_info and atom_idx < len(self.info.sym_op_indices):
                         sym_op = self.info.sym_op_indices[atom_idx]
 
-                    key = (part_id, sym_op)
+                    assembly = self.info.assemblies[atom_idx] if atom_idx < len(self.info.assemblies) else ""
+                    # Under the explicit independent-assembly policy, equal
+                    # local group numbers in different assemblies are not a
+                    # single joint conformer.
+                    scope = assembly if assembly in self._multi_group_assemblies else ""
+                    key = (part_id, scope, sym_op)
 
                     if key not in atoms_by_key:
                         atoms_by_key[key] = set()
@@ -347,6 +374,14 @@ class DisorderGraphBuilder:
 
                 part_a = self.info.disorder_groups[atoms_a[0]]
                 part_b = self.info.disorder_groups[atoms_b[0]]
+                assembly_a = self.info.assemblies[atoms_a[0]] if atoms_a[0] < len(self.info.assemblies) else ""
+                assembly_b = self.info.assemblies[atoms_b[0]] if atoms_b[0] < len(self.info.assemblies) else ""
+                # Different explicit assemblies are independent. Atom-level
+                # geometry still checks for actual clashes later.
+                if (assembly_a != assembly_b
+                        and assembly_a in self._multi_group_assemblies
+                        and assembly_b in self._multi_group_assemblies):
+                    continue
 
                 is_bonded_framework_interaction = False
 
@@ -550,14 +585,19 @@ class DisorderGraphBuilder:
                 and j < len(sym_ops)
             ):
                 same_sym_site = (sym_ops[i] == sym_ops[j])
-            if g_i > 0 and g_j > 0 and g_i != g_j and same_sym_site:
+            asm_i = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
+            asm_j = self.info.assemblies[j] if j < len(self.info.assemblies) else ""
+            independent_assemblies = (asm_i != asm_j and asm_i in self._multi_group_assemblies
+                                      and asm_j in self._multi_group_assemblies)
+            if g_i > 0 and g_j > 0 and g_i != g_j and same_sym_site and not independent_assemblies:
                 threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
             else:
                 threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
 
             if dist < threshold:
                 overlap = dist < DISORDER_CONFIG["OVERLAP_SITE_THRESHOLD"]
-                if is_implicit_sp_disorder or overlap or not self._are_bonded(symbol_i, symbol_j, dist, g_i, g_j):
+                bond_group_j = g_i if independent_assemblies else g_j
+                if is_implicit_sp_disorder or overlap or not self._are_bonded(symbol_i, symbol_j, dist, g_i, bond_group_j):
                     add_or_promote_edge(
                         self.graph, i, j, "geometric", distance=dist
                     )

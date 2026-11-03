@@ -61,50 +61,50 @@ def _read_refcodes(values: Iterable[str], refcodes_file: Path | None) -> list[st
 
 
 def _disorder_lookup(crystal: Any) -> tuple[dict[str, tuple[int, str]], list[str]]:
-    mapping: dict[str, tuple[int, str]] = {}
-    warnings: list[str] = []
-    disorder = getattr(crystal, "disorder", None)
-    if disorder is None:
-        return mapping, warnings
+    """Map CCDC atoms to distinct CIF groups, preserving exact labels first.
 
-    raw_mapping: dict[str, tuple[int, str]] = {}
-    raw_groups: set[tuple[str, int]] = set()
+    Group IDs exposed by CCDC can be zero, duplicated or unavailable.
+    Assemblies and group objects, not their raw IDs, define the alternatives.
+    Alias a trailing '?' only if doing so cannot overwrite an exact label.
+    """
+    exact: dict[str, tuple[int, str]] = {}
+    aliases: dict[str, set[tuple[int, str]]] = {}
+    warnings: list[str] = []
     try:
-        # CCDC disorder group identifiers are release/API data and may start
-        # at zero.  MolCrysKit reserves zero for ordered atoms, so collect the
-        # raw identifiers first and remap each (assembly, raw group) pair to a
-        # positive deterministic ID below.
-        for assembly in disorder.assemblies:
-            assembly_id = str(getattr(assembly, "id", ""))
-            for group in assembly.groups:
-                raw_group_id = int(getattr(group, "id", 0))
-                raw_groups.add((assembly_id, raw_group_id))
+        disorder = getattr(crystal, "disorder", None)
+        assemblies = list(disorder.assemblies) if disorder is not None else []
+        used_assemblies: set[str] = set()
+        for index, assembly in enumerate(assemblies, 1):
+            raw_id = getattr(assembly, "id", None)
+            assembly_id = str(raw_id) if raw_id is not None else f"assembly_{index}"
+            if assembly_id in ("", ".", "?"):
+                assembly_id = f"assembly_{index}"
+            if assembly_id in used_assemblies:
+                raise ValueError(f"Duplicate disorder assembly ID: {assembly_id!r}")
+            used_assemblies.add(assembly_id)
+            for group_number, group in enumerate(assembly.groups, 1):
+                value = (group_number, assembly_id)
                 for atom in group.atoms:
                     label = str(atom.label)
-                    raw_mapping[label] = (raw_group_id, assembly_id)
-                    # CCDC appends ``?`` to labels on some alternate sites
-                    # (for example ``C4?``), while the disorder hierarchy can
-                    # expose the same atom as ``C4``.  Keep both spellings so
-                    # that the group/assembly information survives export.
-                    if label.endswith("?"):
-                        raw_mapping.setdefault(label[:-1], (raw_group_id, assembly_id))
-                    else:
-                        raw_mapping.setdefault(f"{label}?", (raw_group_id, assembly_id))
-    except Exception as exc:  # CCDC release-specific null handles
-        warnings.append(f"Could not read complete disorder hierarchy: {exc}")
+                    if label in exact and exact[label] != value:
+                        raise ValueError(f"Disorder atom label belongs to multiple groups: {label!r}")
+                    exact[label] = value
+                    alias = label[:-1] if label.endswith("?") else label + "?"
+                    aliases.setdefault(alias, set()).add(value)
+    except ValueError:
+        raise
+    except Exception as exc:
+        # An incomplete hierarchy must not be treated as a valid mapping.
+        raise ValueError(f"Could not read complete disorder hierarchy: {exc}") from exc
 
-    # CCDC permits disorder group 0, while MolCrysKit reserves zero for
-    # ordered atoms.  Re-number every observed (assembly, group) pair into a
-    # deterministic positive range, preserving distinctions between groups.
-    group_numbers = {
-        key: index + 1
-        for index, key in enumerate(sorted(raw_groups, key=lambda item: (item[0], item[1])))
-    }
-    mapping = {
-        label: (group_numbers[(assembly_id, group_id)], assembly_id)
-        for label, (group_id, assembly_id) in raw_mapping.items()
-        if (assembly_id, group_id) in group_numbers
-    }
+    mapping = dict(exact)
+    for alias, values in aliases.items():
+        if alias in exact:
+            continue
+        if len(values) == 1:
+            mapping[alias] = next(iter(values))
+        else:
+            warnings.append(f"Ambiguous disorder label alias: {alias!r}")
     return mapping, warnings
 
 
@@ -202,6 +202,14 @@ def export_full_cif_from_csd(
                 "group": group_id,
                 "assembly": assembly_id,
             }
+        )
+
+    unmatched = [row["label"] for row in atom_rows
+                 if row["occupancy"] < 0.999 and row["group"] is None]
+    if unmatched:
+        warnings.append(
+            f"{len(unmatched)} partial-occupancy atom(s) have no explicit disorder group; "
+            "they may be independent vacancies or incomplete metadata; review before ordering."
         )
 
     # Collect bond candidates before filtering coordinate-less atoms.  CCDC

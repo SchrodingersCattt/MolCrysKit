@@ -1815,6 +1815,7 @@ class DisorderSolver:
         method: str = "optimal",
         random_seed: Optional[int] = None,
         return_kept_indices: bool = False,
+        strict_formula: bool = False,
     ) -> List[MolecularCrystal] | List[Tuple[MolecularCrystal, List[int]]]:
         """
         Solve the disorder problem and generate ordered structures using Group-Based approach.
@@ -1836,6 +1837,10 @@ class DisorderSolver:
             When True, return ``(crystal, kept_indices)`` tuples where
             ``kept_indices`` are indices into ``DisorderInfo`` arrays after
             all SP-completion / orphan-H cleanup passes.
+
+        strict_formula : bool, optional
+            Require parseable formula moiety and Z and reject results if no
+            candidate matches. Defaults to False for backwards compatibility.
 
         Returns:
         --------
@@ -1901,6 +1906,16 @@ class DisorderSolver:
             cleaned_sets.append(self._postprocess_independent_set(independent_set))
 
         # --- Formula-based stoichiometry filter ---
+        if strict_formula and not (
+            self.info.formula_moiety and self.info.z_value
+            and self._parse_expected_element_totals()
+        ):
+            raise ValueError(
+                "Strict formula validation requires a parseable formula moiety and Z; "
+                "verify the declared composition before ordering."
+            )
+        if strict_formula and not cleaned_sets:
+            raise ValueError("No ordered candidates were generated for formula validation.")
         if cleaned_sets and self.info.formula_moiety and self.info.z_value:
             expected = self._parse_expected_element_totals()
             if expected:
@@ -1926,6 +1941,14 @@ class DisorderSolver:
                         valid = sampled
                 if valid:
                     cleaned_sets = valid
+                else:
+                    message = (
+                        "No ordered candidate matches the declared formula moiety and Z; "
+                        "the input formula or disorder metadata may be incomplete or incorrect."
+                    )
+                    if strict_formula:
+                        raise ValueError(message)
+                    logger.warning("%s Returning unvalidated candidates.", message)
 
         if cleaned_sets and method in {"random", "enumerate"}:
             reference_set = cleaned_sets[0]

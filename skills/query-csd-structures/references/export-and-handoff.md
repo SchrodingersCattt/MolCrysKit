@@ -81,3 +81,24 @@ mck operate disorder csd_export/cifs/ABACIR.cif \
 ```
 
 This keeps retrieval and structural modeling as separate, auditable stages.
+
+## Disorder integrity
+
+CCDC group IDs may start at zero or be absent. The exporter numbers the
+actual groups with positive IDs and preserves distinct assemblies. Ambiguous
+or contradictory labels require review; ungrouped partial occupancies may
+represent independent vacancies and are reported explicitly. Check the
+manifest and atom-site rows before ordering.
+
+Check `mck operate disorder --help` first; these options require a MolCrysKit version that supports them.
+
+Use `mck operate disorder ... --strict-formula` only when the CIF has a
+verified, parseable `_chemical_formula_moiety` and `_cell_formula_units_Z`.
+A successful match does not prove protonation, charge or connectivity. A
+missing or inaccurate formula requires a separately justified comparison.
+
+When the source establishes that multiple multi-group assemblies are
+independent, use `mck operate disorder ... --independent-assemblies`;
+otherwise retain legacy behavior and review the source model. Some CIFs use
+assembly labels for alternative fragments rather than separate choices, and
+this switch is not an automatic chemical-identity check.

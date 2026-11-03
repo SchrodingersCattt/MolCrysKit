@@ -123,6 +123,18 @@ class CifCase:
 
 
 CASES: list[CifCase] = [
+    CifCase(
+        "synthetic-bonded-assemblies", "synthetic_bonded_assemblies.cif", 2,
+        expected_element_totals={"C": 2},
+    ),
+    CifCase(
+        "synthetic-two-assemblies", "synthetic_two_assemblies.cif", 3,
+        expected_element_totals={"H": 2, "O": 1},
+    ),
+    CifCase(
+        "synthetic-water-orientation", "synthetic_water_orientation.cif", 3,
+        expected_element_totals={"H": 2, "O": 1},
+    ),
     # --- locked baseline (currently green on main) ---
     CifCase(
         "olex2-embedded-fcf", "olex2_embedded_fcf.cif", 1,
@@ -818,3 +830,40 @@ def test_multisite_na_nh4_enumerate_count(cif_data_dir: str):
     assert len(replicas) == 4, (
         f"Expected 4 replicas (2 sites x 2 choices), got {len(replicas)}"
     )
+
+
+def test_synthetic_water_orientation_topology():
+    from collections import Counter
+    path = os.path.join(CIF_DATA_DIR, "synthetic_water_orientation.cif")
+    for method in ("optimal", "random", "enumerate"):
+        crystals = generate_ordered_replicas_from_disordered_sites(
+            path, generate_count=3, method=method, random_seed=7,
+            strict_formula=True,
+        )
+        assert crystals
+        for crystal in crystals:
+            assert Counter(m.get_chemical_formula() for m in crystal.molecules) == Counter({"H2O": 1})
+
+
+def test_synthetic_two_assemblies_topology():
+    from collections import Counter
+    path = os.path.join(CIF_DATA_DIR, "synthetic_two_assemblies.cif")
+    for method in ("optimal", "random", "enumerate"):
+        crystals = generate_ordered_replicas_from_disordered_sites(
+            path, generate_count=3, method=method, random_seed=7, strict_formula=True
+        )
+        assert crystals
+        for crystal in crystals:
+            assert Counter(m.get_chemical_formula() for m in crystal.molecules) == Counter({"H2O": 1})
+
+
+def test_synthetic_bonded_assemblies_topology():
+    from collections import Counter
+    path = os.path.join(CIF_DATA_DIR, "synthetic_bonded_assemblies.cif")
+    crystals = generate_ordered_replicas_from_disordered_sites(
+        path, method="enumerate", generate_count=10,
+        strict_formula=True, independent_assemblies=True,
+    )
+    assert len(crystals) == 4
+    for crystal in crystals:
+        assert Counter(m.get_chemical_formula() for m in crystal.molecules) == Counter({"C2": 1})
