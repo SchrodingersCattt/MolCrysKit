@@ -21,6 +21,8 @@ def generate_ordered_replicas_from_disordered_sites(
     coupled: bool = False,
     *,
     crystal: Optional[MolecularCrystal] = None,
+    strict_formula: bool = False,
+    independent_assemblies: bool = False,
 ) -> Union[List[MolecularCrystal], List[Tuple[MolecularCrystal, List[int]]]]:
     """
     Process a disordered structure through the full disorder handling pipeline.
@@ -49,6 +51,14 @@ def generate_ordered_replicas_from_disordered_sites(
         When False (default), symmetry-expanded copies of the same disorder
         assembly make independent PART/orientation decisions.  When True,
         preserve the legacy behaviour that locks symmetry copies together.
+    strict_formula : bool, optional
+        Require a parseable formula moiety and Z and reject all candidates
+        that do not match the declared composition. Default False warns on
+        mismatch and retains legacy best-effort results.
+    independent_assemblies : bool, optional
+        Interpret distinct assemblies with multiple explicit groups as
+        independent. Enable only when the source confirms this convention;
+        legacy CIFs may use assembly IDs as alternative fragment labels.
     crystal : MolecularCrystal, optional
         Pre-loaded crystal carrying disorder metadata in its per-atom arrays.
         When provided, ``filepath`` is ignored and no CIF is read from disk.
@@ -92,7 +102,10 @@ def generate_ordered_replicas_from_disordered_sites(
         )
 
     # Phase 2: Build exclusion graph
-    builder = DisorderGraphBuilder(info, lattice_matrix, coupled=coupled)
+    builder = DisorderGraphBuilder(
+        info, lattice_matrix, coupled=coupled,
+        independent_assemblies=independent_assemblies,
+    )
     graph = builder.build()
 
     # Phase 3: Generate ordered structures
@@ -102,6 +115,7 @@ def generate_ordered_replicas_from_disordered_sites(
         method=method,
         random_seed=random_seed,
         return_kept_indices=return_kept_indices,
+        strict_formula=strict_formula,
     )
 
     return results

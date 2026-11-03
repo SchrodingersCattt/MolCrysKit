@@ -1336,3 +1336,29 @@ def test_parse_rule_valid() -> None:
     # Symbol only (no overrides)
     r = _parse_rule("N")
     assert r == {"symbol": "N"}
+
+
+def test_operate_disorder_strict_formula_rejects_missing_reference(tmp_path):
+    from click.testing import CliRunner
+
+    fixture = Path("tests/data/cif/synthetic_water_orientation.cif")
+    bad = tmp_path / "missing_formula.cif"
+    bad.write_text(fixture.read_text().replace("_chemical_formula_moiety 'H2 O'", ""))
+    output = tmp_path / "out.cif"
+    result = CliRunner().invoke(main, ["operate", "disorder", str(bad), "-o", str(output), "--strict-formula"])
+    assert result.exit_code != 0
+    assert "requires a parseable formula moiety" in result.output
+    assert not output.exists()
+
+
+def test_operate_disorder_independent_assemblies_option(tmp_path):
+    fixture = Path("tests/data/cif/synthetic_two_assemblies.cif")
+    source = tmp_path / "input.cif"
+    source.write_text(fixture.read_text().replace("0.6 B 1", "0.6 B 3").replace("0.4 B 2", "0.4 B 4"))
+    output = tmp_path / "ordered.cif"
+    result = CliRunner().invoke(main, [
+        "operate", "disorder", str(source), "-o", str(output),
+        "--independent-assemblies", "--strict-formula",
+    ])
+    assert result.exit_code == 0, result.output
+    assert output.exists()

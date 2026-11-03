@@ -58,6 +58,54 @@ from molcrys_kit.io.cif import identify_molecules, scan_cif_disorder
 # Step 1-2: Export full CIF from CSD (requires CCDC Python API)
 # =============================================================================
 
+def _disorder_lookup(crystal: Any) -> tuple[dict[str, tuple[int, str]], list[str]]:
+    """Map CCDC atoms to distinct CIF groups, preserving exact labels first.
+
+    Group IDs exposed by CCDC can be zero, duplicated or unavailable.
+    Assemblies and group objects, not their raw IDs, define the alternatives.
+    Alias a trailing '?' only if doing so cannot overwrite an exact label.
+    """
+    exact: dict[str, tuple[int, str]] = {}
+    aliases: dict[str, set[tuple[int, str]]] = {}
+    warnings: list[str] = []
+    try:
+        disorder = getattr(crystal, "disorder", None)
+        assemblies = list(disorder.assemblies) if disorder is not None else []
+        used_assemblies: set[str] = set()
+        for index, assembly in enumerate(assemblies, 1):
+            raw_id = getattr(assembly, "id", None)
+            assembly_id = str(raw_id) if raw_id is not None else f"assembly_{index}"
+            if assembly_id in ("", ".", "?"):
+                assembly_id = f"assembly_{index}"
+            if assembly_id in used_assemblies:
+                raise ValueError(f"Duplicate disorder assembly ID: {assembly_id!r}")
+            used_assemblies.add(assembly_id)
+            for group_number, group in enumerate(assembly.groups, 1):
+                value = (group_number, assembly_id)
+                for atom in group.atoms:
+                    label = str(atom.label)
+                    if label in exact and exact[label] != value:
+                        raise ValueError(f"Disorder atom label belongs to multiple groups: {label!r}")
+                    exact[label] = value
+                    alias = label[:-1] if label.endswith("?") else label + "?"
+                    aliases.setdefault(alias, set()).add(value)
+    except ValueError:
+        raise
+    except Exception as exc:
+        # An incomplete hierarchy must not be treated as a valid mapping.
+        raise ValueError(f"Could not read complete disorder hierarchy: {exc}") from exc
+
+    mapping = dict(exact)
+    for alias, values in aliases.items():
+        if alias in exact:
+            continue
+        if len(values) == 1:
+            mapping[alias] = next(iter(values))
+        else:
+            warnings.append(f"Ambiguous disorder label alias: {alias!r}")
+    return mapping, warnings
+
+
 def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
     """Export a CSD structure to CIF with full occupancy/disorder/ADP information.
 
@@ -84,30 +132,9 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
     if mol is None:
         mol = crystal.molecule
 
-    # Build disorder group/assembly lookup from crystal.disorder API
-    disorder_map: dict[str, tuple[int, str]] = {}
-    # CCDC group IDs are zero-based for some entries (IQUHUY uses 0 and 1),
-    # whereas MolCrysKit reserves group 0 for ordered atoms.  Normalize IDs
-    # per assembly while retaining the assembly identifier in the CIF.
-    group_ids: dict[tuple[str, int], int] = {}
-    disorder = getattr(crystal, "disorder", None)
-    if disorder is not None:
-        try:
-            for assembly in disorder.assemblies:
-                asm_id = str(getattr(assembly, "id", ""))
-                for group in assembly.groups:
-                    raw_g_id = int(getattr(group, "id", 0))
-                    key = (asm_id, raw_g_id)
-                    g_id = group_ids.setdefault(key, len(group_ids) + 1)
-                    for atom in group.atoms:
-                        label = str(atom.label)
-                        disorder_map[label] = (g_id, asm_id)
-                        if label.endswith("?"):
-                            disorder_map.setdefault(label[:-1], (g_id, asm_id))
-                        else:
-                            disorder_map.setdefault(f"{label}?", (g_id, asm_id))
-        except Exception:
-            pass
+    disorder_map, disorder_warnings = _disorder_lookup(crystal)
+    for message in disorder_warnings:
+        print(f"Warning: {message}", file=sys.stderr)
 
     # Extract atom data
     atom_data = []
@@ -162,6 +189,14 @@ def export_full_cif_from_csd(refcode: str, output_path: Path) -> dict[str, Any]:
             "occ": occ, "u_iso": u_iso, "adp_type": adp_type,
             "dg": dg, "da": da, "aniso": aniso,
         })
+
+    unmatched = [d["label"] for d in atom_data if d["occ"] < 0.999 and d["dg"] is None]
+    if unmatched:
+        print(
+            f"Warning: {len(unmatched)} partial-occupancy atom(s) have no explicit "
+            "disorder group; review before ordering.",
+            file=sys.stderr,
+        )
 
     # Extract bond candidates before filtering coordinate-less atom rows.  A
     # CCDC bond can remain readable even when one endpoint has a null TSite;

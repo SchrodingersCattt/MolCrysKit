@@ -77,13 +77,20 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
 @click.option("--count", type=int, default=1, show_default=True, help="Number of structures for random/enumerate modes.")
 @click.option("--seed", type=int, default=None, help="Random seed for random mode.")
 @click.option("--coupled", is_flag=True, help="Couple symmetry-expanded copies of the same disorder assembly.")
-def disorder(input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool) -> None:
+@click.option("--strict-formula", is_flag=True, help="Require formula moiety and Z and reject mismatched candidates.")
+@click.option("--independent-assemblies", is_flag=True, help="Treat complete multi-group assemblies as independent; verify source semantics first.")
+def disorder(input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool, strict_formula: bool, independent_assemblies: bool) -> None:
     """Resolve CIF disorder into ordered replica structures."""
     from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
 
-    replicas = generate_ordered_replicas_from_disordered_sites(
-        str(input), generate_count=count, method=method, random_seed=seed, coupled=coupled
-    )
+    try:
+        replicas = generate_ordered_replicas_from_disordered_sites(
+            str(input), generate_count=count, method=method, random_seed=seed,
+            coupled=coupled, strict_formula=strict_formula,
+            independent_assemblies=independent_assemblies
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     crystals = [item[0] if isinstance(item, tuple) else item for item in replicas]
     echo_paths(write_crystal_sequence(crystals, output))
 

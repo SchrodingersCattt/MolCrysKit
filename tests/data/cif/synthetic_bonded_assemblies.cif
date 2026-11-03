@@ -1,0 +1,28 @@
+data_synthetic_bonded_assemblies
+_chemical_formula_moiety 'C2'
+_cell_formula_units_Z 1
+_space_group_IT_number 1
+_space_group_name_H-M_alt 'P 1'
+_cell_length_a 12
+_cell_length_b 12
+_cell_length_c 12
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_space_group_symop_id
+_space_group_symop_operation_xyz
+1 x,y,z
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_disorder_assembly
+_atom_site_disorder_group
+C1 C .3000 .3000 .3000 .6 A 1
+C2 C .3000 .3000 .3100 .4 A 2
+C3 C .4250 .3000 .3000 .6 B 1
+C4 C .4250 .3000 .3100 .4 B 2
