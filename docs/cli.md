@@ -28,6 +28,8 @@ Validate a periodic structure bundle and its JSON sidecar before downstream use.
 mck validate-periodic-bundle structure.cif --json
 ```
 
+`mck build chain` and `mck validate-periodic-bundle` are unchanged, including the structure-sidecar JSON. The periodic quotient graph is a Python library. It adds no `mck` subcommand and does not classify nets. See [Periodic quotient graphs](periodic-graph.md).
+
 ## Global Options
 
 - `--verbose` — Enable debug logging
@@ -259,3 +261,4 @@ mck operate reorient structure.cif -o reoriented.cif --direction 1 1 1 --target-
 - [API Documentation](api.md) — Python library reference
 - [Tutorials](tutorials.md) — Step-by-step guides
 - [Architecture](architecture.md) — Design rationale
+- [Periodic quotient graphs](periodic-graph.md) — shared periodic multigraph

@@ -159,6 +159,17 @@ returns no centre. Selecting the major component restores a drawable shell
 around that orientation. Ordered crystals take the same path and are
 unchanged, because they contain no exclusive family.
 
+## Periodic quotient graph
+
+Fragment chains, chemical entities, and coordination-shell networks keep their
+own records. `molcrys_kit.periodic` copies their exact integer connectivity
+into one immutable quotient multigraph and leaves ports, bond evidence, and
+shell contacts beside that graph. Periodic rank is the dimension of the
+cycle-translation subgroup. The cyclomatic number of the finite quotient is a
+separate count. `PeriodicGraph.winding_cycles` remains the chain builder's
+optimized path. This layer does not name nets or describe interpenetration.
+The conventions and adapters are in [Periodic quotient graphs](periodic-graph.md).
+
 ## Pull request expectations
 
 In-scope changes must update the stable documentation entry points in the same

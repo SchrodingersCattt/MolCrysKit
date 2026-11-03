@@ -9,6 +9,11 @@ The builder preserves fragment geometry and returns a `PeriodicBundle`.
 it is never copied from a requested answer. Ordinary translation closure supports
 zero, non-zero, and mixed-direction winding. Use `winding_cycles()` for a graph
 with multiple cycles; the scalar `winding` is `None` when those cycles disagree.
+That method stays the builder's optimized path, including the disjoint-cycle
+fast path. A finished fragment graph can be copied into the domain-neutral
+quotient with `adapt_fragment_graph` for shared rank and translation-basis
+queries. The copy does not call `winding_cycles` and does not change the
+sidecar schema. See [Periodic quotient graphs](periodic-graph.md).
 `ScrewSpec.order` is the explicit closure exponent, not necessarily the minimal
 rotational order. It checks finite order and cell compatibility and fails
 instead of expanding the cell implicitly. Its Cartesian `center` is a global

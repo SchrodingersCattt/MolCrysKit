@@ -29,6 +29,7 @@
 | Infer bond orders from arrays | `infer_bond_orders_array`, `infer_bond_orders_batch` | coordinates, elements, optional bond pairs | `BondOrderResult` / tuple of results | source docstring |
 | Calibrate aromaticity geometry | `calibrate_aromaticity_geometry` | CSD-exported ring and bond observations | reviewable calibration snapshot with pair coverage and uncertainty bands | [Chemistry perception design](chemistry_perception_design.md) |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
+| Adapt a periodic graph and measure its rank | `to_periodic_quotient_graph`, `periodic_rank`, `adapt_periodic_graph` | fragment graph, chemical entity, polyhedron network, or caller edges | immutable quotient graph and integer periodic rank | [Periodic quotient graphs](periodic-graph.md) |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
 | Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / OpenSMILES or MCK-LN | `LineNotation` / chemical entity | source docstring |
@@ -100,7 +101,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 - Calibration: `CalibrationError`, `calibrate_aromaticity_geometry`, `CalibrationPolicy`, `RING_CLASSES`, `runtime_overrides`, `read_records`, `write_snapshot`
 - Provenance: `BondKind`, `Evidence`, `EvidenceSource`, `InferenceStatus`
 - Analysis and conversion: `annotate_chemistry`, `infer_chemistry`, `infer_bond_orders`, `infer_bond_orders_array`, `infer_bond_orders_arrays`, `infer_bond_orders_from_arrays`, `infer_bond_orders_batch`, `analyze_periodic_topology`, `integer_translation_basis`, `assign_stereochemistry`, `analyze_crystal_stereochemistry`, `classify_entity_relationship`, `to_line_notation`, `from_line_notation`, `notations_equivalent`, `name_entity`, `name_crystal`, `from_iupac_name`, `iupac_to_smiles`, `smiles_to_iupac`, `ChemistryIndeterminateError`, `CrystalStereoIndeterminateError`, `LineNotationError`, `NamingIndeterminateError`, `NamingParseError`
-  - `integer_translation_basis` is the column-style Hermite basis of an integer translation lattice. `(2, 0, 0)` stays `(2, 0, 0)`; `(2, 0, 0)` and `(3, 0, 0)` become `(1, 0, 0)`. It does not change the generators returned by `analyze_periodic_topology`.
+  - `integer_translation_basis` is the column-style Hermite basis of an integer translation lattice. `(2, 0, 0)` stays `(2, 0, 0)`; `(2, 0, 0)` and `(3, 0, 0)` become `(1, 0, 0)`. It does not change the generators returned by `analyze_periodic_topology`. The domain-neutral quotient graph calls both functions; see [Periodic quotient graphs](periodic-graph.md).
 
 ### `mck.io`
 Read/write interfaces.
@@ -211,6 +212,14 @@ Geometry, rigid-body math helpers, and graph utilities.
 - Lattice interpolation: `lattice_deformation_logm`, `lattice_at_lambda`
 - SE(3): `se3_log`, `se3_exp`
 
+### `mck.periodic`
+Domain-neutral periodic quotient multigraph. Orientation, gauge, basis, adapters, and migration notes are in [Periodic quotient graphs](periodic-graph.md). Chain winding, chemistry records, coordination-shell JSON, and the CLI stay on their existing types.
+
+- Graph: `PeriodicEmbedding`, `PeriodicQuotientEdge`, `PeriodicQuotientGraph`, `PeriodicQuotientNode`, `PeriodicQuotientView`, `reversed_edge`
+- Analysis: `ClosedWalkTranslation`, `CoverComponentFamily`, `PeriodicGraphAnalysis`, `QuotientComponent`, `TranslationSubgroup`, `analyze_periodic_graph`, `closed_walk_translations`, `cover_component_families`, `cover_multiplicity`, `periodic_rank`, `quotient_components`, `quotient_cycle_rank`, `translation_subgroups`
+- Transforms: `EmbeddedQuotientGraph`, `SupercellQuotientGraph`, `SupercellReplication`, `apply_node_gauge`, `apply_unimodular_basis`, `equivalent_supercell`, `relabel_nodes`, `replace_lattice`, `shift_embedding_origin`
+- Adapters: `CallerGraphProvenance`, `ChemicalGraphProvenance`, `FragmentEdgeProvenance`, `FragmentGraphProvenance`, `GraphAttribute`, `PeriodicGraphAdaptation`, `PeriodicGraphProvenance`, `PolyhedronGraphProvenance`, `QuotientGraphProvenance`, `adapt_caller_graph`, `adapt_chemical_entity`, `adapt_fragment_graph`, `adapt_periodic_graph`, `adapt_polyhedron_network`, `fragment_graph_from_provenance`, `to_periodic_quotient_graph`
+
 ## See Also
 
 - Detailed workflows: [Tutorials](tutorials.md)
@@ -218,3 +227,4 @@ Geometry, rigid-body math helpers, and graph utilities.
 - Disorder architecture: [Architecture](architecture.md)
 - Docker/cloud usage: [Docker Guide](docker.md)
 - Exact function signatures: source docstrings
+- Periodic quotient graphs: [Periodic quotient graphs](periodic-graph.md)
