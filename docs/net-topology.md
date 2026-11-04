@@ -203,7 +203,8 @@ The proof does not consult them and does not search a bounded set of
 
 Rank and a completed coordination census are negative tests. They can return
 `non_isomorphic` with proof `invariant_mismatch` even when the canonical
-budget is zero. They cannot return `isomorphic`.
+budget is zero. They cannot return `isomorphic`. Point symbols and vertex
+symbols are not computed and are not part of the identity.
 
 The same key is stable under relabeling, edge order, integer gauge, a
 unimodular change of basis, and an equivalent supercell. Several components
