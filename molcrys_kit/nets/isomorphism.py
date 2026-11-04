@@ -863,33 +863,31 @@ def _rewrite_shift_lattice(
 
 
 def _integer_rank(vectors: list[list[int]]) -> int:
+    """Exact rank by row reduction. Whole rows are swapped; columns are not."""
     if not vectors:
         return 0
     rows = [[Fraction(entry) for entry in vector] for vector in vectors]
     rank = 0
-    column = 0
-    for row in rows:
-        if column >= 3:
-            break
+    width = max(len(row) for row in rows)
+    for column in range(width):
         pivot = None
-        for probe in range(column, 3):
-            if row[probe] != 0:
-                pivot = probe
+        for index in range(rank, len(rows)):
+            if rows[index][column] != 0:
+                pivot = index
                 break
         if pivot is None:
             continue
-        row[column], row[pivot] = row[pivot], row[column]
-        divisor = row[column]
-        for index in range(3):
-            row[index] /= divisor
-        for other in rows:
-            if other is row or other[column] == 0:
+        rows[rank], rows[pivot] = rows[pivot], rows[rank]
+        divisor = rows[rank][column]
+        for index in range(width):
+            rows[rank][index] /= divisor
+        for other in range(len(rows)):
+            if other == rank or rows[other][column] == 0:
                 continue
-            factor = other[column]
-            for index in range(3):
-                other[index] -= factor * row[index]
+            factor = rows[other][column]
+            for index in range(width):
+                rows[other][index] -= factor * rows[rank][index]
         rank += 1
-        column += 1
     return rank
 
 

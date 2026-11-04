@@ -89,6 +89,20 @@ def test_gauge_unimodular_and_supercell_preserve_square_lattice_identity():
         assert verify_topology_witness(graph, other, compared)
 
 
+def test_axis_and_mixed_vectors_are_the_same_chain():
+    reference = _chain((1, 0, 0))
+    shifts = ((0, 1, 0), (0, 0, 1), (1, 1, 0), (1, -1, 1), (2, 2, 0))
+    for shift in shifts:
+        compared = compare_periodic_nets(reference, _chain(shift))
+        assert compared.status == "isomorphic", (
+            shift,
+            compared.status,
+            compared.reason,
+        )
+        assert compared.proof == "explicit_isomorphism"
+        assert compared.left.canonical_key == compared.right.canonical_key
+
+
 def test_content_two_chain_matches_primitive_chain():
     coarse = _chain((2, 0, 0), pbc=(True, False, False))
     fine = _chain((1, 0, 0), pbc=(True, False, False))
