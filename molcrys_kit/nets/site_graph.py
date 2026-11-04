@@ -7,6 +7,7 @@ when the policy says they are one realizable crystal.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -656,13 +657,17 @@ def _add_shell_edges(
     for ligand_id, linked in attachments.items():
         for index, (left_node, left_shift) in enumerate(linked):
             for right_node, right_shift in linked[index + 1 :]:
-                if left_node == right_node:
-                    continue
                 bridge = (
                     left_shift[0] - right_shift[0],
                     left_shift[1] - right_shift[1],
                     left_shift[2] - right_shift[2],
                 )
+                # The same centre at two ligand images is a periodic self-edge.
+                # A zero shift is the same physical contact, not a new edge.
+                if left_node == right_node and bridge == (0, 0, 0):
+                    continue
+                if left_node == right_node:
+                    bridge = canonical_shift(bridge)
                 key = (left_node, right_node, bridge, ligand_id)
                 if key in seen:
                     continue
@@ -758,13 +763,18 @@ def _add_contact_observations(
     for node in node_records:
         cartesian = np.asarray(points[node.node_id], dtype=float)
         fractional[node.node_id] = cartesian @ inverse
-    images = _image_box(matrix, pbc, cutoff + margin)
     ids = [node.node_id for node in node_records]
     seen = {
         _pair_key(source, target, shift) for _edge_id, source, target, shift in existing
     }
     for left_index, source in enumerate(ids):
         for target in ids[left_index:]:
+            images = _images_for_displacement(
+                matrix,
+                fractional[target] - fractional[source],
+                pbc,
+                cutoff + margin,
+            )
             for image in images:
                 if source == target and image == (0, 0, 0):
                     continue
@@ -816,18 +826,38 @@ def _add_contact_observations(
                     )
 
 
-def _image_box(lattice, pbc, reach: float):
+def _images_for_displacement(lattice, delta, pbc, reach: float):
+    """Integer images that can fall inside ``reach`` of this pair.
+
+    The bound is the reciprocal-plane spacing, ``|h + delta_h| * d_h <= reach``,
+    so a short skew combination such as ``(2, -2, 0)`` is not dropped because
+    the direct cell edges are long. ``delta`` is the unwrapped fractional
+    displacement of the pair.
+    """
+    matrix = np.asarray(lattice, dtype=float)
+    axes = (matrix[0], matrix[1], matrix[2])
+    volume = float(np.dot(axes[0], np.cross(axes[1], axes[2])))
+    if abs(volume) <= 1e-12:
+        return ()
+    crosses = (
+        np.cross(axes[1], axes[2]),
+        np.cross(axes[2], axes[0]),
+        np.cross(axes[0], axes[1]),
+    )
     spans = []
-    for row, periodic in zip(lattice, pbc):
-        if not periodic:
+    for axis, normal in enumerate(crosses):
+        if not pbc[axis]:
             spans.append((0,))
             continue
-        length = float(np.linalg.norm(row))
-        if length <= 0:
-            spans.append((0,))
-            continue
-        limit = int(np.ceil(reach / length))
-        spans.append(tuple(range(-limit, limit + 1)))
+        length = float(np.linalg.norm(normal))
+        if length <= 1e-12:
+            return ()
+        spacing = abs(volume) / length
+        slack = float(reach) / spacing
+        center = -float(delta[axis])
+        start = math.ceil(center - slack - 1e-9)
+        stop = math.floor(center + slack + 1e-9)
+        spans.append(tuple(range(int(start), int(stop) + 1)))
     images = []
     for i in spans[0]:
         for j in spans[1]:

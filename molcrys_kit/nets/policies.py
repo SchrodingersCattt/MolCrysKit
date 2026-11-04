@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from molcrys_kit.periodic._lattice import exact_shift
+
 NODE_KINDS = ("atom_sites", "molecular_units", "coordination_centres", "explicit_nodes")
 EDGE_KINDS = (
     "supplied",
@@ -62,6 +64,8 @@ class EdgePolicy:
     ``cutoff_A`` is required for the meaning of a contact scan. ``None`` asks
     the builder to use ``DEFAULT_NEIGHBOR_CUTOFF`` and to record that value.
     ``user_edges`` rows are ``(source_node, target_node, image_shift)``.
+    Each shift component must be an exact integer. Floats, Booleans, and
+    other non-integers are rejected rather than truncated.
     """
 
     kind: str = "supplied"
@@ -79,7 +83,7 @@ class EdgePolicy:
             self,
             "user_edges",
             tuple(
-                (source, target, (int(shift[0]), int(shift[1]), int(shift[2])))
+                (str(source), str(target), exact_shift(shift, "user edge shift"))
                 for source, target, shift in self.user_edges
             ),
         )
@@ -138,7 +142,11 @@ class PartitionPolicy:
     """Explicit net labels or a request to search for partitions.
 
     ``assignment`` rows are ``(node_id, net_id)``. ``edge_nets`` rows are
-    ``(edge_id, net_id)`` and are checked against the node assignment.
+    ``(edge_id, net_id)``. When any row is present it is a complete edge
+    assignment: every quotient edge appears once, unknown ids and conflicting
+    duplicates are invalid, and a candidate keeps only the edges assigned to
+    it. An assigned edge whose endpoints are not both in that net is
+    contradictory.
     """
 
     mode: str = "discovery"
@@ -222,11 +230,7 @@ def policies_from_mapping(payload: dict[str, object]) -> dict[str, object]:
             if edges.get("cutoff_A") is None
             else float(edges["cutoff_A"]),
             user_edges=tuple(
-                (
-                    str(row[0]),
-                    str(row[1]),
-                    (int(row[2][0]), int(row[2][1]), int(row[2][2])),
-                )
+                (str(row[0]), str(row[1]), tuple(row[2]))
                 for row in edges.get("user_edges", ())
             ),
             max_h_acceptor_distance_A=(

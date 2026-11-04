@@ -279,6 +279,81 @@ def test_coordination_shell_connects_centres_that_share_a_ligand():
     assert record.site_ids == ("bridge",)
 
 
+def test_one_centre_and_two_ligand_images_keep_a_periodic_self_edge():
+    atoms = Atoms(
+        "CO",
+        positions=[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=np.eye(3) * 10.0,
+        pbc=True,
+    )
+    atoms.set_array(KEY_ATOM_ID, np.array(["centre", "ligand"], dtype=object))
+    molecule = CrystalMolecule(atoms, check_pbc=False)
+    molecule.info["bond_records"] = [
+        {
+            "left": 0,
+            "right": 1,
+            "right_image_shift": [0, 0, 0],
+            "vector": [2.0, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 0,
+            "right": 1,
+            "right_image_shift": [1, 0, 0],
+            "vector": [12.0, 0.0, 0.0],
+            "role": "covalent",
+        },
+    ]
+    crystal = MolecularCrystal(np.eye(3) * 10.0, [molecule])
+    built = build_periodic_site_graph(
+        crystal,
+        NodePolicy(
+            "coordination_centres",
+            centre_ids=("centre",),
+            bond_role="covalent",
+        ),
+        EdgePolicy("coordination_shell"),
+    )
+    assert [node.node_id for node in built.nodes] == ["centre:centre"]
+    assert len(built.graph.edges) == 1
+    edge = built.graph.edges[0]
+    assert edge.source == edge.target
+    assert edge.image_shift == (1, 0, 0)
+    assert analyze_periodic_graph(built.graph).periodic_rank >= 1
+
+
+def test_skew_cell_contact_keeps_a_short_long_index_image():
+    cell = np.array(
+        [[10.0, 0.0, 0.0], [9.9, 0.1, 0.0], [0.0, 0.0, 10.0]],
+        dtype=float,
+    )
+    atoms = Atoms("C", positions=[[0.0, 0.0, 0.0]], cell=cell, pbc=True)
+    crystal = MolecularCrystal(cell, [CrystalMolecule(atoms, check_pbc=False)])
+    built = build_periodic_site_graph(
+        crystal,
+        NodePolicy("atom_sites"),
+        EdgePolicy("contacts", cutoff_A=0.4),
+    )
+    assert (2, -2, 0) in {edge.image_shift for edge in built.graph.edges}
+
+
+def test_user_edge_shift_must_be_an_exact_integer():
+    with pytest.raises(TypeError):
+        EdgePolicy("user_edges", user_edges=(("a", "b", (0.9, 0, 0)),))
+    with pytest.raises(TypeError):
+        EdgePolicy("user_edges", user_edges=(("a", "b", (True, 0, 0)),))
+    with pytest.raises(TypeError):
+        EdgePolicy("user_edges", user_edges=(("a", "b", (float("nan"), 0, 0)),))
+    with pytest.raises(TypeError):
+        policies_from_mapping(
+            {"edges": {"kind": "user_edges", "user_edges": [["a", "b", [0.9, 0, 0]]]}}
+        )
+    parsed = policies_from_mapping(
+        {"edges": {"kind": "user_edges", "user_edges": [["a", "b", [1, 0, 0]]]}}
+    )
+    assert parsed["edges"].user_edges == (("a", "b", (1, 0, 0)),)
+
+
 def test_hydrogen_bond_policy_records_the_criteria_it_used():
     donor = _molecule(
         "OHH",
