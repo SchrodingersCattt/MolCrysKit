@@ -1,7 +1,10 @@
 """Duality from an explicit tiling.
 
-A dual net is built only when every declared face is a closed walk on the
-primal cover and every dual edge records which face it crosses. Coordination
+A dual net is built only when the caller supplies a closed face pairing on a
+periodic primal: every face is a cover cycle, every face is crossed once,
+every primal edge lies in exactly two faces, and the quotient Euler
+characteristic is zero. An open or nonperiodic face list is ``undetermined``
+with reason ``incomplete_tiling``. It is not a proved dual. Coordination
 numbers and coordination sequences do not establish duality. With no tiling
 the status is ``not_assessed``.
 """
@@ -10,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from molcrys_kit.periodic import analyze_periodic_graph
 from molcrys_kit.periodic._lattice import ImageShift, sub
 from molcrys_kit.periodic.graph import PeriodicQuotientGraph
 
@@ -148,7 +152,60 @@ def _validate(primal: PeriodicQuotientGraph, tiling: PeriodicTiling) -> str | No
             return "adjacency_unknown_tile"
     if not tiling.adjacencies:
         return "tiling_has_no_incidences"
+    if set(faces) != seen_faces:
+        return "incomplete_tiling"
+    incident = {
+        tile
+        for record in tiling.adjacencies
+        for tile in (record.source_tile, record.target_tile)
+    }
+    if incident != tiles:
+        return "incomplete_tiling"
+    if analyze_periodic_graph(primal).periodic_rank < 1:
+        return "incomplete_tiling"
+    return _closed_surface(primal, tiling)
+
+
+def _closed_surface(
+    primal: PeriodicQuotientGraph, tiling: PeriodicTiling
+) -> str | None:
+    """Require a closed quotient surface: two faces on every edge, Euler zero.
+
+    An edge that meets any other number of faces, including a single open
+    face, is not a tiling certificate. This check does not prove that a
+    three-dimensional cell fills space; that input stays ``incomplete_tiling``.
+    """
+    counts: dict[tuple[str, str, ImageShift], int] = {}
+    for face in tiling.faces:
+        seen_in_face: set[tuple[str, str, ImageShift]] = set()
+        steps = list(face.vertices) + [face.vertices[0]]
+        for (source, source_image), (target, target_image) in zip(steps, steps[1:]):
+            step = sub(target_image, source_image)
+            seen_in_face.add(_undirected_edge(source, target, step))
+        for key in seen_in_face:
+            counts[key] = counts.get(key, 0) + 1
+    primal_edges = {
+        _undirected_edge(edge.source, edge.target, edge.image_shift)
+        for edge in primal.edges
+    }
+    if set(counts) != primal_edges or any(count != 2 for count in counts.values()):
+        return "incomplete_tiling"
+    euler = (
+        len(primal.nodes) - len(primal.edges) + len(tiling.faces) - len(tiling.tiles)
+    )
+    if euler != 0:
+        return "incomplete_tiling"
     return None
+
+
+def _undirected_edge(
+    source: str, target: str, step: ImageShift
+) -> tuple[str, str, ImageShift]:
+    reverse = (target, source, (-step[0], -step[1], -step[2]))
+    current = (source, target, step)
+    if reverse < current:
+        return reverse
+    return current
 
 
 def _dual_graph(tiling: PeriodicTiling) -> PeriodicQuotientGraph:

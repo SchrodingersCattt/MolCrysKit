@@ -57,6 +57,37 @@ def test_square_tiling_is_dual_to_its_net_and_not_to_a_chain():
     assert other.status == "not_dual"
 
 
+def test_open_face_list_is_not_a_proved_dual():
+    primal = _graph(
+        ("a", "b", "c", "d"),
+        [
+            ("ab", "a", "b", (0, 0, 0)),
+            ("bc", "b", "c", (0, 0, 0)),
+            ("cd", "c", "d", (0, 0, 0)),
+            ("da", "d", "a", (0, 0, 0)),
+        ],
+    )
+    face = TilingFace(
+        "open",
+        (
+            ("a", (0, 0, 0)),
+            ("b", (0, 0, 0)),
+            ("c", (0, 0, 0)),
+            ("d", (0, 0, 0)),
+        ),
+    )
+    tiling = PeriodicTiling(
+        ("u", "v"),
+        (face,),
+        (TilingAdjacency("open", "u", "v", (0, 0, 0)),),
+    )
+    other = _graph(("u", "v"), [("uv", "u", "v", (0, 0, 0))])
+    assessment = assess_duality(primal, other, tiling)
+    assert assessment.status == "undetermined"
+    assert assessment.reason == "incomplete_tiling"
+    assert assessment.status != "dual"
+
+
 def test_missing_tiling_is_not_assessed_and_a_broken_cycle_is_undetermined():
     primal = _sql()
     assert assess_duality(primal, primal, None).status == "not_assessed"
