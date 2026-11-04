@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from ase import Atoms
 
 from molcrys_kit.constants.config import (
@@ -180,7 +181,7 @@ def test_explicit_partition_reports_overlap_gaps_and_contradictions():
         PartitionPolicy(
             "explicit",
             (("a", "one"), ("b", "one")),
-            edge_nets=(("ab", "other"),),
+            edge_nets=(("ab", "other"), ("ax", "one")),
         ),
     )
     assert contradictory.primary.reason == "contradictory_edges"
@@ -194,6 +195,125 @@ def test_explicit_partition_reports_overlap_gaps_and_contradictions():
     assert candidate["topology"]["canonical_key"] is None
     assert candidate["topology"]["proof"] == "none"
     assert _primary(report)["pairwise"] == []
+    missing = decompose_periodic_nets(
+        site,
+        PartitionPolicy(
+            "explicit",
+            (("a", "one"), ("b", "one")),
+            edge_nets=(("missing_edge", "one"),),
+        ),
+    )
+    assert missing.primary.status == "invalid"
+    assert missing.primary.reason == "unknown_edge"
+    conflict = decompose_periodic_nets(
+        site,
+        PartitionPolicy(
+            "explicit",
+            (("a", "one"), ("b", "one")),
+            edge_nets=(("ab", "one"), ("ab", "other"), ("ax", "one")),
+        ),
+    )
+    assert conflict.primary.status == "invalid"
+    assert conflict.primary.reason == "conflicting_edge_assignment"
+    partial = decompose_periodic_nets(
+        site,
+        PartitionPolicy(
+            "explicit",
+            (("a", "one"), ("b", "one")),
+            edge_nets=(("ab", "one"),),
+        ),
+    )
+    assert partial.primary.status == "invalid"
+    assert partial.primary.reason == "unassigned_edges"
+    assert partial.primary.candidates[0].edge_ids == ("ab",)
+
+
+def test_discovery_finds_two_orbit_nets_joined_by_a_cross_edge():
+    atoms = Atoms(
+        "CCCC",
+        positions=[[0.0, 0.0, 0.0], [1.4, 0.0, 0.0], [0.0, 4.0, 0.0], [1.4, 4.0, 0.0]],
+        cell=[20.0, 20.0, 20.0],
+        pbc=True,
+    )
+    atoms.set_array(KEY_ATOM_ID, np.array(["A", "B", "C", "D"], dtype=object))
+    atoms.set_array(KEY_ASYM_ID, np.array([1, 2, 3, 4], dtype=int))
+    molecule = CrystalMolecule(atoms, check_pbc=False)
+    molecule.info["bond_records"] = [
+        {
+            "left": 0,
+            "right": 1,
+            "right_image_shift": [0, 0, 0],
+            "vector": [1.4, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 0,
+            "right": 1,
+            "right_image_shift": [1, 0, 0],
+            "vector": [21.4, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 2,
+            "right": 3,
+            "right_image_shift": [0, 0, 0],
+            "vector": [1.4, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 2,
+            "right": 3,
+            "right_image_shift": [0, 1, 0],
+            "vector": [1.4, 20.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 0,
+            "right": 2,
+            "right_image_shift": [0, 0, 0],
+            "vector": [0.0, 4.0, 0.0],
+            "role": "covalent",
+        },
+    ]
+    crystal = MolecularCrystal(np.eye(3) * 20.0, [molecule])
+    built = build_periodic_site_graph(
+        crystal, NodePolicy("atom_sites"), EdgePolicy("supplied")
+    )
+    decomposition = decompose_periodic_nets(built)
+    assert decomposition.primary_is_not_unique
+    wanted = {("atom:A", "atom:B"), ("atom:C", "atom:D")}
+    matches = [
+        proposal
+        for proposal in decomposition.proposals
+        if {tuple(candidate.node_ids) for candidate in proposal.candidates} == wanted
+    ]
+    assert matches
+    assert matches[0].reason == "ranked_orbit_partition"
+    assert all(candidate.periodic_rank >= 1 for candidate in matches[0].candidates)
+    assert any(candidate.cross_edge_ids for candidate in matches[0].candidates)
+
+
+def test_mixed_lattice_or_boundary_flags_are_rejected():
+    graph = _graph(("a",), [("ax", "a", "a", (1, 0, 0))])
+    opposite = _graph(("b",), [("by", "b", "b", (0, 1, 0))], pbc=(False, True, True))
+    unit = ((10.0, 0.0, 0.0), (0.0, 10.0, 0.0), (0.0, 0.0, 10.0))
+    scaled = ((20.0, 0.0, 0.0), (0.0, 20.0, 0.0), (0.0, 0.0, 20.0))
+
+    def embed(node_id, lattice):
+        return PeriodicEmbedding(
+            ((node_id, (0.0, 0.0, 0.0)),),
+            lattice,
+            fractional=((node_id, (0.0, 0.0, 0.0)),),
+        )
+
+    with pytest.raises(ValueError, match="lattice"):
+        analyze_periodic_net_system(
+            [(graph, embed("a", unit)), (graph, embed("a", scaled))]
+        )
+    with pytest.raises(ValueError, match="periodic boundary"):
+        analyze_periodic_net_system(
+            [(graph, embed("a", unit)), (opposite, embed("b", unit))]
+        )
 
 
 def test_asym_orbits_are_a_second_partition_and_the_search_can_truncate():

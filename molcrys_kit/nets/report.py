@@ -153,8 +153,10 @@ def site_graph_of(
     edges = []
     positions = []
     lattice = None
-    pbc = (True, True, True)
+    pbc = pairs[0][0].pbc if pairs else (True, True, True)
     for index, (graph, embedding) in enumerate(pairs):
+        if graph.pbc != pbc:
+            raise ValueError("supplied graphs must share periodic boundary flags")
         prefix = f"g{index}:"
         nodes.extend(prefix + node_id for node_id in graph.node_ids)
         for edge in graph.edges:
@@ -166,11 +168,14 @@ def site_graph_of(
                     edge.image_shift,
                 )
             )
-        pbc = graph.pbc
-        if embedding is not None:
+        if embedding is None or embedding.lattice_A is None:
+            continue
+        if lattice is None:
             lattice = embedding.lattice_A
-            for node_id in graph.node_ids:
-                positions.append((prefix + node_id, embedding.position(node_id)))
+        elif embedding.lattice_A != lattice:
+            raise ValueError("supplied graphs must share one lattice")
+        for node_id in graph.node_ids:
+            positions.append((prefix + node_id, embedding.position(node_id)))
     graph = PeriodicQuotientGraph.from_edges(nodes, edges, pbc=pbc)
     embedding = None
     if positions and lattice is not None and len(positions) == len(nodes):
@@ -201,7 +206,7 @@ def _from_candidates(candidates: list[NetCandidate]) -> PeriodicSiteGraph:
         if lattice is None:
             lattice = embedding.lattice_A
         elif embedding.lattice_A != lattice:
-            complete = False
+            raise ValueError("supplied candidates must share one lattice")
         for node_id in candidate.node_ids:
             try:
                 positions.append((node_id, embedding.position(node_id)))

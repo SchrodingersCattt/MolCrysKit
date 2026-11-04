@@ -1,11 +1,15 @@
 """Candidate nets inside one periodic site graph.
 
-Explicit mode checks the caller's labels. Discovery mode returns the
-connectivity components, the single whole-graph partition, and, when
-asymmetric-unit indices exist, the orbit partition. It does not invent orbits
-from missing indices, and it does not drop a second admissible partition.
-Translated copies stay inside one candidate and are counted by cover
-multiplicity.
+Explicit mode checks the caller's labels. A non-empty ``edge_nets`` list is a
+complete assignment: unknown ids, conflicting duplicates, and edges left out
+are invalid, and each candidate keeps only the edges assigned to it.
+
+Discovery mode returns the connectivity components, the whole graph, the
+asymmetry-orbit partition, and, within ``discovery_partition_limit``, connected
+merges of those orbit groups ranked by how many edges cross between blocks.
+It does not invent orbits from missing indices, and it does not drop a second
+admissible partition. Translated copies stay inside one candidate and are
+counted by cover multiplicity.
 """
 
 from __future__ import annotations
@@ -147,8 +151,21 @@ def _explicit_proposal(
     known = set(site_graph.graph.node_ids)
     unknown = sorted(set(assignment) - known)
     uncovered = tuple(sorted(known - set(assignment)))
+    known_edges = {edge.edge_id for edge in site_graph.graph.edges}
+    edge_nets: dict[str, str] = {}
+    unknown_edges: list[str] = []
+    conflicting: list[str] = []
+    for edge_id, net_id in policy.edge_nets:
+        if edge_id not in known_edges:
+            unknown_edges.append(edge_id)
+            continue
+        previous = edge_nets.get(edge_id)
+        if previous is not None and previous != net_id:
+            conflicting.append(edge_id)
+            continue
+        edge_nets[edge_id] = net_id
+    unassigned = sorted(known_edges - set(edge_nets)) if policy.edge_nets else []
     contradictory: list[str] = []
-    edge_nets = dict(policy.edge_nets)
     for edge in site_graph.graph.edges:
         if edge.edge_id not in edge_nets:
             continue
@@ -156,22 +173,37 @@ def _explicit_proposal(
         ends = {assignment.get(edge.source), assignment.get(edge.target)}
         if ends != {net_id}:
             contradictory.append(edge.edge_id)
-    invalid = bool(overlaps or uncovered or contradictory or unknown)
+    invalid = bool(
+        overlaps
+        or uncovered
+        or contradictory
+        or unknown
+        or unknown_edges
+        or conflicting
+        or unassigned
+    )
     grouped: dict[str, list[str]] = defaultdict(list)
     for node_id, net_id in assignment.items():
         if node_id in known:
             grouped[net_id].append(node_id)
+    selected = edge_nets if policy.edge_nets else None
     candidates = tuple(
-        _candidate(site_graph, net_id, tuple(sorted(nodes)))
+        _candidate(site_graph, net_id, tuple(sorted(nodes)), edge_assignment=selected)
         for net_id, nodes in sorted(grouped.items())
     )
     reason = "admissible"
     if unknown:
         reason = "unknown_node"
+    elif unknown_edges:
+        reason = "unknown_edge"
+    elif conflicting:
+        reason = "conflicting_edge_assignment"
     elif overlaps:
         reason = "overlapping_nodes"
     elif uncovered:
         reason = "uncovered_nodes"
+    elif unassigned:
+        reason = "unassigned_edges"
     elif contradictory:
         reason = "contradictory_edges"
     return NetProposal(
@@ -204,6 +236,9 @@ def _discovery(site_graph: PeriodicSiteGraph, limits: NetAnalysisLimits):
         truncated = True
     elif orbits is not None:
         proposals.append(_proposal_from_groups(site_graph, "orbits", orbits))
+        merges, merge_truncated = _orbit_merges(site_graph, orbits, limits)
+        proposals.extend(merges)
+        truncated = truncated or merge_truncated
     # Drop a duplicate of another proposal's partition, keeping the earlier id.
     kept = []
     seen = set()
@@ -244,8 +279,108 @@ def _asym_orbits(site_graph: PeriodicSiteGraph) -> list[tuple[str, ...]] | None:
     ]
 
 
+def _orbit_merges(site_graph: PeriodicSiteGraph, orbits, limits: NetAnalysisLimits):
+    """Connected partitions of orbit groups, fewest crossing edges first.
+
+    The single-block and all-singleton partitions are already returned as
+    ``entire`` / ``components`` and ``orbits``. Each extra block must contain
+    an induced edge, so a bare orbit is not proposed as its own net. At most
+    ``discovery_partition_limit`` further partitions are kept. A larger orbit
+    count than can be partitioned exactly sets ``truncated``.
+    """
+    if len(orbits) > 8:
+        return [], True
+    ranked = []
+    for partition in _index_partitions(len(orbits)):
+        if len(partition) <= 1 or all(len(block) == 1 for block in partition):
+            continue
+        blocks = [
+            tuple(node_id for index in block for node_id in orbits[index])
+            for block in partition
+        ]
+        if not all(_block_has_edge(site_graph.graph, block) for block in blocks):
+            continue
+        crosses = _cross_count(site_graph.graph, blocks)
+        signature = tuple(sorted(tuple(sorted(block)) for block in blocks))
+        ranked.append((crosses, len(blocks), signature, blocks))
+    ranked.sort(key=lambda item: item[:3])
+    kept = ranked[: limits.discovery_partition_limit]
+    proposals = [
+        _proposal_from_groups(
+            site_graph,
+            f"orbit-merge-{index}",
+            [tuple(sorted(block)) for block in blocks],
+            reason="ranked_orbit_partition",
+        )
+        for index, (_crosses, _count, _signature, blocks) in enumerate(kept)
+    ]
+    return proposals, len(ranked) > len(kept)
+
+
+def _index_partitions(count: int):
+    def generate(items: tuple[int, ...]):
+        if not items:
+            yield ()
+            return
+        head, tail = items[0], items[1:]
+        for partition in generate(tail):
+            yield ((head,),) + partition
+            for index, block in enumerate(partition):
+                yield tuple(
+                    block + (head,) if cursor == index else block
+                    for cursor, block in enumerate(partition)
+                )
+
+    yield from generate(tuple(range(count)))
+
+
+def _block_has_edge(graph: PeriodicQuotientGraph, nodes: tuple[str, ...]) -> bool:
+    """A block must be connected and contain an edge, not a bare orbit."""
+    node_set = set(nodes)
+    if not _induced_connected(graph, node_set):
+        return False
+    return any(
+        edge.source in node_set and edge.target in node_set for edge in graph.edges
+    )
+
+
+def _induced_connected(graph: PeriodicQuotientGraph, nodes: set[str]) -> bool:
+    if len(nodes) <= 1:
+        return True
+    parent = {node_id: node_id for node_id in nodes}
+
+    def find(node_id: str) -> str:
+        while parent[node_id] != node_id:
+            parent[node_id] = parent[parent[node_id]]
+            node_id = parent[node_id]
+        return node_id
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for edge in graph.edges:
+        if edge.source in nodes and edge.target in nodes and edge.source != edge.target:
+            union(edge.source, edge.target)
+    return len({find(node_id) for node_id in nodes}) == 1
+
+
+def _cross_count(graph: PeriodicQuotientGraph, blocks: list[tuple[str, ...]]) -> int:
+    index = {
+        node_id: block_index
+        for block_index, block in enumerate(blocks)
+        for node_id in block
+    }
+    return sum(index.get(edge.source) != index.get(edge.target) for edge in graph.edges)
+
+
 def _proposal_from_groups(
-    site_graph, proposal_id: str, groups: list[tuple[str, ...]]
+    site_graph,
+    proposal_id: str,
+    groups: list[tuple[str, ...]],
+    reason: str = "admissible",
 ) -> NetProposal:
     nonempty = [tuple(sorted(group)) for group in groups if group]
     assigned = {node_id for group in nonempty for node_id in group}
@@ -258,7 +393,7 @@ def _proposal_from_groups(
     return NetProposal(
         proposal_id,
         status,
-        "admissible" if status == "admissible" else "uncovered_nodes",
+        reason if status == "admissible" else "uncovered_nodes",
         candidates,
         uncovered,
         (),
@@ -266,13 +401,21 @@ def _proposal_from_groups(
     )
 
 
-def _candidate(site_graph, candidate_id, node_ids) -> NetCandidate:
+def _candidate(
+    site_graph, candidate_id, node_ids, edge_assignment: dict[str, str] | None = None
+) -> NetCandidate:
     node_set = set(node_ids)
     inside = []
     cross = []
     for edge in site_graph.graph.edges:
         ends = {edge.source, edge.target}
-        if ends <= node_set:
+        if edge_assignment is None:
+            chosen = ends <= node_set
+        else:
+            chosen = (
+                edge_assignment.get(edge.edge_id) == candidate_id and ends <= node_set
+            )
+        if chosen:
             inside.append(edge)
         elif ends & node_set:
             cross.append(edge.edge_id)
