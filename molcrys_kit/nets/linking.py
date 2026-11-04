@@ -9,10 +9,16 @@ Cover images are limited by the Chebyshev window
 ``max(|h|, |k|, |l|) <= link_image_limit``. A step that would leave the
 window sets the same capped flag as the ring caps. A linking number already
 found inside the window is still a link.
+
+The same window bounds the relative integer translation between the two
+embeddings. Coexistence is claimed only when every integer image is separated,
+or when every image inside a complete window has linking number zero. One
+stored copy being disjoint is not that proof.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -109,7 +115,9 @@ def assess_linking(
             None,
         )
     offset = _translational_offset(left_points, right_points)
-    separation = _separating_interval(left, left_points, right, right_points)
+    images, image_capped, separation = _relative_images(
+        left, left_points, right, right_points, limits
+    )
     if separation is not None:
         return LinkingAssessment(
             "coexistence",
@@ -118,15 +126,15 @@ def assess_linking(
             separation,
             offset,
         )
-    if _coplanar(left_points, right_points) and _curves_disjoint(
-        left, left_points, right, right_points
-    ):
-        return LinkingAssessment(
-            "coexistence",
-            "graph_disjoint",
-            "coplanar_disjoint",
-            {"kind": "coplanar_disjoint"},
+    if not images:
+        return _inconclusive(
+            left,
+            left_points,
+            right,
+            right_points,
+            True,
             offset,
+            reason="relative_image_window",
         )
     left_cycles, left_capped = _cover_cycles(left, limits)
     right_cycles, right_capped = _cover_cycles(right, limits)
@@ -136,7 +144,8 @@ def assess_linking(
             left_points,
             right,
             right_points,
-            left_capped
+            image_capped
+            or left_capped
             or right_capped
             or _could_have_longer_cycles(left, right, limits),
             offset,
@@ -146,32 +155,40 @@ def assess_linking(
     best_abs = 0
     pairs = 0
     capped_pairs = False
-    for left_cycle in left_cycles:
-        for right_cycle in right_cycles:
-            if pairs >= limits.link_pair_limit:
-                capped_pairs = True
-                break
-            pairs += 1
-            if _cycles_share_vertex(left_cycle, right_cycle):
-                continue
-            number, detail = _linking_number(
-                left_cycle, left_points, right_cycle, right_points
-            )
-            if isinstance(number, str):
-                return LinkingAssessment(
-                    "invalid_or_indeterminate",
-                    "graph_disjoint",
-                    number,
-                    detail if isinstance(detail, dict) else {"kind": number},
-                    offset,
+    for image in images:
+        shifted = _translate_points(right_points, image)
+        for left_cycle in left_cycles:
+            for right_cycle in right_cycles:
+                if pairs >= limits.link_pair_limit:
+                    capped_pairs = True
+                    break
+                pairs += 1
+                if _cycles_share_vertex(left_cycle, right_cycle):
+                    continue
+                number, detail = _linking_number(
+                    left_cycle, left_points, right_cycle, shifted
                 )
-            assert isinstance(number, int)
-            if abs(number) > best_abs:
-                best_abs = abs(number)
-                best = detail if isinstance(detail, dict) else None
-                if best is not None:
-                    best = {**best, "linking_number": number}
-            if best_abs:
+                if isinstance(number, str):
+                    return LinkingAssessment(
+                        "invalid_or_indeterminate",
+                        "graph_disjoint",
+                        number,
+                        detail if isinstance(detail, dict) else {"kind": number},
+                        offset,
+                    )
+                assert isinstance(number, int)
+                if abs(number) > best_abs:
+                    best_abs = abs(number)
+                    best = detail if isinstance(detail, dict) else None
+                    if best is not None:
+                        best = {
+                            **best,
+                            "linking_number": number,
+                            "relative_image": list(image),
+                        }
+                if best_abs:
+                    break
+            if best_abs or capped_pairs:
                 break
         if best_abs or capped_pairs:
             break
@@ -180,7 +197,8 @@ def assess_linking(
             "linked", "graph_disjoint", "linking_number", best, offset
         )
     search_incomplete = (
-        left_capped
+        image_capped
+        or left_capped
         or right_capped
         or capped_pairs
         or _could_have_longer_cycles(left, right, limits)
@@ -283,27 +301,96 @@ def _translational_offset(
     return (str(delta[0]), str(delta[1]), str(delta[2]))
 
 
-def _separating_interval(
+def _relative_images(
     left: PeriodicQuotientGraph,
     left_points: dict[str, F3],
     right: PeriodicQuotientGraph,
     right_points: dict[str, F3],
-) -> dict[str, object] | None:
+    limits: NetAnalysisLimits,
+):
+    """Relative cover images whose boxes can meet, plus a global separation.
+
+    The third value is a coexistence witness when some non-winding axis stays
+    disjoint at every integer. An empty image list with the capped flag set
+    means every meeting image lies outside ``link_image_limit``.
+    """
+    bounds = []
+    capped = False
+    limit = limits.link_image_limit
     for axis in range(3):
-        if _winds(left, axis) or _winds(right, axis):
-            continue
+        winds = _winds(left, axis) or _winds(right, axis)
         left_span = _span(left, left_points, axis)
         right_span = _span(right, right_points, axis)
-        if left_span is None or right_span is None:
+        if winds or left_span is None or right_span is None:
+            capped = True
+            bounds.append((-limit, limit))
             continue
-        if left_span[1] < right_span[0] or right_span[1] < left_span[0]:
-            return {
-                "kind": "separating_interval",
-                "axis": axis,
-                "left": [str(left_span[0]), str(left_span[1])],
-                "right": [str(right_span[0]), str(right_span[1])],
-            }
-    return None
+        lo = math.ceil(left_span[0] - right_span[1])
+        hi = math.floor(left_span[1] - right_span[0])
+        if lo > hi:
+            return (
+                (),
+                False,
+                {
+                    "kind": "separating_interval",
+                    "axis": axis,
+                    "all_integer_images": True,
+                    "left": [str(left_span[0]), str(left_span[1])],
+                    "right": [str(right_span[0]), str(right_span[1])],
+                },
+            )
+        if lo < -limit or hi > limit:
+            capped = True
+        lo = max(lo, -limit)
+        hi = min(hi, limit)
+        if lo > hi:
+            return (), True, None
+        bounds.append((int(lo), int(hi)))
+    images, truncated = _images_inside(bounds, limit, limits.link_pair_limit)
+    return tuple(images), capped or truncated, None
+
+
+def _images_inside(
+    bounds: list[tuple[int, int]], limit: int, max_count: int
+) -> tuple[list[ImageShift], bool]:
+    farthest = 0
+    for lo, hi in bounds:
+        farthest = max(farthest, abs(lo), abs(hi))
+    farthest = min(farthest, max(limit, 0))
+    found: list[ImageShift] = []
+    for radius in range(farthest + 1):
+        for image in _chebyshev_shell(radius):
+            if any(
+                image[axis] < bounds[axis][0] or image[axis] > bounds[axis][1]
+                for axis in range(3)
+            ):
+                continue
+            if len(found) >= max_count:
+                return found, True
+            found.append(image)
+    return found, False
+
+
+def _chebyshev_shell(radius: int):
+    if radius == 0:
+        yield (0, 0, 0)
+        return
+    for first in range(-radius, radius + 1):
+        for second in range(-radius, radius + 1):
+            for third in range(-radius, radius + 1):
+                if max(abs(first), abs(second), abs(third)) == radius:
+                    yield (first, second, third)
+
+
+def _translate_points(points: dict[str, F3], image: ImageShift) -> dict[str, F3]:
+    return {
+        node_id: (
+            point[0] + image[0],
+            point[1] + image[1],
+            point[2] + image[2],
+        )
+        for node_id, point in points.items()
+    }
 
 
 def _winds(graph: PeriodicQuotientGraph, axis: int) -> bool:
@@ -320,66 +407,6 @@ def _span(
     if not values:
         return None
     return min(values), max(values)
-
-
-def _coplanar(left: dict[str, F3], right: dict[str, F3]) -> bool:
-    points = list(left.values()) + list(right.values())
-    if len(points) < 4:
-        return True
-    origin = points[0]
-    base = None
-    for point in points[1:]:
-        delta = _sub(point, origin)
-        if delta != (Fraction(0), Fraction(0), Fraction(0)):
-            base = delta
-            break
-    if base is None:
-        return True
-    normal = None
-    for point in points:
-        cross = _cross(base, _sub(point, origin))
-        if cross != (Fraction(0), Fraction(0), Fraction(0)):
-            normal = cross
-            break
-    if normal is None:
-        return True
-    return all(_dot(normal, _sub(point, origin)) == 0 for point in points)
-
-
-def _curves_disjoint(
-    left: PeriodicQuotientGraph,
-    left_points: dict[str, F3],
-    right: PeriodicQuotientGraph,
-    right_points: dict[str, F3],
-) -> bool:
-    for left_edge in left.edges:
-        for right_edge in right.edges:
-            if _edges_meet(left_edge, left_points, right_edge, right_points):
-                return False
-    return True
-
-
-def _edges_meet(left_edge, left_points, right_edge, right_points) -> bool:
-    a = left_points[left_edge.source]
-    b = _add(left_points[left_edge.target], fraction_vector(left_edge.image_shift))
-    c = right_points[right_edge.source]
-    d = _add(right_points[right_edge.target], fraction_vector(right_edge.image_shift))
-    # Bounding-box rejection, then a rational segment test via triple products.
-    if _separated(a, b, c, d):
-        return False
-    volume_ac = _dot(_cross(_sub(b, a), _sub(c, a)), _sub(d, a))
-    if volume_ac != 0:
-        return False
-    return not _separated(a, b, c, d)
-
-
-def _separated(a: F3, b: F3, c: F3, d: F3) -> bool:
-    for axis in range(3):
-        if max(a[axis], b[axis]) < min(c[axis], d[axis]):
-            return True
-        if max(c[axis], d[axis]) < min(a[axis], b[axis]):
-            return True
-    return False
 
 
 def _cover_cycles(

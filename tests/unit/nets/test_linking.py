@@ -89,6 +89,32 @@ def test_hopf_rings_are_linked_and_a_translate_is_not():
     assert separated.relation == "graph_disjoint"
 
 
+def test_integer_image_of_a_hopf_link_stays_linked():
+    left, left_embedding = _square()
+    right, right_embedding = _hopf_partner()
+    shifted = _embed(
+        [
+            (node_id, (point[0] + 2.0, point[1], point[2]))
+            for node_id, point in right_embedding.fractional
+        ]
+    )
+    linked = assess_linking(left, left_embedding, right, shifted)
+    assert linked.status == "linked", linked.reason
+    assert linked.witness is not None
+    assert abs(int(linked.witness["linking_number"])) == 1
+    assert linked.witness["relative_image"] == [-2, 0, 0]
+    capped = assess_linking(
+        left,
+        left_embedding,
+        right,
+        shifted,
+        limits=_limits(link_image_limit=0),
+    )
+    assert capped.status in {"unverified", "not_detected_within_bounds"}
+    assert capped.status != "linked"
+    assert capped.status != "coexistence"
+
+
 def test_equal_abstract_rings_can_have_different_embeddings():
     left, left_embedding = _square()
     partner, partner_embedding = _hopf_partner()
