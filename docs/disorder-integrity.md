@@ -48,3 +48,52 @@ assemblies, all four choices in a two-by-two synthetic model, equivalent
 group-number mappings, molecular formula counts,
 strict-mode failure, label aliases, and compatibility with legacy fixtures.
 No database coordinates or private experimental metadata are needed.
+
+## Symmetry operation loops
+
+`read_cif_symmetry` and `scan_cif_disorder` keep an explicit
+`_space_group_symop_operation_xyz` or `_symmetry_equiv_pos_as_xyz` loop when
+that loop contains more than the identity. The Hermann–Mauguin name and the
+IT number are labels on the loop. They supply operations only when a non-P1
+CIF has no operation beyond identity, which emits
+`SymmetryAutoExpandedWarning`. A longer loop is not rewritten when it is
+unclosed, when its translations were edited by hand, or when it is not the
+named space group. The operation list is the symmetry.
+
+Disorder resolution expands those operations before it chooses alternatives.
+A wrong loop therefore moves special-position molecules. The usual cage on a
+threefold axis is the case to check: the asymmetric unit needs the axial
+atoms once, at occupancy 1, and one bridge per orientation. The threefold
+operation builds the other bridges. If the written operations do not fix that
+axial site, each nitrogen is copied as a general position, the bridges do not
+close, and the ordered replica is a P1 packing of overlapping fragments.
+`write_cif` writes a resolved replica as P1 by default
+(`representation="p1"`). That P1 cell is the expanded ordered model.
+
+Build or repair the loop before resolving disorder:
+
+- Copy the parent refinement's operation list unchanged, or omit the loop
+  and keep `_space_group_IT_number` so identity-only input expands from the
+  declared group.
+- A site whose parent `_atom_site_site_symmetry_order` is 3 must be invariant
+  under two non-identity operations of the loop. Stabilizer order 1 means
+  the loop does not contain that axis.
+- Atoms shared by every orientation stay at occupancy 1 and outside the
+  disorder assembly. Atoms that differ between orientations are the partial
+  sites, and the occupancies inside one assembly sum to 1. Do not also list
+  the symmetry copies of those bridges in the asymmetric unit.
+- `strict_formula=True` rejects candidates that do not match
+  `_chemical_formula_moiety` times `_cell_formula_units_Z`. The default warns
+  and still returns a best-effort crystal. Write the moiety as discrete
+  residues, not as a copy of `_chemical_formula_sum`. The check compares
+  element totals and, when every residue count is integral, per-molecule
+  formulas. A connected framework is one molecule, so a residue list can
+  still fail that second stage when the residues share a bonding graph.
+  Inspect element totals and molecule formulas separately.
+- Independent disorders that reuse local group numbers (an anion assembly
+  and a molecular rotamer, both numbered 1 and 2) need
+  `independent_assemblies=True`. Legacy mode can tie those assemblies
+  together by group number and warns when several multi-group assemblies
+  are present. `coupled=True` locks symmetry copies of one assembly to the
+  same orientation, which is a single-domain replica. `coupled=False` lets
+  each copy choose separately.
