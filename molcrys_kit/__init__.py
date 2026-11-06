@@ -148,6 +148,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "analyze_periodic_graph": (".periodic", "analyze_periodic_graph"),
     "periodic_rank": (".periodic", "periodic_rank"),
     "to_periodic_quotient_graph": (".periodic", "to_periodic_quotient_graph"),
+    # periodic net topology
+    "analyze_periodic_net_system": (".nets", "analyze_periodic_net_system"),
+    "build_periodic_site_graph": (".nets", "build_periodic_site_graph"),
+    "decompose_periodic_nets": (".nets", "decompose_periodic_nets"),
 }
 
 
@@ -179,6 +183,7 @@ def __getattr__(name: str):
         "analysis",
         "constants",
         "periodic",
+        "nets",
     }
     if name in _SUBPACKAGES:
         import importlib
@@ -280,6 +285,9 @@ __all__ = [
     "analyze_periodic_graph",
     "periodic_rank",
     "to_periodic_quotient_graph",
+    "analyze_periodic_net_system",
+    "build_periodic_site_graph",
+    "decompose_periodic_nets",
     # Backward compatibility
     "Molecule",
 ]

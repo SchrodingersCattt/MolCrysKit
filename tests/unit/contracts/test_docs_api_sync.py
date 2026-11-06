@@ -31,6 +31,7 @@ PACKAGES: dict[str, str] = {
     "molcrys_kit.constants": "mck.constants",
     "molcrys_kit.chemistry": "mck.chemistry",
     "molcrys_kit.periodic": "mck.periodic",
+    "molcrys_kit.nets": "mck.nets",
     "molcrys_kit.utils": "mck.utils",
 }
 

@@ -422,3 +422,34 @@ COMMON_SOLVENTS = {
 
 # Bounded orientation search for explicit chemical-edit placement policies.
 CHEMICAL_EDIT_ORIENTATION_SAMPLES = 32
+
+# Bounded periodic-net analysis. These caps are part of the reported settings.
+# Raising them searches further; it does not turn a capped result into a proof.
+NET_TOPOLOGY_CONFIG = {
+    # Coordination sequences are counted on the periodic cover.
+    "COORDINATION_SEQUENCE_DEPTH": 6,
+    "COVER_BFS_STATE_LIMIT": 20000,
+    # Barycentric folding is refused above this quotient size.
+    "PRIMITIVE_NODE_LIMIT": 32,
+    # Canonical labeling is exhaustive only at or below this size.
+    "CANONICAL_NODE_LIMIT": 8,
+    # Degree-class labelings times parallel-edge orders. The proof then
+    # reduces one tree-gauged voltage matrix by Hermite form. This is not a
+    # bounded search over GL(3, Z).
+    "CANONICAL_BACKTRACK_LIMIT": 200000,
+    # Reported with the analysis settings. The isomorphism proof does not
+    # consult a residual matrix-entry bound or an LLL step limit.
+    "BASIS_ENTRY_LIMIT": 1,
+    "LLL_STEP_LIMIT": 64,
+    "RING_LENGTH_LIMIT": 8,
+    "RING_COUNT_LIMIT": 64,
+    "RING_STATE_LIMIT": 8000,
+    "LINK_PAIR_LIMIT": 256,
+    "LINK_IMAGE_LIMIT": 32,
+    "DISCOVERY_PARTITION_LIMIT": 8,
+    # Added to a contact cutoff when recording borderline pairs. Angstrom.
+    "CONTACT_BORDERLINE_MARGIN_A": 0.2,
+    # Float-to-fraction acceptance for linking coordinates, in Angstrom.
+    "FRACTION_RESIDUAL_A": 1e-8,
+    "FRACTION_DENOMINATOR_LIMIT": 1000000,
+}

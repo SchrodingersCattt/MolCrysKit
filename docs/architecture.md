@@ -172,6 +172,10 @@ cycle-translation subgroup. The cyclomatic number of the finite quotient is a
 separate count. `PeriodicGraph.winding_cycles` remains the chain builder's
 optimized path. This layer does not name nets or describe interpenetration.
 The conventions and adapters are in [Periodic quotient graphs](periodic-graph.md).
+Material-agnostic subnet decomposition, isomorphism witnesses, linking, and
+tiling duality live in `molcrys_kit.nets` and are specified in
+[Periodic net topology](net-topology.md). That layer reads this graph. It does
+not replace it, and a periodic rank remains a dimension rather than a net name.
 
 ## Pull request expectations
 

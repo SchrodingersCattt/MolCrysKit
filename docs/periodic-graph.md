@@ -268,8 +268,8 @@ replace a winding query in the builder with `analyze_periodic_graph`.
 
 ## Out of scope for this contract
 
-Crystal-specific node and edge policies, subnet decomposition, net-name
-recognition, periodic-graph isomorphism, interpenetration or catenation
-witnesses, duality, and an `mck` net-topology command are a later stage.
-They must use this graph rather than a second quotient implementation.
+This package does not choose node or edge policies, decompose subnets, test
+isomorphism, or describe interpenetration or duality. Those analyses are in
+`molcrys_kit.nets` and use this graph. Their contract is
+[Periodic net topology](net-topology.md), including `mck analyze net-topology`.
 A 3-dimensional rank is not a topology identification.
