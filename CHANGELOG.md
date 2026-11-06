@@ -40,6 +40,16 @@
   Quinoline is the retained name of that fused system. A compound prefix
   such as `(2,4-dimethylphenoxy)` is alphabetized with its multiplier, ahead
   of `trihydroxy`.
+- The same compound-prefix order applies to acyclic parents:
+  `3-chloro-2-(2,4-dimethylphenoxy)propanoic acid` and
+  `3-bromo-2-(2,4-dichlorophenoxy)propanoic acid`.
+- Isoquinoline, quinoxaline, quinazoline, and quinolinium are retained
+  parents, and a substituent does not replace quinoline with a von Baeyer
+  name (`2-methylquinoline`). Other mancude benzo-azines are not named as
+  azabicyclo pentaenes.
+- Nuclide locants on an unsubstituted alkane follow the chain.
+  `(1,3-13C2)propane`, `(2-13C)propane`, and `(1,4-13C2)butane` are not
+  rewritten as a different isotopologue.
 
 ### Notes
 

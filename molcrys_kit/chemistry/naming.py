@@ -416,6 +416,10 @@ def _decorate_stage6_name(entity: FiniteChemicalEntity, name: str) -> tuple[str,
 
     numbered = parent_numbering(entity)
     parent_locants = numbered if numbered else _parent_locants(entity, name)
+    if not parent_locants:
+        # Unsubstituted alkanes are not numbered by the substitutive engine.
+        # Encounter order would cite [13CH3]C[13CH3] as (1,2-13C2)propane.
+        parent_locants = _unbranched_alkane_locants(entity)
     element_indices = {}
     element_counts = {}
     for atom in entity.atoms:
@@ -584,6 +588,66 @@ def _polyene_chain_locants(entity: FiniteChemicalEntity, name: str) -> dict[str,
         return tuple(sorted(pairs))
 
     return min(matches, key=signature)
+
+
+def _unbranched_alkane_locants(entity: FiniteChemicalEntity) -> dict[str, int]:
+    """Number a bare alkane so isotopic carbons receive the lowest locants.
+
+    The chain may be read from either end. P-14.4 keeps the direction whose
+    isotopic locants are lowest, which makes ``(1,3-13C2)propane`` and
+    ``(2-13C)propane`` distinct and reversible. Branched and unsaturated
+    parents are left to the numbering that already produced their name.
+    """
+    if any(atom.element not in {"C", "H"} for atom in entity.atoms):
+        return {}
+    carbons = [atom.atom_id for atom in entity.atoms if atom.element == "C"]
+    if not carbons:
+        return {}
+    if len(carbons) == 1:
+        return {carbons[0]: 1}
+    adjacency = {atom_id: [] for atom_id in carbons}
+    for bond in entity.bonds:
+        if bond.atom1_id not in adjacency or bond.atom2_id not in adjacency:
+            continue
+        if bond.order != 1.0:
+            return {}
+        adjacency[bond.atom1_id].append(bond.atom2_id)
+        adjacency[bond.atom2_id].append(bond.atom1_id)
+    degrees = {atom_id: len(neighbors) for atom_id, neighbors in adjacency.items()}
+    if any(degree > 2 for degree in degrees.values()):
+        return {}
+    endpoints = [atom_id for atom_id, degree in degrees.items() if degree == 1]
+    if len(endpoints) != 2:
+        return {}
+    start = min(endpoints)
+    path = [start]
+    previous = None
+    current = start
+    while True:
+        nxt = [neighbor for neighbor in adjacency[current] if neighbor != previous]
+        if not nxt:
+            break
+        if len(nxt) != 1:
+            return {}
+        previous, current = current, nxt[0]
+        path.append(current)
+    if len(path) != len(carbons) or len(set(path)) != len(carbons):
+        return {}
+    isotopic = {
+        atom.atom_id
+        for atom in entity.atoms
+        if atom.element == "C" and atom.isotope is not None
+    }
+
+    def numbered(ordered: list[str]) -> tuple[dict[str, int], tuple[int, ...]]:
+        locants = {atom_id: index + 1 for index, atom_id in enumerate(ordered)}
+        return locants, tuple(sorted(locants[atom_id] for atom_id in isotopic))
+
+    forward, forward_key = numbered(path)
+    backward, backward_key = numbered(list(reversed(path)))
+    if isotopic and backward_key < forward_key:
+        return backward
+    return forward
 
 
 def _parent_locants(entity: FiniteChemicalEntity, name: str) -> dict[str, int]:

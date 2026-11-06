@@ -1101,6 +1101,10 @@ def name_polycycle(entity: FiniteChemicalEntity):
             return None
         specs = found
         core = _induced_entity(entity, core_nodes)
+    if _is_mancude_benzoazine(core):
+        # P-25 retained fused names. A von Baeyer pentaene is not a name for
+        # this mancude system, so an unrecognized skeleton fails closed.
+        return _name_retained_benzoazine(core, specs)
     attachments = tuple(atom for atom, _word in specs)
     named = _name_bare_polycycle(core, attachments)
     if named is None or not specs:
@@ -1166,14 +1170,6 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
     else:
         locants = _unsaturation_locants(entity, paths, numbering)
     prefix = _serialize_hetero_prefixes(hetero)
-    if system.aromatic and bracket == "4.4.0" and not attachments and _is_quinoline(entity, system):
-        return (
-            "quinoline",
-            False,
-            (
-                "Recognize the fused benzopyridine as the retained parent quinoline.",
-            ),
-        )
     if system.aromatic and bracket == "4.4.0" and not prefix and not attachments:
         return (
             "naphthalene",
@@ -1557,6 +1553,9 @@ def _stem_number(stem: str) -> int | None:
 
 
 def _split_ring_prefixes(name: str):
+    retained = _split_retained_fused(name)
+    if retained is not None:
+        return retained
     match = re.search(
         rf"{_HETERO_TEXT}(?:bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo\[|"
         rf"{_HETERO_TEXT}spiro\[|phenylbenzene",
@@ -1587,6 +1586,9 @@ def _interpret_prefix(word: str):
 
 
 def _parent_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
+    fused = _fused_published_locants(entity)
+    if fused is not None:
+        return fused
     numbered = {
         int(atom.atom_id[1:]): atom.atom_id
         for atom in entity.atoms
@@ -1733,36 +1735,170 @@ def _parse_von_baeyer(name: str):
     return _finish_entity(name, atoms, bonds)
 
 
-def _is_quinoline(entity: FiniteChemicalEntity, system) -> bool:
-    """Unsubstituted quinoline: one nitrogen next to exactly one bridgehead.
+# Internal locants follow the quinoline construction below: 4a is 5 and 8a is
+# 10. Published locants skip those bridgeheads.
+_FUSED_PUBLISHED_OF_INTERNAL = {1: 1, 2: 2, 3: 3, 4: 4, 6: 5, 7: 6, 8: 7, 9: 8}
+_FUSED_AZINES = {
+    "quinoline": ((1,), 0),
+    "isoquinoline": ((2,), 0),
+    "quinazoline": ((1, 3), 0),
+    "quinoxaline": ((1, 4), 0),
+    "quinolinium": ((1,), 1),
+}
+_FUSED_PARENTS = (
+    "isoquinoline",
+    "quinazoline",
+    "quinoxaline",
+    "quinolinium",
+    "quinoline",
+)
+# (published locant, element, charge) in citation order. Charge 1 is the
+# azanium (N bearing hydrogen), which is the retained quinolinium cation.
+_FUSED_SIGNATURES = {
+    ((1, "N", 0),): "quinoline",
+    ((2, "N", 0),): "isoquinoline",
+    ((1, "N", 0), (3, "N", 0)): "quinazoline",
+    ((1, "N", 0), (4, "N", 0)): "quinoxaline",
+    ((1, "N", 1),): "quinolinium",
+}
 
-    Isoquinoline's nitrogen is adjacent to neither bridgehead, and a
-    bridgehead nitrogen is a different parent.
-    """
-    atoms = {atom.atom_id: atom for atom in entity.atoms}
-    ring = [atom_id for atom_id in system.atoms if atoms[atom_id].element != "H"]
+
+def _is_mancude_benzoazine(entity: FiniteChemicalEntity) -> bool:
+    """Aromatic naphthalene skeleton whose only heteroatoms are nitrogen."""
+    system = classify_ring_system(entity)
+    if system is None or system.kind != "bicyclo" or not system.aromatic:
+        return False
+    if len(system.atoms) != 10 or len(system.bridgeheads) != 2:
+        return False
+    lengths = tuple(sorted((len(path) - 2 for path in system.paths), reverse=True))
+    if lengths != (4, 4, 0):
+        return False
+    ring = [atom for atom in entity.atoms if atom.atom_id in system.atoms]
     if len(ring) != 10:
         return False
-    if any(atoms[atom_id].element not in {"C", "N"} for atom_id in ring):
+    if any(atom.element not in {"C", "N"} or atom.radical_electrons for atom in ring):
         return False
-    nitrogens = [atom_id for atom_id in ring if atoms[atom_id].element == "N"]
-    if len(nitrogens) != 1:
-        return False
-    if any((atoms[atom_id].formal_charge or 0) or atoms[atom_id].radical_electrons for atom_id in ring):
-        return False
-    nitrogen = nitrogens[0]
-    bridge = set(system.bridgeheads)
-    if nitrogen in bridge:
-        return False
-    adjacency = _adj(entity, set(ring))
-    return sum(neighbor in bridge for neighbor, _bond in adjacency[nitrogen]) == 1
+    return any(atom.element == "N" for atom in ring)
 
 
-def _parse_quinoline(name: str):
-    atoms = [
-        _atom_record(f"A{index}", "N" if index == 1 else "C")
-        for index in range(1, 11)
-    ]
+def _fused_orientations(system):
+    """Yield the four retained numberings of a bicyclo[4.4.0] skeleton.
+
+    Each mapping sends an atom id to the internal locant used by
+    :func:`_parse_fused_azine` (1 at nitrogen for quinoline, 10 at bridgehead
+    8a, 5 at bridgehead 4a).
+    """
+    long_paths = [path for path in system.paths if len(path) == 6]
+    if len(long_paths) != 2:
+        return
+    for index, path in enumerate(long_paths):
+        other = long_paths[1 - index]
+        for ordered in (tuple(path), tuple(reversed(path))):
+            if other[0] == ordered[-1] and other[-1] == ordered[0]:
+                benzo = other
+            elif other[-1] == ordered[-1] and other[0] == ordered[0]:
+                benzo = tuple(reversed(other))
+            else:
+                continue
+            internal = {
+                ordered[0]: 10,
+                ordered[1]: 1,
+                ordered[2]: 2,
+                ordered[3]: 3,
+                ordered[4]: 4,
+                ordered[5]: 5,
+                benzo[1]: 6,
+                benzo[2]: 7,
+                benzo[3]: 8,
+                benzo[4]: 9,
+            }
+            if len(internal) == 10:
+                yield internal
+
+
+def _fused_parent_name(atoms: dict[str, ChemicalAtom], internal: dict[str, int]) -> str | None:
+    signature = []
+    for atom_id, locant in internal.items():
+        atom = atoms[atom_id]
+        if atom.element == "C":
+            if atom.formal_charge or atom.radical_electrons:
+                return None
+            continue
+        if atom.element != "N" or atom.radical_electrons:
+            return None
+        published = _FUSED_PUBLISHED_OF_INTERNAL.get(locant)
+        if published is None:
+            return None
+        charge = atom.formal_charge or 0
+        if charge == 0:
+            signature.append((published, "N", 0))
+            continue
+        hydrogens = (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        if charge != 1 or hydrogens < 1:
+            return None
+        signature.append((published, "N", 1))
+    return _FUSED_SIGNATURES.get(tuple(sorted(signature)))
+
+
+def _select_fused_numbering(entity: FiniteChemicalEntity, system, specs):
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    matches = []
+    for internal in _fused_orientations(system):
+        parent = _fused_parent_name(atoms, internal)
+        if parent is None:
+            continue
+        published = []
+        placed = True
+        for atom_id, word in specs:
+            locant = _FUSED_PUBLISHED_OF_INTERNAL.get(internal.get(atom_id))
+            if locant is None:
+                placed = False
+                break
+            published.append((locant, word))
+        if not placed:
+            continue
+        matches.append((tuple(sorted(published)), parent, internal))
+    if not matches:
+        return None
+    return min(matches, key=lambda item: (item[0], item[1]))
+
+
+def _name_retained_benzoazine(entity: FiniteChemicalEntity, specs) -> tuple | None:
+    system = classify_ring_system(entity)
+    if system is None:
+        return None
+    selected = _select_fused_numbering(entity, system, specs)
+    if selected is None:
+        return None
+    published, parent, _internal = selected
+    prefix = "-".join(f"{locant}-{word}" for locant, word in published)
+    # Retained parents begin with a letter, so the final hyphen is elided:
+    # ``2-methylquinoline``, not ``2-methyl-quinoline``.
+    name = f"{prefix}{parent}" if prefix else parent
+    trace = (f"Recognize the mancude fused system as the retained parent {parent}.",)
+    if prefix:
+        trace = (
+            *trace,
+            "Cite each substituent at its retained locant rather than a von Baeyer locant.",
+        )
+    return name, False, trace
+
+
+def _parse_fused_azine(name: str):
+    nitrogens, charge = _FUSED_AZINES[name]
+    atoms = []
+    for index in range(1, 11):
+        if index in nitrogens:
+            atoms.append(
+                _atom_record(
+                    f"A{index}",
+                    "N",
+                    1 if charge else None,
+                    formal_charge=charge or None,
+                )
+            )
+        else:
+            atoms.append(_atom_record(f"A{index}"))
     bonds = []
     seen = set()
     for ring in ((1, 2, 3, 4, 5, 10), (5, 6, 7, 8, 9, 10)):
@@ -1774,6 +1910,43 @@ def _parse_quinoline(name: str):
             seen.add(edge)
             bonds.append(_edge(f"A{left}", f"A{right}", 1.5, aromatic=True))
     return _finish_entity(name, atoms, bonds)
+
+
+def _split_retained_fused(name: str):
+    for parent in _FUSED_PARENTS:
+        if name == parent:
+            return [], parent
+        if not name.endswith(parent) or len(name) <= len(parent):
+            continue
+        # ``2-methylquinoline`` glues the last prefix to the parent. A hyphen
+        # before the parent is accepted and ignored.
+        prefix_text = name[: -len(parent)].rstrip("-")
+        found = re.findall(r"(\d+)-([a-z]+)", prefix_text)
+        if found and "-".join(f"{locant}-{word}" for locant, word in found) == prefix_text:
+            return [(int(locant), word) for locant, word in found], parent
+    return None
+
+
+def _fused_published_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
+    """Map a retained-parent locant to the atom built by :func:`_parse_fused_azine`."""
+    heavy = {atom.atom_id for atom in entity.atoms if atom.element != "H"}
+    if heavy != {f"A{index}" for index in range(1, 11)}:
+        return None
+    system = classify_ring_system(entity)
+    if system is None:
+        return None
+    selected = _select_fused_numbering(entity, system, ())
+    if selected is None:
+        return None
+    _published, _parent, internal = selected
+    by_internal = {locant: atom_id for atom_id, locant in internal.items()}
+    locants = {}
+    for internal_locant, published in _FUSED_PUBLISHED_OF_INTERNAL.items():
+        atom_id = by_internal.get(internal_locant)
+        if atom_id is None:
+            return None
+        locants[published] = atom_id
+    return locants
 
 
 def _parse_naphthalene(name: str):
@@ -1794,8 +1967,8 @@ def _parse_naphthalene(name: str):
 def _parse_ring_parent(name: str):
     if name == "naphthalene":
         return _parse_naphthalene(name)
-    if name == "quinoline":
-        return _parse_quinoline(name)
+    if name in _FUSED_AZINES:
+        return _parse_fused_azine(name)
     if name == "phenylbenzene":
         return _parse_phenylbenzene(name)
     if re.match(rf"(?:{_HETERO_TEXT})spiro\[", name):

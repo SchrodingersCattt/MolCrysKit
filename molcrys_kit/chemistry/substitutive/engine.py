@@ -213,6 +213,19 @@ def _alphabet_key(text: str) -> str:
     return re.sub(r"^\d+(?:,\d+)*-", "", bare)
 
 
+def _complex_sort_name(text: str) -> str:
+    """Citation letter for one complex substituent on an acyclic parent.
+
+    Amino fragments stay under amino. Every other complex prefix uses
+    :func:`_alphabet_key`, so ``(2,4-dimethylphenoxy)`` is cited under ``d``
+    and is not pulled forward by its parentheses or its locants.
+    """
+    key = _alphabet_key(text)
+    if key.endswith("amino"):
+        return "amino"
+    return key
+
+
 def _join_prefs(items: list[_Pref]) -> str:
     ordered = sorted(items, key=lambda item: (item.sort_name, item.locant, item.rendered))
     return "-".join(item.rendered for item in ordered)
@@ -668,8 +681,9 @@ def _yl_text(entity, atoms, adj, attachment, blocked, depth):
                         rendered = f"{numbering[atom_id]}-({text})" if paren and not str(text).startswith("[") else (
                             f"{numbering[atom_id]}-{text}" if str(text).startswith("[") or not paren else f"{numbering[atom_id]}-({text})"
                         )
-                        sort_name = "amino" if str(text).endswith("amino") else str(text).replace("(", "").replace(")", "")
-                        complex_prefs.append(_Pref(sort_name, numbering[atom_id], rendered))
+                        complex_prefs.append(
+                            _Pref(_complex_sort_name(text), numbering[atom_id], rendered)
+                        )
                     consumed.add(neighbor)
                     _consume_fragment(atoms, adj, neighbor, atom_id, consumed)
             if not ok:
@@ -1160,9 +1174,13 @@ def _analyze_chain(entity, atoms, adj):
                                 rendered = f"{numbering[atom_id]}-({text})"
                             else:
                                 rendered = f"{numbering[atom_id]}-{text}"
-                            bare = re.sub(r"[()\[\]]", "", str(text)).lower()
-                            sort_name = "amino" if bare.endswith("amino") else bare
-                            complex_prefs.append(_Pref(sort_name, numbering[atom_id], rendered))
+                            complex_prefs.append(
+                                _Pref(
+                                    _complex_sort_name(text),
+                                    numbering[atom_id],
+                                    rendered,
+                                )
+                            )
                         stack = [neighbor]
                         seen = set()
                         while stack:

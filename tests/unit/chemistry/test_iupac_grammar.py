@@ -306,11 +306,57 @@ def test_repeated_nuclide_is_one_grouped_label() -> None:
 def test_quinoline_is_the_retained_benzopyridine() -> None:
     assert smiles_to_iupac("c1ccc2ncccc2c1", strict=True).name == "quinoline"
     assert smiles_to_iupac("n1cccc2ccccc12", strict=True).name == "quinoline"
-    isoquinoline = smiles_to_iupac("c1ccc2cnccc2c1", strict=True)
-    assert isoquinoline.name != "quinoline"
-    assert "aza" in isoquinoline.name
+    assert smiles_to_iupac("c1ccc2cnccc2c1", strict=True).name == "isoquinoline"
+    assert smiles_to_iupac("Cc1ccc2ccccc2n1", strict=True).name == "2-methylquinoline"
+    assert iupac_to_smiles("isoquinoline").lossless is True
+    assert iupac_to_smiles("2-methylquinoline").lossless is True
     indole = smiles_to_iupac("c1ccc2[nH]ccc2c1", strict=False)
     assert indole.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert "bicyclo" not in indole.name
+
+
+def test_fused_benzoazines_keep_retained_parents() -> None:
+    """Mancude benzo-azines are retained names, not von Baeyer pentaenes."""
+    pairs = (
+        ("c1ccc2nccnc2c1", "quinoxaline"),
+        ("c1ccc2ncncc2c1", "quinazoline"),
+        ("c1ccc2[nH+]cccc2c1", "quinolinium"),
+    )
+    for smiles, name in pairs:
+        assert smiles_to_iupac(smiles, strict=True).name == name
+        assert iupac_to_smiles(name).lossless is True
+        assert notations_equivalent(smiles, iupac_to_smiles(name).value) is True
+    cinnoline = smiles_to_iupac("c1ccc2nnccc2c1", strict=False)
+    assert cinnoline.kind is NamingKind.IUPAC_COMPOSITION_DESCRIPTION
+    assert "bicyclo" not in cinnoline.name
+
+
+def test_acyclic_compound_prefix_alphabetizes_under_its_full_name() -> None:
+    chloro = smiles_to_iupac("OC(=O)C(Oc1ccc(C)cc1C)CCl", strict=True).name
+    bromo = smiles_to_iupac("OC(=O)C(Oc1ccc(Cl)cc1Cl)CBr", strict=True).name
+    assert chloro == "3-chloro-2-(2,4-dimethylphenoxy)propanoic acid"
+    assert bromo == "3-bromo-2-(2,4-dichlorophenoxy)propanoic acid"
+    assert (
+        smiles_to_iupac("OC(=O)C(Oc1ccccc1)CCl", strict=True).name
+        == "3-chloro-2-phenoxypropanoic acid"
+    )
+    with pytest.raises(NamingParseError, match="not canonical"):
+        from_iupac_name("2-(2,4-dimethylphenoxy)-3-chloropropanoic acid")
+    with pytest.raises(NamingParseError, match="not canonical"):
+        from_iupac_name("2-(2,4-dichlorophenoxy)-3-bromopropanoic acid")
+
+
+def test_bare_alkane_nuclide_locants_follow_the_chain() -> None:
+    assert smiles_to_iupac("[13CH3]C[13CH3]", strict=True).name == "(1,3-13C2)propane"
+    assert smiles_to_iupac("C[13CH2]C", strict=True).name == "(2-13C)propane"
+    assert smiles_to_iupac("[13CH3]CC[13CH3]", strict=True).name == "(1,4-13C2)butane"
+    assert smiles_to_iupac("[13CH3][13CH3]", strict=True).name == "(1,2-13C2)ethane"
+    ends = from_iupac_name("(1,3-13C2)propane")
+    middle = from_iupac_name("(2-13C)propane")
+    adjacent = from_iupac_name("(1,2-13C2)propane")
+    assert [atom.atom_id for atom in ends.atoms if atom.isotope == 13] == ["C1", "C3"]
+    assert [atom.atom_id for atom in middle.atoms if atom.isotope == 13] == ["C2"]
+    assert [atom.atom_id for atom in adjacent.atoms if atom.isotope == 13] == ["C1", "C2"]
 
 
 def test_alkene_configuration_round_trip_checks_stereo() -> None:

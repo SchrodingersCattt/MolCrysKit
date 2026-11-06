@@ -143,6 +143,18 @@ _GOLD = (
         "2,4-dimethylphenyl sulfate",
         "aryl sulfate monoester, 2,4-dimethyl substitution",
     ),
+    (
+        "carboxylic-acid",
+        "OC(=O)C(Oc1ccc(C)cc1C)CCl",
+        "3-chloro-2-(2,4-dimethylphenoxy)propanoic acid",
+        "P-14.5: chloro precedes the compound prefix dimethylphenoxy",
+    ),
+    (
+        "carboxylic-acid",
+        "OC(=O)C(Oc1ccc(Cl)cc1Cl)CBr",
+        "3-bromo-2-(2,4-dichlorophenoxy)propanoic acid",
+        "P-14.5: bromo precedes the compound prefix dichlorophenoxy",
+    ),
 )
 
 _BETA = "O[C@@H]1[C@@H](O)[C@H](Oc2ccccc2)O[C@@H]([C@H]1O)C(=O)O"

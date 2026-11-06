@@ -97,11 +97,18 @@ cannot rank stays unlabeled: no cycle-cutting atomic-number order is
 published as `R`/`S`, and the naming result warns that the token was left
 unpublished. Phenyl β-D-glucuronide is therefore
 `(2S,3S,4S,5R,6S)-3,4,5-trihydroxy-6-phenoxyoxane-2-carboxylic acid`.
-A compound prefix keeps its multiplying prefix in alphabetical order, so
-`(2,4-dimethylphenoxy)` is cited before `trihydroxy`. Unbranched polyenes
+A compound prefix keeps its multiplying prefix in alphabetical order on
+both ring and acyclic parents, so `(2,4-dimethylphenoxy)` is cited before
+`trihydroxy` and after `chloro`
+(`3-chloro-2-(2,4-dimethylphenoxy)propanoic acid`). Unbranched polyenes
 cite each double-bond configuration (`(2E,4E)-hexa-2,4-diene`). Repeated
-identical nuclides are grouped (`(1,2-13C2)ethane`). Quinoline is the
-retained parent of that fused benzopyridine.
+identical nuclides are grouped (`(1,2-13C2)ethane`). On an unsubstituted
+alkane the locants follow the chain, lowest set first
+(`(1,3-13C2)propane`, `(2-13C)propane`, `(1,4-13C2)butane`). Quinoline,
+isoquinoline, quinoxaline, quinazoline, and quinolinium are retained
+parents, and a simple substituent stays on that parent
+(`2-methylquinoline`). A mancude benzo-azine outside that set is not given
+a von Baeyer name.
 Generated names are general IUPAC names, not preferred names.
 The `strict=False` compatibility path deliberately preserves the lower-level
 parser's unresolved hydrogen fields before one-way naming, so the same
