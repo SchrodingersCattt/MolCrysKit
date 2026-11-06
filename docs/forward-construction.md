@@ -27,7 +27,9 @@ full-cell formal charge. Statistical checks use weighted complete alternatives.
 A charge check with any unknown contributing formal charge fails explicitly as
 indeterminate. The `composition_accounting` report separates known partial
 charge sums from a known total. Formula-unit counts do not imply molecule counts
-for a molecular salt.
+for a molecular salt. Companion restore recomputes that report from the complete
+alternatives, so a v2 round trip keeps the same formula, known charge,
+unknown-charge count, and total.
 
 `intermolecular_contacts` uses a periodic neighbor search in the actual cell,
 including skew cells and nonzero images of the same molecule. Records include
@@ -36,9 +38,12 @@ angstrom distances, covalent-radius limits and directed integer image shifts.
 Coordinates are never repaired. Selected coordinates are checked as complete
 molecules against each source operation; isotope/charge differences can lower
 the realized symmetry. A separate spglib coordinate analysis reports detected
-space-group number, operation count and accidental geometric supergroups. It
-uses element/isotope/charge types; it is a geometric diagnostic, not a chemical
-space-group assignment, and an unsuccessful detection stays indeterminate.
+space-group number, operation count and accidental geometric supergroups. spglib
+2.5 or newer is a direct project dependency, the same class as the other
+scientific libraries, because the detector uses its dataset attributes on every
+occupied realization. It uses element/isotope/charge types; it is a geometric
+diagnostic, not a chemical space-group assignment, and an unsuccessful detection
+stays indeterminate.
 
 ## Disorder constraints and selection
 
@@ -51,8 +56,10 @@ represent the same orientation. Duplicate assignments contribute summed weight.
 
 `forbidden` contains assignment mappings and can specify subsets of orbits.
 Every named alternative must belong to its named orbit. Any positive joint
-extending a forbidden subset is rejected. Selection checks those subsets and,
-for a feasible joint distribution, requires a positive-weight joint state.
+extending a forbidden subset is rejected. Selection uses that same parser, so an
+empty assignment or an unknown orbit is rejected instead of matching every
+selection. Selection checks the validated subsets and, for a feasible joint
+distribution, requires a positive-weight joint state.
 Missing joint data remains unknown; truncated data does not establish feasibility.
 Opaque legacy correlation metadata is retained only as unvalidated local data.
 
@@ -129,8 +136,8 @@ dependency is introduced.
 | Typed chemistry including double/triple/aromatic/coordination/unknown | `test_complete_typed_bond_records_survive_both_cif_readers`, `test_unknown_bond_masks_and_invalid_image_shifts_are_not_promoted` |
 | Authoritative long and boundary-crossing bonds | `test_long_published_bond_uses_authoritative_image_instead_of_nearest_image`, existing boundary/ring forward regressions |
 | Isotope aliases, masses, explicit charges and chemically distinct averages | `test_deuterium_and_tritium_aliases_and_conflicts`, `test_isotope_and_explicit_charge_round_trip_and_do_not_merge`, `test_companion_is_bound_to_cif_and_preserves_known_mass`, `test_statistical_asu_keeps_coincident_isotope_alternatives` |
-| Joint feasibility, coupling, cosets, partial forbidden assignments and vacancies | `test_joint_constraints_distinguish_coupling_and_reject_contradictions`, `test_feasible_joint_uses_molecular_cosets_and_preserves_pose_identity`, `test_partial_forbidden_constraints_and_duplicate_joint_weights`, `test_zero_weight_and_partial_occupation_selection` |
-| Reconstructable companion and rejection of corrupt/stale data | `test_companion_preserves_masses_arrays_and_revalidates_constraints`, `test_companion_rejects_inconsistent_marginals`, CIF binding tests |
+| Joint feasibility, coupling, cosets, partial forbidden assignments and vacancies | `test_joint_constraints_distinguish_coupling_and_reject_contradictions`, `test_feasible_joint_uses_molecular_cosets_and_preserves_pose_identity`, `test_partial_forbidden_constraints_and_duplicate_joint_weights`, `test_selection_rejects_empty_or_unknown_forbidden_assignments`, `test_zero_weight_and_partial_occupation_selection` |
+| Reconstructable companion and rejection of corrupt/stale data | `test_companion_preserves_masses_arrays_and_revalidates_constraints`, `test_companion_round_trip_preserves_composition_accounting`, `test_companion_rejects_inconsistent_marginals`, CIF binding tests |
 | Nonorthogonal P1, order-4 site with order-2 molecular stabilizer, high-symmetry general site and near-special boundaries | `test_acceptance_geometry_symmetry_and_export_contracts` plus targeted boundary/input tests |
 | Multi-site molecular salt, formula/Z, partial occupation and explicit charge balance | `test_formula_Z_and_explicit_charge_constraints_on_multispecies_salt` |
 | Periodic self-image/skew-cell contacts and independently detected symmetry | `test_periodic_contacts_include_self_images_and_skew_cell`, `test_selected_realization_checks_contacts_and_detects_accidental_symmetry` |

@@ -18,6 +18,10 @@ not only the site stabilizer.  Stabilizer comparisons use one coherent
 molecular image.  Typed bonds, isotopes, and explicit charges are preserved.
 Statistical models use companion schema ``molcrys.statistical_disorder.v2``;
 older id-only payloads are rejected instead of being completed by guesswork.
+Companion restore recomputes ``composition_accounting`` from the complete
+alternatives.  Selection parses forbidden assignments with the same checks
+used at construction.  Realized-symmetry detection imports spglib, a direct
+dependency.
 """
 
 from __future__ import annotations
@@ -2767,11 +2771,13 @@ def _reject_infeasible_joint(
     correlations = dict(model.correlations or {})
     if correlations.get("schema") != DISORDER_CONSTRAINT_SCHEMA:
         return
+    states = (*model.alternatives, *model.vacancies)
+    by_id = {item.alternative_id: item for item in states}
+    orbits = {item.orbit_id for item in states}
     for item in correlations.get("forbidden") or []:
-        assignment = {
-            str(key): str(value)
-            for key, value in dict(item.get("assignment") or {}).items()
-        }
+        # Same parser as construction: an empty or unknown assignment is
+        # invalid, not a vacuous match against every selection.
+        assignment = _forbidden_assignment(item, by_id, orbits)
         if all(selected.get(key) == value for key, value in assignment.items()):
             raise ConstructionValidationError(
                 "selected realization is forbidden by the disorder constraints"
@@ -3387,6 +3393,9 @@ def _read_statistical_disorder_companion(
             "forward_context": context,
             "source_symmetry": context.to_metadata(),
             "restored_from_companion": True,
+            "composition_accounting": _composition_accounting(
+                [(item.molecule, item.weight) for item in alternatives]
+            ),
             **(
                 {"cif_binding": copy.deepcopy(payload["cif_binding"])}
                 if "cif_binding" in payload

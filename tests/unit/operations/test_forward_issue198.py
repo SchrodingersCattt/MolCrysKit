@@ -1087,6 +1087,49 @@ def test_companion_preserves_masses_arrays_and_revalidates_constraints():
         read_statistical_disorder_companion(tampered)
 
 
+def test_companion_round_trip_preserves_composition_accounting():
+    context = _context_from_number(2)
+    poses = []
+    for symbol, charge, center in (
+        ("Na", 1, [0.1, 0.2, 0.3]),
+        ("Cl", -1, [0.4, 0.3, 0.2]),
+    ):
+        atoms = Atoms(symbol, positions=[[0, 0, 0]])
+        atoms.set_array("formal_charge", np.array([charge]))
+        poses.append(MolecularPose(MolecularTemplate(atoms), center))
+    model = construct_statistical_disorder(
+        context,
+        poses,
+        center_occupation=0.5,
+        expected_formula={"Na": 1, "Cl": 1},
+        expected_charge=0,
+    )
+    accounting = model.metadata["composition_accounting"]
+    assert accounting["formula"] == {"Na": 1.0, "Cl": 1.0}
+    assert accounting["known_charge"] == 0
+    assert accounting["unknown_charge_atoms"] == 0
+    assert accounting["total_charge"] == 0
+    restored = read_statistical_disorder_companion(model.to_dict())
+    assert restored.metadata["composition_accounting"] == accounting
+
+    unknown = construct_statistical_disorder(
+        _p1(),
+        MolecularPose(
+            MolecularTemplate(Atoms("Na", positions=[[0, 0, 0]])), [0.2, 0.3, 0.4]
+        ),
+    )
+    unknown_accounting = unknown.metadata["composition_accounting"]
+    assert unknown_accounting["formula"] == {"Na": 1.0}
+    assert unknown_accounting["total_charge"] is None
+    assert unknown_accounting["unknown_charge_atoms"] == 1
+    assert (
+        read_statistical_disorder_companion(unknown.to_dict()).metadata[
+            "composition_accounting"
+        ]
+        == unknown_accounting
+    )
+
+
 def test_companion_rejects_inconsistent_marginals():
     model = construct_statistical_disorder(
         _p1(), MolecularPose(Atoms("He", positions=[[0, 0, 0]]), [0.2, 0.3, 0.4])
@@ -1228,6 +1271,48 @@ def test_partial_forbidden_constraints_and_duplicate_joint_weights():
     # Mutating caller-owned nested constraints never changes the model.
     joints[0]["assignment"].clear()
     assert coupled.correlations["joints"][0]["assignment"]
+
+
+def test_selection_rejects_empty_or_unknown_forbidden_assignments():
+    context = _p1()
+    template = MolecularTemplate(Atoms("He", positions=[[0, 0, 0]]))
+    poses = [MolecularPose(template, [x, 0.2, 0.3], occupation=0.5) for x in (0.1, 0.6)]
+    probe = construct_statistical_disorder(context, poses)
+    first = probe.alternatives[0]
+    model = construct_statistical_disorder(
+        context,
+        poses,
+        correlations={
+            "schema": DISORDER_CONSTRAINT_SCHEMA,
+            "forbidden": [{"assignment": {first.orbit_id: first.alternative_id}}],
+        },
+    )
+    occupied = {item.orbit_id: item.alternative_id for item in model.alternatives}
+    with pytest.raises(
+        ConstructionValidationError, match="selected realization is forbidden"
+    ):
+        model.select_ordered_realization(occupied)
+    allowed = {
+        item.orbit_id: item.alternative_id
+        for item in (*model.alternatives, *model.vacancies)
+        if (item.orbit_id == first.orbit_id and item.vacancy)
+        or (item.orbit_id != first.orbit_id and not item.vacancy)
+    }
+    assert len(model.select_ordered_realization(allowed).molecules) == 1
+
+    model.correlations["forbidden"] = [{"assignment": {}}]
+    with pytest.raises(ConstructionValidationError, match="unknown or empty") as empty:
+        model.select_ordered_realization(allowed)
+    assert "selected realization is forbidden" not in str(empty.value)
+
+    model.correlations["forbidden"] = [
+        {"assignment": {"missing-orbit": "missing-state"}}
+    ]
+    with pytest.raises(
+        ConstructionValidationError, match="unknown or empty"
+    ) as unknown:
+        model.select_ordered_realization(allowed)
+    assert "selected realization is forbidden" not in str(unknown.value)
 
 
 @pytest.mark.parametrize(
