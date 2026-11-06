@@ -50,7 +50,16 @@
       "notes": [
         "The licensed CCDC record exposed six hydrogen sites without fractional coordinates; the sanitized fixture retains the six carbon reference sites.",
         "Forward-construction tests must supply an explicit hydrogen-placement policy rather than infer missing coordinates."
-      ]
+      ],
+      "complete_molecule_acceptance": {
+        "test": "test_benzen02_complete_molecule_with_explicit_modeled_hydrogen_policy",
+        "hydrogen_policy": "Six modeled H at 1.09 angstrom radially from each deposited carbon, away from the inversion center. These are constructed coordinates, not deposited coordinates.",
+        "expected_molecules": 4,
+        "formula_per_molecule": "C6H6",
+        "expected_cell_atoms": 48,
+        "expected_site_order": 2,
+        "expected_molecular_stabilizer_order": 2
+      }
     },
     {
       "fixture_id": "HXMTAM10",
@@ -95,7 +104,19 @@
         }
       ],
       "n_anisotropic_sites": 12,
-      "n_bonds": 18
+      "n_bonds": 18,
+      "ensemble_acceptance": {
+        "test": "test_iquhuy_declared_independent_joint_restoration_and_true_asu",
+        "joint_policy": "Explicit forward independent distribution of four equiprobable joint assignments; not inferred source correlations.",
+        "expected_cell_weighted_composition": {
+          "C": 18,
+          "H": 10,
+          "N": 2
+        },
+        "alternative_weight": 0.5,
+        "selected_molecules": 2,
+        "selected_atoms": 30
+      }
     }
   ],
   "notes": [
