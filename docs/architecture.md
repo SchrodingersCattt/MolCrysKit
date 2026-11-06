@@ -5,7 +5,10 @@
 Crystallographic path construction is split into four layers:
 
 1. `io.cif.read_cif_symmetry` parses explicit or declared space-group
-	operations without expanding atoms.
+	operations without expanding atoms. An explicit loop that already
+	contains more than the identity is the symmetry that later expansion
+	uses, including when those operations disagree with the Hermann–Mauguin
+	name. See [Disorder export and ordered-structure integrity](disorder-integrity.md).
 2. `structures.symmetry` owns fractional affine algebra, lattice-basis changes,
 	subgroup validation, and coset/domain enumeration.
 3. `operations.symmetry_path.build_symmetry_path_plan` performs global molecule
