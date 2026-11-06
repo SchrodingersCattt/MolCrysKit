@@ -150,11 +150,26 @@ class SystematicName:
         # tokens are case-insensitive and remain normalized to lowercase.
         if normalized.startswith("n-("):
             normalized = "N-" + normalized[2:]
+        # Nitrogen locants stay capitalized in N- and N,N- prefixes.
+        normalized = re.sub(r"\bn,n-", "N,N-", normalized)
+        normalized = re.sub(r"\bn-", "N-", normalized)
         # Preserve conventional element-symbol case in isotope prefixes while
         # keeping the surrounding name case-insensitive.
         normalized = re.sub(
-            r"\((\d+)([a-z][a-z]?)\)(?!-)",
-            lambda match: f"({match.group(1)}{match.group(2).capitalize()})",
+            r"\((\d+(?:,\d+)*)-(\d+)([a-z][a-z]?)(\d+)\)(?!-)",
+            lambda match: (
+                f"({match.group(1)}-{match.group(2)}{match.group(3).capitalize()}{match.group(4)})"
+            ),
+            normalized,
+        )
+        normalized = re.sub(
+            r"\((\d+)-(\d+)([a-z][a-z]?)\)(?!-)",
+            lambda match: f"({match.group(1)}-{match.group(2)}{match.group(3).capitalize()})",
+            normalized,
+        )
+        normalized = re.sub(
+            r"\((\d+)([a-z][a-z]?)(\d*)\)(?!-)",
+            lambda match: f"({match.group(1)}{match.group(2).capitalize()}{match.group(3)})",
             normalized,
         )
         normalized = re.sub(

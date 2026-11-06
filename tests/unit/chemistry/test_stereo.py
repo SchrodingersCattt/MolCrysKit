@@ -245,6 +245,35 @@ def test_double_bond_descriptor_is_rotation_and_atom_order_invariant() -> None:
     assert assign_stereochemistry(reordered).for_atom("C1").descriptor == "E"
 
 
+def test_unresolved_bond_order_is_not_published_as_rs() -> None:
+    atoms = [
+        ChemicalAtom("C*", "C", stereochemistry="@@"),
+        ChemicalAtom("Br", "Br"),
+        ChemicalAtom("Cl", "Cl"),
+        ChemicalAtom("F", "F"),
+        ChemicalAtom("O", "O"),
+    ]
+    bonds = [
+        ChemicalBond("C*", "Br", order=1.0, kind=BondKind.COVALENT),
+        ChemicalBond("C*", "Cl", order=1.0, kind=BondKind.COVALENT),
+        ChemicalBond("C*", "F", order=1.0, kind=BondKind.COVALENT),
+        ChemicalBond("C*", "O", order=None, kind=BondKind.COVALENT),
+    ]
+    entity = FiniteChemicalEntity(
+        entity_id="unresolved",
+        atoms=tuple(atoms),
+        bonds=tuple(bonds),
+        status=InferenceStatus.EXPLICIT,
+    )
+
+    found = assign_stereochemistry(entity).for_atom("C*")
+
+    assert found is not None
+    assert found.descriptor is None
+    assert found.status is InferenceStatus.INDETERMINATE
+    assert "not published as an R/S descriptor" in found.reason
+
+
 def test_double_bond_with_equivalent_ligands_is_indeterminate() -> None:
     entity = _but_2_ene(together=True)
     atoms = tuple(

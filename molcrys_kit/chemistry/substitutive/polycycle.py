@@ -366,15 +366,44 @@ def _unsaturation_locants(entity: FiniteChemicalEntity, paths, numbering):
     return tuple(sorted(set(locants)))
 
 
+def _multiplicative_ene(count: int) -> str:
+    names = {
+        2: "diene",
+        3: "triene",
+        4: "tetraene",
+        5: "pentaene",
+        6: "hexaene",
+        7: "heptaene",
+        8: "octaene",
+    }
+    return names.get(count, "ene")
+
+
+def _unsaturation_head(stem: str, locants: tuple[int, ...]) -> str:
+    """Retain the linking vowel before a multiplied unsaturation ending.
+
+    Blue Book P-31.1 keeps ``hexa-2,4-diene`` rather than ``hex-2,4-diene``.
+    A single ``ene`` ending still elides that vowel (``hex-2-ene``).
+    """
+    if len(locants) <= 1 or stem.endswith("a"):
+        return stem
+    return stem + "a"
+
+
 def _suffix(stem: str, locants: tuple[int, ...], *, aromatic: bool = False) -> str:
     if not locants:
         return f"{stem}ane"
+    head = _unsaturation_head(stem, locants)
     if aromatic and len(locants) == 5:
-        return f"{stem}-" + ",".join(map(str, locants)) + "-pentaene"
+        return f"{head}-" + ",".join(map(str, locants)) + "-pentaene"
     if len(locants) == 1:
         return f"{stem}-{locants[0]}-ene"
-    names = {2: "diene", 3: "triene", 4: "tetraene", 5: "pentaene"}
-    return f"{stem}-" + ",".join(map(str, locants)) + "-" + names.get(len(locants), "ene")
+    return (
+        f"{head}-"
+        + ",".join(map(str, locants))
+        + "-"
+        + _multiplicative_ene(len(locants))
+    )
 
 
 def _number_spiro_paths(paths, orientations=None):
@@ -467,8 +496,106 @@ def _hetero_prefixes_for_paths(entity: FiniteChemicalEntity, paths, numbering):
     return tuple(sorted(prefixes))
 
 
+_HETERO_CITATION_ORDER = (
+    "oxa",
+    "thia",
+    "aza",
+    "azonia",
+    "azanium",
+)
+_PREFIX_MULTIPLIER = {
+    1: "",
+    2: "di",
+    3: "tri",
+    4: "tetra",
+    5: "penta",
+    6: "hexa",
+    7: "hepta",
+    8: "octa",
+    9: "nona",
+    10: "deca",
+}
+
+
 def _serialize_hetero_prefixes(prefixes) -> str:
-    return "-".join(f"{locant}-{prefix}" for locant, prefix in prefixes)
+    """Cite identical skeletal-replacement prefixes as one multiplied term.
+
+    ``2-oxa-8-oxa`` is the malformed ungrouped spelling. The grouped form is
+    ``2,8-dioxa``. Different prefixes follow replacement seniority (oxa before
+    thia before aza), which agrees with locant order after heteroatom
+    numbering has put the senior atom first.
+    """
+    grouped: dict[str, list[int]] = {}
+    for locant, prefix in prefixes:
+        grouped.setdefault(prefix, []).append(locant)
+    names = sorted(
+        grouped,
+        key=lambda name: (
+            _HETERO_CITATION_ORDER.index(name)
+            if name in _HETERO_CITATION_ORDER
+            else len(_HETERO_CITATION_ORDER),
+            name,
+        ),
+    )
+    parts = []
+    for name in names:
+        locants = sorted(grouped[name])
+        multiplier = _PREFIX_MULTIPLIER.get(len(locants), f"{len(locants)}-")
+        parts.append(f"{','.join(map(str, locants))}-{multiplier}{name}")
+    return "-".join(parts)
+
+
+def _bicyclo_number_score(entity, paths, numbering, attachments: tuple[str, ...] = ()):
+    """Lowest heteroatom locants, then senior element, then ene, then substituents."""
+    by_element = {"O": [], "S": [], "N": []}
+    hetero_locants = []
+    for atom in entity.atoms:
+        if atom.atom_id not in numbering or atom.element in {"C", "H"}:
+            continue
+        locant = numbering[atom.atom_id]
+        hetero_locants.append(locant)
+        if atom.element in by_element:
+            by_element[atom.element].append(locant)
+    return (
+        tuple(sorted(hetero_locants)),
+        tuple(tuple(sorted(by_element[element])) for element in ("O", "S", "N")),
+        _unsaturation_locants(entity, paths, numbering),
+        tuple(sorted(numbering[atom] for atom in attachments if atom in numbering)),
+    )
+
+
+def _best_bicyclo_numbering(entity, paths, attachments: tuple[str, ...] = ()):
+    """Choose bridgehead direction and equal-bridge order by chemical locants.
+
+    Atom ids are not part of the score, so equivalent SMILES traversals share
+    one numbering.
+    """
+    from itertools import permutations
+
+    paths = tuple(paths)
+    if len(paths) != 3:
+        return _number_bicyclo_paths(paths, (paths[0][0], paths[0][-1]))
+    best = None
+    for order in permutations(range(3)):
+        ordered = tuple(paths[index] for index in order)
+        lengths = [len(path) - 2 for path in ordered]
+        if lengths != sorted(lengths, reverse=True):
+            continue
+        for reverse in (False, True):
+            oriented = tuple(
+                tuple(reversed(path)) if reverse else path for path in ordered
+            )
+            numbering = _number_bicyclo_paths(
+                oriented, (oriented[0][0], oriented[0][-1])
+            )
+            if len(set(numbering.values())) != len(numbering):
+                continue
+            score = _bicyclo_number_score(entity, oriented, numbering, attachments)
+            if best is None or score < best[0]:
+                best = (score, numbering)
+    if best is None:
+        return _number_bicyclo_paths(paths, (paths[0][0], paths[0][-1]))
+    return best[1]
 
 
 _RING_WORDS = {
@@ -843,7 +970,7 @@ def _select_von_baeyer(entity: FiniteChemicalEntity, attachments: tuple[str, ...
                             if blocked:
                                 continue
                             hetero.sort()
-                            hetero_text = "-".join(f"{locant}-{prefix}" for locant, prefix in hetero)
+                            hetero_text = _serialize_hetero_prefixes(hetero)
                             locants = _locants_for_edges(entity, used, numbering)
                             suffix = _suffix(stem, locants)
                             name = f"{_RING_WORDS[ring_count]}cyclo[{bracket}]{suffix}"
@@ -899,11 +1026,8 @@ def _von_baeyer_result(entity: FiniteChemicalEntity, attachments: tuple[str, ...
 def _with_substituent_prefix(core: FiniteChemicalEntity, named, specs, attachments: tuple[str, ...]):
     system = classify_ring_system(core)
     if system is not None and system.kind == "bicyclo":
-        numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
-        locants = [
-            (_lowest_bicyclo_locant(system, numbering, atom), word)
-            for atom, word in specs
-        ]
+        numbering = _best_bicyclo_numbering(core, system.paths, attachments)
+        locants = [(numbering[atom], word) for atom, word in specs]
     else:
         selected = _select_von_baeyer(core, attachments)
         if selected is None:
@@ -977,6 +1101,10 @@ def name_polycycle(entity: FiniteChemicalEntity):
             return None
         specs = found
         core = _induced_entity(entity, core_nodes)
+    if _is_mancude_benzoazine(core):
+        # P-25 retained fused names. A von Baeyer pentaene is not a name for
+        # this mancude system, so an unrecognized skeleton fails closed.
+        return _name_retained_benzoazine(core, specs)
     attachments = tuple(atom for atom, _word in specs)
     named = _name_bare_polycycle(core, attachments)
     if named is None or not specs:
@@ -1026,12 +1154,11 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
                 "Use spiro notation and count atoms in each ring excluding the shared atom.",
             ),
         )
-    bridgeheads = system.bridgeheads
     paths = system.paths
     lengths = sorted((len(path) - 2 for path in paths), reverse=True)
     bracket = ".".join(map(str, lengths))
     stem = _stem(len(system.atoms))
-    numbering = _number_bicyclo_paths(paths, bridgeheads)
+    numbering = _best_bicyclo_numbering(entity, paths, attachments)
     hetero = _hetero_prefixes_for_paths(entity, paths, numbering)
     if hetero is None:
         return None
@@ -1043,6 +1170,14 @@ def _name_bare_polycycle(entity: FiniteChemicalEntity, attachments: tuple[str, .
     else:
         locants = _unsaturation_locants(entity, paths, numbering)
     prefix = _serialize_hetero_prefixes(hetero)
+    if system.aromatic and bracket == "4.4.0" and not prefix and not attachments:
+        return (
+            "naphthalene",
+            False,
+            (
+                "Recognize the fused bicyclic benzenoid hydrocarbon as the retained parent naphthalene.",
+            ),
+        )
     return (
         f"{prefix}bicyclo[{bracket}]{_suffix(stem, locants, aromatic=system.aromatic)}",
         False,
@@ -1123,8 +1258,10 @@ def _finish_entity(name: str, atoms: list[ChemicalAtom], bonds: list[ChemicalBon
 
 _HETERO_PREFIXES = ("aza", "oxa", "thia", "azonia", "azanium")
 _HETERO_PATTERN = r"azanium|azonia|thia|oxa|aza"
-_HETERO_TEXT = rf"(?:(?:\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*)?)"
-_HETERO_TEXT_PATTERN = rf"(?P<hetero>(?:\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*)?)"
+_HETERO_MULTIPLIER = r"di|tri|tetra|penta|hexa|hepta|octa|nona|deca|\d+-"
+_HETERO_ITEM = rf"\d+(?:,\d+)*-(?:(?:{_HETERO_MULTIPLIER}))?(?:{_HETERO_PATTERN})"
+_HETERO_TEXT = rf"(?:(?:{_HETERO_ITEM})(?:-(?:{_HETERO_ITEM}))*)?"
+_HETERO_TEXT_PATTERN = rf"(?P<hetero>(?:{_HETERO_ITEM}(?:-{_HETERO_ITEM})*)?)"
 
 
 def _hetero_spec(prefix: str):
@@ -1141,17 +1278,62 @@ def _hetero_spec(prefix: str):
     raise PolycycleParseError(f"unsupported skeletal-replacement prefix: {prefix}")
 
 
+_HETERO_MULTIPLIERS = {
+    None: 1,
+    "di": 2,
+    "tri": 3,
+    "tetra": 4,
+    "penta": 5,
+    "hexa": 6,
+    "hepta": 7,
+    "octa": 8,
+    "nona": 9,
+    "deca": 10,
+}
+
+
 def _parse_hetero_text(text: str):
     if not text:
         return ()
-    pattern = rf"(?:(\d+)-({_HETERO_PATTERN})-)*(\d+)-({_HETERO_PATTERN})"
-    match = re.fullmatch(pattern, text)
-    if match is None:
-        raise PolycycleParseError("malformed skeletal-replacement prefix")
+    pattern = re.compile(
+        rf"(\d+(?:,\d+)*)-({_HETERO_MULTIPLIER})?({_HETERO_PATTERN})"
+    )
     values = []
-    for locant, prefix in re.findall(rf"(\d+)-({_HETERO_PATTERN})", text):
-        values.append((int(locant), prefix))
+    position = 0
+    while position < len(text):
+        match = pattern.match(text, position)
+        if match is None:
+            raise PolycycleParseError("malformed skeletal-replacement prefix")
+        locants = tuple(int(item) for item in match.group(1).split(","))
+        multiplier = match.group(2)
+        expected = _HETERO_MULTIPLIERS.get(multiplier)
+        if expected is None:
+            try:
+                expected = int(multiplier[:-1])
+            except (TypeError, ValueError) as exc:
+                raise PolycycleParseError("malformed skeletal-replacement prefix") from exc
+        if len(locants) != expected:
+            raise PolycycleParseError("skeletal-replacement multiplier and locants disagree")
+        prefix = match.group(3)
+        values.extend((locant, prefix) for locant in locants)
+        position = match.end()
+        if position < len(text):
+            if text[position] != "-":
+                raise PolycycleParseError("malformed skeletal-replacement prefix")
+            position += 1
+    if not values:
+        raise PolycycleParseError("malformed skeletal-replacement prefix")
     return tuple(values)
+
+
+def _strip_linking_vowel(stem: str, multiplicative: str) -> str:
+    """Accept ``hepta-2,5-diene`` and the legacy ``hept-2,5-diene`` stem."""
+    if multiplicative == "ene" or not stem.endswith("a"):
+        return stem
+    trimmed = stem[:-1]
+    if any(candidate == trimmed for candidate in _STEMS.values()):
+        return trimmed
+    return stem
 
 
 def _apply_hetero_specs(atoms, hetero_text: str, numbering: dict[str, int], total: int):
@@ -1184,6 +1366,7 @@ def _parse_bicyclo(name: str):
     unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]*ene)", body)
     if unsaturated:
         stem, raw_locants, multiplicative = unsaturated.groups()
+        stem = _strip_linking_vowel(stem, multiplicative)
         locants = tuple(int(value) for value in raw_locants.split(","))
         if len(locants) != len(set(locants)) or any(value < 1 for value in locants):
             raise PolycycleParseError("invalid bicyclo unsaturation locants")
@@ -1274,6 +1457,7 @@ def _parse_spiro(name: str):
     unsaturated = re.fullmatch(r"([a-z]+?)-(\d+(?:,\d+)*)-([a-z]*ene)", body)
     if unsaturated:
         stem, raw_locants, multiplicative = unsaturated.groups()
+        stem = _strip_linking_vowel(stem, multiplicative)
         locants = tuple(int(value) for value in raw_locants.split(","))
         if len(locants) != len(set(locants)) or any(value < 1 for value in locants):
             raise PolycycleParseError("invalid spiro unsaturation locants")
@@ -1369,6 +1553,9 @@ def _stem_number(stem: str) -> int | None:
 
 
 def _split_ring_prefixes(name: str):
+    retained = _split_retained_fused(name)
+    if retained is not None:
+        return retained
     match = re.search(
         rf"{_HETERO_TEXT}(?:bi|tri|tetra|penta|hexa|hepta|octa|nona|deca|undeca|dodeca)cyclo\[|"
         rf"{_HETERO_TEXT}spiro\[|phenylbenzene",
@@ -1399,6 +1586,9 @@ def _interpret_prefix(word: str):
 
 
 def _parent_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
+    fused = _fused_published_locants(entity)
+    if fused is not None:
+        return fused
     numbered = {
         int(atom.atom_id[1:]): atom.atom_id
         for atom in entity.atoms
@@ -1409,23 +1599,10 @@ def _parent_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
     system = classify_ring_system(entity)
     if system is None or system.kind != "bicyclo":
         return None
-    numbering = _number_bicyclo_paths(system.paths, system.bridgeheads)
-    locants = {locant: atom_id for atom_id, locant in numbering.items()}
-    # ``name_polycycle`` uses the lowest locant on a symmetric bridge.  When
-    # reversing that convention, choose the reflected (higher numbered) atom;
-    # it is the canonical representative and remains constitutionally
-    # equivalent under the bridge symmetry.
-    for path in system.paths:
-        internals = path[1:-1]
-        if not internals:
-            continue
-        values = [numbering[node] for node in internals]
-        for node, value in zip(internals, values):
-            reflected = values[0] + values[-1] - value
-            low = min(value, reflected)
-            candidate = node if value >= reflected else internals[values.index(reflected)]
-            locants[low] = candidate
-    return locants
+    # Locants are the chemically chosen numbering, not a reflected alias of a
+    # fixed bridge walk. Substituent attachment uses those locants directly.
+    numbering = _best_bicyclo_numbering(entity, system.paths, ())
+    return {locant: atom_id for atom_id, locant in numbering.items()}
 
 
 def _attach_substituents(entity: FiniteChemicalEntity, prefixes, name: str):
@@ -1558,18 +1735,245 @@ def _parse_von_baeyer(name: str):
     return _finish_entity(name, atoms, bonds)
 
 
+# Internal locants follow the quinoline construction below: 4a is 5 and 8a is
+# 10. Published locants skip those bridgeheads.
+_FUSED_PUBLISHED_OF_INTERNAL = {1: 1, 2: 2, 3: 3, 4: 4, 6: 5, 7: 6, 8: 7, 9: 8}
+_FUSED_AZINES = {
+    "quinoline": ((1,), 0),
+    "isoquinoline": ((2,), 0),
+    "quinazoline": ((1, 3), 0),
+    "quinoxaline": ((1, 4), 0),
+    "quinolinium": ((1,), 1),
+}
+_FUSED_PARENTS = (
+    "isoquinoline",
+    "quinazoline",
+    "quinoxaline",
+    "quinolinium",
+    "quinoline",
+)
+# (published locant, element, charge) in citation order. Charge 1 is the
+# azanium (N bearing hydrogen), which is the retained quinolinium cation.
+_FUSED_SIGNATURES = {
+    ((1, "N", 0),): "quinoline",
+    ((2, "N", 0),): "isoquinoline",
+    ((1, "N", 0), (3, "N", 0)): "quinazoline",
+    ((1, "N", 0), (4, "N", 0)): "quinoxaline",
+    ((1, "N", 1),): "quinolinium",
+}
+
+
+def _is_mancude_benzoazine(entity: FiniteChemicalEntity) -> bool:
+    """Aromatic naphthalene skeleton whose only heteroatoms are nitrogen."""
+    system = classify_ring_system(entity)
+    if system is None or system.kind != "bicyclo" or not system.aromatic:
+        return False
+    if len(system.atoms) != 10 or len(system.bridgeheads) != 2:
+        return False
+    lengths = tuple(sorted((len(path) - 2 for path in system.paths), reverse=True))
+    if lengths != (4, 4, 0):
+        return False
+    ring = [atom for atom in entity.atoms if atom.atom_id in system.atoms]
+    if len(ring) != 10:
+        return False
+    if any(atom.element not in {"C", "N"} or atom.radical_electrons for atom in ring):
+        return False
+    return any(atom.element == "N" for atom in ring)
+
+
+def _fused_orientations(system):
+    """Yield the four retained numberings of a bicyclo[4.4.0] skeleton.
+
+    Each mapping sends an atom id to the internal locant used by
+    :func:`_parse_fused_azine` (1 at nitrogen for quinoline, 10 at bridgehead
+    8a, 5 at bridgehead 4a).
+    """
+    long_paths = [path for path in system.paths if len(path) == 6]
+    if len(long_paths) != 2:
+        return
+    for index, path in enumerate(long_paths):
+        other = long_paths[1 - index]
+        for ordered in (tuple(path), tuple(reversed(path))):
+            if other[0] == ordered[-1] and other[-1] == ordered[0]:
+                benzo = other
+            elif other[-1] == ordered[-1] and other[0] == ordered[0]:
+                benzo = tuple(reversed(other))
+            else:
+                continue
+            internal = {
+                ordered[0]: 10,
+                ordered[1]: 1,
+                ordered[2]: 2,
+                ordered[3]: 3,
+                ordered[4]: 4,
+                ordered[5]: 5,
+                benzo[1]: 6,
+                benzo[2]: 7,
+                benzo[3]: 8,
+                benzo[4]: 9,
+            }
+            if len(internal) == 10:
+                yield internal
+
+
+def _fused_parent_name(atoms: dict[str, ChemicalAtom], internal: dict[str, int]) -> str | None:
+    signature = []
+    for atom_id, locant in internal.items():
+        atom = atoms[atom_id]
+        if atom.element == "C":
+            if atom.formal_charge or atom.radical_electrons:
+                return None
+            continue
+        if atom.element != "N" or atom.radical_electrons:
+            return None
+        published = _FUSED_PUBLISHED_OF_INTERNAL.get(locant)
+        if published is None:
+            return None
+        charge = atom.formal_charge or 0
+        if charge == 0:
+            signature.append((published, "N", 0))
+            continue
+        hydrogens = (atom.explicit_hydrogens or 0) + (atom.implicit_hydrogens or 0)
+        if charge != 1 or hydrogens < 1:
+            return None
+        signature.append((published, "N", 1))
+    return _FUSED_SIGNATURES.get(tuple(sorted(signature)))
+
+
+def _select_fused_numbering(entity: FiniteChemicalEntity, system, specs):
+    atoms = {atom.atom_id: atom for atom in entity.atoms}
+    matches = []
+    for internal in _fused_orientations(system):
+        parent = _fused_parent_name(atoms, internal)
+        if parent is None:
+            continue
+        published = []
+        placed = True
+        for atom_id, word in specs:
+            locant = _FUSED_PUBLISHED_OF_INTERNAL.get(internal.get(atom_id))
+            if locant is None:
+                placed = False
+                break
+            published.append((locant, word))
+        if not placed:
+            continue
+        matches.append((tuple(sorted(published)), parent, internal))
+    if not matches:
+        return None
+    return min(matches, key=lambda item: (item[0], item[1]))
+
+
+def _name_retained_benzoazine(entity: FiniteChemicalEntity, specs) -> tuple | None:
+    system = classify_ring_system(entity)
+    if system is None:
+        return None
+    selected = _select_fused_numbering(entity, system, specs)
+    if selected is None:
+        return None
+    published, parent, _internal = selected
+    prefix = "-".join(f"{locant}-{word}" for locant, word in published)
+    # Retained parents begin with a letter, so the final hyphen is elided:
+    # ``2-methylquinoline``, not ``2-methyl-quinoline``.
+    name = f"{prefix}{parent}" if prefix else parent
+    trace = (f"Recognize the mancude fused system as the retained parent {parent}.",)
+    if prefix:
+        trace = (
+            *trace,
+            "Cite each substituent at its retained locant rather than a von Baeyer locant.",
+        )
+    return name, False, trace
+
+
+def _parse_fused_azine(name: str):
+    nitrogens, charge = _FUSED_AZINES[name]
+    atoms = []
+    for index in range(1, 11):
+        if index in nitrogens:
+            atoms.append(
+                _atom_record(
+                    f"A{index}",
+                    "N",
+                    1 if charge else None,
+                    formal_charge=charge or None,
+                )
+            )
+        else:
+            atoms.append(_atom_record(f"A{index}"))
+    bonds = []
+    seen = set()
+    for ring in ((1, 2, 3, 4, 5, 10), (5, 6, 7, 8, 9, 10)):
+        for index, left in enumerate(ring):
+            right = ring[(index + 1) % len(ring)]
+            edge = frozenset((left, right))
+            if edge in seen:
+                continue
+            seen.add(edge)
+            bonds.append(_edge(f"A{left}", f"A{right}", 1.5, aromatic=True))
+    return _finish_entity(name, atoms, bonds)
+
+
+def _split_retained_fused(name: str):
+    for parent in _FUSED_PARENTS:
+        if name == parent:
+            return [], parent
+        if not name.endswith(parent) or len(name) <= len(parent):
+            continue
+        # ``2-methylquinoline`` glues the last prefix to the parent. A hyphen
+        # before the parent is accepted and ignored.
+        prefix_text = name[: -len(parent)].rstrip("-")
+        found = re.findall(r"(\d+)-([a-z]+)", prefix_text)
+        if found and "-".join(f"{locant}-{word}" for locant, word in found) == prefix_text:
+            return [(int(locant), word) for locant, word in found], parent
+    return None
+
+
+def _fused_published_locants(entity: FiniteChemicalEntity) -> dict[int, str] | None:
+    """Map a retained-parent locant to the atom built by :func:`_parse_fused_azine`."""
+    heavy = {atom.atom_id for atom in entity.atoms if atom.element != "H"}
+    if heavy != {f"A{index}" for index in range(1, 11)}:
+        return None
+    system = classify_ring_system(entity)
+    if system is None:
+        return None
+    selected = _select_fused_numbering(entity, system, ())
+    if selected is None:
+        return None
+    _published, _parent, internal = selected
+    by_internal = {locant: atom_id for atom_id, locant in internal.items()}
+    locants = {}
+    for internal_locant, published in _FUSED_PUBLISHED_OF_INTERNAL.items():
+        atom_id = by_internal.get(internal_locant)
+        if atom_id is None:
+            return None
+        locants[published] = atom_id
+    return locants
+
+
+def _parse_naphthalene(name: str):
+    atoms = [_atom_record(f"C{index}") for index in range(1, 11)]
+    bonds = []
+    seen = set()
+    for ring in ((1, 2, 3, 4, 5, 10), (5, 6, 7, 8, 9, 10)):
+        for index, left in enumerate(ring):
+            right = ring[(index + 1) % len(ring)]
+            edge = frozenset((left, right))
+            if edge in seen:
+                continue
+            seen.add(edge)
+            bonds.append(_edge(f"C{left}", f"C{right}", 1.5, aromatic=True))
+    return _finish_entity(name, atoms, bonds)
+
+
 def _parse_ring_parent(name: str):
+    if name == "naphthalene":
+        return _parse_naphthalene(name)
+    if name in _FUSED_AZINES:
+        return _parse_fused_azine(name)
     if name == "phenylbenzene":
         return _parse_phenylbenzene(name)
-    if name.startswith("spiro[") or re.match(
-        rf"\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*spiro\[",
-        name,
-    ):
+    if re.match(rf"(?:{_HETERO_TEXT})spiro\[", name):
         return _parse_spiro(name)
-    if name.startswith("bicyclo[") or re.match(
-        rf"\d+-(?:{_HETERO_PATTERN})(?:-\d+-(?:{_HETERO_PATTERN}))*bicyclo\[",
-        name,
-    ):
+    if re.match(rf"(?:{_HETERO_TEXT})bicyclo\[", name):
         return _parse_bicyclo(name)
     return _parse_von_baeyer(name)
 

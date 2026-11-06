@@ -255,7 +255,22 @@ def name_hydride(entity):
         )
     return None
 
+def _closed_shell_neutral(entity) -> bool:
+    net_charge = (
+        entity.net_charge
+        if entity.net_charge is not None
+        else sum(atom.formal_charge or 0 for atom in entity.atoms)
+    )
+    if net_charge != 0 or any(
+        (atom.formal_charge or 0) or atom.radical_electrons for atom in entity.atoms
+    ):
+        return False
+    return True
+
+
 def name_anilide(entity):
+    if not _closed_shell_neutral(entity):
+        return None
     adjacency = _adjacency(entity)
     ring = _six_carbon_ring(entity)
     if ring is None:
@@ -330,6 +345,8 @@ def name_anilide(entity):
     return None
 
 def name_benzene_family(entity):
+    if not _closed_shell_neutral(entity):
+        return None
     ring = _six_carbon_ring(entity)
     if ring is None:
         return None
@@ -361,6 +378,20 @@ def name_benzene_family(entity):
             "Recognize the six-member monocyclic aromatic hydrocarbon parent.",
         )
     hydroxy_sites = [atom_id for atom_id, names in substituents.items() if "hydroxy" in names]
+    only_hydroxy = all(names == ("hydroxy",) for names in substituents.values())
+    if only_hydroxy and len(hydroxy_sites) >= 2:
+        numbering = _best_ring_numbering(ring, substituents)
+        locants = tuple(sorted(numbering[atom_id] for atom_id in hydroxy_sites))
+        ending = {2: "diol", 3: "triol", 4: "tetrol", 5: "pentol", 6: "hexol"}.get(len(locants))
+        if ending is None:
+            return None
+        return (
+            f"benzene-{','.join(map(str, locants))}-{ending}",
+            True,
+            "Select benzene as the parent hydride.",
+            "Cite the hydroxy groups as the principal characteristic-group suffix.",
+            "Choose the ring numbering that gives the lowest locant sequence.",
+        )
     if len(hydroxy_sites) == 1:
         numbering = _best_ring_numbering(ring, substituents, fixed_one=hydroxy_sites[0])
         prefixes = [
@@ -487,6 +518,20 @@ def parse_parent_hydride(name: str):
 
 
 def parse_benzene(name: str):
+    polyol = re.fullmatch(r"benzene-(\d+(?:,\d+)+)-(diol|triol|tetrol|pentol|hexol)", name)
+    if polyol:
+        locants = tuple(int(value) for value in polyol.group(1).split(","))
+        expected = {"diol": 2, "triol": 3, "tetrol": 4, "pentol": 5, "hexol": 6}[polyol.group(2)]
+        if len(locants) != expected or len(set(locants)) != len(locants):
+            raise NamingParseError(f"{name!r} has the wrong hydroxy locant count")
+        if any(not 1 <= locant <= 6 for locant in locants):
+            raise NamingParseError("benzene locants must be between 1 and 6")
+        atoms = [_p_atom(f"C{index}", "C", 0 if index in locants else 1) for index in range(1, 7)]
+        bonds = [_p_bond(f"C{index}", f"C{index % 6 + 1}", 1.5, aromatic=True) for index in range(1, 7)]
+        for locant in locants:
+            atoms.append(_p_atom(f"O{locant}", "O", 1))
+            bonds.append(_p_bond(f"C{locant}", f"O{locant}", 1.0))
+        return _p_entity(name, atoms, bonds)
     if name.endswith("phenol"):
         base, prefix_text = "phenol", name[:-len("phenol")].rstrip("-")
     elif name.endswith("benzene"):
