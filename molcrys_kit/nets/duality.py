@@ -2,15 +2,20 @@
 
 A dual net is built only when the caller supplies a closed face pairing on a
 periodic primal: every face is a cover cycle, every face is crossed once,
-every primal edge lies in exactly two faces, and the quotient Euler
-characteristic is zero. An open or nonperiodic face list is ``undetermined``
-with reason ``incomplete_tiling``. It is not a proved dual. Coordination
+lattice translates and reversals of one cycle are not counted as two faces,
+every adjacency shift is the primitive normal of that face, every primal edge
+lies in exactly two faces, and the quotient Euler characteristic is zero.
+An open or nonperiodic face list is ``undetermined`` with reason
+``incomplete_tiling``. A repeated face is ``duplicate_face``. A shift that is
+not the face normal is ``inconsistent_adjacency_shift``. None of those is a
+proved dual. Euler's count alone does not certify the surface. Coordination
 numbers and coordination sequences do not establish duality. With no tiling
 the status is ``not_assessed``.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from molcrys_kit.periodic import analyze_periodic_graph
@@ -172,9 +177,15 @@ def _closed_surface(
     """Require a closed quotient surface: two faces on every edge, Euler zero.
 
     An edge that meets any other number of faces, including a single open
-    face, is not a tiling certificate. This check does not prove that a
-    three-dimensional cell fills space; that input stays ``incomplete_tiling``.
+    face, is not a tiling certificate. Faces that are the same cycle up to
+    reversal or lattice translation are not two incidences. An adjacency shift
+    must be the primitive lattice normal of its face. This check does not
+    prove that a three-dimensional cell fills space; that input stays
+    ``incomplete_tiling``.
     """
+    gluing = _oriented_gluing(tiling)
+    if gluing is not None:
+        return gluing
     counts: dict[tuple[str, str, ImageShift], int] = {}
     for face in tiling.faces:
         seen_in_face: set[tuple[str, str, ImageShift]] = set()
@@ -208,7 +219,123 @@ def _undirected_edge(
     return current
 
 
+def _oriented_gluing(tiling: PeriodicTiling) -> str | None:
+    """Check distinct faces and shifts against oriented face normals.
+
+    The normal is the right-hand primitive vector orthogonal to the boundary
+    steps. Crossing that face moves by exactly that vector or its reverse.
+    A tangential gauge, a doubled step, or a second copy of the same cycle is
+    not a consistent gluing.
+    """
+    seen: dict[tuple[object, ...], str] = {}
+    for face in tiling.faces:
+        key = _canonical_unoriented_face(face.vertices)
+        if key in seen:
+            return "duplicate_face"
+        seen[key] = face.face_id
+    by_face = {record.face_id: record for record in tiling.adjacencies}
+    for face in tiling.faces:
+        normal = _oriented_normal(face.vertices)
+        if normal is None:
+            return "incomplete_tiling"
+        shift = by_face[face.face_id].image_shift
+        opposite = (-normal[0], -normal[1], -normal[2])
+        if shift != normal and shift != opposite:
+            return "inconsistent_adjacency_shift"
+    return None
+
+
+def _canonical_unoriented_face(
+    vertices: tuple[tuple[str, ImageShift], ...],
+) -> tuple[object, ...]:
+    """Identity of one face orbit, ignoring direction and lattice translate."""
+    origin = min(image for _node_id, image in vertices)
+    gauged = tuple(sorted((node_id, sub(image, origin)) for node_id, image in vertices))
+    cycle = list(vertices) + [vertices[0]]
+    edges = []
+    for (source, source_image), (target, target_image) in zip(cycle, cycle[1:]):
+        step = sub(target_image, source_image)
+        edges.append(_undirected_edge(source, target, step))
+    return (gauged, tuple(sorted(edges)))
+
+
+def _oriented_normal(
+    vertices: tuple[tuple[str, ImageShift], ...],
+) -> ImageShift | None:
+    """Return the right-hand primitive normal, or ``None`` if it is not unique."""
+    cycle = list(vertices) + [vertices[0]]
+    steps = [
+        sub(target_image, source_image)
+        for (_source, source_image), (_target, target_image) in zip(cycle, cycle[1:])
+    ]
+    turns = [
+        _cross(step, steps[(index + 1) % len(steps)])
+        for index, step in enumerate(steps)
+    ]
+    turns = [turn for turn in turns if turn != (0, 0, 0)]
+    if not turns:
+        return None
+    primitive = _primitive(turns[0])
+    if primitive is None:
+        return None
+    sign = _integer_multiple(turns[0], primitive)
+    if sign is None or sign == 0:
+        return None
+    normal = primitive if sign > 0 else (-primitive[0], -primitive[1], -primitive[2])
+    for turn in turns:
+        multiple = _integer_multiple(turn, normal)
+        if multiple is None or multiple <= 0:
+            return None
+    for step in steps:
+        if _dot(step, normal) != 0:
+            return None
+    return normal
+
+
+def _primitive(vector: ImageShift) -> ImageShift | None:
+    divisor = math.gcd(math.gcd(abs(vector[0]), abs(vector[1])), abs(vector[2]))
+    if divisor == 0:
+        return None
+    reduced = (vector[0] // divisor, vector[1] // divisor, vector[2] // divisor)
+    for component in reduced:
+        if component < 0:
+            return (-reduced[0], -reduced[1], -reduced[2])
+        if component > 0:
+            return reduced
+    return None
+
+
+def _integer_multiple(vector: ImageShift, basis: ImageShift) -> int | None:
+    multiple: int | None = None
+    for component, base in zip(vector, basis, strict=True):
+        if base == 0:
+            if component != 0:
+                return None
+            continue
+        if component % base != 0:
+            return None
+        quotient = component // base
+        if multiple is None:
+            multiple = quotient
+        elif quotient != multiple:
+            return None
+    return multiple
+
+
+def _dot(left: ImageShift, right: ImageShift) -> int:
+    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+
+
+def _cross(left: ImageShift, right: ImageShift) -> ImageShift:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
 def _dual_graph(tiling: PeriodicTiling) -> PeriodicQuotientGraph:
+    """Build the dual from shifts already checked against face normals."""
     edges = [
         (
             adjacency.face_id,

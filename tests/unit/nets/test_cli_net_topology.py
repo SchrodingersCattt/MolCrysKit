@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from molcrys_kit.cli import main
@@ -129,6 +130,31 @@ def test_policy_and_crystal_flags_override_and_reject_conflicts(tmp_path: Path):
         ["analyze", "net-topology", "--graph", str(graph), "--nodes", "atom_sites"],
     )
     assert rejected.exit_code != 0
+
+
+@pytest.mark.parametrize(
+    "edge",
+    [
+        {"source": "a", "target": "a", "image_shift": [0.9, 0, 0]},
+        {"source": "a", "target": "a", "image_shift": [True, 0, 0]},
+        {"edge_id": "loop", "source": "a", "target": "a", "image_shift": [0.9, 0, 0]},
+        ["a", "a", [0.9, 0, 0]],
+        ["a", "a", [True, 0, 0]],
+        ["loop", "a", "a", [0.9, 0, 0]],
+        ["loop", "a", "a", [True, 0, 0]],
+    ],
+)
+def test_graph_json_rejects_fractional_and_boolean_shifts(tmp_path: Path, edge):
+    path = tmp_path / "graph.json"
+    path.write_text(
+        json.dumps({"nodes": ["a"], "edges": [edge]}),
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        main, ["analyze", "net-topology", "--graph", str(path), "--json"]
+    )
+    assert result.exit_code != 0
+    assert "exact integer" in result.output
 
 
 def test_yaml_policy_is_refused_when_pyyaml_is_absent(tmp_path: Path, monkeypatch):

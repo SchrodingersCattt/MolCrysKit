@@ -632,6 +632,20 @@ def _node_id(value: object) -> str:
     raise click.UsageError("each graph node must be an id or an object with node_id")
 
 
+def _exact_edge_shift(value: object, index: int):
+    """Parse a graph-JSON shift with the same rule as ``exact_shift``.
+
+    Floats and Booleans are rejected. ``int(0.9)`` and ``int(True)`` are not
+    applied, because those coercions would identify a different quotient.
+    """
+    from molcrys_kit.periodic._lattice import exact_shift
+
+    try:
+        return exact_shift(value, f"edge {index} image shift")
+    except (TypeError, ValueError) as exc:
+        raise click.UsageError(str(exc)) from exc
+
+
 def _load_net_graph(path: Path):
     import json
 
@@ -651,18 +665,16 @@ def _load_net_graph(path: Path):
     for index, edge in enumerate(payload["edges"]):
         if isinstance(edge, dict):
             try:
-                edges.append(
-                    (
-                        str(edge["edge_id"]) if "edge_id" in edge else None,
-                        str(edge["source"]),
-                        str(edge["target"]),
-                        tuple(int(value) for value in edge["image_shift"]),
-                    )
-                )
-            except (KeyError, TypeError, ValueError) as exc:
+                source = str(edge["source"])
+                target = str(edge["target"])
+                raw_shift = edge["image_shift"]
+            except (KeyError, TypeError) as exc:
                 raise click.UsageError(f"edge {index} is not a quotient edge") from exc
-            if edges[-1][0] is None:
-                edges[-1] = edges[-1][1:]
+            shift = _exact_edge_shift(raw_shift, index)
+            if "edge_id" in edge:
+                edges.append((str(edge["edge_id"]), source, target, shift))
+            else:
+                edges.append((source, target, shift))
             continue
         if not isinstance(edge, list) or len(edge) not in {3, 4}:
             raise click.UsageError(
@@ -670,7 +682,7 @@ def _load_net_graph(path: Path):
             )
         if len(edge) == 3:
             edges.append(
-                (str(edge[0]), str(edge[1]), tuple(int(value) for value in edge[2]))
+                (str(edge[0]), str(edge[1]), _exact_edge_shift(edge[2], index))
             )
         else:
             edges.append(
@@ -678,7 +690,7 @@ def _load_net_graph(path: Path):
                     str(edge[0]),
                     str(edge[1]),
                     str(edge[2]),
-                    tuple(int(value) for value in edge[3]),
+                    _exact_edge_shift(edge[3], index),
                 )
             )
     pbc = tuple(payload.get("pbc", (True, True, True)))

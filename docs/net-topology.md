@@ -27,7 +27,7 @@ Topology, embedding, and duality are separate fields.
 | Question | Proved | Not proved |
 |---|---|---|
 | Same abstract net | `isomorphic` with `explicit_isomorphism`, or `non_isomorphic` with `invariant_mismatch` or `exhaustive_search` | `undetermined` |
-| Same embedding relation | `linked` with a linking-number witness, or `coexistence` with a separation or a finished search | `unverified`, `not_detected_within_bounds`, `not_assessed` |
+| Same embedding relation | `linked` with a linking-number witness, or `coexistence` with a separating interval or a finished acyclic search | `unverified` (including a finished search whose linking numbers are all zero), `not_detected_within_bounds`, `not_assessed` |
 | Dual nets | `dual` or `not_dual` from a validated tiling | `not_assessed` when no tiling was supplied, `undetermined` when the tiling or the comparison does not decide |
 
 `invalid_or_indeterminate` means the inputs do not describe one realizable
@@ -223,7 +223,8 @@ must be exact rationals within `fraction_residual_A` after
 With `same_vertex_namespace=True`, shared node ids or the same undirected
 edge are `invalid_or_indeterminate`. The report uses that mode because the
 candidates come from one crystal. Independently built fixtures may reuse
-labels; pass `same_vertex_namespace=False` for that case.
+labels; pass `same_vertex_namespace=False` for that case. Those labels are
+not one cover vertex: a cycle pair is still compared when only the ids match.
 
 A verified link is an integer linking number of two disjoint cover cycles
 after an orientation-preserving shear. The witness records the cycles, the
@@ -237,10 +238,14 @@ The decision order is:
    for every integer image of one curve: `coexistence`. One stored cell being
    disjoint is not enough when another image meets.
 3. A linking number with absolute value at least 1: `linked`.
-4. A finished search whose linking numbers are all zero, or two graphs with
-   no cover cycle and no reason to believe a longer cycle was missed:
-   `coexistence`.
-5. Otherwise `unverified` when the bounded regions meet, or
+4. Two graphs with no cover cycle, and no reason to believe a longer cycle
+   was missed: `coexistence`.
+5. A finished search whose linking numbers are all zero is not an unlinking
+   certificate. The Whitehead link has linking number zero and is not
+   splittable. The status is `unverified` when the curves meet, and
+   `not_detected_within_bounds` when they do not. The reason is
+   `linking_numbers_vanish`.
+6. Otherwise `unverified` when the bounded regions meet, or
    `not_detected_within_bounds` when they do not.
 
 Any nonzero image shift, or a quotient larger than `ring_length_limit`, means
@@ -266,19 +271,25 @@ closed-surface certificate. Each face is an ordered cover cycle of the primal,
 and each adjacency names the face crossed from one tile to another. The
 certificate also requires a periodic primal, every declared face to be used
 once, every tile to be incident, every primal edge to lie in exactly two
-faces, and quotient Euler characteristic `V - E + F - T = 0`. The dual has
-one node per tile and one edge per adjacency. That dual is compared with the
+faces, and quotient Euler characteristic `V - E + F - T = 0`. Those counts
+are necessary and not sufficient. A lattice translate or a reversal of the
+same cycle is one face; repeating it is `duplicate_face`, not a second
+incidence. The adjacency shift must be the primitive lattice normal of that
+oriented face, or the opposite normal. Any other shift, including a tangential
+component or a longer step such as `(2, 0, 0)`, is
+`inconsistent_adjacency_shift`. The dual has one node per tile and one edge
+per adjacency, using those checked shifts. That dual is compared with the
 other net by `compare_periodic_nets`.
 
 No tiling is supplied by discovery. The status is then `not_assessed`. An
-invalid face is `undetermined`. An open face list, a nonperiodic primal, or a
-face pairing that fails the certificate is `undetermined` with reason
-`incomplete_tiling`, not `dual`. A validated dual that is proved isomorphic to
-the other net is `dual`. A proved mismatch is `not_dual`. An unfinished
-isomorphism search is `undetermined`. This certificate is a closed quotient
-surface. It does not prove that a three-dimensional cell fills space; that
-input stays `incomplete_tiling`. Coordination numbers and coordination
-sequences are not used.
+invalid face is `undetermined`. An open face list, a nonperiodic primal, a
+repeated face, a shift that is not the face normal, or a face pairing that
+fails the certificate is `undetermined`, not `dual`. A validated dual that is
+proved isomorphic to the other net is `dual`. A proved mismatch is `not_dual`.
+An unfinished isomorphism search is `undetermined`. This certificate is a
+closed quotient surface. It does not prove that a three-dimensional cell fills
+space; that input stays `incomplete_tiling`. Coordination numbers and
+coordination sequences are not used.
 
 ## Command
 
@@ -295,7 +306,10 @@ only when PyYAML is already installed. PyYAML is not a dependency.
 
 The graph file has `nodes`, `edges`, optional `pbc`, and an optional
 `embedding` with `positions_A` and `lattice_A`. An edge is
-`[source, target, shift]` or `[id, source, target, shift]`.
+`[source, target, shift]`, `[id, source, target, shift]`, or an object with
+`source`, `target`, and `image_shift`. Each shift is three exact integers,
+the same rule as `exact_shift`. A float or a Boolean is rejected and is not
+truncated, so `0.9` does not become `0` and `true` does not become `1`.
 
 Text output is one line per primary candidate: periodic rank, quotient cycle
 rank, topology status, and proof. It does not print a prototype name.

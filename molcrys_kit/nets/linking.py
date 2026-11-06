@@ -11,9 +11,12 @@ window sets the same capped flag as the ring caps. A linking number already
 found inside the window is still a link.
 
 The same window bounds the relative integer translation between the two
-embeddings. Coexistence is claimed only when every integer image is separated,
-or when every image inside a complete window has linking number zero. One
-stored copy being disjoint is not that proof.
+embeddings. Coexistence requires an independent separation certificate: a gap
+on an axis that neither curve winds around, proved for every integer image,
+or a finished search that finds no cover cycle. Vanishing linking numbers are
+not that certificate. The Whitehead link is nontrivially linked and has
+linking number zero, so a finished search whose numbers are all zero stays
+``unverified``. One stored copy being disjoint is not a separation proof.
 """
 
 from __future__ import annotations
@@ -163,7 +166,12 @@ def assess_linking(
                     capped_pairs = True
                     break
                 pairs += 1
-                if _cycles_share_vertex(left_cycle, right_cycle):
+                # Identical labels are one vertex only inside a shared
+                # namespace. Independent graphs may reuse ids for distinct
+                # points, so a label clash is not an intersection.
+                if same_vertex_namespace and _cycles_share_vertex(
+                    left_cycle, right_cycle
+                ):
                     continue
                 number, detail = _linking_number(
                     left_cycle, left_points, right_cycle, shifted
@@ -204,15 +212,19 @@ def assess_linking(
         or _could_have_longer_cycles(left, right, limits)
     )
     if not search_incomplete:
+        # Linking number zero does not prove the curves are separable.
+        interpenetrates = _boxes_overlap(
+            left, left_points, right, right_points
+        ) or _projection_crosses(left, left_points, right, right_points)
         return LinkingAssessment(
-            "coexistence",
+            "unverified" if interpenetrates else "not_detected_within_bounds",
             "graph_disjoint",
             "linking_numbers_vanish",
             {
                 "kind": "linking_numbers",
                 "pairs_tested": pairs,
                 "max_abs_linking_number": 0,
-                "complete": True,
+                "proves_unlinking": False,
             },
             offset,
         )
@@ -500,6 +512,11 @@ def _cycles_share_vertex(
     left: tuple[tuple[str, ImageShift], ...],
     right: tuple[tuple[str, ImageShift], ...],
 ) -> bool:
+    """Return whether both cycles use one ``(node_id, image)`` label.
+
+    The label is a cover vertex only when both graphs use one namespace.
+    It is not a geometric intersection test.
+    """
     return bool(set(left) & set(right))
 
 

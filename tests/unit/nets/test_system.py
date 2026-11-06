@@ -63,19 +63,43 @@ def _sql():
     return _graph(("a",), [("ax", "a", "a", (1, 0, 0)), ("ay", "a", "a", (0, 1, 0))])
 
 
-def _self_tiling():
-    face = (
-        ("a", (0, 0, 0)),
-        ("a", (1, 0, 0)),
-        ("a", (1, 1, 0)),
-        ("a", (0, 1, 0)),
+def _pcu():
+    return _graph(
+        ("a",),
+        [
+            ("ax", "a", "a", (1, 0, 0)),
+            ("ay", "a", "a", (0, 1, 0)),
+            ("az", "a", "a", (0, 0, 1)),
+        ],
     )
+
+
+def _cube_tiling():
+    def add(left, right):
+        return (left[0] + right[0], left[1] + right[1], left[2] + right[2])
+
+    def face(face_id, origin, along, across):
+        return TilingFace(
+            face_id,
+            (
+                ("a", origin),
+                ("a", add(origin, along)),
+                ("a", add(origin, add(along, across))),
+                ("a", add(origin, across)),
+            ),
+        )
+
     return PeriodicTiling(
         ("t",),
-        (TilingFace("fx", face), TilingFace("fy", face)),
+        (
+            face("fx", (0, 0, 0), (0, 1, 0), (0, 0, 1)),
+            face("fy", (0, 0, 0), (0, 0, 1), (1, 0, 0)),
+            face("fz", (0, 0, 0), (1, 0, 0), (0, 1, 0)),
+        ),
         (
             TilingAdjacency("fx", "t", "t", (1, 0, 0)),
             TilingAdjacency("fy", "t", "t", (0, 1, 0)),
+            TilingAdjacency("fz", "t", "t", (0, 0, 1)),
         ),
     )
 
@@ -432,8 +456,8 @@ def test_hopf_pair_is_linked_in_the_report_and_a_translate_is_not():
 
 
 def test_tiling_duality_is_reported_and_a_missing_tiling_is_not_a_dual():
-    site = site_graph_from_quotient(_sql(), _embed((("a", (0.0, 0.0, 0.0)),)))
-    report = analyze_periodic_net_system(site, duality=_self_tiling())
+    site = site_graph_from_quotient(_pcu(), _embed((("a", (0.0, 0.0, 0.0)),)))
+    report = analyze_periodic_net_system(site, duality=_cube_tiling())
     row = _primary(report)["pairwise"][0]
     assert row["left"] == row["right"]
     assert row["equivalence"]["status"] == "isomorphic"
@@ -446,13 +470,14 @@ def test_tiling_duality_is_reported_and_a_missing_tiling_is_not_a_dual():
             [
                 ("ax", "a", "a", (1, 0, 0)),
                 ("ay", "a", "a", (0, 1, 0)),
+                ("az", "a", "a", (0, 0, 1)),
                 ("wind", "b", "b", (1, 0, 0)),
             ],
         )
     )
     union = analyze_periodic_net_system(
         mixed,
-        duality=_self_tiling(),
+        duality=_cube_tiling(),
         partition_policy=PartitionPolicy("explicit", (("a", "a-net"), ("b", "b-net"))),
     )
     dual_rows = _primary(union)["pairwise"]
