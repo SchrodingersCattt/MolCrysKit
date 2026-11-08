@@ -275,10 +275,23 @@ def test_identified_molecule_keeps_authoritative_local_topology():
         record["right_image_shift"] == [0, 0, 0]
         for record in rotated.info["bond_records"]
     )
+    # Identification stores crystal-global endpoints. Geometry refresh must
+    # not rewrite them to molecule-local indices.
+    assert [(record["left"], record["right"]) for record in rotated.info["bond_records"]] == [
+        (1, 2),
+        (2, 3),
+        (3, 4),
+    ]
+    global_to_local = {
+        int(global_index): local_index
+        for local_index, global_index in enumerate(rotated.info["atom_indices"])
+    }
     for record in rotated.info["bond_records"]:
+        left = global_to_local[int(record["left"])]
+        right = global_to_local[int(record["right"])]
         np.testing.assert_allclose(
             record["vector"],
-            rotated.positions[record["right"]] - rotated.positions[record["left"]],
+            rotated.positions[right] - rotated.positions[left],
         )
 
 

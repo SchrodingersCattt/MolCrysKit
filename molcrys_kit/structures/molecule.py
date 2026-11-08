@@ -47,68 +47,96 @@ def _strip_stale_frac_arrays(atoms_obj) -> None:
             del atoms_obj.arrays[key]
 
 
-def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
+def _embedded_image_shifts(molecule: "CrystalMolecule") -> np.ndarray:
+    """Return per-atom lattice images used to rebase legacy bond vectors.
+
+    A stored ``image_shift`` array is authoritative. Otherwise the images are
+    the cell floors of the current Cartesian coordinates, which is the image
+    difference already absorbed when a contiguous molecule was unwrapped.
+    """
+    stored = molecule.arrays.get("image_shift")
+    if stored is not None and np.asarray(stored).shape == (len(molecule), 3):
+        return np.asarray(stored, dtype=int).copy()
+
+    image_shifts = np.zeros((len(molecule), 3), dtype=int)
+    cell = np.asarray(molecule.get_cell(), dtype=float)
+    has_cell = cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12
+    if not has_cell or len(molecule) == 0:
+        return image_shifts
+    periodic = np.asarray(molecule.get_pbc(), dtype=bool)
+    fractional = np.asarray(molecule.get_positions(), dtype=float) @ np.linalg.inv(cell)
+    image_shifts[:, periodic] = np.floor(fractional[:, periodic] + 1e-12).astype(int)
+    return image_shifts
+
+
+def _refresh_contiguous_bond_geometry(
+    molecule: "CrystalMolecule",
+    image_shifts: np.ndarray | None = None,
+) -> None:
     """Refresh canonical edge geometry for contiguous molecular coordinates.
 
-    A ``CrystalMolecule`` stores an unwrapped coordinate image, so every local
-    edge uses a zero lattice-image shift. This helper updates the graph and the
-    local ``bond_records`` view atomically after any geometry transformation.
+    A ``CrystalMolecule`` stores an unwrapped coordinate image, so every cached
+    graph edge uses a zero lattice-image shift. Explicit
+    ``info['bond_records']`` keep the endpoint indices and per-contact image
+    shifts stored by their producer. CIF identification stores crystal-global
+    endpoints, and ``MolecularCrystal.get_bond_records`` accepts a legacy
+    record only when those endpoints belong to the molecule's global index
+    map. Rewriting them as molecule-local indices drops the record, including
+    signed and parallel periodic contacts that a simple graph cannot rebuild.
+
+    Legacy records are refreshed even when the graph cache is empty. Pass
+    ``image_shifts`` captured before a coordinate edit so a motion that crosses
+    a cell face does not rebase those contacts onto a different lattice image.
+    When it is omitted, stored images or the floors of the current coordinates
+    are used. A missing record list is filled from the cached graph.
     """
-    if molecule._graph is None:
-        return
-
     positions = np.asarray(molecule.get_positions(), dtype=float)
-    symbols = molecule.get_chemical_symbols()
-    from .connectivity import classify_bond_role
-
-    records = []
-    for atom_i, atom_j, edge_data in molecule._graph.edges(data=True):
-        left, right = sorted((int(atom_i), int(atom_j)))
-        vector = positions[right] - positions[left]
-        image_shift = np.zeros(3, dtype=int)
-        edge_data["vector"] = vector.copy()
-        distance = float(np.linalg.norm(vector))
-        edge_data["distance"] = distance
-        edge_data["image_shift"] = image_shift
-        records.append(
-            {
-                "left": left,
-                "right": right,
-                "right_image_shift": [0, 0, 0],
-                "vector": [float(value) for value in vector],
-                "role": classify_bond_role(symbols[left], symbols[right], distance),
-            }
-        )
     legacy_records = molecule.info.get("bond_records")
+
+    if molecule._graph is not None:
+        symbols = molecule.get_chemical_symbols()
+        from .connectivity import classify_bond_role
+
+        records = []
+        for atom_i, atom_j, edge_data in molecule._graph.edges(data=True):
+            left, right = sorted((int(atom_i), int(atom_j)))
+            vector = positions[right] - positions[left]
+            image_shift = np.zeros(3, dtype=int)
+            edge_data["vector"] = vector.copy()
+            distance = float(np.linalg.norm(vector))
+            edge_data["distance"] = distance
+            edge_data["image_shift"] = image_shift
+            records.append(
+                {
+                    "left": left,
+                    "right": right,
+                    "right_image_shift": [0, 0, 0],
+                    "vector": [float(value) for value in vector],
+                    "role": classify_bond_role(symbols[left], symbols[right], distance),
+                }
+            )
+        if not legacy_records:
+            molecule.info["bond_records"] = sorted(
+                records,
+                key=lambda record: (record["left"], record["right"]),
+            )
+            return
+
     if not legacy_records:
-        molecule.info["bond_records"] = sorted(
-            records,
-            key=lambda record: (record["left"], record["right"]),
-        )
         return
 
     # ``graph`` is a simple graph and cannot carry parallel periodic contacts
     # or self-image edges.  Preserve the complete legacy payload and refresh
     # each vector against its own stored image shift instead of rebuilding the
     # payload from graph edges (which would silently drop those records).
-    positions = np.asarray(molecule.get_positions(), dtype=float)
     cell = np.asarray(molecule.get_cell(), dtype=float)
     has_cell = cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12
-    periodic = np.asarray(molecule.get_pbc(), dtype=bool)
-    stored_image_shifts = molecule.arrays.get("image_shift")
-    if stored_image_shifts is not None and np.asarray(stored_image_shifts).shape == (
-        len(molecule),
-        3,
-    ):
-        image_shifts = np.asarray(stored_image_shifts, dtype=int)
-    elif has_cell and len(positions):
-        fractional = positions @ np.linalg.inv(cell)
-        image_shifts = np.zeros((len(molecule), 3), dtype=int)
-        image_shifts[:, periodic] = np.floor(
-            fractional[:, periodic] + 1e-12
-        ).astype(int)
+    if image_shifts is None:
+        shifts_by_atom = _embedded_image_shifts(molecule)
     else:
-        image_shifts = np.zeros((len(molecule), 3), dtype=int)
+        shifts_by_atom = np.asarray(image_shifts, dtype=int)
+        if shifts_by_atom.shape != (len(molecule), 3):
+            raise ValueError("image_shifts must have shape (n_atoms, 3)")
 
     global_indices = molecule.info.get("atom_indices")
     if global_indices is None:
@@ -134,15 +162,12 @@ def _refresh_contiguous_bond_geometry(molecule: "CrystalMolecule") -> None:
             continue
         vector = positions[right_local] - positions[left_local]
         if has_cell:
-            current_shift = image_shifts[right_local] - image_shifts[left_local]
+            current_shift = shifts_by_atom[right_local] - shifts_by_atom[left_local]
             vector = vector + (record_shift - current_shift) @ cell
         refreshed_record = dict(raw)
-        # ``bond_records`` on a CrystalMolecule is the local legacy view;
-        # ``MolecularCrystal.get_bond_records`` maps it back to global indices
-        # through ``atom_indices``.  Keep that established local-index
-        # contract while preserving every record's image metadata.
-        refreshed_record["left"] = left_local
-        refreshed_record["right"] = right_local
+        # Keep the producer's endpoint indices. CIF records are crystal-global;
+        # ``MolecularCrystal.get_bond_records`` rejects endpoints that are not
+        # in ``atom_indices``.
         refreshed_record["right_image_shift"] = [int(value) for value in record_shift]
         refreshed_record["vector"] = [float(value) for value in vector]
         refreshed.append(refreshed_record)
@@ -176,8 +201,11 @@ class CrystalMolecule(Atoms):
         # Create a copy of the base Atoms object
         atoms_copy = super().copy()
 
-        # Create a new CrystalMolecule from the copied atoms
+        # Create a new CrystalMolecule from the copied atoms. ASE shares the
+        # info dict on copy; bond-record refreshes replace that payload, so
+        # the copy must own an independent metadata dictionary.
         new_mol = CrystalMolecule(atoms_copy, crystal=self.crystal, check_pbc=False)
+        new_mol.info = copy.deepcopy(self.info)
 
         # Copy over any additional attributes that might exist in the original
         if hasattr(self, "_graph") and self._graph is not None:
