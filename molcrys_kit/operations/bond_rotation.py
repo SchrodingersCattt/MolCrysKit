@@ -27,6 +27,7 @@ from ..constants.config import (
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import (
     CrystalMolecule,
+    _embedded_image_shifts,
     _refresh_contiguous_bond_geometry,
     _strip_stale_frac_arrays,
 )
@@ -195,9 +196,16 @@ def _resolved_moving_atoms(
 
 
 def _set_positions_clean(molecule: CrystalMolecule, positions: np.ndarray) -> None:
+    """Apply coordinates and refresh bond geometry on the pre-edit lattice images.
+
+    ``molecule`` still carries the pre-edit Cartesian embedding. Flooring the
+    coordinates after the fragment moves can assign an atom that crossed a
+    cell face to a different image and rebase an explicit periodic contact.
+    """
+    image_shifts = _embedded_image_shifts(molecule)
     molecule.set_positions(np.asarray(positions, dtype=float))
     _strip_stale_frac_arrays(molecule)
-    _refresh_contiguous_bond_geometry(molecule)
+    _refresh_contiguous_bond_geometry(molecule, image_shifts=image_shifts)
 
 
 def rotate_fragment_about_bond(
@@ -231,8 +239,10 @@ def rotate_fragment_about_bond(
     -----
     Ring bonds and disconnected molecular graphs are rejected. The input
     chemical graph is copied unchanged; connectivity is not inferred again
-    from the rotated geometry. Use a constrained ring-conformation operation
-    for cyclic changes.
+    from the rotated geometry. Explicit bond records keep their original
+    endpoints and signed image shifts; only the Cartesian vectors are
+    refreshed, using the lattice images from before the fragment moves.
+    Use a constrained ring-conformation operation for cyclic changes.
     """
     partition = partition_at_bond(molecule, atom_i, atom_j)
     if partition.is_ring_bond:
@@ -283,6 +293,8 @@ def rotate_fragment_in_crystal(
     ``molecule.info["atom_indices"]`` maps local indices to original crystal
     indices. Frame metadata and non-coordinate extra arrays are preserved;
     stale fractional-coordinate arrays and calculator results are invalidated.
+    Explicit periodic bond records keep their crystal-global endpoints and
+    image shifts when the rotated fragment crosses a cell face.
     """
     if molecule_index < 0 or molecule_index >= len(crystal.molecules):
         raise IndexError(

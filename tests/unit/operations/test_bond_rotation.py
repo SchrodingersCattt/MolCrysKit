@@ -401,3 +401,122 @@ def test_pbc_contiguous_coordinates_rotate_without_wrapping():
     )
     # Operation must not wrap coordinates back into the cell.
     assert np.any(rotated.get_positions()[:, 0] > cell[0, 0])
+
+
+def test_fragment_rotation_across_cell_face_keeps_periodic_bond_image():
+    """Crossing a cell face must not rebase an explicit periodic contact.
+
+    The moving atom starts just inside the primary cell and a 90° rotation
+    about the bond axis carries it through the face. Refreshing from the
+    post-edit floor would add a lattice translation to the stored contact.
+    Endpoints stay crystal-global on the non-first molecule.
+    """
+    lattice = np.diag([10.0, 10.0, 10.0])
+    spectator = CrystalMolecule(
+        Atoms("He", positions=[[8.0, 8.0, 8.0]], cell=lattice, pbc=True),
+        check_pbc=False,
+    )
+    spectator.info["atom_indices"] = [0]
+    chain = CrystalMolecule(
+        Atoms(
+            "CCC",
+            positions=[
+                [1.0, 0.2, 5.0],
+                [2.0, 0.2, 5.0],
+                [2.0, 0.2, 5.4],
+            ],
+            cell=lattice,
+            pbc=True,
+        ),
+        check_pbc=False,
+    )
+    chain.info["atom_indices"] = [1, 2, 3]
+    chain.info["bond_records"] = [
+        {
+            "left": 1,
+            "right": 2,
+            "right_image_shift": [0, 0, 0],
+            "vector": [1.0, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 2,
+            "right": 3,
+            "right_image_shift": [0, 0, 0],
+            "vector": [0.0, 0.0, 0.4],
+            "role": "covalent",
+        },
+        {
+            "left": 2,
+            "right": 3,
+            "right_image_shift": [0, 1, 0],
+            "vector": [0.0, 10.0, 0.4],
+            "role": "covalent",
+        },
+    ]
+    chain._graph = nx.Graph([(0, 1), (1, 2)])
+    crystal = MolecularCrystal(lattice, [spectator, chain], pbc=(True, True, True))
+    molecule = crystal.molecules[1]
+    assert [int(index) for index in molecule.info["atom_indices"]] == [1, 2, 3]
+    source_contacts = [
+        (
+            int(record["left"]),
+            int(record["right"]),
+            tuple(int(value) for value in record["right_image_shift"]),
+            tuple(float(value) for value in record["vector"]),
+        )
+        for record in molecule.info["bond_records"]
+    ]
+    before = np.asarray(molecule.get_positions(), dtype=float)
+    inverse = np.linalg.inv(lattice)
+
+    edited = rotate_fragment_in_crystal(crystal, 1, 0, 1, 90.0)
+
+    unchanged = [
+        (
+            int(record["left"]),
+            int(record["right"]),
+            tuple(int(value) for value in record["right_image_shift"]),
+            tuple(float(value) for value in record["vector"]),
+        )
+        for record in crystal.molecules[1].info["bond_records"]
+    ]
+    assert unchanged == source_contacts
+    edited_molecule = edited.molecules[1]
+    after = np.asarray(edited_molecule.get_positions(), dtype=float)
+    before_image = np.floor(before @ inverse + 1e-12).astype(int)
+    after_image = np.floor(after @ inverse + 1e-12).astype(int)
+    assert not np.array_equal(before_image, after_image)
+
+    stored = [
+        (
+            int(record["left"]),
+            int(record["right"]),
+            tuple(int(value) for value in record["right_image_shift"]),
+        )
+        for record in edited_molecule.info["bond_records"]
+    ]
+    assert stored == [
+        (1, 2, (0, 0, 0)),
+        (2, 3, (0, 0, 0)),
+        (2, 3, (0, 1, 0)),
+    ]
+    bonds = [bond for bond in edited.get_bond_records() if bond.molecule_index == 1]
+    assert [
+        (bond.left_global_index, bond.right_global_index, bond.right_image_shift)
+        for bond in bonds
+    ] == [
+        (1, 2, (0, 0, 0)),
+        (2, 3, (0, 0, 0)),
+        (2, 3, (0, 1, 0)),
+    ]
+    for bond in bonds:
+        delta = after[bond.right_local_index] - after[bond.left_local_index]
+        expected = delta + np.asarray(bond.right_image_shift, dtype=float) @ lattice
+        np.testing.assert_allclose(bond.vector_A, expected, atol=1e-8)
+    zero_image = next(
+        bond
+        for bond in bonds
+        if bond.left_global_index == 2 and bond.right_image_shift == (0, 0, 0)
+    )
+    assert abs(zero_image.vector_A[1]) < 1.0
