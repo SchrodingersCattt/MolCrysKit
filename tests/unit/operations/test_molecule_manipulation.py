@@ -22,12 +22,14 @@ from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.operations.molecule_manipulation import (
     MoleculeManipulator,
     MoleculeClashError,
+    translate_atom,
     translate_molecule,
     rotate_molecule,
     replace_molecule,
 )
 from molcrys_kit.io.xyz import read_xyz
 from molcrys_kit.utils.geometry import min_distance_between_atom_sets
+from molcrys_kit.constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
 
 
 # =====================================================================
@@ -81,6 +83,65 @@ def two_molecule_crystal(cubic_lattice, water_molecule, methane_molecule):
         molecules=[water, methane],
         pbc=(True, True, True),
     )
+
+
+@pytest.mark.parametrize("operation", ["translate", "rotate"])
+def test_rigid_molecule_edit_preserves_frame_metadata(two_molecule_crystal, operation):
+    crystal = two_molecule_crystal
+    crystal.metadata = {"frame_id": 7, "nested": {"labels": ["source"]}}
+    crystal.formula_moiety = "H2 O1, C1 H4"
+    crystal.disorder_provenance = {"selection": [0, 1]}
+    crystal.extra_arrays = {
+        "site_id": np.arange(8),
+        KEY_FRAC_X: np.zeros(8),
+        KEY_FRAC_Y: np.zeros(8),
+        KEY_FRAC_Z: np.zeros(8),
+    }
+    crystal._calc_results = {"energy": -1.0}
+    crystal.molecules[0].get_graph()
+
+    if operation == "translate":
+        result = translate_molecule(crystal, 0, [0.1, 0.2, 0.3])
+    else:
+        result = rotate_molecule(crystal, 0, [0, 0, 1], 45)
+
+    assert result.formula_moiety == crystal.formula_moiety
+    assert result.metadata == crystal.metadata
+    assert result.metadata is not crystal.metadata
+    assert result.disorder_provenance == crystal.disorder_provenance
+    np.testing.assert_array_equal(result.extra_arrays["site_id"], np.arange(8))
+    assert not any(key in result.extra_arrays for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z))
+    assert result._calc_results is None
+    for left, right, edge in result.molecules[0].get_graph().edges(data=True):
+        np.testing.assert_allclose(
+            edge["vector"],
+            result.molecules[0].positions[right] - result.molecules[0].positions[left],
+        )
+    result.metadata["nested"]["labels"].append("edited")
+    result.disorder_provenance["selection"].append(2)
+    assert crystal.metadata["nested"]["labels"] == ["source"]
+    assert crystal.disorder_provenance["selection"] == [0, 1]
+
+
+def test_translate_atom_preserves_source_and_topology(two_molecule_crystal):
+    crystal = two_molecule_crystal
+    before = crystal.molecules[0].get_positions().copy()
+    edges = set(crystal.molecules[0].get_graph().edges())
+    result = translate_atom(crystal, 0, 1, [0.2, 0.1, 0.0])
+    np.testing.assert_allclose(crystal.molecules[0].positions, before)
+    np.testing.assert_allclose(result.molecules[0].positions[1], before[1] + [0.2, 0.1, 0.0])
+    np.testing.assert_allclose(result.molecules[0].positions[[0, 2]], before[[0, 2]])
+    assert set(result.molecules[0].get_graph().edges()) == edges
+    for left, right, data in result.molecules[0].get_graph().edges(data=True):
+        np.testing.assert_allclose(
+            data["vector"], result.molecules[0].positions[right] - result.molecules[0].positions[left]
+        )
+
+
+@pytest.mark.parametrize("index, vector", [(-1, [0, 0, 0]), (True, [0, 0, 0]), (0, [1, 2]), (0, [0, np.nan, 0])])
+def test_translate_atom_rejects_invalid_input(two_molecule_crystal, index, vector):
+    with pytest.raises(ValueError):
+        translate_atom(two_molecule_crystal, 0, index, vector)
 
 
 @pytest.fixture

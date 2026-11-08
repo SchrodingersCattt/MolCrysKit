@@ -48,6 +48,7 @@ from .defects import VoidCarver, VacancyGenerator, carve_void, generate_vacancy
 from .molecule_manipulation import (
     MoleculeManipulator,
     MoleculeClashError,
+    translate_atom,
     translate_molecule,
     rotate_molecule,
     replace_molecule,
@@ -203,6 +204,7 @@ __all__ = [
     "generate_vacancy",
     "MoleculeManipulator",
     "MoleculeClashError",
+    "translate_atom",
     "translate_molecule",
     "rotate_molecule",
     "replace_molecule",

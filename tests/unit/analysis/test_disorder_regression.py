@@ -141,6 +141,11 @@ CASES: list[CifCase] = [
         expected_element_totals={"C": 2, "H": 8},
         minimum_random_replicas=1,  # Ordered input has exactly one state.
     ),
+    CifCase(
+        "rigid-motion-methane", "rigid_motion_methane.cif", 10,
+        expected_element_totals={"C": 2, "H": 8},
+        minimum_random_replicas=1,
+    ),
     # --- locked baseline (currently green on main) ---
     CifCase(
         "olex2-embedded-fcf", "olex2_embedded_fcf.cif", 1,
@@ -645,6 +650,19 @@ def test_forward_methane_i43m_topology(cif_data_dir: str):
     _, n_atoms, _, formulas = _resolve(path)
     assert n_atoms == 10
     assert formulas == Counter({"C1H4": 2})
+
+
+def test_rigid_motion_methane_topology(cif_data_dir: str):
+    """Rigid coordinate changes preserve complete molecule formula counts."""
+    from molcrys_kit.operations import rotate_molecule, translate_molecule
+
+    path = os.path.join(cif_data_dir, "rigid_motion_methane.cif")
+    crystal, n_atoms, _, formulas = _resolve(path)
+    assert n_atoms == 10
+    assert formulas == Counter({"C1H4": 2})
+    moved = translate_molecule(crystal, 0, [0.1, 0.0, 0.0])
+    rotated = rotate_molecule(moved, 0, [0.0, 0.0, 1.0], 45.0)
+    assert Counter(mol.get_chemical_formula() for mol in rotated.molecules) == Counter({"CH4": 2})
 
 
 def test_olex2_embedded_fcf_topology(cif_data_dir: str):

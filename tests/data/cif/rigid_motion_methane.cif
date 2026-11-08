@@ -1,0 +1,108 @@
+# Synthetic tetrahedral methane in I-43m; no experimental coordinates.
+data_molcrys_forward_asu
+_audit_creation_method 'MolCrysKit forward construction'
+_molcrys_representation 'ordered_asymmetric_unit'
+_symmetry_space_group_name_H-M 'I-43m'
+_symmetry_Int_Tables_number 217
+
+loop_
+  _symmetry_equiv_pos_as_xyz
+  '-x,-y,z'
+  '-x+1/2,-y+1/2,z+1/2'
+  '-x,-z,y'
+  '-x+1/2,-z+1/2,y+1/2'
+  '-x,z,-y'
+  '-x+1/2,z+1/2,-y+1/2'
+  '-x,y,-z'
+  '-x+1/2,y+1/2,-z+1/2'
+  '-y,-x,z'
+  '-y+1/2,-x+1/2,z+1/2'
+  '-y,-z,x'
+  '-y+1/2,-z+1/2,x+1/2'
+  '-y,z,-x'
+  '-y+1/2,z+1/2,-x+1/2'
+  '-y,x,-z'
+  '-y+1/2,x+1/2,-z+1/2'
+  '-z,-x,y'
+  '-z+1/2,-x+1/2,y+1/2'
+  '-z,-y,x'
+  '-z+1/2,-y+1/2,x+1/2'
+  '-z,y,-x'
+  '-z+1/2,y+1/2,-x+1/2'
+  '-z,x,-y'
+  '-z+1/2,x+1/2,-y+1/2'
+  'z,-x,-y'
+  'z+1/2,-x+1/2,-y+1/2'
+  'z,-y,-x'
+  'z+1/2,-y+1/2,-x+1/2'
+  'z,y,x'
+  'z+1/2,y+1/2,x+1/2'
+  'z,x,y'
+  'z+1/2,x+1/2,y+1/2'
+  'y,-x,-z'
+  'y+1/2,-x+1/2,-z+1/2'
+  'y,-z,-x'
+  'y+1/2,-z+1/2,-x+1/2'
+  'y,z,x'
+  'y+1/2,z+1/2,x+1/2'
+  'y,x,z'
+  'y+1/2,x+1/2,z+1/2'
+  'x,-y,-z'
+  'x+1/2,-y+1/2,-z+1/2'
+  'x,-z,-y'
+  'x+1/2,-z+1/2,-y+1/2'
+  'x,z,y'
+  'x+1/2,z+1/2,y+1/2'
+  'x,y,z'
+  'x+1/2,y+1/2,z+1/2'
+
+_cell_length_a 10.00000000
+_cell_length_b 10.00000000
+_cell_length_c 10.00000000
+_cell_angle_alpha 90.00000000
+_cell_angle_beta 90.00000000
+_cell_angle_gamma 90.00000000
+
+loop_
+  _atom_site_label
+  _atom_site_type_symbol
+  _atom_site_fract_x
+  _atom_site_fract_y
+  _atom_site_fract_z
+  _atom_site_occupancy
+  _atom_site_disorder_group
+  _atom_site_disorder_assembly
+  _atom_site_site_symmetry_order
+  _atom_site_charge
+  C1 C 0.00000000 0.00000000 0.00000000 1.00000000 0 . 24 .
+  H2 H 0.06300000 0.06300000 0.06300000 1.00000000 0 . 24 .
+
+loop_
+  _geom_bond_atom_site_label_1
+  _geom_bond_atom_site_label_2
+  _geom_bond_distance
+  _geom_bond_type
+  _geom_bond_site_symmetry_2
+  _molcrys_bond_order
+  _molcrys_bond_order_known
+  _molcrys_bond_type_known
+  _molcrys_bond_kind
+  C1 H2 1.091192 single 29_555 . 0 1 .
+  C1 H2 1.091192 single 25_555 . 0 1 .
+  C1 H2 1.091192 single 5_555 . 0 1 .
+  C1 H2 1.091192 single 1_555 . 0 1 .
+
+loop_
+  _molcrys_atom_index
+  _molcrys_asu_atom_index
+  _molcrys_sym_op_index
+  _molcrys_asym_id
+  _molcrys_site_symmetry_order
+  _molcrys_atom_id
+  _molcrys_molecule_id
+  _molcrys_isotope
+  _molcrys_atom_mass
+  0 0 0 0 24 'atom_orbit0' 0 0 12.01100000
+  1 1 0 0 24 'atom_orbit1' 0 0 1.00800000
+
+# The full-cell expansion is represented by the operation loop above.
