@@ -1,5 +1,6 @@
 """Tests for composite rigid and internal-DOF interpolation."""
 
+import networkx as nx
 import numpy as np
 import pytest
 from ase import Atoms
@@ -10,6 +11,7 @@ from molcrys_kit.operations import (
 )
 from molcrys_kit.operations._path_core import interpolate_rigid_positions
 from molcrys_kit.operations.interpolation import best_atom_mapping
+from molcrys_kit.structures.crystal import MolecularCrystal
 from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.utils.geometry import get_rotation_matrix
 
@@ -242,3 +244,140 @@ def test_bridge_torsion_carries_rigid_ring_for_auto_and_explicit_ring(
             [np.linalg.norm(positions[i] - positions[(i + 1) % 6]) for i in range(6)]
         )
         np.testing.assert_allclose(ring_distances, expected, atol=1e-10)
+
+
+def _contact_rows(records):
+    return [
+        (
+            int(record["left"]),
+            int(record["right"]),
+            tuple(int(value) for value in record["right_image_shift"]),
+            tuple(float(value) for value in record["vector"]),
+        )
+        for record in records
+    ]
+
+
+def test_interpolation_across_cell_face_keeps_periodic_bond_image():
+    """Interpolating through a cell face must not rebase an explicit contact.
+
+    Pose B moves one endpoint of a stored bond through the cell face while its
+    partner stays inside. Recomputing images from the written coordinates would
+    add a lattice translation to that zero-image vector. Endpoints stay
+    crystal-global on the non-first molecule, including intermediate frames.
+    """
+    lattice = np.diag([10.0, 10.0, 10.0])
+    spectator = CrystalMolecule(
+        Atoms("He", positions=[[8.0, 8.0, 8.0]], cell=lattice, pbc=True),
+        check_pbc=False,
+    )
+    spectator.info["atom_indices"] = [0]
+    chain = CrystalMolecule(
+        Atoms(
+            "CCC",
+            positions=[
+                [1.0, 0.2, 5.0],
+                [2.0, 0.2, 5.0],
+                [2.0, 0.2, 5.4],
+            ],
+            cell=lattice,
+            pbc=True,
+        ),
+        check_pbc=False,
+    )
+    chain.info["atom_indices"] = [1, 2, 3]
+    chain.info["bond_records"] = [
+        {
+            "left": 1,
+            "right": 2,
+            "right_image_shift": [0, 0, 0],
+            "vector": [1.0, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 2,
+            "right": 3,
+            "right_image_shift": [0, 0, 0],
+            "vector": [0.0, 0.0, 0.4],
+            "role": "covalent",
+        },
+        {
+            "left": 2,
+            "right": 3,
+            "right_image_shift": [0, 1, 0],
+            "vector": [0.0, 10.0, 0.4],
+            "role": "covalent",
+        },
+    ]
+    chain._graph = nx.Graph([(0, 1), (1, 2)])
+    crystal = MolecularCrystal(lattice, [spectator, chain], pbc=(True, True, True))
+    molecule = crystal.molecules[1]
+    assert [int(index) for index in molecule.info["atom_indices"]] == [1, 2, 3]
+    source_contacts = _contact_rows(molecule.info["bond_records"])
+    source_positions = np.asarray(molecule.get_positions(), dtype=float)
+    inverse = np.linalg.inv(lattice)
+    source_image = np.floor(source_positions @ inverse + 1e-12).astype(int)
+
+    pose_b = molecule.copy()
+    crossed = np.asarray(pose_b.get_positions(), dtype=float)
+    crossed[2, 1] = -0.3
+    pose_b.set_positions(crossed)
+
+    frames = interpolate_molecule_with_internal_dofs(
+        molecule,
+        pose_b,
+        n_images=5,
+        torsion_bonds=[],
+    )
+
+    assert _contact_rows(crystal.molecules[1].info["bond_records"]) == source_contacts
+    np.testing.assert_allclose(crystal.molecules[1].get_positions(), source_positions)
+    assert len(frames) == 5
+    crossed_face = False
+    expected_identity = [
+        (1, 2, (0, 0, 0)),
+        (2, 3, (0, 0, 0)),
+        (2, 3, (0, 1, 0)),
+    ]
+    for frame in frames:
+        positions = np.asarray(frame.get_positions(), dtype=float)
+        frame_image = np.floor(positions @ inverse + 1e-12).astype(int)
+        crossed_face = crossed_face or not np.array_equal(frame_image, source_image)
+        stored = [
+            (
+                int(record["left"]),
+                int(record["right"]),
+                tuple(int(value) for value in record["right_image_shift"]),
+            )
+            for record in frame.info["bond_records"]
+        ]
+        assert stored == expected_identity
+        hosted = MolecularCrystal(
+            lattice,
+            [spectator.copy(), frame],
+            pbc=(True, True, True),
+        )
+        bonds = [bond for bond in hosted.get_bond_records() if bond.molecule_index == 1]
+        assert [
+            (bond.left_global_index, bond.right_global_index, bond.right_image_shift)
+            for bond in bonds
+        ] == expected_identity
+        for bond in bonds:
+            delta = (
+                positions[bond.right_local_index] - positions[bond.left_local_index]
+            )
+            expected = delta + np.asarray(bond.right_image_shift, dtype=float) @ lattice
+            np.testing.assert_allclose(bond.vector_A, expected, atol=1e-8)
+        zero_image = next(
+            bond
+            for bond in bonds
+            if bond.left_global_index == 2 and bond.right_image_shift == (0, 0, 0)
+        )
+        intra_cell_delta = (
+            positions[zero_image.right_local_index]
+            - positions[zero_image.left_local_index]
+        )
+        if np.linalg.norm(intra_cell_delta) < 5.0:
+            assert np.linalg.norm(zero_image.vector_A) < 5.0
+    assert crossed_face
+    assert frames[-1].positions[2, 1] < 0.0

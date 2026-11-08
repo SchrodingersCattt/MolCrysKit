@@ -10,8 +10,10 @@ Tests cover:
 - min_distance_between_atom_sets utility
 """
 
+import copy
 import os
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -22,12 +24,15 @@ from molcrys_kit.structures.molecule import CrystalMolecule
 from molcrys_kit.operations.molecule_manipulation import (
     MoleculeManipulator,
     MoleculeClashError,
+    translate_atom,
     translate_molecule,
     rotate_molecule,
     replace_molecule,
 )
+from molcrys_kit.io import read_mol_crystal
 from molcrys_kit.io.xyz import read_xyz
 from molcrys_kit.utils.geometry import min_distance_between_atom_sets
+from molcrys_kit.constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
 
 
 # =====================================================================
@@ -81,6 +86,332 @@ def two_molecule_crystal(cubic_lattice, water_molecule, methane_molecule):
         molecules=[water, methane],
         pbc=(True, True, True),
     )
+
+
+@pytest.mark.parametrize("operation", ["translate", "rotate"])
+def test_rigid_molecule_edit_preserves_frame_metadata(two_molecule_crystal, operation):
+    crystal = two_molecule_crystal
+    crystal.metadata = {"frame_id": 7, "nested": {"labels": ["source"]}}
+    crystal.formula_moiety = "H2 O1, C1 H4"
+    crystal.disorder_provenance = {"selection": [0, 1]}
+    crystal.extra_arrays = {
+        "site_id": np.arange(8),
+        KEY_FRAC_X: np.zeros(8),
+        KEY_FRAC_Y: np.zeros(8),
+        KEY_FRAC_Z: np.zeros(8),
+    }
+    crystal._calc_results = {"energy": -1.0}
+    crystal.molecules[0].get_graph()
+
+    if operation == "translate":
+        result = translate_molecule(crystal, 0, [0.1, 0.2, 0.3])
+    else:
+        result = rotate_molecule(crystal, 0, [0, 0, 1], 45)
+
+    assert result.formula_moiety == crystal.formula_moiety
+    assert result.metadata == crystal.metadata
+    assert result.metadata is not crystal.metadata
+    assert result.disorder_provenance == crystal.disorder_provenance
+    np.testing.assert_array_equal(result.extra_arrays["site_id"], np.arange(8))
+    assert not any(key in result.extra_arrays for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z))
+    assert result._calc_results is None
+    for left, right, edge in result.molecules[0].get_graph().edges(data=True):
+        np.testing.assert_allclose(
+            edge["vector"],
+            result.molecules[0].positions[right] - result.molecules[0].positions[left],
+        )
+    result.metadata["nested"]["labels"].append("edited")
+    result.disorder_provenance["selection"].append(2)
+    assert crystal.metadata["nested"]["labels"] == ["source"]
+    assert crystal.disorder_provenance["selection"] == [0, 1]
+
+
+def test_translate_atom_preserves_source_and_topology(two_molecule_crystal):
+    crystal = two_molecule_crystal
+    before = crystal.molecules[0].get_positions().copy()
+    edges = set(crystal.molecules[0].get_graph().edges())
+    result = translate_atom(crystal, 0, 1, [0.2, 0.1, 0.0])
+    np.testing.assert_allclose(crystal.molecules[0].positions, before)
+    np.testing.assert_allclose(result.molecules[0].positions[1], before[1] + [0.2, 0.1, 0.0])
+    np.testing.assert_allclose(result.molecules[0].positions[[0, 2]], before[[0, 2]])
+    assert set(result.molecules[0].get_graph().edges()) == edges
+    for left, right, data in result.molecules[0].get_graph().edges(data=True):
+        np.testing.assert_allclose(
+            data["vector"], result.molecules[0].positions[right] - result.molecules[0].positions[left]
+        )
+
+
+@pytest.mark.parametrize("index, vector", [(-1, [0, 0, 0]), (True, [0, 0, 0]), (0, [1, 2]), (0, [0, np.nan, 0])])
+def test_translate_atom_rejects_invalid_input(two_molecule_crystal, index, vector):
+    with pytest.raises(ValueError):
+        translate_atom(two_molecule_crystal, 0, index, vector)
+
+
+def test_translate_atom_fractional_displacement_invalidates_metadata(two_molecule_crystal):
+    """Fractional edits move one atom and drop coordinate-derived frame data."""
+    crystal = two_molecule_crystal
+    crystal.metadata = {"frame_id": 3, "nested": {"labels": ["source"]}}
+    crystal.formula_moiety = "H2 O1, C1 H4"
+    crystal.disorder_provenance = {"selection": [0, 1]}
+    crystal.extra_arrays = {
+        "site_id": np.arange(8),
+        KEY_FRAC_X: np.zeros(8),
+        KEY_FRAC_Y: np.zeros(8),
+        KEY_FRAC_Z: np.zeros(8),
+    }
+    crystal._calc_results = {"energy": -2.0}
+    before = crystal.molecules[0].get_positions().copy()
+
+    result = translate_atom(crystal, 0, 1, [0.1, -0.2, 0.3], fractional=True)
+
+    np.testing.assert_allclose(crystal.molecules[0].positions, before)
+    np.testing.assert_allclose(
+        result.molecules[0].positions[1],
+        before[1] + np.array([1.0, -2.0, 3.0]),
+    )
+    np.testing.assert_allclose(result.molecules[0].positions[[0, 2]], before[[0, 2]])
+    assert result.formula_moiety == crystal.formula_moiety
+    assert result.metadata == {"frame_id": 3, "nested": {"labels": ["source"]}}
+    assert result.metadata is not crystal.metadata
+    assert result.disorder_provenance == {"selection": [0, 1]}
+    assert result.disorder_provenance is not crystal.disorder_provenance
+    np.testing.assert_array_equal(result.extra_arrays["site_id"], np.arange(8))
+    assert not any(key in result.extra_arrays for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z))
+    assert result._calc_results is None
+    assert crystal._calc_results == {"energy": -2.0}
+
+
+# Helium is a spectator so the periodic carbon pair is not molecule 0.
+# Both C–C images are inside the 1.9 Å cutoff (direct 1 Å and the a-axis image).
+_PARALLEL_SECOND_MOLECULE_CIF = """\
+data_parallel_second
+_symmetry_space_group_name_H-M 'P 1'
+_cell_length_a 2.0
+_cell_length_b 10.0
+_cell_length_c 10.0
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_symmetry_equiv_pos_as_xyz
+'x,y,z'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+He1 He 0.0 0.5 0.5
+C1 C 0.0 0.0 0.0
+C2 C 0.5 0.0 0.0
+"""
+
+
+def _contact_identity(bond):
+    return (
+        bond.left_global_index,
+        bond.right_global_index,
+        bond.right_image_shift,
+    )
+
+
+def _stored_contacts(molecule):
+    indices = {int(index) for index in molecule.info["atom_indices"]}
+    contacts = []
+    for record in molecule.info["bond_records"]:
+        left = int(record["left"])
+        right = int(record["right"])
+        assert {left, right} <= indices
+        contacts.append(
+            (
+                left,
+                right,
+                tuple(int(value) for value in record["right_image_shift"]),
+                [float(value) for value in record["vector"]],
+            )
+        )
+    return contacts
+
+
+def _assert_public_contacts_follow_positions(source, edited, molecule_index):
+    """Bond identity stays fixed and each vector tracks the edited positions."""
+    source_bonds = [
+        bond
+        for bond in source.get_bond_records()
+        if bond.molecule_index == molecule_index
+    ]
+    edited_bonds = [
+        bond
+        for bond in edited.get_bond_records()
+        if bond.molecule_index == molecule_index
+    ]
+    assert [_contact_identity(bond) for bond in edited_bonds] == [
+        _contact_identity(bond) for bond in source_bonds
+    ]
+    assert source_bonds
+    source_molecule = source.molecules[molecule_index]
+    edited_molecule = edited.molecules[molecule_index]
+    for previous, bond in zip(source_bonds, edited_bonds):
+        old_delta = (
+            source_molecule.positions[previous.right_local_index]
+            - source_molecule.positions[previous.left_local_index]
+        )
+        new_delta = (
+            edited_molecule.positions[bond.right_local_index]
+            - edited_molecule.positions[bond.left_local_index]
+        )
+        correction = np.asarray(previous.vector_A, dtype=float) - old_delta
+        np.testing.assert_allclose(bond.vector_A, new_delta + correction, atol=1e-8)
+
+
+def _edit_molecule(crystal, molecule_index, operation):
+    if operation == "translate_atom":
+        return translate_atom(crystal, molecule_index, 1, [0.05, 0.0, 0.0])
+    if operation == "translate_molecule":
+        return translate_molecule(crystal, molecule_index, [0.05, 0.02, -0.03])
+    if operation == "rotate_molecule":
+        return rotate_molecule(crystal, molecule_index, [0.0, 0.0, 1.0], 90.0)
+    raise AssertionError(operation)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["translate_atom", "translate_molecule", "rotate_molecule"],
+)
+def test_cif_second_molecule_keeps_parallel_bond_records(operation):
+    """A non-first CIF molecule keeps every signed periodic contact."""
+    crystal = read_mol_crystal(
+        cif_text=_PARALLEL_SECOND_MOLECULE_CIF,
+        attach_chemistry=False,
+    )
+    molecule = crystal.molecules[1]
+    assert molecule.info["atom_indices"] == [1, 2]
+    assert molecule.info["atom_indices"] != list(range(len(molecule)))
+    source_contacts = _stored_contacts(molecule)
+    identities = {(left, right, shift) for left, right, shift, _vector in source_contacts}
+    assert identities == {
+        (1, 2, (0, 0, 0)),
+        (1, 2, (-1, 0, 0)),
+    }
+    source_records = copy.deepcopy(molecule.info["bond_records"])
+
+    edited = _edit_molecule(crystal, 1, operation)
+
+    assert crystal.molecules[1].info["bond_records"] == source_records
+    edited_contacts = _stored_contacts(edited.molecules[1])
+    assert [(left, right, shift) for left, right, shift, _vector in edited_contacts] == [
+        (left, right, shift) for left, right, shift, _vector in source_contacts
+    ]
+    _assert_public_contacts_follow_positions(crystal, edited, 1)
+    public = [
+        (
+            bond.left_global_index,
+            bond.right_global_index,
+            bond.right_image_shift,
+            bond.vector_A,
+        )
+        for bond in edited.get_bond_records()
+        if bond.molecule_index == 1
+    ]
+    assert [(left, right, shift) for left, right, shift, _vector in public] == [
+        (1, 2, (-1, 0, 0)),
+        (1, 2, (0, 0, 0)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["translate_atom", "translate_molecule", "rotate_molecule"],
+)
+def test_methane_cif_second_molecule_bond_records_follow_coordinates(operation):
+    """The synthetic methane fixture's second molecule keeps global endpoints."""
+    path = Path(__file__).resolve().parents[2] / "data" / "cif" / "rigid_motion_methane.cif"
+    crystal = read_mol_crystal(filepath=str(path), attach_chemistry=False)
+    molecule = crystal.molecules[1]
+    assert molecule.get_chemical_formula() == "CH4"
+    assert [int(index) for index in molecule.info["atom_indices"]] != list(range(len(molecule)))
+    assert molecule.info["bond_records"]
+    source_contacts = _stored_contacts(molecule)
+    source_records = copy.deepcopy(molecule.info["bond_records"])
+
+    edited = _edit_molecule(crystal, 1, operation)
+
+    assert crystal.molecules[1].info["bond_records"] == source_records
+    edited_contacts = _stored_contacts(edited.molecules[1])
+    assert [(left, right, shift) for left, right, shift, _vector in edited_contacts] == [
+        (left, right, shift) for left, right, shift, _vector in source_contacts
+    ]
+    _assert_public_contacts_follow_positions(crystal, edited, 1)
+
+
+def test_lazy_graph_rotation_refreshes_explicit_bond_vector():
+    """A 90° rotation updates explicit records without building a graph first."""
+    lattice = np.diag([10.0, 10.0, 10.0])
+    spectator = CrystalMolecule(
+        Atoms("He", positions=[[1.0, 1.0, 1.0]], cell=lattice, pbc=True),
+        check_pbc=False,
+    )
+    spectator.info["atom_indices"] = [0]
+    bonded = CrystalMolecule(
+        Atoms(
+            "CC",
+            positions=[[4.0, 5.0, 5.0], [5.0, 5.0, 5.0]],
+            cell=lattice,
+            pbc=True,
+        ),
+        check_pbc=False,
+    )
+    bonded.info["atom_indices"] = [1, 2]
+    bonded.info["bond_records"] = [
+        {
+            "left": 1,
+            "right": 2,
+            "right_image_shift": [0, 0, 0],
+            "vector": [1.0, 0.0, 0.0],
+            "role": "covalent",
+        },
+        {
+            "left": 1,
+            "right": 2,
+            "right_image_shift": [1, 0, 0],
+            "vector": [11.0, 0.0, 0.0],
+            "role": "covalent",
+        },
+    ]
+    assert bonded._graph is None
+    crystal = MolecularCrystal(lattice, [spectator, bonded], pbc=(True, True, True))
+    molecule = crystal.molecules[1]
+    assert molecule._graph is None
+    assert molecule.info["atom_indices"] == [1, 2]
+    source_records = copy.deepcopy(molecule.info["bond_records"])
+
+    edited = rotate_molecule(crystal, 1, [0.0, 0.0, 1.0], 90.0)
+
+    assert crystal.molecules[1]._graph is None
+    assert crystal.molecules[1].info["bond_records"] == source_records
+    edited_molecule = edited.molecules[1]
+    assert [int(index) for index in edited_molecule.info["atom_indices"]] == [1, 2]
+    stored = {
+        tuple(int(value) for value in record["right_image_shift"]): np.asarray(
+            record["vector"], dtype=float
+        )
+        for record in edited_molecule.info["bond_records"]
+    }
+    assert set(stored) == {(0, 0, 0), (1, 0, 0)}
+    np.testing.assert_allclose(stored[(0, 0, 0)], [0.0, 1.0, 0.0], atol=1e-8)
+    np.testing.assert_allclose(stored[(1, 0, 0)], [10.0, 1.0, 0.0], atol=1e-8)
+    bonds = [bond for bond in edited.get_bond_records() if bond.molecule_index == 1]
+    assert [(bond.left_global_index, bond.right_global_index, bond.right_image_shift) for bond in bonds] == [
+        (1, 2, (0, 0, 0)),
+        (1, 2, (1, 0, 0)),
+    ]
+    for bond in bonds:
+        delta = (
+            edited_molecule.positions[bond.right_local_index]
+            - edited_molecule.positions[bond.left_local_index]
+        )
+        expected = delta + np.asarray(bond.right_image_shift, dtype=float) @ lattice
+        np.testing.assert_allclose(bond.vector_A, expected, atol=1e-8)
 
 
 @pytest.fixture

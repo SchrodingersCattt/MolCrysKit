@@ -16,6 +16,7 @@ from ..analysis.ring_conformation import (
 from ..constants.config import BOND_ROTATION_AXIS_TOLERANCE
 from ..structures.molecule import (
     CrystalMolecule,
+    _embedded_image_shifts,
     _refresh_contiguous_bond_geometry,
     _strip_stale_frac_arrays,
 )
@@ -343,12 +344,16 @@ def interpolate_molecule_with_internal_dofs(
         elif fraction <= 0.0:
             pose = positions_a.copy()
         frame = mol_a.copy()
+        # Freeze the source embedding's lattice images before replacing
+        # coordinates. An interpolated pose can cross a cell face without
+        # changing which image an explicit periodic contact refers to.
+        image_shifts = _embedded_image_shifts(frame)
         frame.set_positions(pose)
         _strip_stale_frac_arrays(frame)
         frame._calc_results = None
         # ``CrystalMolecule.copy()`` also copies a materialized graph.  Updating
         # coordinates alone therefore leaves cached edge vectors/distances at
         # the source geometry; refresh the cache for every emitted frame.
-        _refresh_contiguous_bond_geometry(frame)
+        _refresh_contiguous_bond_geometry(frame, image_shifts=image_shifts)
         frames.append(frame)
     return frames

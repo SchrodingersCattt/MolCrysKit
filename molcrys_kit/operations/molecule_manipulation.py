@@ -9,13 +9,20 @@ All public operations return a *new* ``MolecularCrystal``; the original
 crystal is never mutated.
 """
 
+import copy
 import warnings
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
 from ..structures.crystal import MolecularCrystal
-from ..structures.molecule import CrystalMolecule, _strip_stale_frac_arrays
+from ..constants.config import KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z
+from ..structures.molecule import (
+    CrystalMolecule,
+    _embedded_image_shifts,
+    _refresh_contiguous_bond_geometry,
+    _strip_stale_frac_arrays,
+)
 from ..utils.geometry import get_rotation_matrix, min_distance_between_atom_sets
 
 
@@ -55,12 +62,15 @@ def _build_crystal_with_replaced_molecule(
     crystal: MolecularCrystal,
     molecule_index: int,
     new_molecule: CrystalMolecule,
+    *,
+    preserve_composition: bool = False,
 ) -> MolecularCrystal:
     """Return a new ``MolecularCrystal`` identical to *crystal* except that
     the molecule at *molecule_index* has been replaced by *new_molecule*.
 
-    Raw CIF ``formula_moiety`` metadata is intentionally not propagated because
-    the edited molecular set may no longer match the original formula context.
+    Rigid edits preserve the frame's provenance and non-coordinate arrays while
+    invalidating coordinate-dependent results. Replacements keep the previous
+    conservative behaviour because their composition may change.
     """
     new_molecules = []
     for i, mol in enumerate(crystal.molecules):
@@ -68,10 +78,23 @@ def _build_crystal_with_replaced_molecule(
             new_molecules.append(new_molecule)
         else:
             new_molecules.append(mol.copy())
+    preserved = {}
+    if preserve_composition:
+        preserved = {
+            "formula_moiety": crystal.formula_moiety,
+            "disorder_provenance": copy.deepcopy(crystal.disorder_provenance),
+            "metadata": copy.deepcopy(crystal.metadata),
+            "extra_arrays": {
+                key: value
+                for key, value in crystal.extra_arrays.items()
+                if key not in {KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z}
+            },
+        }
     return MolecularCrystal(
         lattice=crystal.lattice.copy(),
         molecules=new_molecules,
         pbc=crystal.pbc,
+        **preserved,
     )
 
 
@@ -169,6 +192,44 @@ class MoleculeManipulator:
     # Translation
     # ------------------------------------------------------------------
 
+    def translate_atom(
+        self,
+        molecule_index: int,
+        atom_index: int,
+        vector: np.ndarray,
+        fractional: bool = False,
+    ) -> MolecularCrystal:
+        """Translate one molecule-local atom while retaining its existing graph.
+
+        This is a geometric edit, not bond perception or energy relaxation.
+        The displacement is in Cartesian Å unless ``fractional`` is true.
+        Explicit bond records keep their original endpoints and signed image
+        shifts; only the Cartesian vectors are refreshed. The input crystal is
+        unchanged and stale coordinate results are dropped.
+        """
+        self._validate_index(molecule_index)
+        molecule = self.crystal.molecules[molecule_index]
+        if isinstance(atom_index, bool) or not isinstance(atom_index, (int, np.integer)):
+            raise ValueError("atom_index must be a molecule-local integer")
+        if atom_index < 0 or atom_index >= len(molecule):
+            raise ValueError(f"atom index {atom_index} is out of range")
+        displacement = np.asarray(vector, dtype=float)
+        if displacement.shape != (3,) or not np.all(np.isfinite(displacement)):
+            raise ValueError("vector must contain three finite values")
+        if fractional:
+            displacement = self.crystal.fractional_to_cartesian(displacement)
+        edited = molecule.copy()
+        edited.get_graph()  # Keep the input topology, rather than re-perceiving it.
+        image_shifts = _embedded_image_shifts(edited)
+        positions = edited.get_positions()
+        positions[atom_index] += displacement
+        edited.set_positions(positions)
+        _strip_stale_frac_arrays(edited)
+        _refresh_contiguous_bond_geometry(edited, image_shifts=image_shifts)
+        return _build_crystal_with_replaced_molecule(
+            self.crystal, molecule_index, edited, preserve_composition=True
+        )
+
     def translate_molecule(
         self,
         molecule_index: int,
@@ -188,6 +249,12 @@ class MoleculeManipulator:
             If ``True``, *vector* is in fractional coordinates and will be
             converted to Cartesian before application.
 
+        Notes
+        -----
+        Explicit bond records keep their original endpoints and signed image
+        shifts. Cartesian vectors are refreshed from the translated
+        coordinates, including when the molecule graph has not been built.
+
         Returns
         -------
         MolecularCrystal
@@ -199,13 +266,17 @@ class MoleculeManipulator:
         if fractional:
             vector = self.crystal.fractional_to_cartesian(vector)
 
-        # Copy the target molecule and shift its positions
+        # Copy the target molecule and shift its positions. Freeze the
+        # pre-edit lattice images so a translation across a cell face does
+        # not rebase explicit periodic contacts.
         mol_copy = self.crystal.molecules[molecule_index].copy()
+        image_shifts = _embedded_image_shifts(mol_copy)
         mol_copy.set_positions(mol_copy.get_positions() + vector)
         _strip_stale_frac_arrays(mol_copy)
+        _refresh_contiguous_bond_geometry(mol_copy, image_shifts=image_shifts)
 
         return _build_crystal_with_replaced_molecule(
-            self.crystal, molecule_index, mol_copy
+            self.crystal, molecule_index, mol_copy, preserve_composition=True
         )
 
     # ------------------------------------------------------------------
@@ -233,6 +304,12 @@ class MoleculeManipulator:
             Pivot point: ``"com"`` for centre of mass, ``"centroid"`` for
             geometric centroid.
 
+        Notes
+        -----
+        Explicit bond records keep their original endpoints and signed image
+        shifts. Cartesian vectors are refreshed from the rotated coordinates,
+        including when the molecule graph has not been built.
+
         Returns
         -------
         MolecularCrystal
@@ -244,6 +321,9 @@ class MoleculeManipulator:
             raise ValueError("Rotation axis must be a non-zero vector.")
 
         mol_copy = self.crystal.molecules[molecule_index].copy()
+        # Capture images before rotating. A rigid rotation can cross a cell
+        # face without changing which lattice image each contact refers to.
+        image_shifts = _embedded_image_shifts(mol_copy)
 
         if center == "com":
             pivot = mol_copy.get_center_of_mass()
@@ -260,9 +340,10 @@ class MoleculeManipulator:
         rotated = translated @ rot_mat.T
         mol_copy.set_positions(rotated + pivot)
         _strip_stale_frac_arrays(mol_copy)
+        _refresh_contiguous_bond_geometry(mol_copy, image_shifts=image_shifts)
 
         return _build_crystal_with_replaced_molecule(
-            self.crystal, molecule_index, mol_copy
+            self.crystal, molecule_index, mol_copy, preserve_composition=True
         )
 
     # ------------------------------------------------------------------
@@ -484,6 +565,26 @@ class MoleculeManipulator:
 # ===================================================================
 # Module-level convenience functions
 # ===================================================================
+
+
+def translate_atom(
+    crystal: MolecularCrystal,
+    molecule_index: int,
+    atom_index: int,
+    vector: np.ndarray,
+    fractional: bool = False,
+) -> MolecularCrystal:
+    """Return a copy with one atom translated; preserve the original bond graph.
+
+    ``atom_index`` is local to the selected molecule. Displacement is Cartesian
+    Å by default or fractional when requested. Explicit bond records keep their
+    crystal-global endpoints and signed image shifts, and their vectors follow
+    the edited coordinates. This operation does not perform energy minimization
+    or infer chemically valid bonding from the new position.
+    """
+    return MoleculeManipulator(crystal).translate_atom(
+        molecule_index, atom_index, vector, fractional=fractional
+    )
 
 
 def translate_molecule(

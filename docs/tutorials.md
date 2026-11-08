@@ -429,13 +429,16 @@ following custom fields are written to the CIF header:
 
 ## Molecule Manipulation
 
-MolCrysKit provides targeted operations on specific molecules within a molecular crystal, including **translation**, **rotation**, and **replacement** (with automatic clash detection and resolution).
+MolCrysKit provides targeted operations on specific molecules within a molecular crystal, including **translation**, **rotation**, **single-atom translation**, and **replacement** (with automatic clash detection and resolution).
 
 All manipulation operations return a **new** `MolecularCrystal` — the original crystal is never mutated.
+
+Rigid translation, rigid rotation, and single-atom translation keep explicit bond records addressable by their original crystal-global endpoints, including distinct signed periodic images of the same atom pair. Those operations recompute each record's Cartesian vector from the edited coordinates, including when the molecule graph has not been built yet. They keep the input bond graph instead of inferring a new one. Replacement may change composition, so it drops the source formula context.
 
 ### Key Features:
 - Select molecules by index or by species ID (via stoichiometry analysis)
 - Translate molecules by Cartesian or fractional vectors
+- Translate one molecule-local atom without inferring bonds
 - Rotate molecules around their centre of mass or geometric centroid
 - Replace molecules with new ones loaded from XYZ files
 - Automatic clash detection: checks minimum atom–atom distance to host framework
@@ -447,6 +450,7 @@ All manipulation operations return a **new** `MolecularCrystal` — the original
 ```python
 import molcrys_kit as mck
 from molcrys_kit.operations.molecule_manipulation import (
+    translate_atom,
     translate_molecule,
     rotate_molecule,
     replace_molecule,
@@ -458,6 +462,9 @@ crystal = mck.read_mol_crystal("structure.cif")
 
 # Translate molecule #0 by [1.0, 0.0, 0.0] Angstrom
 new_crystal = translate_molecule(crystal, molecule_index=0, vector=[1.0, 0.0, 0.0])
+
+# Translate one atom. atom_index is local to that molecule.
+new_crystal = translate_atom(crystal, molecule_index=0, atom_index=1, vector=[0.1, 0.0, 0.0])
 
 # Translate using fractional coordinates
 new_crystal = translate_molecule(crystal, molecule_index=0, vector=[0.1, 0.0, 0.0], fractional=True)
@@ -542,10 +549,12 @@ does not wrap the rotated fragment back into the primary cell. `atom_i`,
 molecule extracted from a crystal, map them to original crystal/CIF indices via
 `molecule.info["atom_indices"]` (that list is indexed by the local index).
 ASU-first symmetry replicas instead expose source-site identity through the
-per-atom `asym_id` array and `sym_op_index` metadata. After rotation, graph
-`image_shift` values and `bond_records` are regenerated in the contiguous local
-coordinate frame, so every right-image shift is zero and each vector is the
-direct local coordinate difference.
+per-atom `asym_id` array and `sym_op_index` metadata. After rotation, cached
+graph edges use a zero lattice-image shift because the molecule coordinates
+stay contiguous. Explicit `bond_records` keep their original crystal-global
+endpoints and signed image shifts; each vector is the edited coordinate
+difference rebased onto that original image, including when an atom crosses a
+cell face.
 The operation preserves the molecule's existing chemical graph instead of
 re-inferring bonds from the rotated geometry. A disconnected graph raises
 `BondRotationSelectionError`. A bond belonging to a ring raises
@@ -582,6 +591,9 @@ When replacing a molecule, the system automatically checks whether the replaceme
 
 | Function | Parameter | Default | Description |
 |---|---|---|---|
+| `translate_atom` | `atom_index` | required | Molecule-local atom index |
+| | `vector` | required | Displacement vector (3D) |
+| | `fractional` | `False` | Interpret vector as fractional coords |
 | `translate_molecule` | `vector` | required | Displacement vector (3D) |
 | | `fractional` | `False` | Interpret vector as fractional coords |
 | `rotate_molecule` | `axis` | required | Rotation axis (3D vector) |

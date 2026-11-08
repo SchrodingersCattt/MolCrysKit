@@ -56,8 +56,9 @@
 | Carve QM clusters | `ClusterCarver`, `carve_cluster` | crystal + seeds | `CrystalCluster` | [Tutorials](tutorials.md) |
 | Carve topology-preserving nanoclusters | `ImplicitShape`/`NanoShape`, `ImplicitShape.bfdh`, `NanoClusterCarver`, `carve_nanocluster` | crystal + implicit shape | non-periodic `MolecularCrystal` | [Tutorials](tutorials.md) |
 | Carve topology-preserving voids | `ImplicitShape`, `VoidCarver`, `carve_void` | crystal + implicit shape | periodic remainder, optionally removed cluster | [Tutorials](tutorials.md) |
-| Rotate bond fragments | `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal` | molecule/crystal + bond selection | new molecule/crystal | [Tutorials](tutorials.md) |
-| Edit molecules | `translate_molecule`, `rotate_molecule`, `replace_molecule` | crystal + molecule index | `MolecularCrystal` | [Tutorials](tutorials.md) |
+| Rotate bond fragments | `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal` | molecule/crystal + bond selection | new molecule/crystal | Explicit periodic bond records keep crystal-global endpoints and image shifts when the fragment crosses a cell face. [Tutorials](tutorials.md) |
+| Translate one atom | `translate_atom` | crystal + molecule-local atom + displacement | new crystal | Retains the input graph and explicit bond records (crystal-global endpoints and signed image shifts) and refreshes their vectors. No bond inference or relaxation. |
+| Edit molecules | `translate_molecule`, `rotate_molecule`, `replace_molecule` | crystal + molecule index | `MolecularCrystal` | Rigid translation and rotation preserve frame metadata, non-coordinate arrays, and explicit bond-record endpoints while refreshing bond vectors and invalidating coordinate-derived data; replacement may change composition. [Tutorials](tutorials.md) |
 | Analyze ring puckering | `puckering_coordinates`, `reconstruct_z_from_modes`, `find_ring_systems` | molecule + ordered ring / modes / molecule | coordinates / normal displacements / `list[RingSystem]` | source docstring |
 | Defects/desolvation | `generate_vacancy`, `remove_solvents` | crystal | `MolecularCrystal` | source docstring |
 | Interaction analysis | `find_hydrogen_bonds`, `find_pi_stacking`, `interaction_profile` | crystal | interaction records/profile | source docstring |
@@ -126,7 +127,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Bond fragments: `BondPartition`, `BondRotationError`, `BondNotFoundError`, `BondRotationSelectionError`, `RingBondRotationError`, `partition_at_bond`, `rotate_fragment_about_bond`, `rotate_fragment_in_crystal`
 - Perturb/rotate: `apply_gaussian_displacement_molecule`, `apply_gaussian_displacement_crystal`, `apply_directional_displacement`, `apply_random_rotation`, `rotate_molecule_at_center`, `rotate_molecule_at_com`
 - Chemical editing: `ChemicalAtomMapping`, `ChemicalEdit`, `CrystalEditSpec`, `CrystalInventory`, `PlacementPolicy`, `MoleculeInsertion`, `StoichiometryPolicy`, `PackingTransferPlan`, `CounterfactualStatus`, `CounterfactualResult`, `RelaxationProtocol`, `apply_chemical_edit`, `transfer_packing`, `periodic_clash_diagnostics`, `write_cf0`; see [placement, inventories, refusals and protocols](chemical_edit.md). These symbols are also lazy attributes of the top-level package.
-- Build/edit: `assemble_replica_supercell`, `create_supercell`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
+- Build/edit: `assemble_replica_supercell`, `create_supercell`, `translate_atom`, `translate_molecule`, `rotate_molecule`, `replace_molecule`, `MoleculeManipulator`, `MoleculeClashError`
 - Surface: `generate_topological_slab`, `TopologicalSlabGenerator`, `TerminationInfo`, `enumerate_terminations`, `generate_slabs_with_terminations`, `get_surface_basis`
 - Reorientation: `reorient_crystal`, `ReorientationInfo`
 - H/solvent/defects: `HydrogenCompleter`, `add_hydrogens`, `Desolvator`, `remove_solvents`, `VacancyGenerator`, `generate_vacancy`, `VoidCarver`, `carve_void`
