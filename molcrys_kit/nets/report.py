@@ -261,6 +261,7 @@ def _candidate_block(candidate, proposal, disorder_status, *, topology: bool, li
         "canonical_key": record.canonical_key,
         "conditional_on_disorder": disorder_status == "conditional",
         "coordination_census": record.to_dict()["coordination_census"],
+        "symbols": record.symbols.to_dict(),
         "components": [component.to_dict() for component in record.components],
     }
     if disorder_status == "conditional":

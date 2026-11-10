@@ -463,6 +463,7 @@ def test_tiling_duality_is_reported_and_a_missing_tiling_is_not_a_dual():
     assert row["equivalence"]["status"] == "isomorphic"
     assert row["equivalence"]["proof"] == "explicit_isomorphism"
     assert row["duality"]["status"] == "dual"
+    assert row["duality"]["witness"]["kind"] == "space_filling_tiling"
     assert row["embedding"]["reason"] == "same_candidate"
     mixed = site_graph_from_quotient(
         _graph(

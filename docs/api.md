@@ -30,7 +30,7 @@
 | Calibrate aromaticity geometry | `calibrate_aromaticity_geometry` | CSD-exported ring and bond observations | reviewable calibration snapshot with pair coverage and uncertainty bands | [Chemistry perception design](chemistry_perception_design.md) |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Adapt a periodic graph and measure its rank | `to_periodic_quotient_graph`, `periodic_rank`, `adapt_periodic_graph` | fragment graph, chemical entity, polyhedron network, or caller edges | immutable quotient graph and integer periodic rank | [Periodic quotient graphs](periodic-graph.md) |
-| Analyze periodic nets, linking, and duality | `build_periodic_site_graph`, `decompose_periodic_nets`, `analyze_periodic_net_system` | crystal plus node/edge/disorder policies, or an existing quotient graph | typed report `mck.net_topology/v1` with proof status | [Periodic net topology](net-topology.md) |
+| Analyze periodic nets, linking, and duality | `build_periodic_site_graph`, `decompose_periodic_nets`, `analyze_periodic_net_system`, `periodic_net_symbols` | crystal plus node/edge/disorder policies, an existing quotient graph, or a caller-supplied tiling | typed report `mck.net_topology/v1` with proof status, point and vertex symbols, and space-filling duality | [Periodic net topology](net-topology.md) |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
 | Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / OpenSMILES or MCK-LN | `LineNotation` / chemical entity | source docstring |
@@ -233,6 +233,7 @@ Material-agnostic net topology, linking, and duality on the shared quotient grap
 - Site graph: `EdgeProvenance`, `NodeProvenance`, `PeriodicSiteGraph`, `build_periodic_site_graph`, `site_graph_from_quotient`
 - Decomposition: `NetCandidate`, `NetDecomposition`, `NetProposal`, `decompose_periodic_nets`
 - Equivalence: `ComponentTopology`, `NetEquivalence`, `TopologyCharacterization`, `characterize_periodic_net`, `compare_periodic_nets`, `verify_topology_witness`
+- Symbols: `NetSymbols`, `NodeSymbols`, `periodic_net_symbols`
 - Embedding and duality: `LinkingAssessment`, `assess_linking`, `DualityAssessment`, `PeriodicTiling`, `TilingAdjacency`, `TilingFace`, `assess_duality`
 - Report: `SCHEMA`, `NetAnalysisLimits`, `NetTopologyReport`, `analyze_periodic_net_system`, `limits_from_mapping`
 
