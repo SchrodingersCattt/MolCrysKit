@@ -1171,7 +1171,9 @@ report = mck.analyze_periodic_net_system(site_graph)
 ```
 
 A candidate's `periodic_rank` is not its `quotient_cycle_rank`. Matching
-coordination sequences do not prove isomorphism. A link needs a linking-number
-witness, and a dual needs a tiling whose faces are cover cycles. With no
-tiling the duality status is `not_assessed`. The algorithm, the statuses, and
-the search limits are in [Periodic net topology](net-topology.md).
+coordination sequences, point symbols, or vertex symbols do not prove
+isomorphism. A link needs a linking-number witness. A dual needs a
+caller-supplied tiling that fills space, or a closed quotient surface, and
+the report keeps the primal-to-dual incidence. With no tiling the duality
+status is `not_assessed`. The algorithm, the statuses, and the search limits
+are in [Periodic net topology](net-topology.md).

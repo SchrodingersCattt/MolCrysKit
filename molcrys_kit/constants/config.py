@@ -444,6 +444,9 @@ NET_TOPOLOGY_CONFIG = {
     "RING_LENGTH_LIMIT": 8,
     "RING_COUNT_LIMIT": 64,
     "RING_STATE_LIMIT": 8000,
+    # Backtracking placements of one tile boundary. Hitting the cap does not
+    # prove that no space-filling tiling exists.
+    "TILING_ASSEMBLY_LIMIT": 20000,
     "LINK_PAIR_LIMIT": 256,
     "LINK_IMAGE_LIMIT": 32,
     "DISCOVERY_PARTITION_LIMIT": 8,

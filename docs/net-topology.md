@@ -28,7 +28,7 @@ Topology, embedding, and duality are separate fields.
 |---|---|---|
 | Same abstract net | `isomorphic` with `explicit_isomorphism`, or `non_isomorphic` with `invariant_mismatch` or `exhaustive_search` | `undetermined` |
 | Same embedding relation | `linked` with a linking-number witness, or `coexistence` with a separating interval or a finished acyclic search | `unverified` (including a finished search whose linking numbers are all zero), `not_detected_within_bounds`, `not_assessed` |
-| Dual nets | `dual` or `not_dual` from a validated tiling | `not_assessed` when no tiling was supplied, `undetermined` when the tiling or the comparison does not decide |
+| Dual nets | `dual` or `not_dual` from a space-filling tiling, or from a validated closed quotient surface | `not_assessed` when no tiling was supplied, `undetermined` when the tiling or the comparison does not decide |
 
 `invalid_or_indeterminate` means the inputs do not describe one realizable
 pair: overlapping labels, contradictory edges, disorder that was not reduced
@@ -204,7 +204,8 @@ The proof does not consult them and does not search a bounded set of
 Rank and a completed coordination census are negative tests. They can return
 `non_isomorphic` with proof `invariant_mismatch` even when the canonical
 budget is zero. They cannot return `isomorphic`. Point symbols and vertex
-symbols are not computed and are not part of the identity.
+symbols are reported beside the key. They are not part of the key, and a
+shared symbol is not an isomorphism.
 
 The same key is stable under relabeling, edge order, integer gauge, a
 unimodular change of basis, and an equivalent supercell. Several components
@@ -213,6 +214,33 @@ follow the order of the source node ids, so a relabel that changes which
 component is encountered first leaves the system key unchanged. A skew
 embedding does not change the quotient. Equal keys with different embeddings
 are allowed. Topology and catenation are independent.
+
+## Point and vertex symbols
+
+`periodic_net_symbols` reads rings on the periodic cover. At a vertex of
+degree `n` there are `n(n - 1) / 2` unordered pairs of distinct incident
+half-edges. The point symbol is the Wells symbol of the shortest simple cycle
+through each pair, written with exponents and sorted by ring size, such as
+`4^12.6^3`. The vertex symbol records that length and, as a subscript, how
+many distinct shortest cycles use the pair. Angles are sorted, so the result
+for the primitive cubic net is `4.4.4.4.4.4.4.4.4.4.4.4.6_4.6_4.6_4`. A
+subscript `1` is omitted. These are the combinatorial symbols of all edge
+pairs. They do not use a geometric angle order around an embedded vertex.
+
+The net signature is the multiset of `(point, vertex)` pairs with counts
+divided by their gcd. An equivalent supercell therefore compares equal. The
+same signature is stable under an integer gauge, a reordering of nodes or
+edges, and a unimodular change of basis. Degree less than 2 has an empty
+symbol and reason `no_angles`.
+
+A symbol is emitted only when every angle finishes inside the ring limits.
+If the shortest cycle is longer than `ring_length_limit`, or the search hits
+`ring_state_limit` or `ring_count_limit`, the status is `not_computed` and
+both strings are null. The missing angle is not written as infinity. A
+quotient larger than `canonical_node_limit` is outside this regime and has
+no symbol. The report still carries the canonical key when the isomorphism
+search finishes. Capping that search does not remove a symbol that was
+computed, and the symbol does not promote the status to `isomorphic`.
 
 ## Linking
 
@@ -266,30 +294,68 @@ A missing embedding is `not_assessed`.
 
 ## Duality
 
-`assess_duality` builds a dual only from a `PeriodicTiling` that passes a
-closed-surface certificate. Each face is an ordered cover cycle of the primal,
-and each adjacency names the face crossed from one tile to another. The
-certificate also requires a periodic primal, every declared face to be used
-once, every tile to be incident, every primal edge to lie in exactly two
-faces, and quotient Euler characteristic `V - E + F - T = 0`. Those counts
-are necessary and not sufficient. A lattice translate or a reversal of the
-same cycle is one face; repeating it is `duplicate_face`, not a second
-incidence. The adjacency shift must be the primitive lattice normal of that
-oriented face, or the opposite normal. Any other shift, including a tangential
-component or a longer step such as `(2, 0, 0)`, is
-`inconsistent_adjacency_shift`. The dual has one node per tile and one edge
-per adjacency, using those checked shifts. That dual is compared with the
-other net by `compare_periodic_nets`.
+`assess_duality` builds a dual only from a caller-supplied `PeriodicTiling`.
+Discovery does not invent tiles. With no tiling the status is `not_assessed`.
+The dual has one node per tile and one edge per face adjacency. It is compared
+with the other net by `compare_periodic_nets`. The witness lists each primal
+face, the two tiles, the shift, and the dual edge id, so the incidence can be
+read back. Coordination numbers, coordination sequences, complementary voids,
+and prototype names are not used.
 
-No tiling is supplied by discovery. The status is then `not_assessed`. An
-invalid face is `undetermined`. An open face list, a nonperiodic primal, a
-repeated face, a shift that is not the face normal, or a face pairing that
-fails the certificate is `undetermined`, not `dual`. A validated dual that is
-proved isomorphic to the other net is `dual`. A proved mismatch is `not_dual`.
-An unfinished isomorphism search is `undetermined`. This certificate is a
-closed quotient surface. It does not prove that a three-dimensional cell fills
-space; that input stays `incomplete_tiling`. Coordination numbers and
-coordination sequences are not used.
+Two certificates are separate.
+
+**Space-filling tiling.** This is the certificate that a periodic tiling fills
+Euclidean 3-space. It requires a connected rank-3 primal and a face whose
+edges lie in one lattice plane, with a primitive integer normal. Each tile is
+developed by matching cover edges until its boundary is a closed surface of
+Euler characteristic 2. The listed right-hand normal points out of the source
+tile and into the target tile. The developed faces must meet at the claimed
+shift: that is the primal-to-dual incidence, and it is checked in the cover
+rather than by equating the shift with the integer normal. A zero shift is
+allowed when two distinct tiles share a face inside one cell. A zero shift
+from a tile to itself is `inconsistent_adjacency_shift`. Each tile must be a
+convex ball, the link of every edge must be a single cycle of at least three
+faces, and the link of every vertex must be a sphere. Tile interiors are
+disjoint, and the volumes sum to the index of the translation lattice. The
+quotient Euler characteristic `V - E + F - T` is 0. The witness kind is
+`space_filling_tiling`. An edge may lie in any number of face orbits. A count
+other than two does not by itself reject the tiling.
+
+The primitive cubic tiling is self-dual under this certificate. In the
+quotient each edge lies in two face orbits, because opposite sides of a square
+are the same orbit, while four faces meet the edge in the cover. A pair of
+triangular prisms that fill the same cell is dual to its face graph. Their
+shared diagonal has shift zero, and each quotient edge lies in three face
+orbits. Both facts stay `dual` with a recoverable incidence. The same prism
+tiling compared with its own 1-skeleton, or with no tiling at all, is
+`not_dual` or `not_assessed`. Dropping a face is `incomplete_tiling`.
+
+A tiling that cannot be developed under the assembly cap is `undetermined`
+with reason `tiling_assembly_capped`. More than one inequivalent development,
+or more than eight combinations of tile developments, is
+`tiling_assembly_ambiguous`. Neither result is turned into a surface dual.
+The search does not certify a nonconvex tile; that input does not receive
+`space_filling_tiling`.
+
+**Closed quotient surface.** If the space-filling certificate does not apply
+and does not refuse the input, the older surface certificate still runs.
+Every declared face is a cover cycle used once, every tile is incident, every
+primal edge lies in exactly two face orbits, the quotient Euler characteristic
+is zero, and each adjacency shift is the primitive normal of its face or the
+opposite normal. A repeated cycle is `duplicate_face`. A shift such as
+`(2, 0, 0)` on a face whose normal is a different primitive vector is
+`inconsistent_adjacency_shift`. The witness kind is `tiling_dual`. This
+certificate does not claim that a three-dimensional cell fills space.
+
+An invalid face, an open face list, or a nonperiodic primal is `undetermined`,
+not `dual`. A validated dual that is proved isomorphic to the other net is
+`dual`. A proved mismatch is `not_dual`. An unfinished isomorphism search is
+`undetermined`. Reordering the faces, an integer gauge of the cover, a
+unimodular change of basis, and an equivalent supercell of the comparison net
+do not change a space-filling `dual` verdict. The basis change rewrites vertex
+images and adjacency shifts together. The shift is not required to stay equal
+to the integer cross product, because that cross product is not preserved by
+a shear.
 
 ## Command
 
@@ -328,7 +394,8 @@ instead of being rewritten into the last graph's frame.
 | `canonical_node_limit` | Largest quotient whose labeling is attempted. |
 | `backtrack_limit` | Cap on labelings times parallel-edge orders. |
 | `basis_entry_limit`, `lll_step_limit` | Stored only. Not used by the proof. |
-| `ring_length_limit`, `ring_count_limit`, `ring_state_limit` | Cover-cycle search. |
+| `ring_length_limit`, `ring_count_limit`, `ring_state_limit` | Cover-cycle search for linking and for point and vertex symbols. A cap leaves the symbol `not_computed`. |
+| `tiling_assembly_limit` | Placements tried while developing one tile boundary. Reaching it is `tiling_assembly_capped`, not a dual and not a proof that no tiling exists. |
 | `link_pair_limit` | Maximum cycle pairs whose linking number is computed. Reaching it is a cap. |
 | `link_image_limit` | Chebyshev bound on cover images and on the relative translation between two embeddings. Leaving the window is a cap. |
 | `discovery_partition_limit` | Largest orbit-group count and the largest number of extra orbit merges that are returned. |
@@ -340,7 +407,9 @@ Packaged values live in `NET_TOPOLOGY_CONFIG`.
 ## Out of scope
 
 This analysis does not assign database or prototype names, choose a unique
-net when the evidence is ambiguous, discover a tiling, or draw the embedding.
-Energies, force fields, and synthesis are out of scope. A three-dimensional
-rank is not an identification. A search that stops at a cap is not a negative
-proof.
+net when the evidence is ambiguous, discover a tiling from the crystal, or
+draw the embedding. The caller supplies any tiling. Energies, force fields,
+and synthesis are out of scope. A three-dimensional rank is not an
+identification. A search that stops at a cap is not a negative proof. A
+nonconvex tile and a ring longer than the length limit stay uncertified
+instead of receiving an invented symbol or a space-filling dual.
