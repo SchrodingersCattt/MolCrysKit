@@ -13,6 +13,12 @@ heteroatom in a mancude ring. A ring that is revisited still produces the
 ordinary duplicate node. Sequence rules 3--5, unresolved bond orders, and any
 other digraph the engine cannot rank stay indeterminate: a non-CIP ordering
 is not published as ``R``/``S``.
+
+An explicit OpenSMILES ``@``/``@@`` token is read in notation-neighbour
+order. A bracket hydrogen occupies the slot immediately after the atomic
+symbol: after the from-atom, or first when the chiral atom starts the
+string. Directional ``/`` and ``\\`` bonds are compared after both markers
+point away from the double bond, so an equivalent traversal keeps E/Z.
 """
 
 from __future__ import annotations
@@ -189,13 +195,24 @@ def _assign_tetrahedral_center(
     recorded = _chiral_neighbor_order(center)
     if recorded:
         known = {atom_id for atom_id, _ in explicit_ligands}
-        ligand_ids = [atom_id for atom_id in recorded if atom_id in known]
+        # A bracket hydrogen is part of the OpenSMILES neighbour order. The
+        # parser records it as ``<atom-id>:implicit-H`` at the notation slot
+        # (after the from-atom, or first when the chiral atom starts the
+        # string). Dropping that slot and appending the hydrogen would reverse
+        # an equivalent traversal.
+        ligand_ids = [
+            atom_id
+            for atom_id in recorded
+            if atom_id in known or atom_id.endswith(":implicit-H")
+        ]
         ligand_ids.extend(
             atom_id for atom_id, _ in explicit_ligands if atom_id not in ligand_ids
         )
     else:
         ligand_ids = [atom_id for atom_id, _ in explicit_ligands]
-    if implicit_count:
+    if implicit_count and not any(
+        atom_id.endswith(":implicit-H") for atom_id in ligand_ids
+    ):
         ligand_ids.append(f"{center.atom_id}:implicit-H")
     try:
         priorities = [
@@ -344,9 +361,10 @@ def _assign_double_bond(
     # senior. Atom-id order is not chemical, and an unsymmetric acid otherwise
     # stores E/Z on opposite ends of two equivalent writings.
     center_id = left_id if left_top >= right_top else right_id
-    # Slash/backslash markers on the two adjacent single bonds encode the
-    # relative side of the highest-priority ligands.  Equal markers are E,
-    # opposite markers are Z (the OpenSMILES direction convention).
+    # Directional bonds are stored in the direction they were written. Each
+    # marker is turned to point from the alkene atom out to its ligand before
+    # the two sides are compared, so a reversed traversal does not flip E/Z.
+    # Opposite outward markers are trans (E); equal outward markers are cis (Z).
     explicit = _explicit_double_bond_descriptor(
         left_id,
         right_id,
@@ -469,23 +487,31 @@ def _explicit_ligand_priority(ligand_id, atoms):
     return ((atomic_numbers.get(_normal_element(element), 0),), ((isotope or 0),),)
 
 
+def _outward_marker(bond: ChemicalBond, alkene_id: str) -> str:
+    """Return a slash as seen looking from the alkene atom toward the ligand."""
+    marker = bond.stereochemistry or ""
+    if bond.atom2_id == alkene_id:
+        return "\\" if marker == "/" else "/"
+    return marker
+
+
 def _explicit_double_bond_descriptor(left_id, right_id, adjacency):
     """Return E/Z when both alkene-side directional tokens are explicit."""
     left_markers = [
-        bond.stereochemistry
+        _outward_marker(bond, left_id)
         for neighbor, bond in adjacency.get(left_id, ())
         if neighbor != right_id and bond.stereochemistry in {"/", "\\"}
     ]
     right_markers = [
-        bond.stereochemistry
+        _outward_marker(bond, right_id)
         for neighbor, bond in adjacency.get(right_id, ())
         if neighbor != left_id and bond.stereochemistry in {"/", "\\"}
     ]
     if not left_markers or not right_markers:
         return None
-    same = left_markers[0] == right_markers[0]
+    opposite = left_markers[0] != right_markers[0]
     return (
-        ("E" if same else "Z"),
+        ("E" if opposite else "Z"),
         "resolved from explicit OpenSMILES slash/backslash directional bonds",
     )
 

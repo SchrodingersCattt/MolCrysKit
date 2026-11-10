@@ -956,10 +956,12 @@ def _analyze_formamide(entity, atoms, adj):
         if not subs:
             continue
         subs_sorted = sorted(subs)
-        if subs_sorted == ["methyl", "methyl"]:
-            body = "N,N-dimethyl"
-        elif subs_sorted == ["ethyl", "ethyl"]:
-            body = "N,N-diethyl"
+        if (
+            len(subs_sorted) == 2
+            and subs_sorted[0] == subs_sorted[1]
+            and subs_sorted[0] != "hydroxymethyl"
+        ):
+            body = f"N,N-di{subs_sorted[0]}"
         elif subs_sorted == ["hydroxymethyl", "methyl"]:
             body = "N-(hydroxymethyl)-N-methyl"
         else:
@@ -1799,6 +1801,20 @@ def _stem_count(stem: str) -> int | None:
     return None
 
 
+def _alkyl_count(word: str) -> int | None:
+    """Carbon count of an unbranched alkyl word (``propyl``, ``pentyl``)."""
+    if not word.endswith("yl") or len(word) < 4:
+        return None
+    return _stem_count(word[:-2])
+
+
+def _alkane_count(word: str) -> int | None:
+    """Carbon count of an unbranched alkane word (``propane``, ``pentane``)."""
+    if not word.endswith("ane") or len(word) < 5:
+        return None
+    return _stem_count(word[:-3])
+
+
 def _read_matching(text: str, index: int, opener: str, closer: str):
     if text[index] != opener:
         return None
@@ -1846,6 +1862,15 @@ def _read_prefixes(text: str):
         if text.startswith("-") and len(text) > 1 and text[1].isdigit():
             text = text[1:]
     return prefixes, text
+
+
+def _attach_n_alkyl(build: _Build, nitrogen: str, count: int) -> None:
+    """Attach an unbranched N-alkyl chain of ``count`` carbons."""
+    current = nitrogen
+    for _index in range(count):
+        carbon = build.fresh("C")
+        build.bond(current, carbon)
+        current = carbon
 
 
 def _add_chain(build: _Build, count: int, orders: dict[int, float] | None = None):
@@ -2272,36 +2297,48 @@ def _parse_special_name(name: str):
             build.bond("C1", build.fresh("Cl"))
         return build.entity(name)
     peroxide = re.fullmatch(
-        r"(\(trichloromethyl\)|methyl|ethyl|trichloromethyl)(peroxyl| hydroperoxide)",
+        r"(?:\((?P<wrapped>[a-z]+)\)|(?P<bare>[a-z]+))(?P<kind>peroxyl| hydroperoxide)",
         name,
     )
     if peroxide:
-        label, kind = peroxide.group(1).strip("()"), peroxide.group(2)
-        carbon = build.atom("C1", "C")
-        inner = build.fresh("O")
-        outer = build.fresh("O", radical=1 if kind == "peroxyl" else 0)
-        build.bond(carbon, inner)
-        build.bond(inner, outer)
-        if label == "ethyl":
-            build.bond(carbon, build.fresh("C"))
-        if label == "trichloromethyl":
-            for _index in range(3):
-                build.bond(carbon, build.fresh("Cl"))
-        return build.entity(name)
-    isocyanate = re.fullmatch(r"(methyl|ethyl) isocyanate", name)
+        label = peroxide.group("wrapped") or peroxide.group("bare")
+        kind = peroxide.group("kind")
+        alkyl_count = None if label == "trichloromethyl" else _alkyl_count(label)
+        if label == "trichloromethyl" or alkyl_count is not None:
+            carbon = build.atom("C1", "C")
+            inner = build.fresh("O")
+            outer = build.fresh("O", radical=1 if kind == "peroxyl" else 0)
+            build.bond(carbon, inner)
+            build.bond(inner, outer)
+            if label == "trichloromethyl":
+                for _index in range(3):
+                    build.bond(carbon, build.fresh("Cl"))
+            else:
+                if alkyl_count is None:
+                    return None
+                current = carbon
+                for _index in range(alkyl_count - 1):
+                    nxt = build.fresh("C")
+                    build.bond(current, nxt)
+                    current = nxt
+            return build.entity(name)
+    isocyanate = re.fullmatch(r"([a-z]+) isocyanate", name)
     if isocyanate:
-        count = 1 if isocyanate.group(1) == "methyl" else 2
-        _add_chain(build, count)
-        carbon = build.fresh("C")
-        nitrogen = build.fresh("N")
-        oxygen = build.fresh("O")
-        build.bond("C1", nitrogen)
-        build.bond(nitrogen, carbon, 2.0)
-        build.bond(carbon, oxygen, 2.0)
-        return build.entity(name)
+        count = _alkyl_count(isocyanate.group(1))
+        if count is not None:
+            _add_chain(build, count)
+            carbon = build.fresh("C")
+            nitrogen = build.fresh("N")
+            oxygen = build.fresh("O")
+            build.bond("C1", nitrogen)
+            build.bond(nitrogen, carbon, 2.0)
+            build.bond(carbon, oxygen, 2.0)
+            return build.entity(name)
     formamide = re.fullmatch(
-        r"n,n-dimethylformamide|n,n-diethylformamide|n-methylformamide|n-ethylformamide|"
-        r"n-\(hydroxymethyl\)formamide|n-\(hydroxymethyl\)-n-methylformamide",
+        r"n,n-di([a-z]+)formamide"
+        r"|n-\(hydroxymethyl\)-n-methylformamide"
+        r"|n-\(hydroxymethyl\)formamide"
+        r"|n-([a-z]+)formamide",
         name.lower(),
     )
     if formamide:
@@ -2311,15 +2348,11 @@ def _parse_special_name(name: str):
         build.bond(carbon, oxygen, 2.0)
         build.bond(carbon, nitrogen)
         lowered = name.lower()
-        if "n,n-dimethyl" in lowered:
-            build.bond(nitrogen, build.fresh("C"))
-            build.bond(nitrogen, build.fresh("C"))
-        elif "n,n-diethyl" in lowered:
-            for _index in range(2):
-                first = build.fresh("C")
-                second = build.fresh("C")
-                build.bond(nitrogen, first)
-                build.bond(first, second)
+        dialkyl = re.fullmatch(r"n,n-di([a-z]+)formamide", lowered)
+        monoalkyl = re.fullmatch(r"n-([a-z]+)formamide", lowered)
+        if dialkyl and _alkyl_count(dialkyl.group(1)) is not None:
+            _attach_n_alkyl(build, nitrogen, _alkyl_count(dialkyl.group(1)))
+            _attach_n_alkyl(build, nitrogen, _alkyl_count(dialkyl.group(1)))
         elif "n-(hydroxymethyl)-n-methyl" in lowered:
             methylene = build.fresh("C")
             build.bond(nitrogen, methylene)
@@ -2329,44 +2362,42 @@ def _parse_special_name(name: str):
             methylene = build.fresh("C")
             build.bond(nitrogen, methylene)
             build.bond(methylene, build.fresh("O"))
-        elif "n-ethyl" in lowered:
-            first = build.fresh("C")
-            second = build.fresh("C")
-            build.bond(nitrogen, first)
-            build.bond(first, second)
+        elif monoalkyl and _alkyl_count(monoalkyl.group(1)) is not None:
+            _attach_n_alkyl(build, nitrogen, _alkyl_count(monoalkyl.group(1)))
         else:
-            build.bond(nitrogen, build.fresh("C"))
+            return None
         return build.entity(name)
-    sulfur = re.fullmatch(
-        r"\(((?:methyl|ethyl)sulfanyl|(?:methane|ethane)(?:sulfinyl|sulfonyl))\)(methane|ethane)",
-        name,
-    )
+    sulfur = re.fullmatch(r"\(([a-z]+)\)([a-z]+)", name)
     if sulfur:
         inner, parent = sulfur.groups()
         if inner.endswith("sulfanyl"):
-            left_count = {"methyl": 1, "ethyl": 2}[inner[: -len("sulfanyl")]]
+            left_count = _alkyl_count(inner[: -len("sulfanyl")])
             kind_name = "sulfide"
         elif inner.endswith("sulfinyl"):
-            left_count = {"methane": 1, "ethane": 2}[inner[: -len("sulfinyl")]]
+            left_count = _alkane_count(inner[: -len("sulfinyl")])
             kind_name = "sulfinyl"
-        else:
-            left_count = {"methane": 1, "ethane": 2}[inner[: -len("sulfonyl")]]
+        elif inner.endswith("sulfonyl"):
+            left_count = _alkane_count(inner[: -len("sulfonyl")])
             kind_name = "sulfonyl"
-        right_count = {"methane": 1, "ethane": 2}[parent]
-        _add_chain(build, right_count)
-        sulfur_id = build.fresh("S")
-        build.bond("C1", sulfur_id)
-        current = sulfur_id
-        for _index in range(left_count):
-            carbon = build.fresh("C")
-            build.bond(current, carbon)
-            current = carbon
-        if kind_name == "sulfinyl":
-            build.bond(sulfur_id, build.fresh("O"), 2.0)
-        elif kind_name == "sulfonyl":
-            build.bond(sulfur_id, build.fresh("O"), 2.0)
-            build.bond(sulfur_id, build.fresh("O"), 2.0)
-        return build.entity(name)
+        else:
+            left_count = None
+            kind_name = ""
+        right_count = _alkane_count(parent)
+        if left_count is not None and right_count is not None:
+            _add_chain(build, right_count)
+            sulfur_id = build.fresh("S")
+            build.bond("C1", sulfur_id)
+            current = sulfur_id
+            for _index in range(left_count):
+                carbon = build.fresh("C")
+                build.bond(current, carbon)
+                current = carbon
+            if kind_name == "sulfinyl":
+                build.bond(sulfur_id, build.fresh("O"), 2.0)
+            elif kind_name == "sulfonyl":
+                build.bond(sulfur_id, build.fresh("O"), 2.0)
+                build.bond(sulfur_id, build.fresh("O"), 2.0)
+            return build.entity(name)
     halo = re.fullmatch(r"(di|tri|tetra)?(fluoro|chloro|bromo|iodo)methane", name)
     if halo:
         build.atom("C1", "C")
