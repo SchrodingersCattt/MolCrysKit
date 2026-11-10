@@ -35,6 +35,14 @@ returns one network per local alternative and does not assemble a joint
 configuration of the crystal. Species labels are assigned on the masked graph
 of that replica, in the ``formula_k`` style used by
 :class:`~molcrys_kit.analysis.stoichiometry.StoichiometryAnalyzer`.
+
+Centres are the geometric centroid, centre of mass, or heavy-atom centroid
+of one unwrapped molecular image. Atoms stored across a cell face are joined
+along bonds before the average, with the first active atom kept fixed. A
+wrapped molecule that cannot be unwrapped raises ``ValueError``. An already
+contiguous molecule is averaged as stored. Shifting the crystal origin and
+wrapping molecules back into the cell keeps component rank, contact
+relations, and the Cartesian image-shift geometry.
 """
 
 from __future__ import annotations
@@ -2077,6 +2085,12 @@ def molecular_polyhedron_network(
     and ``search_cutoff`` are the candidate radius; ``hard_cutoff`` fills that
     ball instead of using the gap. Ligand vertices always use the major
     disorder component. The centre follows ``disorder_policy``.
+
+    ``center_kind`` is evaluated on one unwrapped image of each molecule.
+    Coordinates that cross a cell face are joined along bonds before the
+    centroid, centre of mass, or heavy-atom centroid is taken. The first
+    active atom stays fixed. A wrapped molecule that cannot be unwrapped
+    raises ``ValueError``.
 
     ``major`` returns one network. Its status is ``resolved`` when the kept
     realization is unique and fully occupied, and ``tie_broken`` when equal
