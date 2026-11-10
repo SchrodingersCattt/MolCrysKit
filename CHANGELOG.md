@@ -50,6 +50,14 @@
 - Nuclide locants on an unsubstituted alkane follow the chain.
   `(1,3-13C2)propane`, `(2-13C)propane`, and `(1,4-13C2)butane` are not
   rewritten as a different isotopologue.
+- OpenSMILES `@`/`@@` keeps a bracket hydrogen in notation-neighbour order,
+  and directional bonds are compared after both slashes point outward.
+  Equivalent traversals therefore keep one `R`/`S` or `E`/`Z` name.
+- N-alkyl formamides, alkyl isocyanates, alkyl hydroperoxides and peroxyls,
+  and dialkyl sulfur links use the alkane stem table in both directions
+  (`N-propylformamide`, `(butylsulfanyl)pentane`, `hexyl hydroperoxide`).
+- Substitutive fragment naming reuses one CIP assignment per entity. Peptide-sized
+  graphs no longer repeat that assignment once per substituent.
 
 ### Notes
 

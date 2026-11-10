@@ -440,6 +440,16 @@ def _read_opensmiles(text: str) -> FiniteChemicalEntity:
             note(current, atom.atom_id)
             note(atom.atom_id, current)
         current = atom.atom_id
+        # OpenSMILES writes a bracket hydrogen immediately after the atomic
+        # symbol: after the from-atom when the string arrived from a previous
+        # atom, and first when the chiral atom starts the string. Ring digits
+        # and branches are recorded after this call, so they stay behind it.
+        if (
+            bracketed
+            and atom.stereochemistry in {"@", "@@"}
+            and atom.implicit_hydrogens == 1
+        ):
+            note(atom.atom_id, f"{atom.atom_id}:implicit-H")
         pending_bond = None
 
     while index < len(text):
