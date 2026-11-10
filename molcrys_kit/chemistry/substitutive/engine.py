@@ -772,13 +772,31 @@ def _consume_fragment(atoms, adj, root, blocked, consumed):
         stack.extend(neighbor for neighbor in _neighbors(adj, atoms, node, blocked) if neighbor not in consumed)
 
 
+# One CIP report per live entity. Fragment naming asks for the same graph
+# once per substituent, and a peptide-sized graph was repeating that work
+# hundreds of times. The stored object identity keeps a recycled ``id`` from
+# answering for a different entity.
+_STEREO_REPORTS: dict[int, tuple[object, object]] = {}
+
+
+def _stereo_report(entity):
+    cached = _STEREO_REPORTS.get(id(entity))
+    if cached is not None and cached[0] is entity:
+        return cached[1]
+    from ..stereo import assign_stereochemistry
+
+    report = assign_stereochemistry(entity)
+    if len(_STEREO_REPORTS) > 16:
+        _STEREO_REPORTS.clear()
+    _STEREO_REPORTS[id(entity)] = (entity, report)
+    return report
+
+
 def _local_stereo(entity, atom_id):
     atom = next(item for item in entity.atoms if item.atom_id == atom_id)
     if atom.stereochemistry not in {"@", "@@"}:
         return None
-    from ..stereo import assign_stereochemistry
-
-    report = assign_stereochemistry(entity)
+    report = _stereo_report(entity)
     found = next((item for item in report.descriptors if item.center_atom_id == atom_id), None)
     if found is None or found.descriptor not in {"R", "S"}:
         return None

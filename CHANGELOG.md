@@ -56,6 +56,8 @@
 - N-alkyl formamides, alkyl isocyanates, alkyl hydroperoxides and peroxyls,
   and dialkyl sulfur links use the alkane stem table in both directions
   (`N-propylformamide`, `(butylsulfanyl)pentane`, `hexyl hydroperoxide`).
+- Substitutive fragment naming reuses one CIP assignment per entity. Peptide-sized
+  graphs no longer repeat that assignment once per substituent.
 
 ### Notes
 
