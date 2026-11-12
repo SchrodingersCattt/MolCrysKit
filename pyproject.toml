@@ -25,7 +25,11 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.18.0",
+    "scipy>=1.4.0",
     "networkx>=2.5.0",
+    "ase>=3.26.0",
+    "pymatgen>=2022.0.3",
+    "spglib>=2.5",
     "click>=8.0,<9",
 ]
 
@@ -33,6 +37,9 @@ dependencies = [
 mck = "molcrys_kit.cli:main"
 
 [project.optional-dependencies]
+# Compatibility alias: these packages are also in the default dependencies, so
+# desktop installs are unchanged. Android/phone builds install with
+# ``pip install --no-deps`` and supply NumPy + NetworkX only.
 desktop = [
     "scipy>=1.4.0",
     "ase>=3.26.0",

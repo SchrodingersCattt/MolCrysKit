@@ -84,6 +84,12 @@ All dependencies are declared in `pyproject.toml` (there is no separate
 So a contributor environment is `pip install -e ".[dev]"` and a CI / minimal
 test environment is `pip install -e ".[test]"`.
 
+The default install keeps the desktop stack (SciPy, ASE, pymatgen, spglib); the
+`[desktop]` extra is a compatibility alias for the same packages. Constrained
+targets such as the Android build install with `pip install --no-deps` and
+provide only NumPy and NetworkX; the CIF reader and special-position
+disorder clustering have NumPy-only paths for that profile.
+
 ### Optional separate formatting commit
 
 In an activated `[dev]` environment, run `pre-commit install --hook-type

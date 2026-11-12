@@ -38,6 +38,13 @@ def _parse_blocks(text: str) -> dict:
                 while index < len(tokens) and tokens[index].startswith("_"):
                     tags.append(tokens[index].lower())
                     index += 1
+                if not tags:
+                    # Without column tags no value can be consumed, so the
+                    # value loop below would never advance.
+                    raise ValueError(
+                        f"Malformed CIF: loop_ in data block {name!r} has no "
+                        "column tags (expected '_tag' names after 'loop_')"
+                    )
                 columns = [[] for _ in tags]
                 while index < len(tokens) and _is_loop_value(tokens[index]):
                     for column in columns:

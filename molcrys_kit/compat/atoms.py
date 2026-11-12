@@ -106,6 +106,19 @@ class Atoms:
     def get_chemical_symbols(self) -> list[str]:
         return list(self._symbols)
 
+    def get_masses(self) -> np.ndarray:
+        """Per-atom masses in amu; an explicit ``masses`` array takes priority."""
+        if "masses" in self.arrays:
+            return np.asarray(self.arrays["masses"], dtype=float)
+        from ..constants import ATOMIC_MASSES
+
+        return np.array(
+            [ATOMIC_MASSES.get(symbol, 0.0) for symbol in self._symbols], dtype=float
+        )
+
+    def set_masses(self, masses) -> None:
+        self.set_array("masses", np.asarray(masses, dtype=float))
+
     def get_positions(self) -> np.ndarray:
         return self._positions
 
