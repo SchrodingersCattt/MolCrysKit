@@ -31,6 +31,7 @@ class Atoms:
         self,
         symbols=None,
         positions=None,
+        scaled_positions=None,
         numbers=None,
         cell=None,
         pbc=False,
@@ -56,14 +57,17 @@ class Atoms:
             symbols = [_SYMBOLS.get(int(number), "X") for number in numbers]
         symbols = list(symbols or [])
         count = len(symbols)
+        self._symbols = list(symbols)
+        self._cell = np.zeros((3, 3), dtype=float) if cell is None else np.asarray(cell, dtype=float).reshape(3, 3).copy()
+        if scaled_positions is not None:
+            fractional = np.asarray(scaled_positions, dtype=float).reshape(count, 3)
+            positions = fractional @ self._cell
         if positions is None:
             positions = np.zeros((count, 3), dtype=float)
         self._positions = np.asarray(positions, dtype=float).reshape(count, 3).copy()
         self._numbers = np.array(
             [_ATOMIC_NUMBERS.get(symbol, 0) for symbol in symbols], dtype=int
         )
-        self._symbols = list(symbols)
-        self._cell = np.zeros((3, 3), dtype=float) if cell is None else np.asarray(cell, dtype=float).reshape(3, 3).copy()
         if isinstance(pbc, bool):
             self._pbc = np.array([pbc, pbc, pbc], dtype=bool)
         else:
@@ -118,6 +122,17 @@ class Atoms:
 
     def get_cell(self) -> np.ndarray:
         return self._cell
+
+    @property
+    def cell(self) -> np.ndarray:
+        return self._cell
+
+    @cell.setter
+    def cell(self, value) -> None:
+        self._cell = np.asarray(value, dtype=float).reshape(3, 3).copy()
+
+    def set_cell(self, cell) -> None:
+        self.cell = cell
 
     def get_pbc(self) -> np.ndarray:
         return self._pbc
