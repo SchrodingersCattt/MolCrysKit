@@ -17,13 +17,20 @@ import numpy as np
 import networkx as nx
 from dataclasses import dataclass
 
-from pymatgen.io.cif import CifParser
-from pymatgen.core.operations import SymmOp
-from pymatgen.core.lattice import Lattice
-from pymatgen.symmetry.groups import SpaceGroup
+try:
+    from pymatgen.io.cif import CifParser
+    from pymatgen.core.operations import SymmOp
+    from pymatgen.core.lattice import Lattice
+    from pymatgen.symmetry.groups import SpaceGroup
+except ImportError:  # phone / minimal install
+    from ..compat.cifparse import CifParser
+    from ..compat.symmetry import Lattice, SpaceGroup, SymmOp
 
-from ase import Atoms
-from ase.neighborlist import neighbor_list
+try:
+    from ase import Atoms
+    from ase.neighborlist import neighbor_list
+except ImportError:  # phone / minimal install
+    from ..compat.atoms import Atoms, neighbor_list
 
 from ..structures.molecule import CrystalMolecule, _refresh_contiguous_bond_geometry
 from ..structures.crystal import MolecularCrystal
@@ -468,7 +475,7 @@ def _build_molecule_graph(
     if len(atoms) == 0 or bond_scale <= 0:
         return crystal_graph
 
-    from ..analysis.interactions import get_bonding_threshold
+    from ..analysis.interactions.bonding import get_bonding_threshold
     from ..structures.connectivity import classify_bond_role
 
     unique_symbols = sorted(set(symbols))

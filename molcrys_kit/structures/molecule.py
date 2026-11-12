@@ -10,8 +10,11 @@ import numpy as np
 from typing import TYPE_CHECKING, Tuple
 import networkx as nx
 
-from ase import Atoms
-from ase.neighborlist import neighbor_list
+try:
+    from ase import Atoms
+    from ase.neighborlist import neighbor_list
+except ImportError:  # phone / minimal install
+    from ..compat.atoms import Atoms, neighbor_list
 
 from ..constants import (
     get_atomic_radius,
@@ -322,7 +325,7 @@ class CrystalMolecule(Atoms):
             return
 
         # Import locally to avoid circular imports
-        from ..analysis.interactions import get_bonding_threshold
+        from ..analysis.interactions.bonding import get_bonding_threshold
 
         # 1. Build a temporary connectivity graph considering PBC
         i_list, j_list, d_list, D_vectors = neighbor_list(
@@ -415,7 +418,7 @@ class CrystalMolecule(Atoms):
                 has_atomic_radius,
                 is_metal_element,
             )
-            from ..analysis.interactions import get_bonding_threshold
+            from ..analysis.interactions.bonding import get_bonding_threshold
 
             radii = [
                 get_atomic_radius(s) if has_atomic_radius(s) else 0.5 for s in symbols
