@@ -17,13 +17,20 @@ import numpy as np
 import networkx as nx
 from dataclasses import dataclass
 
-from pymatgen.io.cif import CifParser
-from pymatgen.core.operations import SymmOp
-from pymatgen.core.lattice import Lattice
-from pymatgen.symmetry.groups import SpaceGroup
+try:
+    from pymatgen.io.cif import CifParser
+    from pymatgen.core.operations import SymmOp
+    from pymatgen.core.lattice import Lattice
+    from pymatgen.symmetry.groups import SpaceGroup
+except ImportError:  # phone / minimal install
+    from ..compat.cifparse import CifParser
+    from ..compat.symmetry import Lattice, SpaceGroup, SymmOp
 
-from ase import Atoms
-from ase.neighborlist import neighbor_list
+try:
+    from ase import Atoms
+    from ase.neighborlist import neighbor_list
+except ImportError:  # phone / minimal install
+    from ..compat.atoms import Atoms, neighbor_list
 
 from ..structures.molecule import CrystalMolecule, _refresh_contiguous_bond_geometry
 from ..structures.crystal import MolecularCrystal
@@ -68,7 +75,7 @@ def _clean_space_group_token(value) -> Optional[str]:
 
 def _parse_space_group_number(data_block: dict) -> Optional[int]:
     for tag in ("_space_group_IT_number", "_symmetry_Int_Tables_number"):
-        token = _clean_space_group_token(data_block.get(tag))
+        token = _clean_space_group_token(_cif_block_value(data_block, tag))
         if token is None:
             continue
         try:
@@ -93,7 +100,7 @@ def _declared_space_group(data_block: dict) -> Optional[SpaceGroup]:
             pass
 
     for tag in ("_space_group_name_H-M_alt", "_symmetry_space_group_name_H-M"):
-        name = _clean_space_group_token(data_block.get(tag))
+        name = _clean_space_group_token(_cif_block_value(data_block, tag))
         if name is None:
             continue
         for variant in _space_group_name_variants(name):
@@ -468,7 +475,7 @@ def _build_molecule_graph(
     if len(atoms) == 0 or bond_scale <= 0:
         return crystal_graph
 
-    from ..analysis.interactions import get_bonding_threshold
+    from ..analysis.interactions.bonding import get_bonding_threshold
     from ..structures.connectivity import classify_bond_role
 
     unique_symbols = sorted(set(symbols))
@@ -1330,24 +1337,93 @@ def _clean_species_string(species_string: str) -> str:
     return element_match.group(0) if element_match else cleaned
 
 
-def _extract_formula_moiety(parser: CifParser) -> Optional[str]:
-    """Extract the raw _chemical_formula_moiety field from pymatgen's CIF data."""
+class _CaseInsensitiveBlock(dict):
+    """CIF data block whose data-name lookups ignore case.
+
+    CIF data names are case-insensitive.  Pymatgen keeps the spelling from the
+    file while the lightweight parser lower-cases names, so equal files would
+    expose different keys on desktop and phone.  Lookups (``[]``, ``get``,
+    ``in``) therefore try the exact spelling first and then the first
+    case-insensitive match; iteration still yields the stored names.
+    """
+
+    def _resolve(self, key):
+        if dict.__contains__(self, key) or not isinstance(key, str):
+            return key
+        folded = key.casefold()
+        for stored in dict.keys(self):
+            if isinstance(stored, str) and stored.casefold() == folded:
+                return stored
+        return key
+
+    def __getitem__(self, key):
+        return dict.__getitem__(self, self._resolve(key))
+
+    def __contains__(self, key):
+        return dict.__contains__(self, self._resolve(key))
+
+    def get(self, key, default=None):
+        return dict.get(self, self._resolve(key), default)
+
+
+def _first_data_block(parser) -> dict:
+    """Return the first parsed data block with case-insensitive lookups."""
+    cif_data = parser.as_dict()
+    if not cif_data:
+        raise ValueError("CIF contains no data blocks")
+    return _CaseInsensitiveBlock(cif_data[next(iter(cif_data))])
+
+
+def _cif_block_value(data_block, tag: str):
+    """Return a data-block value by CIF data name, ignoring case.
+
+    Works on plain dictionaries as well as :class:`_CaseInsensitiveBlock`.  An
+    exact spelling wins; otherwise the first case-insensitive match is used.
+    Returns ``None`` when the tag is absent.
+    """
     try:
-        cif_data = getattr(parser, "_cif")
-        blocks = list(cif_data.data.values())
-        if not blocks:
-            return None
-
-        block = blocks[0]
-        data = getattr(block, "data", block)
-        value = data.get("_chemical_formula_moiety")
-        if value is None:
-            return None
-
-        value = str(value).strip()
-        return value or None
-    except (AttributeError, KeyError, IndexError, TypeError):
+        if not isinstance(data_block, _CaseInsensitiveBlock):
+            data_block = _CaseInsensitiveBlock(data_block)
+        return data_block.get(tag)
+    except (AttributeError, TypeError, ValueError):
         return None
+
+
+def _extract_formula_moiety(data_block) -> Optional[str]:
+    """Return ``_chemical_formula_moiety`` from an already parsed data block.
+
+    Works on the dictionary produced by ``parser.as_dict()`` for either the
+    pymatgen or the lightweight parser, so it never touches parser internals.
+    Missing, empty, ``?`` and ``.`` values all mean "no moiety" (``None``).
+    Whitespace (including line breaks of a semicolon text field) is normalized
+    to single spaces here only, so the pymatgen and lightweight readers agree
+    without the lightweight parser reformatting other text fields.
+    """
+    text = _clean_cif_text_value(
+        _cif_block_value(data_block, "_chemical_formula_moiety")
+    )
+    return None if text is None else " ".join(text.split())
+
+
+def _parse_cell_formula_units_z(raw_value) -> Optional[int]:
+    """Parse ``_cell_formula_units_Z`` into a positive integer or ``None``.
+
+    Accepts CIF numbers with a standard uncertainty (``4(1)``) and integral
+    spellings such as ``4.0``.  Missing/unknown (``?``/``.``), non-numeric,
+    non-integral (e.g. refinement artefacts such as ``0.99984``), zero and
+    negative values are invalid and yield ``None`` so that formula-based
+    stoichiometry filtering is skipped rather than driven by a bogus count.
+    """
+    value = _clean_cif_text_value(raw_value)
+    if value is None:
+        return None
+    parsed = _parse_cif_number_with_su(value)
+    if parsed is None or parsed["value"] is None:
+        return None
+    number = parsed["value"]
+    if not np.isfinite(number) or number < 1 or not float(number).is_integer():
+        return None
+    return int(number)
 
 
 def _extract_numeric_value(value_str: str) -> float:
@@ -1845,7 +1921,9 @@ def _crystal_symmetry_from_data_block(
         int(declared_sg.int_number) if declared_sg is not None else None
     )
     space_group_symbol = str(declared_sg.symbol) if declared_sg is not None else None
-    hall_symbol = _clean_space_group_token(data_block.get("_space_group_name_Hall"))
+    hall_symbol = _clean_space_group_token(
+        _cif_block_value(data_block, "_space_group_name_Hall")
+    )
     operations = tuple(
         FractionalAffineOperation(
             validated.rotation,
@@ -1881,10 +1959,7 @@ def read_cif_symmetry(
     operation strings raise instead of being skipped.
     """
     parser = _pymatgen_cif_parser(filepath, cif_text=cif_text)
-    data = parser.as_dict()
-    if not data:
-        raise ValueError("CIF contains no data blocks")
-    first_block = data[next(iter(data))]
+    first_block = _first_data_block(parser)
     return _crystal_symmetry_from_data_block(
         first_block, expand_symmetry=expand_symmetry, strict=strict
     )
@@ -1941,22 +2016,16 @@ def scan_cif_disorder(
     if raw_text is None and filepath is not None:
         with open(filepath, encoding="utf-8") as handle:
             raw_text = handle.read()
-    cif_data = parser.as_dict()
-    formula_moiety = _extract_formula_moiety(parser)
-
     # We'll use the first data block for simplicity
-    first_key = list(cif_data.keys())[0]
-    data_block = cif_data[first_key]
+    data_block = _first_data_block(parser)
     cif_chemistry = _extract_cif_chemistry(data_block)
 
-    # Parse Z value (_cell_formula_units_Z)
-    z_raw = data_block.get("_cell_formula_units_Z")
-    z_value = None
-    if z_raw and str(z_raw).strip() not in (".", "?", ""):
-        try:
-            z_value = int(float(_extract_numeric_value(str(z_raw))))
-        except (ValueError, TypeError):
-            z_value = None
+    # Formula moiety and Z come from the same parsed block on every install
+    # profile (pymatgen or lightweight parser), with case-insensitive names.
+    formula_moiety = _extract_formula_moiety(data_block)
+    z_value = _parse_cell_formula_units_z(
+        _cif_block_value(data_block, "_cell_formula_units_Z")
+    )
 
     # Parse symmetry operations from the CIF
     crystal_symmetry = _crystal_symmetry_from_data_block(
@@ -1973,7 +2042,7 @@ def scan_cif_disorder(
     source_symmetry = None
     source_xyz = _as_cif_list(data_block.get("_molcrys_source_symop_xyz"))
     if source_xyz:
-        source_block = dict(data_block)
+        source_block = _CaseInsensitiveBlock(data_block)
         source_block["_symmetry_equiv_pos_as_xyz"] = source_xyz
         if "_molcrys_source_space_group_number" in data_block:
             source_block["_symmetry_Int_Tables_number"] = data_block[
@@ -3105,11 +3174,8 @@ def _parse_cif_asu(
         occupancy_tolerance=1,
         site_tolerance=1e-2,
     )
-    cif_data = parser.as_dict()
-
     # We'll use the first data block for simplicity
-    first_key = list(cif_data.keys())[0]
-    data_block = cif_data[first_key]
+    data_block = _first_data_block(parser)
 
     # Parse symmetry operations — use expand_symmetry=True so that the
     # symmetry-source policy is identical to scan_cif_disorder().

@@ -1,0 +1,5 @@
+symm_ops.json and symm_data.json are the International Tables space-group
+settings distributed with pymatgen (MIT License). MolCrysKit vendors them so
+the CIF symmetry path can run when pymatgen is not installed. Pymatgen credits
+Marc De Graef for the underlying space-group encoding, as noted in
+pymatgen.symmetry.groups.

@@ -42,6 +42,35 @@ incorrect, or describe a framework, so strict mode must be used only with a
 verified reference. Chemical formula alone does not establish molecular graph,
 protonation, charge, or force-field suitability. Validate these independently.
 
+The formula check reads the same metadata on every install profile. Both the
+pymatgen reader and the lightweight reader used on constrained targets
+(`molcrys_kit.compat.cifparse`, no pymatgen, SciPy, ASE or spglib) take
+`_chemical_formula_moiety` and `_cell_formula_units_Z` from the first parsed
+data block, so seeded `random` and `enumerate` candidates are identical on
+phone and desktop. Without that metadata the filter is skipped, which is why
+a stripped-down reader once returned fewer candidates. Rules shared by both
+readers:
+
+- CIF data names are case-insensitive: `_Cell_Formula_Units_z` is the same
+  tag as `_cell_formula_units_Z`. An exact spelling wins over a differently
+  cased duplicate.
+- Quoted and semicolon (multi-line) values are accepted. Whitespace runs,
+  including line breaks, in the formula moiety are normalized to single
+  spaces when the moiety is extracted. The lightweight parser itself keeps
+  other semicolon text fields (names, descriptions, provenance) verbatim,
+  including line breaks, blank lines and indentation.
+- A missing moiety, `?` or `.` means "no moiety" (`formula_moiety is None`),
+  not the literal text `?`.
+- Z must be a positive integer, optionally written as `4.0` or with a
+  standard uncertainty such as `4(1)`. Missing, `?`/`.`, non-numeric, zero,
+  negative and non-integral values (for example the refinement artefact
+  `0.99984`) give `z_value is None` and skip the filter; they are never
+  truncated to a count. `strict_formula=True` then fails because the
+  declaration is not usable.
+
+Random sampling can return the same candidate more than once. That is part of
+the contract and is preserved; use `enumerate` for distinct alternatives.
+
 Regression cases in `tests/data/cif/synthetic_*assemblies.cif` and
 `synthetic_water_orientation.cif` are synthetic. They check independent
 assemblies, all four choices in a two-by-two synthetic model, equivalent

@@ -9,15 +9,13 @@ import hashlib
 import json
 import os
 import re
+import sys
 import warnings
 from fractions import Fraction
 from io import StringIO
 from typing import Optional, Sequence
 
-import ase.io
 import numpy as np
-from ase.constraints import FixScaled
-from ase.io.vasp import write_vasp
 
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
@@ -409,6 +407,17 @@ def write_molecule_summary(molecule: CrystalMolecule) -> str:
     return "\n".join(summary)
 
 
+def _is_statistical_model(obj) -> bool:
+    """Return True for a StatisticalDisorderModel without importing it eagerly.
+
+    ``operations.forward`` needs the desktop stack (ASE, SciPy).  An instance
+    can only exist if that module is already loaded, so ordered-crystal CIF
+    export does not have to import it.
+    """
+    module = sys.modules.get("molcrys_kit.operations.forward")
+    return module is not None and isinstance(obj, module.StatisticalDisorderModel)
+
+
 def write_cif(
     crystal: MolecularCrystal,
     filename: str = None,
@@ -455,9 +464,7 @@ def write_cif(
     misalignment in some third-party CIF parsers and viewers while preserving
     MolCrysKit round-trip fidelity.
     """
-    from ..operations.forward import StatisticalDisorderModel
-
-    if isinstance(crystal, StatisticalDisorderModel):
+    if _is_statistical_model(crystal):
         return write_forward_cif(
             crystal,
             filename=filename,
@@ -2031,10 +2038,8 @@ def write_forward_cif(
     sidecar_path: str | None = None,
 ) -> str:
     """Dispatch ordered and statistical CIF representations by object type."""
-    from ..operations.forward import StatisticalDisorderModel
-
     key = str(representation).lower().replace("-", "_")
-    if isinstance(obj, StatisticalDisorderModel):
+    if _is_statistical_model(obj):
         if key in {"asu", "true_asu", "non_p1", "space_group"}:
             return write_disorder_cif_asu(
                 obj, filename=filename, sidecar_path=sidecar_path
@@ -2200,6 +2205,8 @@ def write_poscar(
                 "selective_dynamics must have shape "
                 f"{expected_shape}, got {flags.shape}"
             )
+        from ase.constraints import FixScaled
+
         atoms.set_constraint(
             [FixScaled(i, mask=tuple(~flags[i])) for i in range(len(atoms))]
         )
@@ -2208,6 +2215,8 @@ def write_poscar(
     line1 = base_comment
     if lossy_summary:
         line1 = f"{base_comment} | MolCrysKit lossy export: dropped {lossy_summary}"
+
+    from ase.io.vasp import write_vasp
 
     buffer = StringIO()
     write_vasp(buffer, atoms, direct=direct, sort=sort, vasp5=True)
@@ -2329,6 +2338,8 @@ def write_trajectory(
             raise ValueError(
                 "info/arrays payloads are supported only for extxyz output"
             )
+        import ase.io
+
         images = [crystal.to_ase() for crystal in crystals]
         ase.io.write(filename, images, format="xyz", append=append, **write_kwargs)
         return os.path.abspath(filename)
