@@ -78,6 +78,21 @@ def _is_loop_value(token: str) -> bool:
     )
 
 
+def _join_text_field(body: str) -> str:
+    """Collapse a semicolon text field the way pymatgen's CIF reader does.
+
+    Line breaks in CIF text fields are not significant, so the desktop reader
+    joins the lines with single spaces: the text after the opening ``;`` is
+    stripped, later lines keep their own indentation, and blank lines are
+    dropped.  Matching that keeps multi-line values (e.g. a formula moiety)
+    identical on the lightweight install.
+    """
+    first, *rest = body.split("\n")
+    lines = [first.strip()]
+    lines.extend(line.rstrip("\r") for line in rest if line.strip())
+    return " ".join(lines)
+
+
 def _tokenize(text: str) -> list[str]:
     tokens: list[str] = []
     index = 0
@@ -100,9 +115,9 @@ def _tokenize(text: str) -> list[str]:
             index += 1
             end = text.find("\n;", index)
             if end < 0:
-                tokens.append(text[index:])
+                tokens.append(_join_text_field(text[index:]))
                 break
-            tokens.append(text[index:end])
+            tokens.append(_join_text_field(text[index:end]))
             index = end + 2
             line_start = True
             continue
