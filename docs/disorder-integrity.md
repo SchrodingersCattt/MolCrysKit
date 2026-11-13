@@ -54,8 +54,11 @@ readers:
 - CIF data names are case-insensitive: `_Cell_Formula_Units_z` is the same
   tag as `_cell_formula_units_Z`. An exact spelling wins over a differently
   cased duplicate.
-- Quoted and semicolon (multi-line) values are accepted. Lines of a text field
-  are joined with spaces.
+- Quoted and semicolon (multi-line) values are accepted. Whitespace runs,
+  including line breaks, in the formula moiety are normalized to single
+  spaces when the moiety is extracted. The lightweight parser itself keeps
+  other semicolon text fields (names, descriptions, provenance) verbatim,
+  including line breaks, blank lines and indentation.
 - A missing moiety, `?` or `.` means "no moiety" (`formula_moiety is None`),
   not the literal text `?`.
 - Z must be a positive integer, optionally written as `4.0` or with a

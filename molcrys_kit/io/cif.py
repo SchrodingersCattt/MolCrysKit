@@ -1395,10 +1395,14 @@ def _extract_formula_moiety(data_block) -> Optional[str]:
     Works on the dictionary produced by ``parser.as_dict()`` for either the
     pymatgen or the lightweight parser, so it never touches parser internals.
     Missing, empty, ``?`` and ``.`` values all mean "no moiety" (``None``).
+    Whitespace (including line breaks of a semicolon text field) is normalized
+    to single spaces here only, so the pymatgen and lightweight readers agree
+    without the lightweight parser reformatting other text fields.
     """
-    return _clean_cif_text_value(
+    text = _clean_cif_text_value(
         _cif_block_value(data_block, "_chemical_formula_moiety")
     )
+    return None if text is None else " ".join(text.split())
 
 
 def _parse_cell_formula_units_z(raw_value) -> Optional[int]:

@@ -136,13 +136,17 @@ def test_strict_formula_accepts_matching_metadata(reader):
 def test_strict_formula_rejects_mismatching_formula(reader, tmp_path):
     path = _variant(tmp_path, moiety="_chemical_formula_moiety 'H3 O'\n")
     with pytest.raises(ValueError, match="No ordered candidate matches"):
-        _run(path, method="random", generate_count=5, random_seed=42, strict_formula=True)
+        _run(
+            path, method="random", generate_count=5, random_seed=42, strict_formula=True
+        )
 
 
 def test_strict_formula_requires_metadata(reader, tmp_path):
     path = _variant(tmp_path, moiety="", z="")
     with pytest.raises(ValueError, match="requires a parseable formula moiety"):
-        _run(path, method="random", generate_count=5, random_seed=42, strict_formula=True)
+        _run(
+            path, method="random", generate_count=5, random_seed=42, strict_formula=True
+        )
 
 
 # --------------------------------------------------------------------------
@@ -159,6 +163,13 @@ VARIANTS = {
         1,
         5,
     ),
+    "multiline_blank_indented": (
+        "_chemical_formula_moiety\n;\n  H2\n\n    O\n;\n",
+        Z_LINE,
+        "H2 O",
+        1,
+        5,
+    ),
     "case_variants": (
         "_CHEMICAL_Formula_Moiety 'H2 O'\n",
         "_Cell_Formula_Units_z 1\n",
@@ -169,14 +180,32 @@ VARIANTS = {
     "z_with_su": (MOIETY_LINE, "_cell_formula_units_Z 1(1)\n", "H2 O", 1, 5),
     "z_integral_float": (MOIETY_LINE, "_cell_formula_units_Z 1.0\n", "H2 O", 1, 5),
     "missing": ("", "", None, None, 2),
-    "unknown_question": ("_chemical_formula_moiety ?\n", "_cell_formula_units_Z ?\n", None, None, 2),
-    "unknown_dot": ("_chemical_formula_moiety .\n", "_cell_formula_units_Z .\n", None, None, 2),
+    "unknown_question": (
+        "_chemical_formula_moiety ?\n",
+        "_cell_formula_units_Z ?\n",
+        None,
+        None,
+        2,
+    ),
+    "unknown_dot": (
+        "_chemical_formula_moiety .\n",
+        "_cell_formula_units_Z .\n",
+        None,
+        None,
+        2,
+    ),
     "missing_z_only": (MOIETY_LINE, "", "H2 O", None, 2),
     "invalid_z_text": (MOIETY_LINE, "_cell_formula_units_Z abc\n", "H2 O", None, 2),
     "invalid_z_zero": (MOIETY_LINE, "_cell_formula_units_Z 0\n", "H2 O", None, 2),
     "invalid_z_negative": (MOIETY_LINE, "_cell_formula_units_Z -1\n", "H2 O", None, 2),
     # A refinement artefact such as 0.99984 is not a formula-unit count.
-    "invalid_z_fractional": (MOIETY_LINE, "_cell_formula_units_Z 0.99984\n", "H2 O", None, 2),
+    "invalid_z_fractional": (
+        MOIETY_LINE,
+        "_cell_formula_units_Z 0.99984\n",
+        "H2 O",
+        None,
+        2,
+    ),
     # A valid but wrong Z is honoured: no candidate matches, so the legacy
     # best-effort candidates are returned unvalidated.
     "wrong_z": (MOIETY_LINE, "_cell_formula_units_Z 2\n", "H2 O", 2, 2),
@@ -201,7 +230,10 @@ def test_desktop_and_compat_agree_on_every_variant(tmp_path, monkeypatch):
     from pymatgen.io.cif import CifParser as PymatgenCifParser
 
     observed = {}
-    for parser_name, parser in (("pymatgen", PymatgenCifParser), ("compat", CompatCifParser)):
+    for parser_name, parser in (
+        ("pymatgen", PymatgenCifParser),
+        ("compat", CompatCifParser),
+    ):
         monkeypatch.setattr(cif_module, "CifParser", parser)
         results = {}
         for name, (moiety, z, *_expected) in VARIANTS.items():
@@ -242,12 +274,38 @@ def test_absolute_structure_tags_resolve_on_both_readers(reader, tmp_path):
     assert flack["standard_uncertainty"] == pytest.approx(0.03)
 
 
-def test_compat_text_field_matches_pymatgen_joining():
+@pytest.mark.parametrize(
+    "tag", ["_note", "_publ_section_title", "_exptl_special_details"]
+)
+def test_compat_text_field_preserves_arbitrary_multiline_text(tag):
+    # Only the formula moiety is normalized (at extraction); other text is data.
+    body = "first line\n  indented second line\n\nthird after blank\n"
     parsed = CompatCifParser.from_str(
-        "data_x\n_note\n;\nfirst line\n  second line\n\nthird\n;\n_other 1\n"
+        f"data_x\n{tag}\n;\n{body};\n_other 1\n"
     ).as_dict()["data_x"]
-    assert parsed["_note"].strip() == "first line   second line third"
+    assert parsed[tag] == "\n" + body.rstrip("\n")
+    assert "\n\n" in parsed[tag]
+    assert "\n  indented second line" in parsed[tag]
     assert parsed["_other"] == "1"
+
+
+def test_compat_text_field_preserves_crlf_and_unclosed_field():
+    parsed = CompatCifParser.from_str(
+        "data_x\n_note\n;\nline one\r\n\r\n  two\n;\n"
+    ).as_dict()["data_x"]
+    assert parsed["_note"] == "\nline one\r\n\r\n  two"
+    unclosed = CompatCifParser.from_str(
+        "data_x\n_note\n;\nline one\n\n  two\n"
+    ).as_dict()["data_x"]
+    assert unclosed["_note"] == "\nline one\n\n  two\n"
+
+
+def test_compat_multiline_moiety_is_normalized_only_when_extracted():
+    parsed = CompatCifParser.from_str(
+        "data_x\n_chemical_formula_moiety\n;\n  H2\n\n   O\n;\n"
+    ).as_dict()["data_x"]
+    assert parsed["_chemical_formula_moiety"] == "\n  H2\n\n   O"
+    assert _extract_formula_moiety(parsed) == "H2 O"
 
 
 def test_case_insensitive_block_lookup():
@@ -297,6 +355,7 @@ def test_parse_cell_formula_units_z(raw, expected):
         ({"_chemical_formula_moiety": "  H2 O  "}, "H2 O"),
         ({"_Chemical_Formula_MOIETY": "H2 O"}, "H2 O"),
         ({"_chemical_formula_moiety": ["H2 O"]}, "H2 O"),
+        ({"_chemical_formula_moiety": "\n  H2\n\n   O"}, "H2 O"),
         ({"_chemical_formula_moiety": "?"}, None),
         ({"_chemical_formula_moiety": "."}, None),
         ({"_chemical_formula_moiety": ""}, None),
