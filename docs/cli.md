@@ -65,7 +65,14 @@ mck skills show analyze-molecular-crystal --all
 | `mck io info INPUT` | Print molecular-crystal summary | `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
 | `mck io molecules INPUT` | List molecule inventory | `--json`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
 | `mck io extract-molecule INPUT` | Extract molecule(s) to separate file(s) | `-o/--output OUTPUT` (required), `--index INT`, `--formula STR`, `--species-id STR`, `--largest`, `--all`, `--center-vacuum FLOAT`, `--pbc BOOL`, `--json-sidecar PATH`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
-| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--structure-index INT` (MRYX only), `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+
+Mercury `.mryx` is accepted by the shared IO loader (first stored structure by default).
+`mck io convert document.mryx -o stored.extxyz --structure-index 1` selects a
+zero-based structure; negative indices count from the end. This flag applies only
+to MRYX. CIF/POSCAR/XYZ/ExtXYZ output uses existing writers. Imported sites are
+**not symmetry-expanded**, and occupancy/bond/disorder semantics are not decoded;
+see [Mercury import limitations](mryx.md). `--resolve-disorder` is rejected for MRYX.
 
 ### `mck operate` — Generate modified structures
 

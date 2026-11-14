@@ -1555,3 +1555,14 @@ def test_semantics_flags_require_resolve_disorder(tmp_path) -> None:
     assert result.exit_code != 0
     assert "resolve_disorder is true" in result.output
     assert not output.exists()
+
+
+def test_convert_help_documents_mercury_structure_selection():
+    """The shared converter exposes deterministic multi-structure selection."""
+    from click.testing import CliRunner
+    from molcrys_kit.cli import main
+
+    result = CliRunner().invoke(main, ["io", "convert", "--help"])
+    assert result.exit_code == 0
+    assert "--structure-index" in result.output
+    assert "MRYX" in result.output
