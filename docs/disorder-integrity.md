@@ -94,6 +94,27 @@ Build or repair the loop before resolving disorder:
   and a molecular rotamer, both numbered 1 and 2) need
   `independent_assemblies=True`. Legacy mode can tie those assemblies
   together by group number and warns when several multi-group assemblies
-  are present. `coupled=True` locks symmetry copies of one assembly to the
-  same orientation, which is a single-domain replica. `coupled=False` lets
-  each copy choose separately.
+  are present. `coupled=True` locks symmetry copies of one labelled assembly
+  to the same orientation, which is a single-domain replica for that
+  assembly. It does not lock distinct assemblies together, and it does not
+  force approximate parent-symmetry images into one component choice.
+  `coupled=False` lets each symmetry copy choose separately.
+
+## Parent-symmetry audit
+
+Every ordered replica carries `disorder_provenance` with kept and dropped
+source indices. By default the resolver also attaches a parent-symmetry
+audit (`symmetry_audit=True`):
+
+- for each parent operation: mapping residual, unmapped atom count, and which
+  disorder component each kept component maps onto
+- for each disordered asymmetric-unit parent: declared versus kept occupancy
+  bookkeeping
+- `respects_parent_group` is true only when every parent operation closes and
+  occupancy bookkeeping succeeds
+
+`mck operate disorder ... --report audit.json` writes that provenance as JSON.
+`--symmetry-consistent` keeps only candidates with `respects_parent_group`.
+`method=optimal` may still return a subgroup packing; the audit and provenance
+notes make that explicit. Disable the audit with `--no-symmetry-audit` when
+you need the previous provenance payload without the extra fields.

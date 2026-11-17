@@ -23,6 +23,8 @@ def generate_ordered_replicas_from_disordered_sites(
     crystal: Optional[MolecularCrystal] = None,
     strict_formula: bool = False,
     independent_assemblies: bool = False,
+    symmetry_audit: bool = True,
+    symmetry_consistent: bool = False,
 ) -> Union[List[MolecularCrystal], List[Tuple[MolecularCrystal, List[int]]]]:
     """
     Process a disordered structure through the full disorder handling pipeline.
@@ -42,7 +44,10 @@ def generate_ordered_replicas_from_disordered_sites(
     method : str
         'optimal' for single best structure, 'random' for occupancy-weighted
         sampling, or 'enumerate' for deterministic PART/SP alternative
-        enumeration.
+        enumeration.  ``optimal`` may return a packing whose space group is a
+        subgroup of the parent group when exclusive components are related by
+        a mirror or other parent operation; see each replica's
+        ``disorder_provenance``.
     random_seed : int, optional
         Seed forwarded to 'random' mode for reproducible ensembles.
     return_kept_indices : bool, optional
@@ -50,7 +55,10 @@ def generate_ordered_replicas_from_disordered_sites(
     coupled : bool, optional
         When False (default), symmetry-expanded copies of the same disorder
         assembly make independent PART/orientation decisions.  When True,
-        preserve the legacy behaviour that locks symmetry copies together.
+        lock those symmetry copies of one labelled assembly together (legacy
+        single-domain behaviour).  Distinct assemblies, distinct ASU sites
+        that only share a local group number, and components that are only
+        approximate images under the parent group are not locked.
     strict_formula : bool, optional
         Require a parseable formula moiety and Z and reject all candidates
         that do not match the declared composition. Default False warns on
@@ -62,12 +70,20 @@ def generate_ordered_replicas_from_disordered_sites(
     crystal : MolecularCrystal, optional
         Pre-loaded crystal carrying disorder metadata in its per-atom arrays.
         When provided, ``filepath`` is ignored and no CIF is read from disk.
+    symmetry_audit : bool, optional
+        Attach a parent-symmetry audit to each replica's
+        ``disorder_provenance``. Default True.
+    symmetry_consistent : bool, optional
+        Keep only candidates that close under every parent crystallographic
+        operation. Default False.
 
     Returns
     -------
     List[MolecularCrystal] or List[Tuple[MolecularCrystal, List[int]]]
         List of ordered molecular crystal structures, optionally paired
-        with selected source atom indices.
+        with selected source atom indices.  Each crystal carries
+        ``disorder_provenance`` with kept/dropped indices and, when
+        ``symmetry_audit`` is True, a parent-symmetry audit.
 
     Raises
     ------
@@ -116,6 +132,8 @@ def generate_ordered_replicas_from_disordered_sites(
         random_seed=random_seed,
         return_kept_indices=return_kept_indices,
         strict_formula=strict_formula,
+        symmetry_audit=symmetry_audit,
+        symmetry_consistent=symmetry_consistent,
     )
 
     return results

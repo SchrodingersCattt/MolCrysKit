@@ -21,6 +21,10 @@ from ase.geometry import get_distances
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
 from .provenance import DisorderProvenance
+from .symmetry_audit import (
+    audit_parent_symmetry,
+    replica_respects_parent_symmetry,
+)
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 from ...constants.config import DISORDER_CONFIG
@@ -1816,6 +1820,9 @@ class DisorderSolver:
         random_seed: Optional[int] = None,
         return_kept_indices: bool = False,
         strict_formula: bool = False,
+        *,
+        symmetry_audit: bool = True,
+        symmetry_consistent: bool = False,
     ) -> List[MolecularCrystal] | List[Tuple[MolecularCrystal, List[int]]]:
         """
         Solve the disorder problem and generate ordered structures using Group-Based approach.
@@ -1830,6 +1837,9 @@ class DisorderSolver:
             'optimal' for the single greedy MWIS structure, 'random' for
             occupancy-weighted sampling across PART/SP alternatives, and
             'enumerate' for Cartesian enumeration of those alternatives.
+            ``optimal`` returns one occupancy-favoured packing and may lower
+            the detected space group below the parent group when a mirror or
+            other operation relates exclusive disorder components.
         random_seed : int, optional
             Seed for reproducible 'random' ensembles. Has no effect for
             'optimal' or 'enumerate'.
@@ -1841,6 +1851,13 @@ class DisorderSolver:
         strict_formula : bool, optional
             Require parseable formula moiety and Z and reject results if no
             candidate matches. Defaults to False for backwards compatibility.
+        symmetry_audit : bool, optional
+            Attach a parent-symmetry audit to each replica's
+            ``DisorderProvenance``. Default True.
+        symmetry_consistent : bool, optional
+            Keep only candidates that close under every parent operation.
+            Default False. When True and no candidate closes, raise
+            ``ValueError``.
 
         Returns:
         --------
@@ -1856,6 +1873,12 @@ class DisorderSolver:
         the declared composition.  For 'random' mode, if reject-sampling
         yields too few valid structures, a capped enumeration fallback is
         used (controlled by DISORDER_CONFIG["FORMULA_FILTER_ENUM_CAP"]).
+
+        ``coupled=True`` locks symmetry-expanded copies of one labelled
+        assembly (and legacy motif merge) to the same PART/orientation
+        choice.  It does **not** couple distinct assemblies, distinct ASU
+        sites that only share a local group number, or components that are
+        only approximate images of each other under the parent group.
         """
         # Initialize atom groups (Identify Rigid Bodies)
         self.atom_groups = []
@@ -1950,6 +1973,22 @@ class DisorderSolver:
                         raise ValueError(message)
                     logger.warning("%s Returning unvalidated candidates.", message)
 
+        if symmetry_consistent and cleaned_sets:
+            consistent = [
+                candidate
+                for candidate in cleaned_sets
+                if replica_respects_parent_symmetry(
+                    self.info, candidate, self.lattice
+                )
+            ]
+            if not consistent:
+                raise ValueError(
+                    "No ordered candidate closes under every parent symmetry "
+                    "operation; disable symmetry_consistent or inspect the "
+                    "parent-symmetry audit on unrestricted replicas."
+                )
+            cleaned_sets = consistent
+
         if cleaned_sets and method in {"random", "enumerate"}:
             reference_set = cleaned_sets[0]
             reference_totals = self._selected_element_totals(reference_set)
@@ -1976,7 +2015,11 @@ class DisorderSolver:
 
         crystals = []
         for independent_set in cleaned_sets:
-            provenance = self._build_provenance(independent_set, method)
+            provenance = self._build_provenance(
+                independent_set,
+                method,
+                symmetry_audit=symmetry_audit,
+            )
             crystal = self._reconstruct_crystal(
                 independent_set, disorder_provenance=provenance
             )
@@ -2199,7 +2242,11 @@ class DisorderSolver:
         return result
 
     def _build_provenance(
-        self, independent_set: List[int], method: str
+        self,
+        independent_set: List[int],
+        method: str,
+        *,
+        symmetry_audit: bool = True,
     ) -> DisorderProvenance:
         """Return source-site provenance for a cleaned independent set."""
         kept_indices = [int(i) for i in independent_set]
@@ -2211,12 +2258,46 @@ class DisorderSolver:
         sym_op_indices = None
         if source_sym_ops is not None and len(source_sym_ops) >= len(self.info.labels):
             sym_op_indices = [int(source_sym_ops[i]) for i in kept_indices]
+
+        audit = None
+        notes: list[str] = []
+        if method == "optimal":
+            notes.append(
+                "method='optimal' returns one occupancy-favoured packing and "
+                "may lower the space group below the parent group"
+            )
+        if symmetry_audit:
+            audit = audit_parent_symmetry(self.info, kept_indices, self.lattice)
+            notes.extend(audit.notes)
+            return DisorderProvenance(
+                kept_indices=kept_indices,
+                dropped_indices=dropped_indices,
+                method=method,
+                coupled=bool(self._coupled),
+                sym_op_indices=sym_op_indices,
+                symmetry_audit=audit,
+                parent_space_group_number=audit.parent_space_group_number,
+                parent_space_group_symbol=audit.parent_space_group_symbol,
+                respects_parent_group=audit.respects_parent_group,
+                notes=tuple(dict.fromkeys(notes)),
+            )
+
+        parent = getattr(self.info, "crystal_symmetry", None) or getattr(
+            self.info, "source_symmetry", None
+        )
         return DisorderProvenance(
             kept_indices=kept_indices,
             dropped_indices=dropped_indices,
             method=method,
             coupled=bool(self._coupled),
             sym_op_indices=sym_op_indices,
+            parent_space_group_number=(
+                None if parent is None else parent.space_group_number
+            ),
+            parent_space_group_symbol=(
+                None if parent is None else parent.space_group_symbol
+            ),
+            notes=tuple(dict.fromkeys(notes)),
         )
 
     def _reconstruct_crystal(
