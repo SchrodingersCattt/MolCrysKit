@@ -43,8 +43,9 @@ profile is a normal install rather than `pip install --no-deps`.
 
 CIF reading, special-position clustering, and CIF/POSCAR/XYZ export run on
 the core install. `molcrys_kit.compat` is a private fallback for that
-profile. It parses symmetry operations as bounded affine `x,y,z` expressions
-and carries Cartesian structures for the calls the CIF path makes. It is not
+profile. It parses symmetry operations as bounded affine `x,y,z` expressions,
+including grouping parentheses such as `(x+1/2)`, and carries Cartesian
+structures for the calls the CIF path makes. It is not
 a second ASE or pymatgen API. When ASE is installed, `CrystalMolecule` still
 subclasses `ase.Atoms`.
 

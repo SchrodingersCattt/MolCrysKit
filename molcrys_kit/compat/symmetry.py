@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
-_COMPONENT_CHARS = re.compile(r"^[xyz0-9+\-*/.]+$")
+_COMPONENT_CHARS = re.compile(r"^[xyz0-9+\-*/.()]+$")
 _AFFINE_TERM = re.compile(
     r"(?P<number>\d+/\d+|\d+(?:\.\d+)?)(?:\*(?P<scaled>[xyz]))?|(?P<variable>[xyz])"
 )
@@ -170,6 +170,7 @@ def _parse_affine_component(component: str) -> tuple[tuple[int, int, int], Fract
         raise ValueError("symmetry component is empty or too long")
     if "**" in component or _COMPONENT_CHARS.fullmatch(component) is None:
         raise ValueError("symmetry component is not an affine x,y,z expression")
+    component = _expand_parentheses(component)
     signed = component if component[0] in "+-" else f"+{component}"
     parts = re.findall(r"[+-][^+-]+", signed)
     if not parts or "".join(parts) != signed:
@@ -196,6 +197,41 @@ def _parse_affine_component(component: str) -> tuple[tuple[int, int, int], Fract
     if any(value not in (-1, 0, 1) for value in coefficients):
         raise ValueError("rotation coefficient must be ±1")
     return (coefficients[0], coefficients[1], coefficients[2]), translation
+
+
+def _expand_parentheses(component: str) -> str:
+    """Distribute signs through grouping parentheses.
+
+    CIF operations write translations as ``(x+1/2)`` and ``-(x+y)``. The
+    groups are affine sums, so each pair is rewritten into a sign-normalized
+    sum before the term parser runs. Nested groups are expanded inside out.
+    """
+    expanded = component
+    for _depth in range(8):
+        if "(" not in expanded and ")" not in expanded:
+            return expanded
+        match = re.search(r"\(([^()]*)\)", expanded)
+        if match is None or not match.group(1):
+            raise ValueError("symmetry component is not an affine x,y,z expression")
+        inner = match.group(1)
+        start = match.start()
+        negate = start > 0 and expanded[start - 1] == "-"
+        replacement = _negate_signed_sum(inner) if negate else inner
+        prefix = start - 1 if negate else start
+        expanded = expanded[:prefix] + replacement + expanded[match.end() :]
+    raise ValueError("symmetry component is not an affine x,y,z expression")
+
+
+def _negate_signed_sum(inner: str) -> str:
+    signed = inner if inner[0] in "+-" else f"+{inner}"
+    parts = re.findall(r"[+-][^+-]+", signed)
+    if not parts or "".join(parts) != signed:
+        raise ValueError("symmetry component is not an affine x,y,z expression")
+    negated = []
+    for part in parts:
+        sign = "-" if part[0] == "+" else "+"
+        negated.append(sign + part[1:])
+    return "".join(negated)
 
 
 def _rational(token: str) -> Fraction:

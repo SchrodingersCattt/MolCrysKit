@@ -358,9 +358,9 @@ def _integer_indices(index, count: int) -> np.ndarray:
     array = np.asarray(index)
     if array.ndim == 0:
         item = array.item()
-        if isinstance(item, (str, bool, np.bool_)):
-            raise IndexError("atom index must be integers, a slice, or a boolean mask")
-        return _integer_indices(item, count)
+        if isinstance(item, (int, np.integer)) and not isinstance(item, (bool, np.bool_)):
+            return _integer_indices(int(item), count)
+        raise IndexError("atom index must be integers, a slice, or a boolean mask")
     if array.dtype == bool:
         if array.shape != (count,):
             raise IndexError(

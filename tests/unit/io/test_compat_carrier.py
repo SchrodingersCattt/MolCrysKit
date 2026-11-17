@@ -64,6 +64,10 @@ def test_invalid_indexes_match_ase_errors():
         carrier[5]
     with pytest.raises(IndexError, match="Index out of range"):
         reference[5]
+    with pytest.raises(IndexError, match="atom index must be integers"):
+        carrier[1.5]
+    with pytest.raises(IndexError, match="atom index must be integers"):
+        carrier[np.float64(1.5)]
 
 
 def test_scaled_positions_match_ase_cell_completion():
@@ -113,6 +117,15 @@ def test_symmetry_parser_matches_affine_operations_and_rejects_eval():
 
     wrapped = SymmOp.from_xyz_str("x+1,y,z")
     np.testing.assert_allclose(wrapped.translation_vector, np.zeros(3))
+
+    grouped = SymmOp.from_xyz_str("(x+1/2),-y,z")
+    np.testing.assert_allclose(grouped.rotation_matrix, np.diag([1.0, -1.0, 1.0]))
+    np.testing.assert_allclose(grouped.translation_vector, [0.5, 0.0, 0.0])
+    negated = SymmOp.from_xyz_str("-(x+y),x,z+1/2")
+    np.testing.assert_allclose(
+        negated.rotation_matrix, [[-1.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    np.testing.assert_allclose(negated.translation_vector, [0.0, 0.0, 0.5])
 
     for expression in ("2**1000000000,y,z", "x*y,y,z", "x**2,y,z", "2*x,y,z", "x,x,z"):
         with pytest.raises(ValueError, match="invalid symmetry operation"):
