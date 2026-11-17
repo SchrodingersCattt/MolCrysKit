@@ -43,8 +43,9 @@ verified reference. Chemical formula alone does not establish molecular graph,
 protonation, charge, or force-field suitability. Validate these independently.
 
 The formula check reads the same metadata on every install profile. Both the
-pymatgen reader and the lightweight reader used on constrained targets
-(`molcrys_kit.compat.cifparse`, no pymatgen, SciPy, ASE or spglib) take
+pymatgen reader and the core-install reader
+(`molcrys_kit.compat.cifparse`, installed by `pip install molcrys-kit` without
+the `desktop` extra) take
 `_chemical_formula_moiety` and `_cell_formula_units_Z` from the first parsed
 data block, so seeded `random` and `enumerate` candidates are identical on
 phone and desktop. Without that metadata the filter is skipped, which is why

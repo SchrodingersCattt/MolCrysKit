@@ -55,8 +55,14 @@ MolCrysKit is a Python toolkit designed for handling molecular crystals, providi
 ### From PyPI (recommended)
 
 ```bash
-pip install molcrys-kit
+pip install "molcrys-kit[desktop]"
 ```
+
+`pip install molcrys-kit` installs the core profile: NumPy, NetworkX, and
+Click. That profile reads CIF structures, resolves special-position disorder,
+and exports CIF, POSCAR, and XYZ without SciPy, ASE, pymatgen, or spglib.
+The `[desktop]` extra adds those four packages and is the install to use for
+the rest of the toolkit.
 
 Pymatgen users who want the namespace import path
 (`from pymatgen.analysis.molcrys import ...`) can also install the thin addon
@@ -77,18 +83,14 @@ All dependencies are declared in `pyproject.toml` (there is no separate
 
 | Extra | Adds |
 |---|---|
+| `[desktop]` | `scipy`, `ase`, `pymatgen`, `spglib` |
 | `[test]` | `pytest`, `pytest-cov` |
 | `[vis]` | `nglview`, `py3Dmol` for 3-D visualisation in notebooks |
-| `[dev]` | `[test]` + `[vis]` + `build`, `ruff==0.15.14`, `pre-commit`, `nbstripout`, `twine` |
+| `[dev]` | `[test]` + `[vis]` + `[desktop]` + `build`, `ruff==0.15.14`, `pre-commit`, `nbstripout`, `twine` |
 
-So a contributor environment is `pip install -e ".[dev]"` and a CI / minimal
-test environment is `pip install -e ".[test]"`.
-
-The default install keeps the desktop stack (SciPy, ASE, pymatgen, spglib); the
-`[desktop]` extra is a compatibility alias for the same packages. Constrained
-targets such as the Android build install with `pip install --no-deps` and
-provide only NumPy and NetworkX; the CIF reader and special-position
-disorder clustering have NumPy-only paths for that profile.
+A contributor environment is `pip install -e ".[dev]"`. The full test
+environment is `pip install -e ".[test,desktop]"`. The core package, with no
+extra, is the lightweight profile.
 
 ### Optional separate formatting commit
 

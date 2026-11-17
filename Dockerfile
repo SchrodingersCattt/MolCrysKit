@@ -41,14 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -- Python build tools -----------------------------------------------------
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# -- MolCrysKit + all runtime dependencies from GitHub archive --------------
+# -- MolCrysKit + desktop and notebook extras from GitHub archive ------------
 # MOLCRYSKIT_REF must be a GitHub archive ref, e.g. refs/heads/main or
 # refs/tags/vX.Y.Z.
-# pip resolves all dependencies declared in pyproject.toml automatically.
-# The [vis] extra adds nglview and py3Dmol for 3-D visualisation in the notebook.
+# [desktop] installs SciPy, ASE, pymatgen, and spglib. [vis] adds nglview
+# and py3Dmol for 3-D visualisation in the notebook.
 ARG MOLCRYSKIT_REF=refs/heads/main
 RUN pip install --no-cache-dir \
-    "molcrys-kit[vis] @ https://github.com/SchrodingersCattt/MolCrysKit/archive/${MOLCRYSKIT_REF}.zip"
+    "molcrys-kit[desktop,vis] @ https://github.com/SchrodingersCattt/MolCrysKit/archive/${MOLCRYSKIT_REF}.zip"
 
 # -- Jupyter ----------------------------------------------------------------
 # jupyter-server >=2 (shipped with notebook >=7) uses ServerApp, not NotebookApp.

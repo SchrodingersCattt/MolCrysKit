@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import json
 import re
+from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
-_XYZ_COMPONENT = re.compile(r"^[xyz0-9+\-*/().]+$")
+_COMPONENT_CHARS = re.compile(r"^[xyz0-9+\-*/.]+$")
+_AFFINE_TERM = re.compile(
+    r"(?P<number>\d+/\d+|\d+(?:\.\d+)?)(?:\*(?P<scaled>[xyz]))?|(?P<variable>[xyz])"
+)
+_AXES = {"x": 0, "y": 1, "z": 2}
+_MAX_COMPONENT_LENGTH = 64
 
 
 class SymmOp:
@@ -36,21 +42,15 @@ class SymmOp:
 
     @classmethod
     def from_xyz_str(cls, xyz_str: str) -> "SymmOp":
-        components = [part.strip().replace(" ", "") for part in str(xyz_str).split(",")]
+        components = [
+            part.strip().lower().replace(" ", "") for part in str(xyz_str).split(",")
+        ]
         if len(components) != 3:
             raise ValueError(f"invalid symmetry operation: {xyz_str!r}")
-        rotation = np.zeros((3, 3), dtype=float)
-        translation = np.zeros(3, dtype=float)
-        for index, component in enumerate(components):
-            if not component or _XYZ_COMPONENT.fullmatch(component) is None:
-                raise ValueError(f"invalid symmetry operation: {xyz_str!r}")
-            try:
-                translation[index] = _eval_xyz(component, 0.0, 0.0, 0.0)
-                rotation[index, 0] = _eval_xyz(component, 1.0, 0.0, 0.0) - translation[index]
-                rotation[index, 1] = _eval_xyz(component, 0.0, 1.0, 0.0) - translation[index]
-                rotation[index, 2] = _eval_xyz(component, 0.0, 0.0, 1.0) - translation[index]
-            except Exception as exc:
-                raise ValueError(f"invalid symmetry operation: {xyz_str!r}") from exc
+        try:
+            rotation, translation = _parse_affine_xyz(components)
+        except ValueError as exc:
+            raise ValueError(f"invalid symmetry operation: {xyz_str!r}") from exc
         return cls(rotation, translation, xyz=component_string(components))
 
     @classmethod
@@ -82,7 +82,9 @@ class Lattice:
             raise ValueError("cell gamma is degenerate")
         vector_c_x = c * cos_beta
         vector_c_y = c * (cos_alpha - cos_beta * cos_gamma) / sin_gamma
-        height_sq = 1.0 - cos_beta**2 - ((cos_alpha - cos_beta * cos_gamma) / sin_gamma) ** 2
+        height_sq = (
+            1.0 - cos_beta**2 - ((cos_alpha - cos_beta * cos_gamma) / sin_gamma) ** 2
+        )
         if height_sq < -1e-8:
             raise ValueError("cell angles are inconsistent")
         vector_c_z = c * np.sqrt(max(height_sq, 0.0))
@@ -144,8 +146,74 @@ class SpaceGroup:
         return cls(symbol)
 
 
-def _eval_xyz(component: str, x: float, y: float, z: float) -> float:
-    return float(eval(component, {"__builtins__": {}}, {"x": x, "y": y, "z": z}))
+def _parse_affine_xyz(components: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Parse three linear ``x,y,z`` components into an integer rotation.
+
+    Exponentiation, products of variables, and any other nonlinear expression
+    are rejected before they are evaluated. A crystallographic operation has
+    coefficients in ``{-1, 0, 1}`` and determinant ``±1``.
+    """
+    rows = []
+    translation = []
+    for component in components:
+        coefficients, shift = _parse_affine_component(component)
+        rows.append(coefficients)
+        translation.append(float(shift))
+    rotation = np.asarray(rows, dtype=float)
+    if _integer_determinant(rows) not in (-1, 1):
+        raise ValueError("rotation matrix is not a crystallographic operation")
+    return rotation, np.asarray(translation, dtype=float)
+
+
+def _parse_affine_component(component: str) -> tuple[tuple[int, int, int], Fraction]:
+    if not component or len(component) > _MAX_COMPONENT_LENGTH:
+        raise ValueError("symmetry component is empty or too long")
+    if "**" in component or _COMPONENT_CHARS.fullmatch(component) is None:
+        raise ValueError("symmetry component is not an affine x,y,z expression")
+    signed = component if component[0] in "+-" else f"+{component}"
+    parts = re.findall(r"[+-][^+-]+", signed)
+    if not parts or "".join(parts) != signed:
+        raise ValueError("symmetry component is not an affine x,y,z expression")
+    coefficients = [0, 0, 0]
+    translation = Fraction(0)
+    for part in parts:
+        sign = 1 if part[0] == "+" else -1
+        match = _AFFINE_TERM.fullmatch(part[1:])
+        if match is None:
+            raise ValueError("symmetry component is not an affine x,y,z expression")
+        variable = match.group("variable")
+        if variable is not None:
+            coefficients[_AXES[variable]] += sign
+            continue
+        number = _rational(match.group("number")) * sign
+        scaled = match.group("scaled")
+        if scaled is None:
+            translation += number
+            continue
+        if number not in (Fraction(1), Fraction(-1)):
+            raise ValueError("rotation coefficient must be ±1")
+        coefficients[_AXES[scaled]] += int(number)
+    if any(value not in (-1, 0, 1) for value in coefficients):
+        raise ValueError("rotation coefficient must be ±1")
+    return (coefficients[0], coefficients[1], coefficients[2]), translation
+
+
+def _rational(token: str) -> Fraction:
+    if "/" in token:
+        numerator, denominator = token.split("/", 1)
+        if int(denominator) == 0:
+            raise ValueError("division by zero in symmetry translation")
+        return Fraction(int(numerator), int(denominator))
+    return Fraction(token)
+
+
+def _integer_determinant(rows: list[tuple[int, int, int]]) -> int:
+    first, second, third = rows
+    return (
+        first[0] * (second[1] * third[2] - second[2] * third[1])
+        - first[1] * (second[0] * third[2] - second[2] * third[0])
+        + first[2] * (second[0] * third[1] - second[1] * third[0])
+    )
 
 
 def component_string(components: list[str]) -> str:
@@ -156,7 +224,15 @@ def _format_term(value: float) -> str:
     fraction = value - np.floor(value)
     if np.isclose(fraction, 0.0):
         return ""
-    known = {0.5: "1/2", 1 / 3: "1/3", 2 / 3: "2/3", 0.25: "1/4", 0.75: "3/4", 1 / 6: "1/6", 5 / 6: "5/6"}
+    known = {
+        0.5: "1/2",
+        1 / 3: "1/3",
+        2 / 3: "2/3",
+        0.25: "1/4",
+        0.75: "3/4",
+        1 / 6: "1/6",
+        5 / 6: "5/6",
+    }
     for number, text in known.items():
         if np.isclose(fraction, number):
             return "+" + text
