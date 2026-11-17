@@ -87,8 +87,25 @@ The same flag applies to implicit special-position motifs.  In decoupled mode,
 isolated X(H)n centres such as NH4+ expose multiple locally valid H
 orientations as competing rigid groups, bounded by
 `_MAX_MOTIF_ORIENTATIONS_PER_CENTER`.  Passing `coupled=True` restores the
-legacy behaviour where symmetry copies are locked together and motif merge keeps
-only the greedy best orientation.
+legacy behaviour where symmetry copies of **one labelled assembly** are locked
+together and motif merge keeps only the greedy best orientation.
+
+`coupled=True` keeps the legacy group lock. A pair of distinct assemblies
+avoids that lock only when both labels are multi-group or
+`independent_assemblies=True`. Approximate parent-symmetry images are not
+forced into one component. Parent-group closure is reported separately by the
+per-replica parent-symmetry audit on `DisorderProvenance.symmetry_audit`
+(and by CLI `--report`). `symmetry_consistent=True` /
+`--symmetry-consistent` keeps generated candidates whose completed audit
+closes. An unassessed cell is dropped and, when nothing remains, the error
+separates that case from a completed audit that does not close. A positive
+enumerate count limits that beam first.
+
+`method="optimal"` returns one occupancy-favoured packing.  When exclusive
+components are related by a parent mirror or other operation, that packing can
+lower the detected space group to a subgroup (for example `P2_1` from
+`P2_1/m`).  Provenance notes and the respects_parent_group field flag that
+outcome.
 
 The MWIS solution represents a compromise between maximizing total occupancy (thermodynamic stability) and minimizing steric clashes (geometric feasibility), resulting in physically realistic ordered structures from disordered crystal data.
 

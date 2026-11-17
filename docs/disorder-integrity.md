@@ -94,6 +94,42 @@ Build or repair the loop before resolving disorder:
   and a molecular rotamer, both numbered 1 and 2) need
   `independent_assemblies=True`. Legacy mode can tie those assemblies
   together by group number and warns when several multi-group assemblies
-  are present. `coupled=True` locks symmetry copies of one assembly to the
-  same orientation, which is a single-domain replica. `coupled=False` lets
-  each copy choose separately.
+  are present. `coupled=True` locks symmetry copies that share a disorder
+  group number. That lock still reaches a distinct assembly when at least one
+  of the two labels is not a multi-group assembly; `independent_assemblies=True`
+  is what separates those assemblies. It does not force approximate
+  parent-symmetry images into one component choice. `coupled=False` lets each
+  symmetry copy choose separately.
+
+## Parent-symmetry audit
+
+Every ordered replica carries `disorder_provenance` with kept and dropped
+source indices. By default the resolver also attaches a parent-symmetry
+audit (`symmetry_audit=True`):
+
+- for each parent operation: mapping residual, unmapped atom count, and which
+  disorder component each kept component maps onto. The residual is the exact
+  closest lattice image inside the audit tolerance. The integer box is fixed
+  by the cell metric's least eigenvalue, not by a 27-image window. An
+  orthogonal metric uses fractional rounding. A degenerate metric, or a proven
+  box that exceeds `PARENT_SYMMETRY_EXACT_PAIR_BUDGET`, leaves
+  `respects_parent_group` null and records that the distances were not
+  assessed. That null is not a report that the replica breaks the parent group.
+- for each disordered asymmetric-unit parent: declared versus kept occupancy
+  bookkeeping
+- `respects_parent_group` is true only when every parent operation closes and
+  occupancy bookkeeping succeeds
+
+`mck operate disorder ... --report audit.json` writes that provenance as JSON.
+`--symmetry-consistent` keeps only generated candidates whose completed
+audit closes. An unassessed cell is not kept. If the beam is then empty, the
+error says whether every candidate was unassessed, every candidate was
+assessed and does not close, or the beam mixed those two. An unassessed
+metric is never described as a proved failure. A positive `--count` on
+`enumerate` limits that beam before the filter; count `0` enumerates
+exhaustively first. The filter does not claim that no parent-closed packing
+exists outside the beam.
+`method=optimal` may still return a subgroup packing; the audit and provenance
+notes make that explicit. `--no-symmetry-audit` skips the audit object.
+`--report` still runs the audit, because the JSON is the audit. The
+`method=optimal` note is attached either way.

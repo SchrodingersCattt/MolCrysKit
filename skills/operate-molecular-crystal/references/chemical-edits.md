@@ -10,10 +10,16 @@ mck operate disorder input.cif -o ensemble.cif --method random --count 20 --seed
 mck operate disorder input.cif -o states.cif --method enumerate --count 20
 ```
 
-`optimal` gives one occupancy-favoured model, not a proven dominant state.
-Use `random` for a reproducible ensemble and `enumerate` only for a bounded
-state space. Symmetry-expanded copies choose independently by default; add
-`--coupled` only when the intended model requires linked choices.
+`optimal` gives one occupancy-favoured model, not a proven dominant state,
+and may lower the space group below the parent group. Use `random` for a
+reproducible ensemble and `enumerate` only for a bounded state space.
+Symmetry-expanded copies choose independently by default. `--coupled` is the
+legacy group lock, not a guarantee that distinct assemblies stay apart; use
+`--independent-assemblies` for that. For parent-group closure use
+`--report audit.json` and optionally `--symmetry-consistent`. The filter
+keeps a replica only when its completed audit closes. An unassessed cell is
+not kept and is not reported as a proved failure. A positive `--count`
+limits the beam before that filter; `--report` still runs the audit.
 
 ## Add missing hydrogen
 
