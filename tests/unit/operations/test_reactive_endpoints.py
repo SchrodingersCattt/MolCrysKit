@@ -19,7 +19,9 @@ from molcrys_kit.operations.bond_rotation import RingBondRotationError
 from molcrys_kit.structures.crystal import MolecularCrystal
 
 CELL = [10.0, 10.0, 10.0]
-PROTON_SYMBOLS = ["N", "H", "C", "O", "C", "C", "H"]
+# The extra spectator H makes the nuclear charge even, so multiplicity 1 is a
+# closed-shell singlet (36 electrons at cell charge 0).
+PROTON_SYMBOLS = ["N", "H", "C", "O", "C", "C", "H", "H"]
 PROTON_POSITIONS = np.array(
     [
         [0.00, 0.00, 0.00],
@@ -29,9 +31,10 @@ PROTON_POSITIONS = np.array(
         [4.50, 0.00, 0.00],
         [0.00, 6.00, 0.00],
         [1.09, 6.00, 0.00],
+        [0.00, 6.00, 1.09],
     ]
 )
-PROTON_MOLECULES = np.array([0, 0, 0, 1, 1, 2, 2])
+PROTON_MOLECULES = np.array([0, 0, 0, 1, 1, 2, 2, 2])
 REACTANT_CHARGES = ((0, 1), (1, -1), (2, 0))
 PRODUCT_CHARGES = ((0, 0), (1, 0), (2, 0))
 
@@ -109,13 +112,14 @@ def test_proton_transfer_moves_only_the_hydrogen_and_records_species():
     symbols = result.images[0].get_chemical_symbols()
     reactant_index = result.images[0].arrays["reactant_molecule_index"]
     product_index = result.metadata["product_molecule_index"]
-    assert product_index == [0, 1, 0, 1, 1, 2, 2]
+    assert product_index == [0, 1, 0, 1, 1, 2, 2, 2]
     assert _counts(symbols, reactant_index, 0) == Counter({"N": 1, "C": 1, "H": 1})
     assert _counts(symbols, reactant_index, 1) == Counter({"O": 1, "C": 1})
-    assert _counts(symbols, reactant_index, 2) == Counter({"C": 1, "H": 1})
+    assert _counts(symbols, reactant_index, 2) == Counter({"C": 1, "H": 2})
     assert _counts(symbols, product_index, 0) == Counter({"N": 1, "C": 1})
     assert _counts(symbols, product_index, 1) == Counter({"O": 1, "C": 1, "H": 1})
-    assert _counts(symbols, product_index, 2) == Counter({"C": 1, "H": 1})
+    assert _counts(symbols, product_index, 2) == Counter({"C": 1, "H": 2})
+    assert result.metadata["n_electrons"] == 36
 
     pairs = [tuple(record["atoms"]) for record in result.metadata["bond_changes"]]
     assert pairs == [(0, 1), (1, 3)]
@@ -129,13 +133,13 @@ def test_proton_transfer_moves_only_the_hydrogen_and_records_species():
         np.testing.assert_allclose(frame.positions[1, 0], hydrogen_x, atol=1e-8)
         np.testing.assert_allclose(frame.positions[1, 1:], 0.0, atol=1e-8)
         np.testing.assert_allclose(
-            frame.positions[[0, 2, 3, 4, 5, 6]], before[[0, 2, 3, 4, 5, 6]]
+            frame.positions[[0, 2, 3, 4, 5, 6, 7]], before[[0, 2, 3, 4, 5, 6, 7]]
         )
         assert frame.info["cell_charge"] == 0
         assert frame.info["multiplicity"] == 1
         assert frame.info["path_schema"] == "molcrys_kit.reactive_path.v3"
 
-    for group in ((0, 2), (3, 4), (5, 6)):
+    for group in ((0, 2), (3, 4), (5, 6, 7)):
         reference_points = before[list(group)]
         reference = np.linalg.norm(
             reference_points[:, None, :] - reference_points[None, :, :],
@@ -317,6 +321,161 @@ def test_cleavage_follows_requested_separation_beyond_half_cell():
         distances.append(np.linalg.norm(frame.positions[1] - frame.positions[0]))
     np.testing.assert_allclose(distances, 1.5 + np.linspace(0.0, 6.0, 5), atol=1e-8)
     assert result.product_image_shifts[1] == (0, 0, 0)
+
+
+def _odd_proton_crystal() -> MolecularCrystal:
+    """Seven-atom cell with 35 electrons, before the spectator H that closes the shell."""
+    return _crystal(
+        PROTON_SYMBOLS[:7],
+        PROTON_POSITIONS[:7],
+        PROTON_MOLECULES[:7],
+    )
+
+
+def test_proton_transfer_rejects_a_charge_change_that_is_not_one_proton():
+    with pytest.raises(ValueError, match="donor formal charge"):
+        _proton_path(product_species_charges=((0, 1), (1, -1), (2, 0)))
+
+
+def test_proton_transfer_rejects_singlet_with_odd_electron_count():
+    with pytest.raises(ValueError, match="incompatible with 35 electrons"):
+        _proton_path(_odd_proton_crystal(), multiplicity=1)
+
+
+def test_proton_transfer_accepts_doublet_with_odd_electron_count():
+    result = _proton_path(_odd_proton_crystal(), multiplicity=2)
+    assert result.metadata["multiplicity"] == 2
+    assert result.metadata["n_electrons"] == 35
+
+
+def test_cleavage_rejects_doublet_with_even_electron_count():
+    with pytest.raises(ValueError, match="incompatible with 32 electrons"):
+        build_bond_cleavage_path(
+            _chain_crystal(),
+            molecule_index=0,
+            atom_i=1,
+            atom_j=2,
+            separation_A=1.0,
+            cell_charge=0,
+            multiplicity=2,
+            electron_pairing="diradical",
+            reactant_species_charges=CHAIN_CHARGES,
+            product_species_charges=CHAIN_PRODUCT_CHARGES,
+        )
+
+
+def test_cleavage_accepts_doublet_with_odd_electron_count():
+    positions = np.vstack([CHAIN_POSITIONS, [[0.0, 5.0, 1.01]]])
+    crystal = _crystal(
+        CHAIN_SYMBOLS + ["H"],
+        positions,
+        np.concatenate([CHAIN_MOLECULES, [1]]),
+    )
+    result = build_bond_cleavage_path(
+        crystal,
+        molecule_index=0,
+        atom_i=1,
+        atom_j=2,
+        separation_A=1.0,
+        cell_charge=0,
+        multiplicity=2,
+        electron_pairing="diradical",
+        reactant_species_charges=CHAIN_CHARGES,
+        product_species_charges=CHAIN_PRODUCT_CHARGES,
+        config=ReactivePathConfig(n_images=3),
+    )
+    assert result.metadata["n_electrons"] == 33
+    assert result.metadata["multiplicity"] == 2
+
+
+def test_cleavage_accepts_a_bridge_that_crosses_a_cell_face():
+    crystal = _crystal(
+        ["N", "H", "C"],
+        [[9.5, 5.0, 5.0], [0.5, 5.0, 5.0], [5.0, 5.0, 1.0]],
+        [0, 0, 1],
+    )
+    result = build_bond_cleavage_path(
+        crystal,
+        molecule_index=0,
+        atom_i=0,
+        atom_j=1,
+        separation_A=1.0,
+        cell_charge=0,
+        multiplicity=1,
+        electron_pairing="closed_shell",
+        reactant_species_charges=((0, 0), (1, 0)),
+        product_species_charges=((0, 0), (1, 0), (2, 0)),
+        config=ReactivePathConfig(n_images=5),
+    )
+
+    def mic_distance(left, right) -> float:
+        delta = np.asarray(right, dtype=float) - np.asarray(left, dtype=float)
+        delta -= np.round(delta / 10.0) * 10.0
+        return float(np.linalg.norm(delta))
+
+    distances = [
+        mic_distance(frame.positions[0], frame.positions[1]) for frame in result.images
+    ]
+    assert distances[0] == pytest.approx(1.0, abs=1e-6)
+    assert distances[-1] == pytest.approx(2.0, abs=1e-6)
+    assert distances == sorted(distances)
+    np.testing.assert_allclose(result.images[0].positions[2], [5.0, 5.0, 1.0])
+    np.testing.assert_allclose(result.images[-1].positions[2], [5.0, 5.0, 1.0])
+
+
+def test_many_spectators_do_not_require_an_all_pairs_bond_scan(monkeypatch):
+    symbols = list(PROTON_SYMBOLS)
+    positions = [row.tolist() for row in PROTON_POSITIONS]
+    molecules = list(PROTON_MOLECULES)
+    next_molecule = int(PROTON_MOLECULES.max()) + 1
+    for ix in range(8):
+        for iy in range(8):
+            symbols.append("C")
+            positions.append([4.0 * ix, 4.0 * iy, 8.0])
+            molecules.append(next_molecule)
+            next_molecule += 1
+    atoms = Atoms(
+        symbols=symbols,
+        positions=positions,
+        cell=[40.0, 40.0, 16.0],
+        pbc=True,
+    )
+    atoms.set_array("molecule_index", np.asarray(molecules, dtype=int))
+    crystal = MolecularCrystal.from_ase_atoms(atoms)
+    charges = REACTANT_CHARGES + tuple((index, 0) for index in range(3, next_molecule))
+    product_charges = PRODUCT_CHARGES + tuple(
+        (index, 0) for index in range(3, next_molecule)
+    )
+
+    import molcrys_kit.operations.reactive_path as reactive_path
+
+    calls = {"n": 0}
+    original = reactive_path._pair_is_bonded
+
+    def _counting(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(reactive_path, "_pair_is_bonded", _counting)
+    result = build_proton_transfer_path(
+        crystal,
+        donor_molecule=0,
+        hydrogen_index=1,
+        acceptor_molecule=1,
+        acceptor_index=3,
+        cell_charge=0,
+        multiplicity=1,
+        reactant_species_charges=charges,
+        product_species_charges=product_charges,
+        config=ReactivePathConfig(n_images=3),
+    )
+    n_atoms = len(symbols)
+    assert calls["n"] < 10 * n_atoms
+    assert result.metadata["n_electrons"] == 36 + 6 * 64
+    assert [tuple(record["atoms"]) for record in result.metadata["bond_changes"]] == [
+        (0, 1),
+        (1, 3),
+    ]
 
 
 def test_bond_cleavage_requires_electron_pairing():

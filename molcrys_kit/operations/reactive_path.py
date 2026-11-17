@@ -25,6 +25,7 @@ from ..constants.config import (
     BONDING_CONFIG,
 )
 from ..structures.crystal import MolecularCrystal
+from ..structures.molecule import CrystalMolecule
 from ..utils.geometry import frac_to_cart, kabsch_align, rotation_to_axis_angle
 from ._path_core import (
     InterpolationMethod,
@@ -793,11 +794,29 @@ def _rebuild_crystal(
     return product
 
 
+def _electron_count(
+    atomic_numbers: np.ndarray, cell_charge: int, multiplicity: int
+) -> int:
+    """Return the cell electron count when it can form the declared multiplicity.
+
+    ``N_e = sum(Z) - cell_charge`` must leave a non-negative even number of
+    paired electrons after ``multiplicity - 1`` unpaired electrons are placed.
+    """
+    n_electrons = int(np.sum(atomic_numbers)) - int(cell_charge)
+    unpaired = int(multiplicity) - 1
+    if n_electrons < unpaired or (n_electrons - unpaired) % 2 != 0:
+        raise ValueError(
+            f"multiplicity {multiplicity} is incompatible with {n_electrons} electrons"
+        )
+    return n_electrons
+
+
 def _annotate_result(
     result: ReactivePathResult,
     *,
     cell_charge: int,
     multiplicity: int,
+    n_electrons: int,
     electron_pairing: str | None,
     reactant_species: list[dict[str, Any]],
     product_species: list[dict[str, Any]],
@@ -806,6 +825,7 @@ def _annotate_result(
     result.metadata["schema"] = REACTIVE_PATH_SCHEMA_V3
     result.metadata["cell_charge"] = int(cell_charge)
     result.metadata["multiplicity"] = int(multiplicity)
+    result.metadata["n_electrons"] = int(n_electrons)
     result.metadata["electron_pairing"] = electron_pairing
     result.metadata["reactant_species"] = reactant_species
     result.metadata["product_species"] = product_species
@@ -815,6 +835,7 @@ def _annotate_result(
     for frame in result.images:
         frame.info["cell_charge"] = int(cell_charge)
         frame.info["multiplicity"] = int(multiplicity)
+        frame.info["n_electrons"] = int(n_electrons)
         frame.info["electron_pairing"] = electron_pairing
         frame.info["path_schema"] = REACTIVE_PATH_SCHEMA_V3
     return result
@@ -844,16 +865,37 @@ def _bonded_neighbors(
     pbc: Sequence[bool],
     bond_scale: float,
 ) -> list[int]:
+    cutoff = _bond_search_cutoff(symbols, bond_scale)
+    pairs = _candidate_bond_pairs(
+        symbols, positions, lattice, pbc, cutoff, {int(atom_index)}
+    )
     neighbors = []
-    for other in range(len(symbols)):
-        if other == atom_index:
-            continue
+    for left, right in pairs:
+        other = right if left == atom_index else left
         bonded, _, _ = _pair_is_bonded(
             symbols, positions, atom_index, other, lattice, pbc, bond_scale
         )
         if bonded:
             neighbors.append(other)
     return neighbors
+
+
+def _unwrapped_for_partition(
+    crystal: MolecularCrystal, molecule_index: int
+) -> CrystalMolecule:
+    """Return a copy whose bonds are contiguous across periodic boundaries.
+
+    ``partition_at_bond`` reads a nonperiodic molecular graph. A bridge that
+    crosses a cell face is invisible until the molecule is unwrapped with the
+    periodic bond vectors.
+    """
+    molecule = crystal.molecules[molecule_index].copy()
+    molecule.set_cell(np.asarray(crystal.lattice, dtype=float))
+    molecule.set_pbc(tuple(bool(flag) for flag in crystal.pbc))
+    molecule._graph = None
+    molecule._adjust_positions_for_pbc()
+    molecule._graph = None
+    return molecule
 
 
 def _rigid_groups_by_molecule(
@@ -889,6 +931,7 @@ def _run_declared_path(
     rigid_group_image_shifts: Sequence[ImageShift | None] | None = None,
     cell_charge: int,
     multiplicity: int,
+    n_electrons: int,
     electron_pairing: str | None,
     reactant_species: list[dict[str, Any]],
     product_species: list[dict[str, Any]],
@@ -906,6 +949,7 @@ def _run_declared_path(
         result,
         cell_charge=cell_charge,
         multiplicity=multiplicity,
+        n_electrons=n_electrons,
         electron_pairing=electron_pairing,
         reactant_species=reactant_species,
         product_species=product_species,
@@ -931,9 +975,11 @@ def build_proton_transfer_path(
 
     ``hydrogen_index`` and ``acceptor_index`` are global indices in
     ``crystal.to_ase()``. Spectator molecules stay fixed. The transferring
-    hydrogen is the only free atom. Charges are declared bookkeeping: both
-    species-charge maps must sum to ``cell_charge``, and spectator charges
-    must be unchanged. The geometric frames are an initial guess for an
+    hydrogen is the only free atom. This is an H+ transfer: the donor formal
+    charge decreases by 1 and the acceptor formal charge increases by 1.
+    Both species-charge maps must sum to ``cell_charge``, and spectator
+    charges must be unchanged. ``multiplicity`` must be compatible with the
+    cell electron count. The geometric frames are an initial guess for an
     external NEB calculation.
     """
     config = config or ReactivePathConfig()
@@ -948,6 +994,7 @@ def build_proton_transfer_path(
 
     atoms, molecule_index = _flat_molecules(crystal)
     symbols = atoms.get_chemical_symbols()
+    n_electrons = _electron_count(atoms.get_atomic_numbers(), cell_charge, multiplicity)
     hydrogen_index = _require_index(hydrogen_index, len(atoms), "hydrogen_index")
     acceptor_index = _require_index(acceptor_index, len(atoms), "acceptor_index")
     _require_molecule(molecule_index, donor_molecule, "donor")
@@ -972,6 +1019,12 @@ def build_proton_transfer_path(
     )
     spectators = sorted(present - {donor_molecule, acceptor_molecule})
     _require_spectator_charges(reactant_charges, product_charges, spectators)
+    if product_charges[donor_molecule] != reactant_charges[donor_molecule] - 1:
+        raise ValueError("proton transfer must decrease the donor formal charge by 1")
+    if product_charges[acceptor_molecule] != reactant_charges[acceptor_molecule] + 1:
+        raise ValueError(
+            "proton transfer must increase the acceptor formal charge by 1"
+        )
 
     positions = np.asarray(atoms.positions, dtype=float).copy()
     lattice = np.asarray(crystal.lattice, dtype=float)
@@ -1033,6 +1086,7 @@ def build_proton_transfer_path(
         config,
         cell_charge=cell_charge,
         multiplicity=multiplicity,
+        n_electrons=n_electrons,
         electron_pairing=None,
         reactant_species=_species_records(
             symbols, molecule_index, reactant_charges, roles
@@ -1062,9 +1116,11 @@ def build_bond_cleavage_path(
 
     ``atom_i`` and ``atom_j`` are molecule-local indices. The fragment
     containing ``atom_j`` translates by ``separation_A`` along the bond.
-    A ring bond raises :class:`RingBondRotationError`. ``electron_pairing``
+    A ring bond raises :class:`RingBondRotationError`. A bridge that crosses
+    a cell face is unwrapped before the partition is read. ``electron_pairing``
     is the caller-declared label ``"closed_shell"`` or ``"diradical"`` and
-    is not inferred. Spectator charges stay unchanged.
+    is not inferred. ``multiplicity`` must be compatible with the cell
+    electron count. Spectator charges stay unchanged.
     """
     if electron_pairing not in _ELECTRON_PAIRINGS:
         raise ValueError("electron_pairing must be 'closed_shell' or 'diradical'")
@@ -1077,13 +1133,16 @@ def build_bond_cleavage_path(
 
     atoms, owners = _flat_molecules(crystal)
     symbols = atoms.get_chemical_symbols()
+    n_electrons = _electron_count(atoms.get_atomic_numbers(), cell_charge, multiplicity)
     molecule_index = _require_molecule(owners, molecule_index, "cleaved")
     if molecule_index < 0 or molecule_index >= len(crystal.molecules):
         raise ValueError(f"cleaved molecule {molecule_index} is not in the crystal")
     molecule = crystal.molecules[molecule_index]
     atom_i = _require_index(atom_i, len(molecule), "atom_i")
     atom_j = _require_index(atom_j, len(molecule), "atom_j")
-    partition = partition_at_bond(molecule, atom_i, atom_j)
+    partition = partition_at_bond(
+        _unwrapped_for_partition(crystal, molecule_index), atom_i, atom_j
+    )
     if partition.is_ring_bond:
         cycle_text = (
             f"; cycle atoms={list(partition.cycle_atoms)}"
@@ -1168,6 +1227,7 @@ def build_bond_cleavage_path(
         rigid_group_image_shifts=tuple((0, 0, 0) for _ in groups),
         cell_charge=cell_charge,
         multiplicity=multiplicity,
+        n_electrons=n_electrons,
         electron_pairing=electron_pairing,
         reactant_species=_species_records(symbols, owners, reactant_charges, roles),
         product_species=_species_records(

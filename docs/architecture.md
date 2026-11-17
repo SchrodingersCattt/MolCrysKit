@@ -49,6 +49,9 @@ limit and `BOND_LENGTHS`. Bridge cleavage reuses `partition_at_bond`. A ring
 bond raises `RingBondRotationError` because that cut does not produce two
 rigid fragments. Declared cell charge, species charges, multiplicity, and
 electron pairing are stored on the result for an external calculator.
+Proton transfer changes the donor and acceptor formal charges by -1 and +1.
+The declared multiplicity must be compatible with the cell electron count.
+A bridge bond that crosses a cell face is unwrapped before it is partitioned.
 `write_reactive_path` writes the ASE images and a JSON sidecar. These
 adapters do not evaluate energy or run NEB.
 

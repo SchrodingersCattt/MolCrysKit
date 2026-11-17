@@ -58,9 +58,12 @@ retained only as the `reactant_molecule_index` provenance array.
 
 `build_proton_transfer_path` and `build_bond_cleavage_path` construct the
 product endpoint from one periodic crystal, then call
-`interpolate_reactive_path`. Spectator molecules stay rigid. Declared charges
-and multiplicity are bookkeeping for an external calculator; MolCrysKit does
-not infer an electronic state, evaluate an energy, or run NEB.
+`interpolate_reactive_path`. Spectator molecules stay rigid. Declared charges and multiplicity are bookkeeping for an external calculator.
+A proton transfer decreases the donor formal charge by 1 and increases the
+acceptor formal charge by 1. The multiplicity must match the cell electron
+count: after `multiplicity - 1` unpaired electrons, the remainder must be a
+non-negative even number. MolCrysKit does not infer an electronic state,
+evaluate an energy, or run NEB.
 `write_reactive_path` writes an Extended XYZ trajectory and a JSON sidecar
 with the same stem.
 
@@ -75,7 +78,7 @@ from molcrys_kit.operations import (
 from molcrys_kit.structures.crystal import MolecularCrystal
 
 atoms = Atoms(
-    symbols=["N", "H", "C", "O", "C", "C", "H"],
+    symbols=["N", "H", "C", "O", "C", "C", "H", "H"],
     positions=[
         [0.00, 0.00, 0.00],
         [1.01, 0.00, 0.00],
@@ -84,11 +87,12 @@ atoms = Atoms(
         [4.50, 0.00, 0.00],
         [0.00, 6.00, 0.00],
         [1.09, 6.00, 0.00],
+        [0.00, 6.00, 1.09],
     ],
     cell=[10.0, 10.0, 10.0],
     pbc=True,
 )
-atoms.set_array("molecule_index", np.array([0, 0, 0, 1, 1, 2, 2]))
+atoms.set_array("molecule_index", np.array([0, 0, 0, 1, 1, 2, 2, 2]))
 crystal = MolecularCrystal.from_ase_atoms(atoms)
 result = build_proton_transfer_path(
     crystal,
