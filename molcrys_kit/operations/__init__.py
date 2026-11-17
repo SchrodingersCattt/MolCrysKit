@@ -103,7 +103,10 @@ from .reactive_path import (
     ReactivePathConfig,
     ReactivePathResult,
     RigidGroup,
+    build_bond_cleavage_path,
+    build_proton_transfer_path,
     interpolate_reactive_path,
+    write_reactive_path,
 )
 from .periodic_chain import build_periodic_chains
 
@@ -249,7 +252,10 @@ __all__ = [
     "ReactivePathConfig",
     "ReactivePathResult",
     "RigidGroup",
+    "build_bond_cleavage_path",
+    "build_proton_transfer_path",
     "interpolate_reactive_path",
+    "write_reactive_path",
     "build_periodic_chains",
     "AverageAtomSite",
     "ConstructionValidationError",

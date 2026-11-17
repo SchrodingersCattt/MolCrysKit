@@ -54,6 +54,62 @@ split molecular components, so it does not claim that the reactant's
 `molecule_index` partition remains chemically valid. That input partition is
 retained only as the `reactant_molecule_index` provenance array.
 
+## Multi-species reactive endpoints
+
+`build_proton_transfer_path` and `build_bond_cleavage_path` construct the
+product endpoint from one periodic crystal, then call
+`interpolate_reactive_path`. Spectator molecules stay rigid. Declared charges
+and multiplicity are bookkeeping for an external calculator; MolCrysKit does
+not infer an electronic state, evaluate an energy, or run NEB.
+`write_reactive_path` writes an Extended XYZ trajectory and a JSON sidecar
+with the same stem.
+
+```python
+import numpy as np
+from ase import Atoms
+from molcrys_kit.operations import (
+    ReactivePathConfig,
+    build_proton_transfer_path,
+    write_reactive_path,
+)
+from molcrys_kit.structures.crystal import MolecularCrystal
+
+atoms = Atoms(
+    symbols=["N", "H", "C", "O", "C", "C", "H"],
+    positions=[
+        [0.00, 0.00, 0.00],
+        [1.01, 0.00, 0.00],
+        [0.00, 1.47, 0.00],
+        [3.20, 0.00, 0.00],
+        [4.50, 0.00, 0.00],
+        [0.00, 6.00, 0.00],
+        [1.09, 6.00, 0.00],
+    ],
+    cell=[10.0, 10.0, 10.0],
+    pbc=True,
+)
+atoms.set_array("molecule_index", np.array([0, 0, 0, 1, 1, 2, 2]))
+crystal = MolecularCrystal.from_ase_atoms(atoms)
+result = build_proton_transfer_path(
+    crystal,
+    donor_molecule=0,
+    hydrogen_index=1,
+    acceptor_molecule=1,
+    acceptor_index=3,
+    cell_charge=0,
+    multiplicity=1,
+    reactant_species_charges=((0, 1), (1, -1), (2, 0)),
+    product_species_charges=((0, 0), (1, 0), (2, 0)),
+    config=ReactivePathConfig(n_images=5),
+)
+write_reactive_path(result, "proton-transfer.extxyz")
+```
+
+The product hydrogen is placed on the acceptor at the tabulated O-H length,
+0.96 Å. Bridge cleavage uses `build_bond_cleavage_path` with molecule-local
+atom indices and a declared `electron_pairing` of `"closed_shell"` or
+`"diradical"`. A ring bond is refused.
+
 ## Extended XYZ Dataset Bundles
 
 MolCrysKit can write molecular-crystal datasets as multi-frame ASE Extended XYZ

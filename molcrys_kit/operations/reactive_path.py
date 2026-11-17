@@ -2,11 +2,15 @@
 
 The routines in this module generate geometric initial guesses.  They do not
 perform energy minimization or a nudged elastic band calculation.
+``build_proton_transfer_path`` and ``build_bond_cleavage_path`` construct
+multi-species endpoints, then call :func:`interpolate_reactive_path`.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
@@ -14,6 +18,11 @@ from ase import Atoms
 
 from ..analysis.interactions.bonding import get_bonding_threshold
 from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
+from ..constants.config import (
+    BOND_LENGTHS,
+    BOND_ROTATION_AXIS_TOLERANCE,
+    BONDING_CONFIG,
+)
 from ..structures.crystal import MolecularCrystal
 from ..utils.geometry import frac_to_cart, kabsch_align, rotation_to_axis_angle
 from ._path_core import (
@@ -24,6 +33,10 @@ from ._path_core import (
     minimum_image_displacement,
     path_lambda_values,
 )
+from .bond_rotation import RingBondRotationError, partition_at_bond
+
+REACTIVE_PATH_SCHEMA_V3 = "molcrys_kit.reactive_path.v3"
+_ELECTRON_PAIRINGS = frozenset({"closed_shell", "diradical"})
 
 
 ImageShift = tuple[int, int, int]
@@ -484,4 +497,590 @@ def interpolate_reactive_path(
             tuple(int(value) for value in row) for row in shifts.tolist()
         ),
         metadata=metadata,
+    )
+
+
+def _require_int(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{name} must be an integer")
+    return int(value)
+
+
+def _molecule_indices_of(values: np.ndarray) -> tuple[int, ...]:
+    return tuple(sorted({int(value) for value in values}))
+
+
+def _charge_map(
+    charges: Sequence[tuple[int, int]],
+    expected: set[int],
+    cell_charge: int,
+    label: str,
+) -> dict[int, int]:
+    if isinstance(charges, (str, bytes)) or not isinstance(charges, Sequence):
+        raise ValueError(
+            f"{label} species charges must be (molecule_index, formal_charge) pairs"
+        )
+    mapping: dict[int, int] = {}
+    for item in charges:
+        if (
+            isinstance(item, (str, bytes))
+            or not isinstance(item, Sequence)
+            or len(item) != 2
+        ):
+            raise ValueError(
+                f"{label} species charges must be (molecule_index, formal_charge) pairs"
+            )
+        index = _require_int(item[0], "molecule_index")
+        formal_charge = _require_int(item[1], "formal_charge")
+        if index in mapping:
+            raise ValueError(f"duplicate charge for molecule {index}")
+        mapping[index] = formal_charge
+    if set(mapping) != expected:
+        missing = sorted(expected - set(mapping))
+        extra = sorted(set(mapping) - expected)
+        raise ValueError(
+            f"{label} species charges do not match molecules: "
+            f"missing {missing}, extra {extra}"
+        )
+    total = sum(mapping.values())
+    if total != cell_charge:
+        raise ValueError(
+            f"{label} species charges sum to {total}, cell charge is {cell_charge}"
+        )
+    return mapping
+
+
+def _require_spectator_charges(
+    reactant_charges: dict[int, int],
+    product_charges: dict[int, int],
+    spectators: Sequence[int],
+) -> None:
+    for index in spectators:
+        if reactant_charges[index] != product_charges[index]:
+            raise ValueError(
+                f"spectator molecule {index} charge changed from "
+                f"{reactant_charges[index]} to {product_charges[index]}"
+            )
+
+
+def _require_index(index: int, size: int, name: str) -> int:
+    resolved = _require_int(index, name)
+    if resolved < 0 or resolved >= size:
+        raise ValueError(f"{name} {resolved} is out of range")
+    return resolved
+
+
+def _flat_molecules(crystal: MolecularCrystal) -> tuple[Atoms, np.ndarray]:
+    atoms = crystal.to_ase()
+    molecule_index = atoms.arrays.get("molecule_index")
+    if molecule_index is None:
+        raise ValueError("crystal is missing molecule_index")
+    return atoms, np.asarray(molecule_index, dtype=int)
+
+
+def _require_molecule(molecule_index: np.ndarray, index: int, name: str) -> int:
+    resolved = _require_int(index, name)
+    if resolved not in set(molecule_index.tolist()):
+        raise ValueError(f"{name} molecule {resolved} is not in the crystal")
+    return resolved
+
+
+def _connectivity_changes(
+    symbols: Sequence[str],
+    positions_a: np.ndarray,
+    positions_b: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+    bond_scale: float,
+) -> set[tuple[int, int]]:
+    changed: set[tuple[int, int]] = set()
+    for atom_i in range(len(symbols)):
+        for atom_j in range(atom_i + 1, len(symbols)):
+            bonded_a, _, _ = _pair_is_bonded(
+                symbols, positions_a, atom_i, atom_j, lattice, pbc, bond_scale
+            )
+            bonded_b, _, _ = _pair_is_bonded(
+                symbols, positions_b, atom_i, atom_j, lattice, pbc, bond_scale
+            )
+            if bonded_a != bonded_b:
+                changed.add((atom_i, atom_j))
+    return changed
+
+
+def _require_exact_changes(
+    actual: set[tuple[int, int]],
+    expected: set[tuple[int, int]],
+) -> None:
+    if actual != expected:
+        raise ValueError(
+            "endpoint connectivity changes "
+            f"{sorted(actual)} differ from the declared reaction {sorted(expected)}"
+        )
+
+
+def _species_records(
+    symbols: Sequence[str],
+    molecule_index: np.ndarray,
+    charges: dict[int, int],
+    roles: dict[int, str],
+) -> list[dict[str, Any]]:
+    records = []
+    for mol_index in sorted(charges):
+        atom_indices = [
+            int(index)
+            for index, owner in enumerate(molecule_index)
+            if int(owner) == mol_index
+        ]
+        counts: dict[str, int] = {}
+        for index in atom_indices:
+            symbol = symbols[index]
+            counts[symbol] = counts.get(symbol, 0) + 1
+        records.append(
+            {
+                "molecule_index": int(mol_index),
+                "atom_indices": atom_indices,
+                "counts": counts,
+                "formal_charge": int(charges[mol_index]),
+                "role": roles.get(mol_index, "spectator"),
+            }
+        )
+    return records
+
+
+def _rebuild_crystal(
+    crystal: MolecularCrystal,
+    positions: np.ndarray,
+    molecule_index: np.ndarray,
+) -> MolecularCrystal:
+    atoms = crystal.to_ase()
+    rebuilt = atoms.copy()
+    rebuilt.calc = None
+    rebuilt.positions[:] = np.asarray(positions, dtype=float)
+    rebuilt.set_array("molecule_index", np.asarray(molecule_index, dtype=int))
+    product = MolecularCrystal.from_ase_atoms(rebuilt)
+    restored = product.to_ase()
+    if restored.get_chemical_symbols() != atoms.get_chemical_symbols():
+        raise RuntimeError("rebuilt crystal changed atom order")
+    if not np.allclose(restored.positions, positions, atol=1.0e-8, rtol=0.0):
+        raise RuntimeError("rebuilt crystal changed Cartesian coordinates")
+    return product
+
+
+def _annotate_result(
+    result: ReactivePathResult,
+    *,
+    cell_charge: int,
+    multiplicity: int,
+    electron_pairing: str | None,
+    reactant_species: list[dict[str, Any]],
+    product_species: list[dict[str, Any]],
+    product_molecule_index: np.ndarray,
+) -> ReactivePathResult:
+    result.metadata["schema"] = REACTIVE_PATH_SCHEMA_V3
+    result.metadata["cell_charge"] = int(cell_charge)
+    result.metadata["multiplicity"] = int(multiplicity)
+    result.metadata["electron_pairing"] = electron_pairing
+    result.metadata["reactant_species"] = reactant_species
+    result.metadata["product_species"] = product_species
+    result.metadata["product_molecule_index"] = [
+        int(value) for value in product_molecule_index
+    ]
+    for frame in result.images:
+        frame.info["cell_charge"] = int(cell_charge)
+        frame.info["multiplicity"] = int(multiplicity)
+        frame.info["electron_pairing"] = electron_pairing
+        frame.info["path_schema"] = REACTIVE_PATH_SCHEMA_V3
+    return result
+
+
+def _positive_distance(value: float, name: str) -> float:
+    distance = float(value)
+    if not np.isfinite(distance) or distance <= 0.0:
+        raise ValueError(f"{name} must be positive")
+    return distance
+
+
+def _product_bond_length(acceptor_symbol: str, requested: float | None) -> float:
+    if requested is not None:
+        return _positive_distance(requested, "product_distance_A")
+    for key in (f"{acceptor_symbol}-H", f"H-{acceptor_symbol}"):
+        if key in BOND_LENGTHS:
+            return float(BOND_LENGTHS[key])
+    raise ValueError(f"no bond length for {acceptor_symbol}-H; pass product_distance_A")
+
+
+def _bonded_neighbors(
+    symbols: Sequence[str],
+    positions: np.ndarray,
+    atom_index: int,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+    bond_scale: float,
+) -> list[int]:
+    neighbors = []
+    for other in range(len(symbols)):
+        if other == atom_index:
+            continue
+        bonded, _, _ = _pair_is_bonded(
+            symbols, positions, atom_index, other, lattice, pbc, bond_scale
+        )
+        if bonded:
+            neighbors.append(other)
+    return neighbors
+
+
+def _rigid_groups_by_molecule(
+    molecule_index: np.ndarray,
+    roles: dict[int, str],
+    skip: set[int],
+) -> list[RigidGroup]:
+    groups: list[RigidGroup] = []
+    for mol_index in _molecule_indices_of(molecule_index):
+        indices = tuple(
+            int(index)
+            for index, owner in enumerate(molecule_index)
+            if int(owner) == mol_index and int(index) not in skip
+        )
+        if not indices:
+            continue
+        name = roles.get(mol_index, f"molecule-{mol_index}")
+        if name == "spectator":
+            name = f"spectator-{mol_index}"
+        groups.append(RigidGroup(indices, name=name))
+    if len(groups) < 2:
+        raise ValueError("Reactive interpolation requires at least two rigid groups")
+    return groups
+
+
+def _run_declared_path(
+    reactant: MolecularCrystal,
+    product: MolecularCrystal,
+    groups: Sequence[RigidGroup],
+    bond_changes: Sequence[BondChange],
+    config: ReactivePathConfig,
+    *,
+    cell_charge: int,
+    multiplicity: int,
+    electron_pairing: str | None,
+    reactant_species: list[dict[str, Any]],
+    product_species: list[dict[str, Any]],
+    product_molecule_index: np.ndarray,
+) -> ReactivePathResult:
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=groups,
+        bond_changes=bond_changes,
+        config=config,
+    )
+    return _annotate_result(
+        result,
+        cell_charge=cell_charge,
+        multiplicity=multiplicity,
+        electron_pairing=electron_pairing,
+        reactant_species=reactant_species,
+        product_species=product_species,
+        product_molecule_index=product_molecule_index,
+    )
+
+
+def build_proton_transfer_path(
+    crystal: MolecularCrystal,
+    *,
+    donor_molecule: int,
+    hydrogen_index: int,
+    acceptor_molecule: int,
+    acceptor_index: int,
+    cell_charge: int,
+    multiplicity: int,
+    reactant_species_charges: Sequence[tuple[int, int]],
+    product_species_charges: Sequence[tuple[int, int]],
+    product_distance_A: float | None = None,
+    config: ReactivePathConfig | None = None,
+) -> ReactivePathResult:
+    """Build a fixed-cell path that moves one hydrogen onto another species.
+
+    ``hydrogen_index`` and ``acceptor_index`` are global indices in
+    ``crystal.to_ase()``. Spectator molecules stay fixed. The transferring
+    hydrogen is the only free atom. Charges are declared bookkeeping: both
+    species-charge maps must sum to ``cell_charge``, and spectator charges
+    must be unchanged. The geometric frames are an initial guess for an
+    external NEB calculation.
+    """
+    config = config or ReactivePathConfig()
+    cell_charge = _require_int(cell_charge, "cell_charge")
+    multiplicity = _require_int(multiplicity, "multiplicity")
+    if multiplicity < 1:
+        raise ValueError("multiplicity must be a positive integer")
+    donor_molecule = _require_int(donor_molecule, "donor_molecule")
+    acceptor_molecule = _require_int(acceptor_molecule, "acceptor_molecule")
+    if donor_molecule == acceptor_molecule:
+        raise ValueError("donor and acceptor must be different molecules")
+
+    atoms, molecule_index = _flat_molecules(crystal)
+    symbols = atoms.get_chemical_symbols()
+    hydrogen_index = _require_index(hydrogen_index, len(atoms), "hydrogen_index")
+    acceptor_index = _require_index(acceptor_index, len(atoms), "acceptor_index")
+    _require_molecule(molecule_index, donor_molecule, "donor")
+    _require_molecule(molecule_index, acceptor_molecule, "acceptor")
+    if symbols[hydrogen_index] != "H":
+        raise ValueError(f"atom {hydrogen_index} is not hydrogen")
+    if int(molecule_index[hydrogen_index]) != donor_molecule:
+        raise ValueError(
+            f"hydrogen atom {hydrogen_index} is not on donor molecule {donor_molecule}"
+        )
+    if int(molecule_index[acceptor_index]) != acceptor_molecule:
+        raise ValueError(
+            f"atom {acceptor_index} is not on acceptor molecule {acceptor_molecule}"
+        )
+
+    present = set(_molecule_indices_of(molecule_index))
+    reactant_charges = _charge_map(
+        reactant_species_charges, present, cell_charge, "reactant"
+    )
+    product_charges = _charge_map(
+        product_species_charges, present, cell_charge, "product"
+    )
+    spectators = sorted(present - {donor_molecule, acceptor_molecule})
+    _require_spectator_charges(reactant_charges, product_charges, spectators)
+
+    positions = np.asarray(atoms.positions, dtype=float).copy()
+    lattice = np.asarray(crystal.lattice, dtype=float)
+    neighbors = _bonded_neighbors(
+        symbols, positions, hydrogen_index, lattice, crystal.pbc, config.bond_scale
+    )
+    if len(neighbors) != 1 or int(molecule_index[neighbors[0]]) != donor_molecule:
+        raise ValueError(
+            f"hydrogen atom {hydrogen_index} must have exactly one bonded "
+            f"neighbor on donor molecule {donor_molecule}"
+        )
+    partner = neighbors[0]
+    distance = _product_bond_length(symbols[acceptor_index], product_distance_A)
+    displacement, _ = minimum_image_displacement(
+        positions[acceptor_index] - positions[hydrogen_index], lattice, crystal.pbc
+    )
+    current = float(np.linalg.norm(displacement))
+    limit = float(BONDING_CONFIG["MAX_HYDROGEN_BOND_DISTANCE"])
+    if current > limit:
+        raise ValueError(
+            f"H...acceptor distance {current:.6g} Å exceeds the "
+            f"hydrogen-bond limit {limit:.6g} Å"
+        )
+    if current <= BOND_ROTATION_AXIS_TOLERANCE:
+        raise ValueError("hydrogen and acceptor atom coincide")
+    product_positions = positions.copy()
+    product_positions[hydrogen_index] = positions[hydrogen_index] + displacement * (
+        1.0 - distance / current
+    )
+    product_molecule_index = molecule_index.copy()
+    product_molecule_index[hydrogen_index] = acceptor_molecule
+    expected = {
+        tuple(sorted((partner, hydrogen_index))),
+        tuple(sorted((hydrogen_index, acceptor_index))),
+    }
+    _require_exact_changes(
+        _connectivity_changes(
+            symbols,
+            positions,
+            product_positions,
+            lattice,
+            crystal.pbc,
+            config.bond_scale,
+        ),
+        expected,
+    )
+    roles = {index: "spectator" for index in present}
+    roles[donor_molecule] = "donor"
+    roles[acceptor_molecule] = "acceptor"
+    product = _rebuild_crystal(crystal, product_positions, product_molecule_index)
+    return _run_declared_path(
+        crystal,
+        product,
+        _rigid_groups_by_molecule(molecule_index, roles, {hydrogen_index}),
+        [
+            BondChange(partner, hydrogen_index, True, False),
+            BondChange(hydrogen_index, acceptor_index, False, True),
+        ],
+        config,
+        cell_charge=cell_charge,
+        multiplicity=multiplicity,
+        electron_pairing=None,
+        reactant_species=_species_records(
+            symbols, molecule_index, reactant_charges, roles
+        ),
+        product_species=_species_records(
+            symbols, product_molecule_index, product_charges, roles
+        ),
+        product_molecule_index=product_molecule_index,
+    )
+
+
+def build_bond_cleavage_path(
+    crystal: MolecularCrystal,
+    *,
+    molecule_index: int,
+    atom_i: int,
+    atom_j: int,
+    separation_A: float,
+    cell_charge: int,
+    multiplicity: int,
+    reactant_species_charges: Sequence[tuple[int, int]],
+    product_species_charges: Sequence[tuple[int, int]],
+    electron_pairing: str | None = None,
+    config: ReactivePathConfig | None = None,
+) -> ReactivePathResult:
+    """Build a fixed-cell path that separates one bridge-bond fragment.
+
+    ``atom_i`` and ``atom_j`` are molecule-local indices. The fragment
+    containing ``atom_j`` translates by ``separation_A`` along the bond.
+    A ring bond raises :class:`RingBondRotationError`. ``electron_pairing``
+    is the caller-declared label ``"closed_shell"`` or ``"diradical"`` and
+    is not inferred. Spectator charges stay unchanged.
+    """
+    if electron_pairing not in _ELECTRON_PAIRINGS:
+        raise ValueError("electron_pairing must be 'closed_shell' or 'diradical'")
+    config = config or ReactivePathConfig()
+    cell_charge = _require_int(cell_charge, "cell_charge")
+    multiplicity = _require_int(multiplicity, "multiplicity")
+    if multiplicity < 1:
+        raise ValueError("multiplicity must be a positive integer")
+    separation_A = _positive_distance(separation_A, "separation_A")
+
+    atoms, owners = _flat_molecules(crystal)
+    symbols = atoms.get_chemical_symbols()
+    molecule_index = _require_molecule(owners, molecule_index, "cleaved")
+    if molecule_index < 0 or molecule_index >= len(crystal.molecules):
+        raise ValueError(f"cleaved molecule {molecule_index} is not in the crystal")
+    molecule = crystal.molecules[molecule_index]
+    atom_i = _require_index(atom_i, len(molecule), "atom_i")
+    atom_j = _require_index(atom_j, len(molecule), "atom_j")
+    partition = partition_at_bond(molecule, atom_i, atom_j)
+    if partition.is_ring_bond:
+        cycle_text = (
+            f"; cycle atoms={list(partition.cycle_atoms)}"
+            if partition.cycle_atoms
+            else ""
+        )
+        raise RingBondRotationError(
+            f"Bond {atom_i}-{atom_j} is a ring bond{cycle_text}. "
+            "Cleavage of a ring bond is not a rigid fragment separation."
+        )
+
+    stored = molecule.info.get("atom_indices")
+    if stored is not None and len(stored) == len(molecule):
+        local_to_global = tuple(int(index) for index in stored)
+    else:
+        offset = sum(len(item) for item in crystal.molecules[:molecule_index])
+        local_to_global = tuple(range(offset, offset + len(molecule)))
+    global_i = local_to_global[atom_i]
+    global_j = local_to_global[atom_j]
+    fixed = tuple(local_to_global[index] for index in partition.fixed_atoms)
+    moving = tuple(local_to_global[index] for index in partition.moving_atoms)
+
+    positions = np.asarray(atoms.positions, dtype=float).copy()
+    lattice = np.asarray(crystal.lattice, dtype=float)
+    axis, _ = minimum_image_displacement(
+        positions[global_j] - positions[global_i], lattice, crystal.pbc
+    )
+    axis_norm = float(np.linalg.norm(axis))
+    if axis_norm <= BOND_ROTATION_AXIS_TOLERANCE:
+        raise ValueError(f"bond axis {atom_i}-{atom_j} has zero length")
+    product_positions = positions.copy()
+    product_positions[list(moving)] += axis / axis_norm * separation_A
+    product_owners = owners.copy()
+    new_index = int(owners.max()) + 1
+    product_owners[list(moving)] = new_index
+    expected = {tuple(sorted((global_i, global_j)))}
+    _require_exact_changes(
+        _connectivity_changes(
+            symbols,
+            positions,
+            product_positions,
+            lattice,
+            crystal.pbc,
+            config.bond_scale,
+        ),
+        expected,
+    )
+
+    present = set(_molecule_indices_of(owners))
+    product_present = present | {new_index}
+    reactant_charges = _charge_map(
+        reactant_species_charges, present, cell_charge, "reactant"
+    )
+    product_charges = _charge_map(
+        product_species_charges, product_present, cell_charge, "product"
+    )
+    spectators = sorted(present - {molecule_index})
+    _require_spectator_charges(reactant_charges, product_charges, spectators)
+    roles = {index: "spectator" for index in present}
+    roles[molecule_index] = "fragment_fixed"
+    roles[new_index] = "fragment_moving"
+    groups = [
+        RigidGroup(fixed, name="fragment_fixed"),
+        RigidGroup(moving, name="fragment_moving"),
+    ]
+    for spectator in spectators:
+        indices = tuple(int(index) for index in np.where(owners == spectator)[0])
+        if indices:
+            groups.append(RigidGroup(indices, name=f"spectator-{spectator}"))
+    if len(groups) < 2:
+        raise ValueError("Reactive interpolation requires at least two rigid groups")
+
+    product = _rebuild_crystal(crystal, product_positions, product_owners)
+    return _run_declared_path(
+        crystal,
+        product,
+        groups,
+        [BondChange(global_i, global_j, True, False)],
+        config,
+        cell_charge=cell_charge,
+        multiplicity=multiplicity,
+        electron_pairing=electron_pairing,
+        reactant_species=_species_records(symbols, owners, reactant_charges, roles),
+        product_species=_species_records(
+            symbols, product_owners, product_charges, roles
+        ),
+        product_molecule_index=product_owners,
+    )
+
+
+def _json_ready(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _json_ready(value.tolist())
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.integer) and not isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    raise TypeError(f"reactive path metadata is not JSON serializable: {type(value)!r}")
+
+
+def write_reactive_path(result: ReactivePathResult, path: str | Path) -> None:
+    """Write reactive images to extxyz and the result metadata to JSON.
+
+    The JSON file uses the same stem and a ``.json`` suffix. Frames stay
+    flat ASE atoms. This does not run a calculator or an NEB solver.
+    """
+    import ase.io
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    images = []
+    for frame in result.images:
+        image = frame.copy()
+        image.info = {
+            key: value for key, value in frame.info.items() if value is not None
+        }
+        images.append(image)
+    ase.io.write(target, images, format="extxyz")
+    sidecar = target.with_suffix(".json")
+    sidecar.write_text(
+        json.dumps(_json_ready(result.metadata), indent=2) + "\n",
+        encoding="utf-8",
     )
