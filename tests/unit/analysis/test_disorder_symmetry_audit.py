@@ -189,3 +189,109 @@ def test_operate_disorder_symmetry_consistent_option(tmp_path: Path):
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+def test_skew_cell_uses_the_short_periodic_image():
+    identity = FractionalAffineOperation(
+        np.eye(3),
+        np.array([0.49, 0.49, 0.0]),
+        xyz="x+0.49,y+0.49,z",
+        index=0,
+        source="test",
+    )
+    info = DisorderInfo(
+        labels=["C1"],
+        symbols=["C"],
+        frac_coords=np.zeros((1, 3)),
+        occupancies=[1.0],
+        disorder_groups=[0],
+        assemblies=[""],
+        crystal_symmetry=CrystalSymmetry(
+            operations=(identity,),
+            space_group_number=1,
+            space_group_symbol="P 1",
+            source="test",
+        ),
+    )
+    lattice = np.array([[1.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.0, 0.0, 1.0]])
+    audit = audit_parent_symmetry(info, [0], lattice, tolerance_angstrom=0.2)
+    assert audit.operations[0].closes
+    assert audit.operations[0].residual_angstrom_max < 0.1
+    assert audit.respects_parent_group is True
+
+
+def test_mapping_must_be_bijective():
+    # A crystallographic isometry can put two kept atoms inside the tolerance
+    # ball of one target. Nearest neighbours then collide and the third atom
+    # is missed. Closure requires a one-to-one match.
+    cell = 10.0
+    identity = FractionalAffineOperation(
+        np.eye(3), np.zeros(3), xyz="x,y,z", index=0, source="test"
+    )
+    rotation = np.array([[1.0, 0.0, -1.0], [-1.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    folded = FractionalAffineOperation(
+        rotation,
+        np.array([0.075, 0.1, 0.0]),
+        xyz="x-z+0.075,-x+y+0.1,z",
+        index=1,
+        source="test",
+    )
+    frac = np.array([[1.0, 1.0, 1.0], [1.3, 1.0, 1.0], [1.0, 4.0, 1.0]]) / cell
+    info = DisorderInfo(
+        labels=["C1", "C2", "C3"],
+        symbols=["C", "C", "C"],
+        frac_coords=frac,
+        occupancies=[1.0, 1.0, 1.0],
+        disorder_groups=[0, 0, 0],
+        assemblies=["", "", ""],
+        crystal_symmetry=CrystalSymmetry(
+            operations=(identity, folded),
+            space_group_number=1,
+            space_group_symbol="P 1",
+            source="test",
+        ),
+    )
+    audit = audit_parent_symmetry(
+        info, [0, 1, 2], np.eye(3) * cell, tolerance_angstrom=0.35
+    )
+    assert audit.operations[0].closes
+    assert audit.operations[1].closes is False
+    assert audit.respects_parent_group is False
+
+
+def test_occupancy_sum_of_parts_does_not_alias_another_component():
+    info, _kept = _hand_built_info(keep_consistent=True)
+    info.occupancies = [0.5, 0.5, 0.3, 0.3, 0.2, 0.2]
+    info.disorder_groups = [1, 1, 2, 2, 3, 3]
+    info.labels = ["C1A", "C1A", "C1B", "C1B", "C1C", "C1C"]
+    info.symbols = ["C"] * 6
+    info.assemblies = ["A"] * 6
+    info.asym_id = [0] * 6
+    info.frac_coords = np.vstack([info.frac_coords, info.frac_coords[:2]])
+    info.sym_op_indices = [0, 1, 0, 1, 0, 1]
+    audit = audit_parent_symmetry(info, [2, 3, 4, 5], np.eye(3) * 10.0)
+    assert audit.occupancy_closure
+    assert audit.occupancy_closure[0].closes is False
+    assert audit.respects_parent_group is False
+
+
+def test_nonidentity_at_index_zero_is_still_noted():
+    mirror = FractionalAffineOperation(
+        np.diag([1.0, -1.0, 1.0]),
+        np.zeros(3),
+        xyz="x,-y,z",
+        index=0,
+        source="test",
+    )
+    identity = FractionalAffineOperation(
+        np.eye(3), np.zeros(3), xyz="x,y,z", index=1, source="test"
+    )
+    info, kept = _hand_built_info(keep_consistent=False)
+    info.crystal_symmetry = CrystalSymmetry(
+        operations=(mirror, identity),
+        space_group_number=6,
+        space_group_symbol="P m",
+        source="test",
+    )
+    audit = audit_parent_symmetry(info, kept, np.eye(3) * 10.0)
+    assert any("subgroup" in note for note in audit.notes)

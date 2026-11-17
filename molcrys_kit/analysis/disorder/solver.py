@@ -1983,9 +1983,11 @@ class DisorderSolver:
             ]
             if not consistent:
                 raise ValueError(
-                    "No ordered candidate closes under every parent symmetry "
-                    "operation; disable symmetry_consistent or inspect the "
-                    "parent-symmetry audit on unrestricted replicas."
+                    "No generated candidate closes under every parent symmetry "
+                    "operation. symmetry_consistent filters the candidates this "
+                    "call already produced; a positive enumerate count is a "
+                    "top-N beam, and an exhaustive enumerate uses count 0. "
+                    "Disable symmetry_consistent to inspect the unfiltered beam."
                 )
             cleaned_sets = consistent
 

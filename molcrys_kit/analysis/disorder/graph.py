@@ -47,11 +47,12 @@ class DisorderGraphBuilder:
         ----------
         coupled:
             When True, preserve the legacy behaviour where symmetry copies
-            sharing one labelled disorder assembly are locked to the same
-            PART choice. Distinct assemblies and sites that only share a
-            local group number stay independent. The default treats each
-            symmetry copy as an independent disorder decision when symmetry
-            provenance is available.
+            that share a disorder group are locked to the same PART choice.
+            The lock is skipped for a pair of distinct assemblies only when
+            both labels already contain more than one disorder group, or when
+            ``independent_assemblies=True``. The default treats each symmetry
+            copy as an independent disorder decision when symmetry provenance
+            is available.
         """
         self.info = info
         self.lattice = lattice

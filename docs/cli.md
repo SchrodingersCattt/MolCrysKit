@@ -124,9 +124,10 @@ mck operate disorder structure.cif -o replicas.cif --method random --count 10
 mck operate disorder structure.cif -o replicas.cif --method enumerate --count 8 \
   --report disorder_audit.json
 
-# Keep only replicas that close under every parent operation
+# Keep parent-closed replicas from an exhaustive enumerate. A positive
+# --count limits the beam before this filter.
 mck operate disorder structure.cif -o consistent.cif --method enumerate \
-  --symmetry-consistent
+  --count 0 --symmetry-consistent
 
 # Map replicas 0, 1, 2, 3 to a 2 x 2 x 1 supercell. Translation order is
 # (0,0,0), (0,1,0), (1,0,0), (1,1,0): k varies fastest, then j, then i.
@@ -135,8 +136,9 @@ mck operate disorder-supercell structure.cif -o supercell.cif \
   --replica-index 0 --replica-index 1 --replica-index 2 --replica-index 3
 ```
 
-`--coupled` locks symmetry copies of one labelled assembly only; it is not a
-parent-group filter. Use `--report` / `--symmetry-consistent` for parent
+`--coupled` is the legacy group lock described in
+[Disorder integrity](disorder-integrity.md); it is not a parent-group filter.
+Use `--report` / `--symmetry-consistent` for parent
 closure. `--strict-formula` and `--independent-assemblies` are opt-in on
 `disorder`, `disorder-supercell`, and on any command that loads a CIF with
 `--resolve-disorder` (`io info`, `io molecules`, `io extract-molecule`,

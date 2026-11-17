@@ -10,6 +10,7 @@ occupancy sum.
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional, Sequence
 
@@ -109,18 +110,93 @@ def _pairwise_min_image_distances(
     lattice: np.ndarray,
     pbc: Sequence[bool],
 ) -> np.ndarray:
-    """Return Cartesian min-image distances with shape ``(len(a), len(b))``."""
+    """Return Cartesian min-image distances with shape ``(len(a), len(b))``.
+
+    Independent rounding of each fractional coordinate is not the shortest
+    image on a skewed cell. The search recenters with that rounding, then
+    checks the surrounding images on the periodic axes, the same 27-image
+    window as :func:`molcrys_kit.utils.geometry.minimum_image_vector`.
+    """
     delta = (
         np.asarray(frac_a, dtype=float)[:, None, :]
         - np.asarray(frac_b, dtype=float)[None, :, :]
     )
-    pbc_mask = np.asarray(pbc, dtype=bool)
-    if pbc_mask.all():
-        delta = delta - np.round(delta)
-    else:
-        delta[..., pbc_mask] -= np.round(delta[..., pbc_mask])
-    cart = np.einsum("...j,jk->...k", delta, np.asarray(lattice, dtype=float))
-    return np.linalg.norm(cart, axis=-1)
+    periodic = np.asarray(pbc, dtype=bool)
+    rounded = np.array(delta, copy=True)
+    rounded[..., periodic] -= np.round(rounded[..., periodic])
+    lattice_array = np.asarray(lattice, dtype=float)
+    if _independent_rounding_is_exact(lattice_array):
+        cartesian = np.einsum("...j,jk->...k", rounded, lattice_array)
+        return np.linalg.norm(cartesian, axis=-1)
+    shifts = np.asarray(list(itertools.product((-1, 0, 1), repeat=3)), dtype=float)
+    shifts[:, ~periodic] = 0.0
+    shifts = np.unique(shifts, axis=0)
+    best = np.full(rounded.shape[:2], np.inf)
+    # One image at a time. A full (pairs, images, 3) tensor does not fit a
+    # crystal-sized kept set, and an orthogonal cell never reaches this loop.
+    for shift in shifts:
+        cartesian = np.einsum("...j,jk->...k", rounded + shift, lattice_array)
+        np.minimum(best, np.linalg.norm(cartesian, axis=-1), out=best)
+    return best
+
+
+def _independent_rounding_is_exact(lattice: np.ndarray) -> bool:
+    """Fractional rounding is the minimum image when the metric is orthogonal.
+
+    Off-diagonal metric terms are what make a neighbour cell shorter than the
+    independently rounded fractional vector.
+    """
+    metric = lattice @ lattice.T
+    off_diagonal = np.array(metric, copy=True)
+    np.fill_diagonal(off_diagonal, 0.0)
+    scale = float(np.max(np.abs(np.diag(metric))))
+    return bool(np.max(np.abs(off_diagonal)) <= 1e-8 * max(scale, 1.0))
+
+
+def _perfect_matching(allowed: np.ndarray) -> list[int] | None:
+    """Return one bijection ``source -> target`` or ``None``.
+
+    ``allowed`` is a square boolean matrix. A nearest-neighbour column can
+    assign two sources to one target; a symmetry of a finite kept set has to
+    hit every kept atom once. The search is Hopcroft–Karp, which stays
+    polynomial when many atoms of one element lie inside the tolerance.
+    """
+    count = int(allowed.shape[0])
+    if count == 0:
+        return []
+    row_counts = allowed.sum(axis=1)
+    column_counts = allowed.sum(axis=0)
+    if np.any(row_counts == 0) or np.any(column_counts == 0):
+        return None
+    if np.all(row_counts == 1) and np.all(column_counts == 1):
+        return [int(index) for index in allowed.argmax(axis=1)]
+
+    import networkx as nx
+
+    graph = nx.Graph()
+    sources = [f"s{index}" for index in range(count)]
+    targets = [f"t{index}" for index in range(count)]
+    graph.add_nodes_from(sources, bipartite=0)
+    graph.add_nodes_from(targets, bipartite=1)
+    rows, columns = np.nonzero(allowed)
+    graph.add_edges_from(
+        (sources[int(row)], targets[int(column)])
+        for row, column in zip(rows, columns)
+    )
+    matching = nx.bipartite.hopcroft_karp_matching(graph, top_nodes=sources)
+    if any(node not in matching for node in sources):
+        return None
+    return [int(matching[node][1:]) for node in sources]
+
+
+def _operation_is_identity(operation) -> bool:
+    rotation = np.asarray(operation.rotation, dtype=float)
+    translation = np.mod(np.asarray(operation.translation, dtype=float), 1.0)
+    translation[np.isclose(translation, 1.0)] = 0.0
+    return bool(
+        np.allclose(rotation, np.eye(3), atol=1e-8, rtol=0.0)
+        and np.allclose(translation, 0.0, atol=1e-8, rtol=0.0)
+    )
 
 
 def audit_parent_symmetry(
@@ -184,33 +260,36 @@ def audit_parent_symmetry(
     same_symbol = kept_symbols[:, None] == kept_symbols[None, :]
 
     operation_audits: list[ParentSymmetryOperationAudit] = []
+    identity_flags: list[bool] = []
     all_close = True
     for operation in operations:
         mapped = operation.apply(kept_frac, wrap=False)
         distances = _pairwise_min_image_distances(mapped, kept_frac, lattice_array, pbc)
-        masked = np.where(same_symbol, distances, np.inf)
-        best_target_local = np.argmin(masked, axis=1)
-        best_distance = masked[np.arange(len(kept)), best_target_local]
-
-        unmapped = int(
-            np.sum(~np.isfinite(best_distance) | (best_distance > tolerance_angstrom))
-        )
-        finite = best_distance[np.isfinite(best_distance)]
-        residual_max = float(np.max(finite)) if finite.size else float("inf")
-        residual_mean = float(np.mean(finite)) if finite.size else float("inf")
-
+        allowed = same_symbol & np.isfinite(distances) & (distances <= tolerance_angstrom)
+        assignment = _perfect_matching(allowed)
         component_map: dict[str, str] = {}
-        mapped_mask = np.isfinite(best_distance) & (best_distance <= tolerance_angstrom)
-        for source_local in np.flatnonzero(mapped_mask):
-            source_key = kept_component_keys[int(source_local)]
-            target_key = kept_component_keys[int(best_target_local[source_local])]
-            previous = component_map.get(source_key)
-            if previous is None:
-                component_map[source_key] = target_key
-            elif previous != target_key:
-                component_map[source_key] = f"{previous}|{target_key}"
-
-        closes = unmapped == 0 and residual_max <= tolerance_angstrom
+        if assignment is None:
+            best_distance = np.full(len(kept), np.inf)
+            unmapped = len(kept)
+            residual_max = float("inf")
+            residual_mean = float("inf")
+            closes = False
+        else:
+            best_target_local = np.asarray(assignment, dtype=int)
+            best_distance = distances[np.arange(len(kept)), best_target_local]
+            unmapped = 0
+            residual_max = float(np.max(best_distance)) if len(kept) else 0.0
+            residual_mean = float(np.mean(best_distance)) if len(kept) else 0.0
+            for source_local, target_local in enumerate(best_target_local):
+                source_key = kept_component_keys[int(source_local)]
+                target_key = kept_component_keys[int(target_local)]
+                previous = component_map.get(source_key)
+                if previous is None:
+                    component_map[source_key] = target_key
+                elif previous != target_key:
+                    component_map[source_key] = f"{previous}|{target_key}"
+            closes = True
+        identity_flags.append(_operation_is_identity(operation))
         all_close = all_close and closes
         operation_audits.append(
             ParentSymmetryOperationAudit(
@@ -252,39 +331,32 @@ def audit_parent_symmetry(
                 continue
             # Declared occupancy for one ASU parent is the unique (group, assembly)
             # occupancy sum, not the expanded-image sum.
-            declared_sum = 0.0
-            declared_component_occs: list[float] = []
-            seen = set()
+            declared_by_key: dict[tuple[int, str], float] = {}
             for index in disordered:
                 key = (
                     int(info.disorder_groups[index]),
                     str(info.assemblies[index] if index < len(info.assemblies) else ""),
                 )
-                if key in seen:
-                    continue
-                seen.add(key)
-                occ = float(info.occupancies[index])
-                declared_sum += occ
-                declared_component_occs.append(occ)
+                declared_by_key.setdefault(key, float(info.occupancies[index]))
+            declared_sum = float(sum(declared_by_key.values()))
             kept_sum = 0.0
             kept_groups = []
-            seen_kept = set()
+            kept_keys: set[tuple[int, str]] = set()
             for index in kept_members:
                 key = (
                     int(info.disorder_groups[index]),
                     str(info.assemblies[index] if index < len(info.assemblies) else ""),
                 )
-                if key in seen_kept:
+                if key in kept_keys:
                     continue
-                seen_kept.add(key)
+                kept_keys.add(key)
                 kept_sum += float(info.occupancies[index])
                 kept_groups.append(int(info.disorder_groups[index]))
-            # Ordered replicas keep one exclusive alternative; closure means the
-            # kept alternative's occupancy is one of the declared component
-            # occupancies and does not exceed the declared sum.
-            closes = kept_sum <= declared_sum + 1e-6 and (
-                any(abs(kept_sum - occ) <= 1e-6 for occ in declared_component_occs)
-                or abs(kept_sum - declared_sum) <= 1e-6
+            # One exclusive component, or every declared component. A numeric
+            # sum of several parts must not alias a different component.
+            declared_keys = set(declared_by_key)
+            closes = kept_keys == declared_keys or (
+                len(kept_keys) == 1 and kept_keys <= declared_keys
             )
             occupancy_rows.append(
                 OccupancyClosureAudit(
@@ -302,7 +374,9 @@ def audit_parent_symmetry(
         notes.append("asym_id unavailable; occupancy closure skipped")
 
     if len(operations) > 1 and not all(
-        audit.closes for audit in operation_audits if audit.operation_index != 0
+        audit.closes
+        for audit, is_identity in zip(operation_audits, identity_flags)
+        if not is_identity
     ):
         notes.append(
             "replica does not close under every non-identity parent operation; "

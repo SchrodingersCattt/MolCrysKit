@@ -90,13 +90,14 @@ orientations as competing rigid groups, bounded by
 legacy behaviour where symmetry copies of **one labelled assembly** are locked
 together and motif merge keeps only the greedy best orientation.
 
-`coupled=True` does **not** couple distinct assemblies, distinct asymmetric-unit
-sites that only reuse the same local group number, or components that are only
-approximate images of each other under the parent group.  Parent-group closure
-is reported separately by the per-replica parent-symmetry audit on
-`DisorderProvenance.symmetry_audit` (and by CLI `--report`).  Opt into
-`symmetry_consistent=True` / `--symmetry-consistent` to keep only candidates
-that close under every parent operation.
+`coupled=True` keeps the legacy group lock. A pair of distinct assemblies
+avoids that lock only when both labels are multi-group or
+`independent_assemblies=True`. Approximate parent-symmetry images are not
+forced into one component. Parent-group closure is reported separately by the
+per-replica parent-symmetry audit on `DisorderProvenance.symmetry_audit`
+(and by CLI `--report`). `symmetry_consistent=True` /
+`--symmetry-consistent` keeps the generated candidates that close under every
+parent operation. A positive enumerate count limits that beam first.
 
 `method="optimal"` returns one occupancy-favoured packing.  When exclusive
 components are related by a parent mirror or other operation, that packing can
