@@ -8,24 +8,112 @@ from itertools import product
 import numpy as np
 
 _ATOMIC_NUMBERS = {
-    "H": 1, "He": 2, "Li": 3, "Be": 4, "B": 5, "C": 6, "N": 7, "O": 8, "F": 9,
-    "Ne": 10, "Na": 11, "Mg": 12, "Al": 13, "Si": 14, "P": 15, "S": 16, "Cl": 17,
-    "Ar": 18, "K": 19, "Ca": 20, "Sc": 21, "Ti": 22, "V": 23, "Cr": 24, "Mn": 25,
-    "Fe": 26, "Co": 27, "Ni": 28, "Cu": 29, "Zn": 30, "Ga": 31, "Ge": 32, "As": 33,
-    "Se": 34, "Br": 35, "Kr": 36, "Rb": 37, "Sr": 38, "Y": 39, "Zr": 40, "Nb": 41,
-    "Mo": 42, "Tc": 43, "Ru": 44, "Rh": 45, "Pd": 46, "Ag": 47, "Cd": 48, "In": 49,
-    "Sn": 50, "Sb": 51, "Te": 52, "I": 53, "Xe": 54, "Cs": 55, "Ba": 56, "La": 57,
-    "Ce": 58, "Pr": 59, "Nd": 60, "Pm": 61, "Sm": 62, "Eu": 63, "Gd": 64, "Tb": 65,
-    "Dy": 66, "Ho": 67, "Er": 68, "Tm": 69, "Yb": 70, "Lu": 71, "Hf": 72, "Ta": 73,
-    "W": 74, "Re": 75, "Os": 76, "Ir": 77, "Pt": 78, "Au": 79, "Hg": 80, "Tl": 81,
-    "Pb": 82, "Bi": 83, "Po": 84, "At": 85, "Rn": 86, "Fr": 87, "Ra": 88, "Ac": 89,
-    "Th": 90, "Pa": 91, "U": 92,
+    "H": 1,
+    "He": 2,
+    "Li": 3,
+    "Be": 4,
+    "B": 5,
+    "C": 6,
+    "N": 7,
+    "O": 8,
+    "F": 9,
+    "Ne": 10,
+    "Na": 11,
+    "Mg": 12,
+    "Al": 13,
+    "Si": 14,
+    "P": 15,
+    "S": 16,
+    "Cl": 17,
+    "Ar": 18,
+    "K": 19,
+    "Ca": 20,
+    "Sc": 21,
+    "Ti": 22,
+    "V": 23,
+    "Cr": 24,
+    "Mn": 25,
+    "Fe": 26,
+    "Co": 27,
+    "Ni": 28,
+    "Cu": 29,
+    "Zn": 30,
+    "Ga": 31,
+    "Ge": 32,
+    "As": 33,
+    "Se": 34,
+    "Br": 35,
+    "Kr": 36,
+    "Rb": 37,
+    "Sr": 38,
+    "Y": 39,
+    "Zr": 40,
+    "Nb": 41,
+    "Mo": 42,
+    "Tc": 43,
+    "Ru": 44,
+    "Rh": 45,
+    "Pd": 46,
+    "Ag": 47,
+    "Cd": 48,
+    "In": 49,
+    "Sn": 50,
+    "Sb": 51,
+    "Te": 52,
+    "I": 53,
+    "Xe": 54,
+    "Cs": 55,
+    "Ba": 56,
+    "La": 57,
+    "Ce": 58,
+    "Pr": 59,
+    "Nd": 60,
+    "Pm": 61,
+    "Sm": 62,
+    "Eu": 63,
+    "Gd": 64,
+    "Tb": 65,
+    "Dy": 66,
+    "Ho": 67,
+    "Er": 68,
+    "Tm": 69,
+    "Yb": 70,
+    "Lu": 71,
+    "Hf": 72,
+    "Ta": 73,
+    "W": 74,
+    "Re": 75,
+    "Os": 76,
+    "Ir": 77,
+    "Pt": 78,
+    "Au": 79,
+    "Hg": 80,
+    "Tl": 81,
+    "Pb": 82,
+    "Bi": 83,
+    "Po": 84,
+    "At": 85,
+    "Rn": 86,
+    "Fr": 87,
+    "Ra": 88,
+    "Ac": 89,
+    "Th": 90,
+    "Pa": 91,
+    "U": 92,
 }
 _SYMBOLS = {number: symbol for symbol, number in _ATOMIC_NUMBERS.items()}
 
 
 class Atoms:
-    """The slice of ``ase.Atoms`` used while reading a CIF."""
+    """Private Cartesian carrier used when ASE is not installed.
+
+    This is not an ASE substitute and it is not part of the public API.
+    ``CrystalMolecule`` subclasses ``ase.Atoms`` on a desktop install. On a
+    core install it subclasses this carrier, which implements only the
+    operations the CIF reader, molecule container, and disorder clustering
+    call. Selection follows ASE's list, slice, integer-array, and boolean-mask
+    rules. A scalar index returns a one-atom carrier rather than an ``Atom``.
+    """
 
     def __init__(
         self,
@@ -58,7 +146,11 @@ class Atoms:
         symbols = list(symbols or [])
         count = len(symbols)
         self._symbols = list(symbols)
-        self._cell = np.zeros((3, 3), dtype=float) if cell is None else np.asarray(cell, dtype=float).reshape(3, 3).copy()
+        self._cell = (
+            np.zeros((3, 3), dtype=float)
+            if cell is None
+            else np.asarray(cell, dtype=float).reshape(3, 3).copy()
+        )
         if scaled_positions is not None:
             fractional = np.asarray(scaled_positions, dtype=float).reshape(count, 3)
             positions = fractional @ self._cell
@@ -72,7 +164,9 @@ class Atoms:
             self._pbc = np.array([pbc, pbc, pbc], dtype=bool)
         else:
             values = list(pbc)
-            self._pbc = np.array(values if len(values) == 3 else [False, False, False], dtype=bool)
+            self._pbc = np.array(
+                values if len(values) == 3 else [False, False, False], dtype=bool
+            )
         self.arrays = {"numbers": self._numbers, "positions": self._positions}
         for key, value in arrays.items():
             self.set_array(key, value)
@@ -81,12 +175,7 @@ class Atoms:
         return len(self._symbols)
 
     def __getitem__(self, index) -> "Atoms":
-        if isinstance(index, slice):
-            chosen = list(range(len(self)))[index]
-        elif isinstance(index, (int, np.integer)):
-            chosen = [int(index)]
-        else:
-            chosen = [int(item) for item in index]
+        chosen = _integer_indices(index, len(self))
         picked = Atoms(
             symbols=[self._symbols[item] for item in chosen],
             positions=self._positions[chosen],
@@ -151,12 +240,20 @@ class Atoms:
         return self._pbc
 
     def get_scaled_positions(self, wrap: bool = True) -> np.ndarray:
-        cell = self._cell
-        if abs(float(np.linalg.det(cell))) < 1e-12:
-            return np.zeros_like(self._positions)
-        fractional = self._positions @ np.linalg.inv(cell)
+        """Return fractional coordinates on the ASE-completed cell.
+
+        Zero cell rows are completed the way ``ase.cell.Cell.complete`` does,
+        so an empty cell reports Cartesian coordinates instead of zeros.
+        A nonzero singular cell raises ``numpy.linalg.LinAlgError``. Wrapping
+        is applied only along periodic axes, twice, matching ASE.
+        """
+        completed = _complete_cell(self._cell)
+        fractional = np.linalg.solve(completed.T, np.transpose(self._positions)).T
         if wrap:
-            fractional = fractional - np.floor(fractional)
+            for axis, periodic in enumerate(self._pbc):
+                if periodic:
+                    fractional[:, axis] %= 1.0
+                    fractional[:, axis] %= 1.0
         return fractional
 
     def set_array(self, name: str, values) -> None:
@@ -175,11 +272,14 @@ class Atoms:
                 ordered.append(symbol)
         ordered.extend(sorted(symbol for symbol in counts if symbol not in {"C", "H"}))
         return "".join(
-            symbol + ("" if counts[symbol] == 1 else str(counts[symbol])) for symbol in ordered
+            symbol + ("" if counts[symbol] == 1 else str(counts[symbol]))
+            for symbol in ordered
         )
 
 
-def neighbor_list(quantities: str, atoms: Atoms, cutoff, self_interaction: bool = False):
+def neighbor_list(
+    quantities: str, atoms: Atoms, cutoff, self_interaction: bool = False
+):
     """Return the same quantity tuple ASE's ``neighbor_list`` returns."""
     positions = np.asarray(atoms.get_positions(), dtype=float)
     cell = np.asarray(atoms.get_cell(), dtype=float)
@@ -230,7 +330,11 @@ def get_distances(p1, p2, cell=None, pbc=None):
     delta = right[None, :, :] - left[:, None, :]
     matrix = None if cell is None else np.asarray(cell, dtype=float)
     periodic = np.zeros(3, dtype=bool) if pbc is None else np.asarray(pbc, dtype=bool)
-    if matrix is not None and abs(float(np.linalg.det(matrix))) > 1e-12 and np.any(periodic):
+    if (
+        matrix is not None
+        and abs(float(np.linalg.det(matrix))) > 1e-12
+        and np.any(periodic)
+    ):
         fractional = delta @ np.linalg.inv(matrix)
         fractional[..., periodic] -= np.rint(fractional[..., periodic])
         delta = fractional @ matrix
@@ -238,9 +342,62 @@ def get_distances(p1, p2, cell=None, pbc=None):
     return delta, distances
 
 
+def _integer_indices(index, count: int) -> np.ndarray:
+    """Resolve an ASE-style atom selection to integer positions."""
+    if isinstance(index, str):
+        raise IndexError("chemical-symbol indexing is not supported")
+    if isinstance(index, (bool, np.bool_)):
+        raise IndexError("a scalar boolean is not an atom index")
+    if isinstance(index, slice):
+        return np.arange(count, dtype=int)[index]
+    if isinstance(index, (int, np.integer)):
+        chosen = int(index)
+        if chosen < -count or chosen >= count:
+            raise IndexError("Index out of range.")
+        return np.asarray([chosen], dtype=int)
+    array = np.asarray(index)
+    if array.ndim == 0:
+        item = array.item()
+        if isinstance(item, (int, np.integer)) and not isinstance(item, (bool, np.bool_)):
+            return _integer_indices(int(item), count)
+        raise IndexError("atom index must be integers, a slice, or a boolean mask")
+    if array.dtype == bool:
+        if array.shape != (count,):
+            raise IndexError(
+                f"Length of mask {array.size} must equal number of atoms {count}"
+            )
+        return np.flatnonzero(array)
+    if array.dtype.kind not in "iu":
+        raise IndexError("arrays used as indices must be of integer (or boolean) type")
+    chosen = np.asarray(array, dtype=int).reshape(-1)
+    if np.any((chosen < -count) | (chosen >= count)):
+        raise IndexError("Index out of range.")
+    return chosen
+
+
+def _complete_cell(cell: np.ndarray) -> np.ndarray:
+    """Fill zero cell rows the way ``ase.cell.Cell.complete`` does."""
+    completed = np.array(cell, dtype=float, copy=True)
+    missing = np.nonzero(~completed.any(axis=1))[0]
+    if len(missing) == 3:
+        completed.flat[::4] = 1.0
+    elif len(missing) == 2:
+        left, singular, right = np.linalg.svd(completed.T)
+        completed = (left @ np.diag([singular[0], 1.0, 1.0]) @ right).T
+        if np.sign(np.linalg.det(completed)) < 0.0:
+            completed[missing[0]] = -completed[missing[0]]
+    elif len(missing) == 1:
+        axis = int(missing[0])
+        completed[axis] = np.cross(completed[axis - 2], completed[axis - 1])
+        completed[axis] /= np.linalg.norm(completed[axis])
+    return completed
+
+
 def _is_atoms(value) -> bool:
-    return hasattr(value, "get_positions") and hasattr(value, "get_chemical_symbols") and not isinstance(
-        value, (str, list, tuple, np.ndarray)
+    return (
+        hasattr(value, "get_positions")
+        and hasattr(value, "get_chemical_symbols")
+        and not isinstance(value, (str, list, tuple, np.ndarray))
     )
 
 
@@ -268,7 +425,9 @@ def _image_shifts(cell: np.ndarray, pbc: np.ndarray, cutoff: float):
             ranges.append([0])
             continue
         other = np.cross(cell[(axis + 1) % 3], cell[(axis + 2) % 3])
-        height = abs(float(np.dot(cell[axis], other))) / (float(np.linalg.norm(other)) + 1e-15)
+        height = abs(float(np.dot(cell[axis], other))) / (
+            float(np.linalg.norm(other)) + 1e-15
+        )
         count = int(np.ceil(cutoff / max(height, 1e-8)))
         ranges.append(range(-count, count + 1))
     return [np.array(shift, dtype=int) for shift in product(*ranges)]

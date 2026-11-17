@@ -7,6 +7,7 @@
 ## Core Concepts
 
 - `MolecularCrystal` is the central object for most workflows.
+- The core install is NumPy, NetworkX, and Click (`pip install molcrys-kit`). `pip install molcrys-kit[desktop]` adds SciPy, ASE, pymatgen, and spglib. CIF reading, special-position clustering, and structure export run on the core install. `molcrys_kit.compat` is a private fallback for that install, not a public ASE or pymatgen API.
 - Typical flow: CIF/ASE → `MolecularCrystal` → operation or analysis → writer.
 - Operations return new objects; treat inputs as immutable unless a docstring says otherwise.
 - Use `import molcrys_kit as mck`; common entry point: `mck.read_mol_crystal(path)`.

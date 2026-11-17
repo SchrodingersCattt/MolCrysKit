@@ -4,7 +4,7 @@ MolCrysKit's command-line interface (`mck`) provides tools for reading, analyzin
 
 ## Installation & Usage
 
-Installing MolCrysKit via `pip install molcrys-kit` automatically installs the `mck` command. All commands are self-documenting; use `--help` at any level to see details:
+Installing MolCrysKit via `pip install molcrys-kit` installs the `mck` command with the core profile. Structure subcommands that need ASE, pymatgen, SciPy, or spglib require `pip install "molcrys-kit[desktop]"`. All commands are self-documenting; use `--help` at any level to see details:
 
 ```bash
 mck --help
