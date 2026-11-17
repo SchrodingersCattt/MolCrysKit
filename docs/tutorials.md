@@ -108,7 +108,10 @@ write_reactive_path(result, "proton-transfer.extxyz")
 The product hydrogen is placed on the acceptor at the tabulated O-H length,
 0.96 Å. Bridge cleavage uses `build_bond_cleavage_path` with molecule-local
 atom indices and a declared `electron_pairing` of `"closed_shell"` or
-`"diradical"`. A ring bond is refused.
+`"diradical"`. The path follows that requested separation even when it is
+longer than half a cell edge; it does not fold back onto the shorter periodic
+image. A ring bond is refused. Connectivity is checked only around atoms that
+move, and any extra bond change is refused.
 
 ## Extended XYZ Dataset Bundles
 

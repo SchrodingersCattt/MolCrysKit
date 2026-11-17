@@ -67,7 +67,7 @@
 | Collective symmetry path | `build_symmetry_path_plan`, `generate_collective_symmetry_path` | crystal + affine operation | validated rigid path | [Tutorials](tutorials.md) |
 | Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
 | Composite conformational interpolation | `interpolate_molecule_with_internal_dofs` | two `CrystalMolecule` conformers | rigid + bridge-torsion/Cremer–Pople frames | source docstring |
-| Reactive initial path | `interpolate_reactive_path` | atom-mapped endpoints + rigid groups | flat ASE frames + result metadata | [Tutorials](tutorials.md) |
+| Reactive initial path | `interpolate_reactive_path` | atom-mapped endpoints + rigid groups; optional per-group lattice-image shift | flat ASE frames + result metadata | [Tutorials](tutorials.md) |
 | Multi-species reactive path | `build_proton_transfer_path`, `build_bond_cleavage_path`, `write_reactive_path` | one crystal plus a declared proton transfer or bridge cleavage, with declared charges and multiplicity | fixed-cell ASE frames, species partition, extxyz trajectory and JSON sidecar | [Tutorials](tutorials.md) |
 | Build periodic fragment chains | `build_periodic_chains` | templates, connection rules, cell, and closure | `PeriodicBundle` | [Periodic chains](periodic-chains.md) |
 | Validate periodic bundle | `validate_periodic_bundle` | bundle structure and sidecar metadata | integrity, graph, and periodic-distance report | [Periodic chains](periodic-chains.md) |

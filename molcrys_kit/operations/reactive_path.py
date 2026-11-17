@@ -15,6 +15,7 @@ from typing import Any, Sequence
 
 import numpy as np
 from ase import Atoms
+from ase.neighborlist import neighbor_list
 
 from ..analysis.interactions.bonding import get_bonding_threshold
 from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
@@ -171,15 +172,24 @@ def _fit_rigid_group(
     lattice: np.ndarray,
     pbc: Sequence[bool],
     tolerance_A: float,
+    image_shift: ImageShift | None = None,
 ) -> tuple[_RigidGroupPose, np.ndarray]:
     indices = np.asarray(group.atom_indices, dtype=int)
     group_a = positions_a[indices]
     group_b_raw = positions_b[indices]
     center_a = np.mean(group_a, axis=0)
     center_b_raw = np.mean(group_b_raw, axis=0)
-    translation, image_shift = minimum_image_displacement(
-        center_b_raw - center_a, lattice, pbc
-    )
+    if image_shift is None:
+        translation, image_shift = minimum_image_displacement(
+            center_b_raw - center_a, lattice, pbc
+        )
+    else:
+        image_shift = tuple(int(value) for value in image_shift)
+        translation = (
+            center_b_raw
+            - center_a
+            + frac_to_cart(np.asarray(image_shift, dtype=float), lattice)
+        )
     shift_cart = frac_to_cart(np.asarray(image_shift, dtype=float), lattice)
     group_b = group_b_raw + shift_cart
     center_b = center_b_raw + shift_cart
@@ -318,6 +328,33 @@ def _validate_bond_changes(
     return records
 
 
+def _coerce_group_image_shifts(
+    shifts: Sequence[ImageShift | None] | None,
+    n_groups: int,
+) -> tuple[ImageShift | None, ...]:
+    if shifts is None:
+        return (None,) * n_groups
+    if len(shifts) != n_groups:
+        raise ValueError(
+            "rigid_group_image_shifts must contain one shift per rigid group"
+        )
+    resolved: list[ImageShift | None] = []
+    for shift in shifts:
+        if shift is None:
+            resolved.append(None)
+            continue
+        if len(shift) != 3:
+            raise ValueError("rigid group image shift must contain three integers")
+        resolved.append(
+            (
+                _require_int(shift[0], "image shift"),
+                _require_int(shift[1], "image shift"),
+                _require_int(shift[2], "image shift"),
+            )
+        )
+    return tuple(resolved)
+
+
 def interpolate_reactive_path(
     reactant: MolecularCrystal,
     product_crystal: MolecularCrystal,
@@ -326,11 +363,17 @@ def interpolate_reactive_path(
     product_index_by_reactant: Sequence[int] | None = None,
     bond_changes: Sequence[BondChange] = (),
     config: ReactivePathConfig | None = None,
+    rigid_group_image_shifts: Sequence[ImageShift | None] | None = None,
 ) -> ReactivePathResult:
     """Generate a fixed-cell atom-mapped reactive initial path.
 
     Rigid groups move independently but share the same interpolation parameter.
     Atoms outside all rigid groups interpolate linearly between endpoint images.
+    ``rigid_group_image_shifts`` selects the lattice image of each product
+    group. The default, ``None``, uses the minimum image of the group centre.
+    An explicit shift keeps that image of the supplied coordinates, so a
+    requested displacement longer than half a cell edge is not replaced by
+    the shorter periodic return.
     """
     config = config or ReactivePathConfig()
     method = coerce_interpolation_method(config.method)
@@ -356,6 +399,7 @@ def interpolate_reactive_path(
     symbols_b = atoms_b.get_chemical_symbols()
     mapping = _validate_mapping(symbols_a, symbols_b, product_index_by_reactant)
     groups, rigid_indices = _validate_groups(rigid_groups, len(atoms_a))
+    group_shifts = _coerce_group_image_shifts(rigid_group_image_shifts, len(groups))
     positions_a = np.asarray(atoms_a.positions, dtype=float)
     positions_b = np.asarray(atoms_b.positions, dtype=float)[
         np.asarray(mapping, dtype=int)
@@ -364,7 +408,7 @@ def interpolate_reactive_path(
     target_positions = positions_b.copy()
     shifts = np.zeros((len(atoms_a), 3), dtype=int)
     poses: list[_RigidGroupPose] = []
-    for group in groups:
+    for group, group_shift in zip(groups, group_shifts):
         pose, group_target = _fit_rigid_group(
             group,
             positions_a,
@@ -372,6 +416,7 @@ def interpolate_reactive_path(
             lattice_a,
             reactant.pbc,
             config.rigid_fit_tolerance_A,
+            image_shift=group_shift,
         )
         indices = np.asarray(group.atom_indices, dtype=int)
         target_positions[indices] = group_target
@@ -585,6 +630,70 @@ def _require_molecule(molecule_index: np.ndarray, index: int, name: str) -> int:
     return resolved
 
 
+def _bond_search_cutoff(symbols: Sequence[str], bond_scale: float) -> float:
+    """Return a neighbor-list cutoff that covers every present bonding threshold.
+
+    ASE's neighbor list keeps pairs strictly inside the cutoff, while bond
+    validation uses ``distance <= threshold``. The cutoff is the next
+    floating-point value above the largest scaled threshold so an exact
+    threshold pair is still visited.
+    """
+    unique = tuple(sorted(set(symbols)))
+    max_threshold = 0.0
+    for left_index, left in enumerate(unique):
+        if not has_atomic_radius(left):
+            raise ValueError(f"Missing atomic radius for bond validation: {left}")
+        for right in unique[left_index:]:
+            if not has_atomic_radius(right):
+                raise ValueError(f"Missing atomic radius for bond validation: {right}")
+            threshold = get_bonding_threshold(
+                get_atomic_radius(left),
+                get_atomic_radius(right),
+                is_metal_element(left),
+                is_metal_element(right),
+            )
+            max_threshold = max(max_threshold, float(threshold))
+    limit = float(bond_scale) * max_threshold
+    return float(np.nextafter(limit, np.inf))
+
+
+def _moved_atom_indices(positions_a: np.ndarray, positions_b: np.ndarray) -> list[int]:
+    delta = np.asarray(positions_b, dtype=float) - np.asarray(positions_a, dtype=float)
+    return [
+        index
+        for index, displacement in enumerate(delta)
+        if float(np.linalg.norm(displacement)) > BOND_ROTATION_AXIS_TOLERANCE
+    ]
+
+
+def _candidate_bond_pairs(
+    symbols: Sequence[str],
+    positions: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+    cutoff: float,
+    moved: set[int],
+) -> set[tuple[int, int]]:
+    atoms = Atoms(
+        symbols=list(symbols),
+        positions=np.asarray(positions, dtype=float),
+        cell=np.asarray(lattice, dtype=float),
+        pbc=pbc,
+    )
+    first, second = neighbor_list("ij", atoms, cutoff=cutoff)
+    pairs: set[tuple[int, int]] = set()
+    for atom_i, atom_j in zip(first, second):
+        left, right = int(atom_i), int(atom_j)
+        if left == right:
+            continue
+        if left > right:
+            left, right = right, left
+        if left not in moved and right not in moved:
+            continue
+        pairs.add((left, right))
+    return pairs
+
+
 def _connectivity_changes(
     symbols: Sequence[str],
     positions_a: np.ndarray,
@@ -593,17 +702,35 @@ def _connectivity_changes(
     pbc: Sequence[bool],
     bond_scale: float,
 ) -> set[tuple[int, int]]:
+    """Return pairs whose bonded state changes, searching only around moving atoms.
+
+    Atoms that share a displacement cannot change their mutual distance, so
+    spectator pairs and pairs inside one rigid fragment are not visited.
+    """
+    moved = _moved_atom_indices(positions_a, positions_b)
+    if not moved:
+        return set()
+    moved_set = set(moved)
+    cutoff = _bond_search_cutoff(symbols, bond_scale)
+    candidates: set[tuple[int, int]] = set()
+    for positions in (positions_a, positions_b):
+        candidates.update(
+            _candidate_bond_pairs(symbols, positions, lattice, pbc, cutoff, moved_set)
+        )
+    delta = np.asarray(positions_b, dtype=float) - np.asarray(positions_a, dtype=float)
     changed: set[tuple[int, int]] = set()
-    for atom_i in range(len(symbols)):
-        for atom_j in range(atom_i + 1, len(symbols)):
-            bonded_a, _, _ = _pair_is_bonded(
-                symbols, positions_a, atom_i, atom_j, lattice, pbc, bond_scale
-            )
-            bonded_b, _, _ = _pair_is_bonded(
-                symbols, positions_b, atom_i, atom_j, lattice, pbc, bond_scale
-            )
-            if bonded_a != bonded_b:
-                changed.add((atom_i, atom_j))
+    for atom_i, atom_j in candidates:
+        relative = delta[atom_j] - delta[atom_i]
+        if float(np.linalg.norm(relative)) <= BOND_ROTATION_AXIS_TOLERANCE:
+            continue
+        bonded_a, _, _ = _pair_is_bonded(
+            symbols, positions_a, atom_i, atom_j, lattice, pbc, bond_scale
+        )
+        bonded_b, _, _ = _pair_is_bonded(
+            symbols, positions_b, atom_i, atom_j, lattice, pbc, bond_scale
+        )
+        if bonded_a != bonded_b:
+            changed.add((atom_i, atom_j))
     return changed
 
 
@@ -759,6 +886,7 @@ def _run_declared_path(
     bond_changes: Sequence[BondChange],
     config: ReactivePathConfig,
     *,
+    rigid_group_image_shifts: Sequence[ImageShift | None] | None = None,
     cell_charge: int,
     multiplicity: int,
     electron_pairing: str | None,
@@ -772,6 +900,7 @@ def _run_declared_path(
         rigid_groups=groups,
         bond_changes=bond_changes,
         config=config,
+        rigid_group_image_shifts=rigid_group_image_shifts,
     )
     return _annotate_result(
         result,
@@ -1028,12 +1157,15 @@ def build_bond_cleavage_path(
         raise ValueError("Reactive interpolation requires at least two rigid groups")
 
     product = _rebuild_crystal(crystal, product_positions, product_owners)
+    # Product coordinates already contain the requested unwrapped displacement.
+    # A zero image shift keeps that direction when it is longer than half a cell.
     return _run_declared_path(
         crystal,
         product,
         groups,
         [BondChange(global_i, global_j, True, False)],
         config,
+        rigid_group_image_shifts=tuple((0, 0, 0) for _ in groups),
         cell_charge=cell_charge,
         multiplicity=multiplicity,
         electron_pairing=electron_pairing,

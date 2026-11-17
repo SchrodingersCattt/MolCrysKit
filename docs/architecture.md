@@ -41,7 +41,10 @@ the atom mapping, and the rigid groups already exist. It does not build those
 endpoints. `build_proton_transfer_path` and `build_bond_cleavage_path` are the
 multi-species adapters: they place the transferring hydrogen or separate one
 bridge-bond fragment, assign the product `molecule_index`, and call the
-existing interpolator. Proton placement reuses the hydrogen-bond distance
+existing interpolator. The cleavage builder keeps the requested unwrapped
+displacement, including when it exceeds half a lattice edge. Connectivity
+changes are collected from a periodic neighbor list around the moving atoms.
+Proton placement reuses the hydrogen-bond distance
 limit and `BOND_LENGTHS`. Bridge cleavage reuses `partition_at_bond`. A ring
 bond raises `RingBondRotationError` because that cut does not produce two
 rigid fragments. Declared cell charge, species charges, multiplicity, and

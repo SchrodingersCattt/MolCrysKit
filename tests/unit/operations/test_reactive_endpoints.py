@@ -198,6 +198,22 @@ def test_proton_transfer_rejects_hydrogen_on_another_molecule():
         _proton_path(hydrogen_index=6)
 
 
+def test_proton_transfer_rejects_an_unintended_new_bond():
+    """A spectator that the moving hydrogen reaches is not a declared bond."""
+    positions = np.vstack([PROTON_POSITIONS, [[2.24, 1.20, 0.0]]])
+    crystal = _crystal(
+        PROTON_SYMBOLS + ["C"],
+        positions,
+        np.concatenate([PROTON_MOLECULES, [3]]),
+    )
+    with pytest.raises(ValueError, match="endpoint connectivity changes"):
+        _proton_path(
+            crystal,
+            reactant_species_charges=REACTANT_CHARGES + ((3, 0),),
+            product_species_charges=PRODUCT_CHARGES + ((3, 0),),
+        )
+
+
 def test_bridge_cleavage_separates_the_moving_fragment():
     crystal = _chain_crystal()
     before = crystal.to_ase().positions.copy()
@@ -269,6 +285,38 @@ def test_ring_bond_cleavage_is_refused():
             reactant_species_charges=((0, 0), (1, 0)),
             product_species_charges=((0, 0), (1, 0), (2, 0)),
         )
+
+
+def test_cleavage_follows_requested_separation_beyond_half_cell():
+    crystal = _crystal(
+        ["C", "C"],
+        [[0.0, 5.0, 5.0], [1.5, 5.0, 5.0]],
+        [0, 0],
+    )
+    result = build_bond_cleavage_path(
+        crystal,
+        molecule_index=0,
+        atom_i=0,
+        atom_j=1,
+        separation_A=6.0,
+        cell_charge=0,
+        multiplicity=1,
+        electron_pairing="closed_shell",
+        reactant_species_charges=((0, 0),),
+        product_species_charges=((0, 0), (1, 0)),
+        config=ReactivePathConfig(n_images=5),
+    )
+    start = np.array([1.5, 5.0, 5.0])
+    fixed = np.array([0.0, 5.0, 5.0])
+    distances = []
+    for frame, lam in zip(result.images, np.linspace(0.0, 1.0, 5)):
+        np.testing.assert_allclose(frame.positions[0], fixed, atol=1e-8)
+        np.testing.assert_allclose(
+            frame.positions[1], start + [lam * 6.0, 0.0, 0.0], atol=1e-8
+        )
+        distances.append(np.linalg.norm(frame.positions[1] - frame.positions[0]))
+    np.testing.assert_allclose(distances, 1.5 + np.linspace(0.0, 6.0, 5), atol=1e-8)
+    assert result.product_image_shifts[1] == (0, 0, 0)
 
 
 def test_bond_cleavage_requires_electron_pairing():
