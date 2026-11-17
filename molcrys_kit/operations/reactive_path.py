@@ -194,6 +194,23 @@ def _fit_rigid_group(
     shift_cart = frac_to_cart(np.asarray(image_shift, dtype=float), lattice)
     group_b = group_b_raw + shift_cart
     center_b = center_b_raw + shift_cart
+    # A group that does not move should stay on its reactant coordinates.
+    # A near-zero Kabsch rotation otherwise wanders by about 1e-8 Å on some
+    # BLAS builds during the intermediate screw frames.
+    atom_shift = np.linalg.norm(group_b - group_a, axis=1)
+    if float(np.max(atom_shift)) <= tolerance_A:
+        pose = _RigidGroupPose(
+            group=group,
+            center_a=center_a,
+            translation=np.zeros(3),
+            rotation=np.eye(3),
+            axis=np.array([1.0, 0.0, 0.0]),
+            angle_rad=0.0,
+            fit_rmsd_A=0.0,
+            pose_rmsd_A=0.0,
+            image_shift=image_shift,
+        )
+        return pose, group_a.copy()
 
     if len(indices) == 1:
         rotation = np.eye(3)
@@ -229,6 +246,8 @@ def _interpolate_group(
     lam: float,
     method: InterpolationMethod,
 ) -> np.ndarray:
+    if pose.angle_rad == 0.0 and not np.any(pose.translation):
+        return np.array(positions_a, dtype=float, copy=True)
     return interpolate_rigid_positions(
         positions_a,
         center=pose.center_a,
