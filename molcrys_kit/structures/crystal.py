@@ -11,8 +11,11 @@ import hashlib
 
 from typing import List, Optional, Tuple
 
-from ase import Atoms
-from ase.neighborlist import neighbor_list
+try:
+    from ase import Atoms
+    from ase.neighborlist import neighbor_list
+except ImportError:  # phone / minimal install
+    from ..compat.atoms import Atoms, neighbor_list
 
 from .molecule import CrystalMolecule
 from .records import BOND_ROLES, BondRecord, SiteRecord
@@ -1282,7 +1285,7 @@ class MolecularCrystal:
         because the unwrapped Cartesian positions no longer correspond to
         the original CIF fractional coordinates.
         """
-        from ..analysis.interactions import get_bonding_threshold
+        from ..analysis.interactions.bonding import get_bonding_threshold
         from .molecule import _strip_stale_frac_arrays
         from ..constants.config import KEY_IMAGE_SHIFT
 
