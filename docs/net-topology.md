@@ -331,9 +331,12 @@ tiling compared with its own 1-skeleton, or with no tiling at all, is
 `not_dual` or `not_assessed`. Dropping a face is `incomplete_tiling`.
 
 A tiling that cannot be developed under the assembly cap is `undetermined`
-with reason `tiling_assembly_capped`. More than one inequivalent development,
-or more than eight combinations of tile developments, is
-`tiling_assembly_ambiguous`. Neither result is turned into a surface dual.
+with reason `tiling_assembly_capped`. One tile whose boundary search records
+more than four closed developments, or more than eight combinations of tile
+developments, is `tiling_assembly_ambiguous`. A second development that fails
+the shift check does not by itself refuse the tiling; the primitive cubic
+tiling has two assembly solutions and is still `space_filling_tiling`.
+Neither capped nor ambiguous result is turned into a surface dual.
 The search does not certify a nonconvex tile; that input does not receive
 `space_filling_tiling`.
 
