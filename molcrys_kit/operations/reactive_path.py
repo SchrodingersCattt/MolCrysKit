@@ -19,7 +19,6 @@ from ase.neighborlist import neighbor_list
 
 from ..analysis.interactions.bonding import get_bonding_threshold
 from ..constants import (
-    DEFAULT_NEIGHBOR_CUTOFF,
     get_atomic_radius,
     has_atomic_radius,
     is_metal_element,
@@ -406,6 +405,8 @@ def _prepare_free_atom_arcs(
     poses: Sequence[_RigidGroupPose],
     positions_a: np.ndarray,
     target_positions: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
 ) -> dict[int, _PreparedArc]:
     free = set(free_indices)
     reactant_frame = np.array(positions_a, dtype=float, copy=True)
@@ -431,11 +432,17 @@ def _prepare_free_atom_arcs(
             or pivot_index >= n_atoms
         ):
             raise ValueError("polar arc atom index is out of range")
+        reactant_vector, _ = minimum_image_displacement(
+            reactant_frame[atom_index] - reactant_frame[pivot_index], lattice, pbc
+        )
+        product_vector, _ = minimum_image_displacement(
+            target_positions[atom_index] - target_positions[pivot_index], lattice, pbc
+        )
         prepared[atom_index] = _PreparedArc(
             atom_index=atom_index,
             pivot_index=pivot_index,
-            reactant_vector=reactant_frame[atom_index] - reactant_frame[pivot_index],
-            product_vector=target_positions[atom_index] - target_positions[pivot_index],
+            reactant_vector=reactant_vector,
+            product_vector=product_vector,
         )
     for arc in prepared.values():
         if arc.pivot_index in prepared:
@@ -456,7 +463,9 @@ def _reactant_bonded_pairs(
         cell=np.asarray(lattice, dtype=float),
         pbc=pbc,
     )
-    first, second = neighbor_list("ij", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF))
+    first, second = neighbor_list(
+        "ij", atoms, cutoff=_bond_search_cutoff(symbols, bond_scale)
+    )
     bonded_pairs: set[tuple[int, int]] = set()
     for atom_i, atom_j in zip(first, second):
         left, right = int(atom_i), int(atom_j)
@@ -553,7 +562,9 @@ def _min_nonbonded_distance(
         cell=np.asarray(lattice, dtype=float),
         pbc=pbc,
     )
-    first, second = neighbor_list("ij", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF))
+    first, second = neighbor_list(
+        "ij", atoms, cutoff=_bond_search_cutoff(symbols, bond_scale)
+    )
     best: float | None = None
     new_contacts: list[tuple[int, int]] = []
     seen: set[tuple[int, int]] = set()
@@ -775,7 +786,9 @@ def interpolate_reactive_path(
         )
         indices = np.asarray(group.atom_indices, dtype=int)
         target_positions[indices] = group_target
-        shifts[indices] = np.asarray(pose.image_shift, dtype=int)
+        atom_shifts = np.asarray(pose.atom_image_shifts, dtype=int)
+        group_shift = np.asarray(pose.image_shift, dtype=int)
+        shifts[indices] = atom_shifts + group_shift
         poses.append(pose)
 
     free_indices = sorted(set(range(len(atoms_a))) - rigid_indices)
@@ -809,7 +822,13 @@ def interpolate_reactive_path(
         del reference_atoms.arrays["molecule_index"]
 
     arcs = _prepare_free_atom_arcs(
-        free_atom_arcs, free_indices, poses, positions_a, target_positions
+        free_atom_arcs,
+        free_indices,
+        poses,
+        positions_a,
+        target_positions,
+        lattice_a,
+        reactant.pbc,
     )
     linear_free = [index for index in free_indices if index not in arcs]
     images: list[Atoms] = []
@@ -1505,7 +1524,9 @@ def build_bond_cleavage_path(
     """Build a fixed-cell path that separates one bridge-bond fragment.
 
     ``atom_i`` and ``atom_j`` are molecule-local indices. The fragment
-    containing ``atom_j`` translates by ``separation_A`` along the bond.
+    containing ``atom_j`` translates by ``separation_A`` along the periodic
+    image of the bond. A separation longer than half a cell edge stays on
+    that Cartesian image.
     A ring bond raises :class:`RingBondRotationError`. A bridge that crosses
     a cell face is unwrapped before the partition is read. ``electron_pairing``
     is the caller-declared label ``"closed_shell"`` or ``"diradical"`` and
@@ -1557,13 +1578,19 @@ def build_bond_cleavage_path(
 
     positions = np.asarray(atoms.positions, dtype=float).copy()
     lattice = np.asarray(crystal.lattice, dtype=float)
-    axis, _ = minimum_image_displacement(
+    axis, image_shift = minimum_image_displacement(
         positions[global_j] - positions[global_i], lattice, crystal.pbc
     )
     axis_norm = float(np.linalg.norm(axis))
     if axis_norm <= BOND_ROTATION_AXIS_TOLERANCE:
         raise ValueError(f"bond axis {atom_i}-{atom_j} has zero length")
-    product_positions = positions.copy()
+    # ``axis`` points at one periodic image of the moving atom. Put the
+    # fragment on that image before interpolating, then keep the requested
+    # Cartesian separation even when it is longer than half a cell edge.
+    unwrap = frac_to_cart(np.asarray(image_shift, dtype=float), lattice)
+    reactant_positions = positions.copy()
+    reactant_positions[list(moving)] += unwrap
+    product_positions = reactant_positions.copy()
     product_positions[list(moving)] += axis / axis_norm * separation_A
     product_owners = owners.copy()
     new_index = int(owners.max()) + 1
@@ -1606,11 +1633,12 @@ def build_bond_cleavage_path(
     if len(groups) < 2:
         raise ValueError("Reactive interpolation requires at least two rigid groups")
 
+    reactant = _rebuild_crystal(crystal, reactant_positions, owners)
     product = _rebuild_crystal(crystal, product_positions, product_owners)
-    # Product coordinates already contain the requested unwrapped displacement.
-    # A zero image shift keeps that direction when it is longer than half a cell.
+    # Both endpoints already sit on the bond image. A zero image shift keeps
+    # a separation that is longer than half a cell.
     return _run_declared_path(
-        crystal,
+        reactant,
         product,
         groups,
         [BondChange(global_i, global_j, True, False)],

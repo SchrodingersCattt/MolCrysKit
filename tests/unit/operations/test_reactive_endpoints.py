@@ -10,9 +10,12 @@ from ase.io import read
 
 from molcrys_kit.analysis.interactions import find_hydrogen_bonds
 from molcrys_kit.operations import (
+    FreeAtomArc,
     ReactivePathConfig,
+    RigidGroup,
     build_bond_cleavage_path,
     build_proton_transfer_path,
+    interpolate_reactive_path,
     write_reactive_path,
 )
 from molcrys_kit.operations.bond_rotation import RingBondRotationError
@@ -499,3 +502,145 @@ def test_bond_cleavage_requires_electron_pairing():
             reactant_species_charges=CHAIN_CHARGES,
             product_species_charges=CHAIN_PRODUCT_CHARGES,
         )
+
+
+def _mic(cell, left, right) -> float:
+    lattice = np.diag(np.asarray(cell, dtype=float))
+    delta = np.asarray(right, dtype=float) - np.asarray(left, dtype=float)
+    frac = np.linalg.solve(lattice.T, delta)
+    frac -= np.round(frac)
+    return float(np.linalg.norm(lattice.T @ frac))
+
+
+def test_cell_face_cleavage_keeps_cartesian_separation():
+    cell = [10.0, 10.0, 10.0]
+    # N at 9.5 and H at 0.5 are 1 Å apart through the cell face.
+    positions = np.array(
+        [
+            [9.5, 5.0, 5.0],
+            [0.5, 5.0, 5.0],
+            [5.0, 1.0, 1.0],
+            [6.1, 1.0, 1.0],
+        ]
+    )
+    crystal = _crystal(["N", "H", "C", "C"], positions, [0, 0, 1, 1])
+    result = build_bond_cleavage_path(
+        crystal,
+        molecule_index=0,
+        atom_i=0,
+        atom_j=1,
+        separation_A=6.0,
+        cell_charge=0,
+        multiplicity=1,
+        electron_pairing="closed_shell",
+        reactant_species_charges=((0, 0), (1, 0)),
+        product_species_charges=((0, 0), (1, 0), (2, 0)),
+        config=ReactivePathConfig(n_images=5),
+    )
+    start = result.images[0].positions
+    end = result.images[-1].positions
+    cartesian = float(np.linalg.norm(end[1] - end[0]))
+    assert cartesian == pytest.approx(7.0, abs=0.05)
+    assert _mic(cell, end[0], end[1]) > _mic(cell, start[0], start[1])
+
+
+def test_polar_arc_stays_on_the_unwrapped_pivot_image():
+    cell = np.diag([10.0, 10.0, 10.0])
+    positions = np.array(
+        [
+            [0.20, 5.0, 5.0],
+            [9.60, 5.0, 5.0],
+            [9.70, 6.0, 5.0],
+            [4.0, 1.0, 1.0],
+            [5.2, 1.0, 1.0],
+        ]
+    )
+    crystal = MolecularCrystal.from_ase_atoms(
+        Atoms(
+            symbols=["C", "C", "H", "O", "H"],
+            positions=positions,
+            cell=cell,
+            pbc=True,
+        )
+    )
+    # The pivot's bond walk crosses the cell; the hydrogen is stored next to
+    # the wrapped pivot, 1 Å away, not next to the unwrapped pivot.
+    result = interpolate_reactive_path(
+        crystal,
+        crystal,
+        rigid_groups=[RigidGroup((0, 1), "chain"), RigidGroup((3, 4), "spectator")],
+        free_atom_arcs=[FreeAtomArc(2, 1)],
+        config=ReactivePathConfig(n_images=5, validate_bond_changes=False),
+    )
+    radii = []
+    for frame in result.images:
+        radii.append(_mic([10, 10, 10], frame.positions[2], frame.positions[1]))
+    assert min(radii) == pytest.approx(max(radii), abs=0.05)
+    assert min(radii) == pytest.approx(1.0, abs=0.15)
+
+
+def test_product_image_shifts_reconstruct_unwrapped_frames():
+    cell = np.diag([12.0, 12.0, 12.0])
+    wrapped = np.array(
+        [
+            [0.4, 5.0, 5.0],
+            [11.6, 5.0, 5.0],
+            [0.4, 6.2, 5.0],
+            [6.0, 1.0, 1.0],
+            [7.2, 1.0, 1.0],
+            [6.0, 2.2, 1.0],
+        ]
+    )
+    atoms = Atoms(symbols=["C", "C", "C", "O", "O", "O"], positions=wrapped, cell=cell, pbc=True)
+    atoms.set_array("molecule_index", np.array([0, 0, 0, 1, 1, 1]))
+    crystal = MolecularCrystal.from_ase_atoms(atoms)
+    result = interpolate_reactive_path(
+        crystal,
+        crystal,
+        rigid_groups=[RigidGroup((0, 1, 2), "a"), RigidGroup((3, 4, 5), "b")],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    shifts = np.asarray(result.product_image_shifts, dtype=float)
+    reconstructed = crystal.to_ase().positions + shifts @ cell
+    error = np.max(np.linalg.norm(result.images[-1].positions - reconstructed, axis=1))
+    assert error < 1e-6
+
+
+def test_long_reactant_bond_is_not_a_new_contact():
+    # Cs-N bonding threshold sits above the old 3.5 Å neighbour cutoff.
+    # The pair is split across rigid groups so the contact diagnostic sees it.
+    positions = np.array(
+        [
+            [0.0, 5.0, 5.0],
+            [3.55, 5.0, 5.0],
+            [0.0, 1.0, 1.0],
+            [1.1, 1.0, 1.0],
+        ]
+    )
+    product_positions = positions.copy()
+    product_positions[1, 0] = 3.20
+    cell = [12.0, 12.0, 12.0]
+
+    def _packed(coords):
+        atoms = Atoms(
+            symbols=["Cs", "N", "O", "H"],
+            positions=coords,
+            cell=cell,
+            pbc=True,
+        )
+        atoms.set_array("molecule_index", np.array([0, 1, 2, 2]))
+        return MolecularCrystal.from_ase_atoms(atoms)
+
+    result = interpolate_reactive_path(
+        _packed(positions),
+        _packed(product_positions),
+        rigid_groups=[
+            RigidGroup((0,), "donor"),
+            RigidGroup((1,), "acceptor"),
+            RigidGroup((2, 3), "spectator"),
+        ],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    for image in result.metadata["images"]:
+        contacts = [tuple(pair) for pair in image["new_contacts"]]
+        assert (0, 1) not in contacts

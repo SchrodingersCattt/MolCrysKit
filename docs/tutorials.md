@@ -62,7 +62,8 @@ is not a single bond component is refused.
 to the reactant centroid after the unwrap. Leave it unset to use the minimum
 image. A free atom follows a straight line unless it is listed in
 `free_atom_arcs` as a `FreeAtomArc` about a pivot atom. The arc uses the same
-path parameter as the rigid groups. Result metadata records the resolved
+path parameter as the rigid groups, and its radius is the minimum-image
+distance to the unwrapped pivot. Result metadata records the resolved
 image shifts, each group's rotation angle along the path, and the minimum
 non-bonded distance around the moving atoms. That distance ignores reactant
 bonds and declared bond changes, and still counts a contact that only appears
