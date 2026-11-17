@@ -80,10 +80,12 @@ single/double pattern is normalized to the aromatic representation before
 naming, so `C1=CC=CC=C1` and `c1ccccc1` share the benzene result. Saturated
 ketones keep the `an` ending (`hexan-2-one`). Acyclic polyenes keep the
 linking vowel in both directions (`hepta-2,4-diene`, `buta-1,3-diene`).
-N-alkyl formamides, alkyl isocyanates, alkyl hydroperoxides and peroxyl
-radicals, and dialkyl sulfides, sulfoxides, and sulfones use that same
-alkane stem table in both directions (`N-propylformamide`,
-`(butylsulfanyl)pentane`, `hexyl hydroperoxide`).
+Mono-N-alkyl and symmetric N,N-dialkyl formamides, alkyl isocyanates, alkyl
+hydroperoxides and peroxyl radicals, and dialkyl sulfides, sulfoxides, and
+sulfones use that same alkane stem table in both directions
+(`N-propylformamide`, `N,N-diethylformamide`, `(butylsulfanyl)pentane`,
+`hexyl hydroperoxide`). An unsymmetric N,N-dialkyl formamide such as
+`N-ethyl-N-methylformamide` is outside this contract.
 Repeated skeletal-replacement prefixes are grouped (`2,8-dioxa`). Retained
 parents are used for pyridine, naphthalene, furan, thiophene, and pyrrole.
 Benzene polyols use the hydroxy suffix (`benzene-1,2-diol`). A single
@@ -122,8 +124,9 @@ The acceptance manifest records general IUPAC names independently of the
 generator. On the 80 diagram inputs, 78 match that manifest in both
 directions, one strict call is a refusal (`S,S'-carbonylbis(glutathione)`
 stays outside the grammar), and one strict call round-trips without a
-reviewed name (`S-glutathionyl N-hydroxy-N-methylcarbamothioate` is still
-provisional). Those two rows are not counted as certified names. Of the 79
+reviewed name. That row's functional-class label is not the emitted
+substitutive spelling, and the round trip stays provisional. Those two rows
+are not counted as certified names. Of the 79
 strict successes, 67 come back as OpenSMILES and 12 as MCK-LN; the line
 notation is transport, not a second naming standard. Fourteen documented
 aliases parse to the same graph and are not the canonical spelling. Seven
