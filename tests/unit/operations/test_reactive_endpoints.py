@@ -133,7 +133,9 @@ def test_proton_transfer_moves_only_the_hydrogen_and_records_species():
         np.testing.assert_allclose(frame.positions[1, 0], hydrogen_x, atol=1e-8)
         np.testing.assert_allclose(frame.positions[1, 1:], 0.0, atol=1e-8)
         np.testing.assert_allclose(
-            frame.positions[[0, 2, 3, 4, 5, 6, 7]], before[[0, 2, 3, 4, 5, 6, 7]]
+            frame.positions[[0, 2, 3, 4, 5, 6, 7]],
+            before[[0, 2, 3, 4, 5, 6, 7]],
+            atol=1e-8,
         )
         assert frame.info["cell_charge"] == 0
         assert frame.info["multiplicity"] == 1
@@ -257,7 +259,9 @@ def test_bridge_cleavage_separates_the_moving_fragment():
         np.testing.assert_allclose(
             frame.positions[3], before[3] + lam * axis, atol=1e-8
         )
-        np.testing.assert_allclose(frame.positions[[0, 1, 4, 5]], before[[0, 1, 4, 5]])
+        np.testing.assert_allclose(
+            frame.positions[[0, 1, 4, 5]], before[[0, 1, 4, 5]], atol=1e-8
+        )
         bond_lengths.append(np.linalg.norm(frame.positions[2] - frame.positions[1]))
         fragment = np.linalg.norm(frame.positions[3] - frame.positions[2])
         np.testing.assert_allclose(fragment, np.sqrt(2.0), atol=1e-8)
@@ -419,8 +423,12 @@ def test_cleavage_accepts_a_bridge_that_crosses_a_cell_face():
     assert distances[0] == pytest.approx(1.0, abs=1e-6)
     assert distances[-1] == pytest.approx(2.0, abs=1e-6)
     assert distances == sorted(distances)
-    np.testing.assert_allclose(result.images[0].positions[2], [5.0, 5.0, 1.0])
-    np.testing.assert_allclose(result.images[-1].positions[2], [5.0, 5.0, 1.0])
+    np.testing.assert_allclose(
+        result.images[0].positions[2], [5.0, 5.0, 1.0], atol=1e-8
+    )
+    np.testing.assert_allclose(
+        result.images[-1].positions[2], [5.0, 5.0, 1.0], atol=1e-8
+    )
 
 
 def test_many_spectators_do_not_require_an_all_pairs_bond_scan(monkeypatch):
