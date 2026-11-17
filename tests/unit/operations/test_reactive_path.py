@@ -388,6 +388,82 @@ def test_polar_arc_stays_off_the_straight_line_chord(tmp_path):
     assert payload["images"][2]["rigid_group_angles_deg"] == [0.0, 0.0]
 
 
+def test_intermediate_contact_remains_visible_when_endpoints_are_separated():
+    cell = np.diag([16.0, 16.0, 16.0])
+    symbols = ["C", "C", "C", "H"]
+    start = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.4, 0.0, 0.0],
+            [8.0, 5.0, 5.0],
+            [4.0, 5.0, 5.0],
+        ]
+    )
+    target = start.copy()
+    target[3] = [12.0, 5.0, 5.0]
+    reactant = _crystal(start, symbols=symbols, cell=cell, molecule_index=[0, 0, 1, 2])
+    product = _crystal(target, symbols=symbols, cell=cell, molecule_index=[0, 0, 1, 2])
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[RigidGroup((0, 1), "framework"), RigidGroup((2,), "obstacle")],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    middle = result.metadata["images"][1]
+    assert middle["min_nonbonded_distance_A"] < 0.2
+    assert [2, 3] in middle["new_contacts"]
+    assert result.metadata["images"][0]["new_contacts"] == []
+    assert result.metadata["images"][-1]["new_contacts"] == []
+
+
+def test_boundary_crossing_chain_unwraps_along_bonds():
+    cell = np.array(
+        [[10.0, 0.0, 0.0], [1.5, 8.0, 0.0], [0.4, 0.3, 9.0]],
+        dtype=float,
+    )
+    chain = np.column_stack([np.arange(5) * 1.5, np.full(5, 3.0), np.full(5, 3.0)])
+    stored = chain.copy()
+    stored[-1] = chain[-1] - cell[0]
+    other = np.array([[2.0, 6.0, 6.0], [3.4, 6.0, 6.0]])
+    reactant = _crystal(
+        np.vstack([stored, other]),
+        symbols=["C"] * 7,
+        cell=cell,
+        molecule_index=[0, 0, 0, 0, 0, 1, 1],
+    )
+    product = _crystal(
+        np.vstack([chain + np.array([0.0, 0.3, 0.0]), other]),
+        symbols=["C"] * 7,
+        cell=cell,
+        molecule_index=[0, 0, 0, 0, 0, 1, 1],
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[
+            RigidGroup(tuple(range(5)), "chain"),
+            RigidGroup((5, 6), "other"),
+        ],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    np.testing.assert_allclose(
+        result.images[-1].positions[:5],
+        chain + np.array([0.0, 0.3, 0.0]),
+        atol=1e-6,
+    )
+    assert result.metadata["rigid_groups"][0]["reactant_atom_image_shifts"][4] == [
+        1,
+        0,
+        0,
+    ]
+    for frame in (result.images[0], result.images[-1]):
+        for index in range(4):
+            distance = np.linalg.norm(
+                frame.positions[index + 1] - frame.positions[index]
+            )
+            assert distance == pytest.approx(1.5, abs=1e-5)
+
+
 def test_endpoint_exclusion_uses_existing_frame_count_semantics():
     reactant, product = _endpoint_pair()
     config = ReactivePathConfig(

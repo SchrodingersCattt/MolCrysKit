@@ -193,22 +193,52 @@ def _validate_groups(
     return resolved, used
 
 
-def _unwrap_about_first_atom(
+def _unwrap_along_bonds(
     positions: np.ndarray,
+    symbols: Sequence[str],
     lattice: np.ndarray,
     pbc: Sequence[bool],
+    bond_scale: float,
 ) -> tuple[np.ndarray, tuple[ImageShift, ...]]:
-    """Bring every atom onto the minimum image relative to the first atom."""
+    """Place a group by walking its periodic bonds from the first atom.
+
+    A minimum image taken independently against the first atom folds a chain
+    that spans more than half a cell. The bond walk keeps each step on the
+    bond's own image. A group that is not one connected component is refused.
+    """
+    count = len(positions)
     unwrapped = np.array(positions, dtype=float, copy=True)
-    shifts: list[ImageShift] = []
-    if len(unwrapped) == 0:
+    shifts: list[ImageShift] = [(0, 0, 0)] * count
+    if count <= 1:
         return unwrapped, tuple(shifts)
-    anchor = unwrapped[0]
-    shifts.append((0, 0, 0))
-    for index in range(1, len(unwrapped)):
-        mic, shift = minimum_image_displacement(unwrapped[index] - anchor, lattice, pbc)
-        unwrapped[index] = anchor + mic
-        shifts.append(shift)
+    neighbours: list[list[int]] = [[] for _ in range(count)]
+    for left in range(count):
+        for right in range(left + 1, count):
+            bonded, _, _ = _pair_is_bonded(
+                symbols, positions, left, right, lattice, pbc, bond_scale
+            )
+            if bonded:
+                neighbours[left].append(right)
+                neighbours[right].append(left)
+    seen = {0}
+    queue = [0]
+    while queue:
+        origin = queue.pop(0)
+        for target in neighbours[origin]:
+            if target in seen:
+                continue
+            mic, shift = minimum_image_displacement(
+                positions[target] - unwrapped[origin], lattice, pbc
+            )
+            unwrapped[target] = unwrapped[origin] + mic
+            shifts[target] = shift
+            seen.add(target)
+            queue.append(target)
+    if len(seen) != count:
+        raise ValueError(
+            "rigid group is not one periodic bond component; "
+            f"placed {len(seen)} of {count} atoms"
+        )
     return unwrapped, tuple(shifts)
 
 
@@ -221,13 +251,18 @@ def _fit_rigid_group(
     tolerance_A: float,
     image_shift: ImageShift | None = None,
     stationary_tolerance_A: float = 1.0e-8,
+    symbols: Sequence[str] | None = None,
+    bond_scale: float = 1.0,
 ) -> tuple[_RigidGroupPose, np.ndarray]:
     indices = np.asarray(group.atom_indices, dtype=int)
-    group_a, reactant_atom_image_shifts = _unwrap_about_first_atom(
-        positions_a[indices], lattice, pbc
+    if symbols is None:
+        raise ValueError("rigid-group unwrap requires chemical symbols")
+    group_symbols = [symbols[int(index)] for index in indices]
+    group_a, reactant_atom_image_shifts = _unwrap_along_bonds(
+        positions_a[indices], group_symbols, lattice, pbc, bond_scale
     )
-    group_b, atom_image_shifts = _unwrap_about_first_atom(
-        positions_b[indices], lattice, pbc
+    group_b, atom_image_shifts = _unwrap_along_bonds(
+        positions_b[indices], group_symbols, lattice, pbc, bond_scale
     )
     center_a = np.mean(group_a, axis=0)
     center_b_raw = np.mean(group_b, axis=0)
@@ -408,6 +443,33 @@ def _prepare_free_atom_arcs(
     return prepared
 
 
+def _reactant_bonded_pairs(
+    symbols: Sequence[str],
+    positions: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+    bond_scale: float,
+) -> set[tuple[int, int]]:
+    atoms = Atoms(
+        symbols=list(symbols),
+        positions=np.asarray(positions, dtype=float),
+        cell=np.asarray(lattice, dtype=float),
+        pbc=pbc,
+    )
+    first, second = neighbor_list("ij", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF))
+    bonded_pairs: set[tuple[int, int]] = set()
+    for atom_i, atom_j in zip(first, second):
+        left, right = int(atom_i), int(atom_j)
+        if left >= right:
+            continue
+        bonded, _, _ = _pair_is_bonded(
+            symbols, positions, left, right, lattice, pbc, bond_scale
+        )
+        if bonded:
+            bonded_pairs.add((left, right))
+    return bonded_pairs
+
+
 def _image_diagnostics(
     symbols: Sequence[str],
     positions_by_image: Sequence[np.ndarray],
@@ -420,8 +482,14 @@ def _image_diagnostics(
     bond_changes: Sequence[BondChange],
     arcs: dict[int, _PreparedArc],
     bond_scale: float,
+    reactant_positions: np.ndarray,
 ) -> list[dict[str, Any]]:
-    """Closest non-bonded approach of a moving atom, plus the scheduled angles."""
+    """Closest approach that is not a reactant bond or a declared bond change.
+
+    Whether a pair is bonded is fixed from the reactant geometry plus
+    ``bond_changes``. An intermediate image that merely looks bonded does not
+    drop the contact from the distance, and is listed in ``new_contacts``.
+    """
     moving = set(free_indices)
     group_of: dict[int, int] = {}
     for group_index, pose in enumerate(poses):
@@ -436,24 +504,30 @@ def _image_diagnostics(
     }
     for arc in arcs.values():
         ignored.add(tuple(sorted((arc.atom_index, arc.pivot_index))))
+    reactant_bonds = _reactant_bonded_pairs(
+        symbols, reactant_positions, lattice, pbc, bond_scale
+    )
     diagnostics = []
     for image_index, (positions, lam, angles) in enumerate(
         zip(positions_by_image, lambdas, scheduled_angles)
     ):
+        distance, new_contacts = _min_nonbonded_distance(
+            symbols,
+            positions,
+            lattice,
+            pbc,
+            moving,
+            group_of,
+            ignored,
+            reactant_bonds,
+            bond_scale,
+        )
         diagnostics.append(
             {
                 "image_index": int(image_index),
                 "lambda": float(lam),
-                "min_nonbonded_distance_A": _min_nonbonded_distance(
-                    symbols,
-                    positions,
-                    lattice,
-                    pbc,
-                    moving,
-                    group_of,
-                    ignored,
-                    bond_scale,
-                ),
+                "min_nonbonded_distance_A": distance,
+                "new_contacts": [list(pair) for pair in new_contacts],
                 "rigid_group_angles_deg": [float(angle) for angle in angles],
             }
         )
@@ -468,10 +542,11 @@ def _min_nonbonded_distance(
     moving: set[int],
     group_of: dict[int, int],
     ignored_pairs: set[tuple[int, int]],
+    reactant_bonds: set[tuple[int, int]],
     bond_scale: float,
-) -> float | None:
+) -> tuple[float | None, list[tuple[int, int]]]:
     if not moving:
-        return None
+        return None, []
     atoms = Atoms(
         symbols=list(symbols),
         positions=np.asarray(positions, dtype=float),
@@ -482,6 +557,7 @@ def _min_nonbonded_distance(
         "ijd", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF)
     )
     best: float | None = None
+    new_contacts: list[tuple[int, int]] = []
     seen: set[tuple[int, int]] = set()
     for atom_i, atom_j, distance in zip(first, second, distances):
         left, right = int(atom_i), int(atom_j)
@@ -490,22 +566,22 @@ def _min_nonbonded_distance(
         if left > right:
             left, right = right, left
         pair = (left, right)
-        if pair in seen or pair in ignored_pairs:
+        if pair in seen or pair in ignored_pairs or pair in reactant_bonds:
             continue
         seen.add(pair)
         if left not in moving and right not in moving:
             continue
         if group_of.get(left) is not None and group_of.get(left) == group_of.get(right):
             continue
-        bonded, _, _ = _pair_is_bonded(
-            symbols, positions, left, right, lattice, pbc, bond_scale
-        )
-        if bonded:
-            continue
         value = float(distance)
         if best is None or value < best:
             best = value
-    return best
+        bonded_now, _, _ = _pair_is_bonded(
+            symbols, positions, left, right, lattice, pbc, bond_scale
+        )
+        if bonded_now:
+            new_contacts.append(pair)
+    return best, new_contacts
 
 
 def _pair_is_bonded(
@@ -639,8 +715,9 @@ def interpolate_reactive_path(
     """Generate a fixed-cell atom-mapped reactive initial path.
 
     Rigid groups move independently but share the same interpolation parameter.
-    Each group is unwrapped about its first atom before the fit, so a group
-    whose atoms were stored on different lattice images remains rigid. Atoms
+    Each group is unwrapped by a walk along its periodic bonds, so a chain
+    that spans more than half a cell is not folded back onto the first atom.
+    A group that is not one bond component is refused. Atoms
     outside the groups move on straight lines unless ``free_atom_arcs`` gives
     them a polar arc about a pivot. Arcs use the same path parameter as the
     rigid motion.
@@ -694,6 +771,8 @@ def interpolate_reactive_path(
             config.rigid_fit_tolerance_A,
             image_shift=group_shift,
             stationary_tolerance_A=config.endpoint_tolerance_A,
+            symbols=symbols_a,
+            bond_scale=config.bond_scale,
         )
         indices = np.asarray(group.atom_indices, dtype=int)
         target_positions[indices] = group_target
@@ -844,6 +923,7 @@ def interpolate_reactive_path(
             bond_changes,
             arcs,
             config.bond_scale,
+            positions_a,
         ),
     }
     return ReactivePathResult(
