@@ -62,7 +62,7 @@ class ParentSymmetryAudit:
     parent_space_group_symbol: Optional[str]
     parent_operation_count: int
     mapping_tolerance_angstrom: float
-    respects_parent_group: bool
+    respects_parent_group: Optional[bool]
     operations: tuple[ParentSymmetryOperationAudit, ...] = ()
     occupancy_closure: tuple[OccupancyClosureAudit, ...] = ()
     notes: tuple[str, ...] = field(default_factory=tuple)
@@ -104,18 +104,26 @@ def _parent_symmetry(info) -> Optional[CrystalSymmetry]:
     return None
 
 
+class ParentSymmetryNotAssessed(Exception):
+    """Exact closest-image search was not completed for this cell."""
+
+
 def _pairwise_min_image_distances(
     frac_a: np.ndarray,
     frac_b: np.ndarray,
     lattice: np.ndarray,
     pbc: Sequence[bool],
+    tolerance_angstrom: float,
 ) -> np.ndarray:
-    """Return Cartesian min-image distances with shape ``(len(a), len(b))``.
+    """Return Cartesian distances with shape ``(len(a), len(b))``.
 
-    Independent rounding of each fractional coordinate is not the shortest
-    image on a skewed cell. The search recenters with that rounding, then
-    checks the surrounding images on the periodic axes, the same 27-image
-    window as :func:`molcrys_kit.utils.geometry.minimum_image_vector`.
+    Every image that can lie inside ``tolerance_angstrom`` is enumerated.
+    The integer box is the smallest cube implied by the metric's least
+    eigenvalue, not a fixed 27-image window. An orthogonal metric reduces
+    to fractional rounding, which is exact. A degenerate metric, or a proven
+    box that exceeds :data:`PARENT_SYMMETRY_EXACT_PAIR_BUDGET`, raises
+    :class:`ParentSymmetryNotAssessed` instead of returning a shorter-looking
+    but incomplete minimum.
     """
     delta = (
         np.asarray(frac_a, dtype=float)[:, None, :]
@@ -128,29 +136,62 @@ def _pairwise_min_image_distances(
     if _independent_rounding_is_exact(lattice_array):
         cartesian = np.einsum("...j,jk->...k", rounded, lattice_array)
         return np.linalg.norm(cartesian, axis=-1)
-    shifts = np.asarray(list(itertools.product((-1, 0, 1), repeat=3)), dtype=float)
-    shifts[:, ~periodic] = 0.0
-    shifts = np.unique(shifts, axis=0)
+    half_width = _exact_shift_half_width(lattice_array, float(tolerance_angstrom))
+    ranges = [
+        range(-half_width, half_width + 1) if axis_periodic else range(1)
+        for axis_periodic in periodic
+    ]
+    n_images = 1
+    for axis_range in ranges:
+        n_images *= len(axis_range)
+    n_pairs = int(rounded.shape[0] * rounded.shape[1])
+    budget = int(DISORDER_CONFIG["PARENT_SYMMETRY_EXACT_PAIR_BUDGET"])
+    if n_pairs * n_images > budget:
+        raise ParentSymmetryNotAssessed(
+            "exact closest-image box exceeds the parent-symmetry pair budget; "
+            "distances were not assessed"
+        )
     best = np.full(rounded.shape[:2], np.inf)
-    # One image at a time. A full (pairs, images, 3) tensor does not fit a
-    # crystal-sized kept set, and an orthogonal cell never reaches this loop.
-    for shift in shifts:
-        cartesian = np.einsum("...j,jk->...k", rounded + shift, lattice_array)
+    for shift in itertools.product(*ranges):
+        cartesian = np.einsum(
+            "...j,jk->...k",
+            rounded + np.asarray(shift, dtype=float),
+            lattice_array,
+        )
         np.minimum(best, np.linalg.norm(cartesian, axis=-1), out=best)
     return best
 
 
 def _independent_rounding_is_exact(lattice: np.ndarray) -> bool:
-    """Fractional rounding is the minimum image when the metric is orthogonal.
-
-    Off-diagonal metric terms are what make a neighbour cell shorter than the
-    independently rounded fractional vector.
-    """
+    """Fractional rounding is the minimum image when the metric is orthogonal."""
     metric = lattice @ lattice.T
     off_diagonal = np.array(metric, copy=True)
     np.fill_diagonal(off_diagonal, 0.0)
     scale = float(np.max(np.abs(np.diag(metric))))
-    return bool(np.max(np.abs(off_diagonal)) <= 1e-8 * max(scale, 1.0))
+    return bool(np.max(np.abs(off_diagonal)) <= 1e-12 * max(scale, 1.0))
+
+
+def _exact_shift_half_width(lattice: np.ndarray, tolerance_angstrom: float) -> int:
+    """Largest |integer| that can still produce a vector inside the tolerance.
+
+    For metric :math:`G` with least eigenvalue :math:`\\lambda`, a fractional
+    displacement :math:`u` has Cartesian length at least :math:`\\sqrt{\\lambda}\\,
+    \\|u\\|`. After rounding, :math:`u = r + k` with :math:`\\|r\\|_\\infty \\le 1/2`
+    and :math:`k` integral, so any image shorter than ``tolerance_angstrom``
+    has :math:`\\|k\\|_\\infty \\le \\mathrm{tolerance}/\\sqrt{\\lambda} + 1/2`.
+    """
+    metric = np.asarray(lattice, dtype=float) @ np.asarray(lattice, dtype=float).T
+    eigenvalues = np.linalg.eigvalsh(metric)
+    least = float(eigenvalues[0])
+    scale = float(np.max(np.abs(np.diag(metric))))
+    if not np.isfinite(least) or least <= 1e-12 * max(scale, 1.0):
+        raise ParentSymmetryNotAssessed(
+            "cell metric is degenerate; parent-symmetry distances were not assessed"
+        )
+    if tolerance_angstrom < 0.0:
+        raise ValueError("tolerance_angstrom must be non-negative")
+    limit = float(tolerance_angstrom) / np.sqrt(least) + 0.5
+    return int(np.ceil(limit - 1e-12))
 
 
 def _perfect_matching(allowed: np.ndarray) -> list[int] | None:
@@ -264,7 +305,24 @@ def audit_parent_symmetry(
     all_close = True
     for operation in operations:
         mapped = operation.apply(kept_frac, wrap=False)
-        distances = _pairwise_min_image_distances(mapped, kept_frac, lattice_array, pbc)
+        try:
+            distances = _pairwise_min_image_distances(
+                mapped,
+                kept_frac,
+                lattice_array,
+                pbc,
+                float(tolerance_angstrom),
+            )
+        except ParentSymmetryNotAssessed as exc:
+            notes.append(str(exc))
+            return ParentSymmetryAudit(
+                parent_space_group_number=symmetry.space_group_number,
+                parent_space_group_symbol=symmetry.space_group_symbol,
+                parent_operation_count=len(operations),
+                mapping_tolerance_angstrom=float(tolerance_angstrom),
+                respects_parent_group=None,
+                notes=tuple(dict.fromkeys(notes)),
+            )
         allowed = same_symbol & np.isfinite(distances) & (distances <= tolerance_angstrom)
         assignment = _perfect_matching(allowed)
         component_map: dict[str, str] = {}
@@ -403,7 +461,11 @@ def replica_respects_parent_symmetry(
     *,
     tolerance_angstrom: float | None = None,
 ) -> bool:
-    """Return whether ``kept_indices`` close under every parent operation."""
+    """Return whether the audit completed and every parent operation closes.
+
+    An unassessed metric returns False. That is not a report that the
+    replica breaks the parent group.
+    """
     audit = audit_parent_symmetry(
         info,
         kept_indices,

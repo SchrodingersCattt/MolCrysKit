@@ -11,6 +11,9 @@ from molcrys_kit.analysis.disorder.process import (
     generate_ordered_replicas_from_disordered_sites,
 )
 from molcrys_kit.analysis.disorder.symmetry_audit import (
+    ParentSymmetryNotAssessed,
+    _exact_shift_half_width,
+    _pairwise_min_image_distances,
     audit_parent_symmetry,
     replica_respects_parent_symmetry,
 )
@@ -273,6 +276,161 @@ def test_occupancy_sum_of_parts_does_not_alias_another_component():
     assert audit.occupancy_closure
     assert audit.occupancy_closure[0].closes is False
     assert audit.respects_parent_group is False
+
+
+def _lattice_from_lengths_angles(lengths, angles_deg) -> np.ndarray:
+    a_len, b_len, c_len = (float(value) for value in lengths)
+    alpha, beta, gamma = np.radians(np.asarray(angles_deg, dtype=float))
+    cos_alpha, cos_beta, cos_gamma = np.cos([alpha, beta, gamma])
+    sin_gamma = np.sin(gamma)
+    if abs(sin_gamma) < 1e-8:
+        raise ValueError("gamma is degenerate")
+    vector_c_x = c_len * cos_beta
+    vector_c_y = c_len * (cos_alpha - cos_beta * cos_gamma) / sin_gamma
+    height_sq = c_len**2 - vector_c_x**2 - vector_c_y**2
+    if height_sq <= 0.0:
+        raise ValueError("cell angles are inconsistent")
+    return np.array(
+        [
+            [a_len, 0.0, 0.0],
+            [b_len * np.cos(gamma), b_len * sin_gamma, 0.0],
+            [vector_c_x, vector_c_y, np.sqrt(height_sq)],
+        ]
+    )
+
+
+def _brute_image_distance(frac_delta, lattice, half_width: int) -> float:
+    rounded = np.asarray(frac_delta, dtype=float) - np.round(frac_delta)
+    best = np.inf
+    for shift in np.ndindex(2 * half_width + 1, 2 * half_width + 1, 2 * half_width + 1):
+        offset = rounded + np.asarray(shift, dtype=float) - half_width
+        best = min(best, float(np.linalg.norm(offset @ lattice)))
+    return best
+
+
+def _fixed_window_distance(frac_delta, lattice) -> float:
+    return _brute_image_distance(frac_delta, lattice, 1)
+
+
+def test_flat_metric_uses_the_image_outside_a_27_window():
+    lattice = _lattice_from_lengths_angles(
+        [5.108, 2.895, 4.291], [73.19, 79.94, 153.04]
+    )
+    frac_delta = np.array([0.161, 1.476, 1.494])
+    window = _fixed_window_distance(frac_delta, lattice)
+    brute = _brute_image_distance(frac_delta, lattice, 8)
+    assert window > 0.35
+    assert brute <= 0.35
+    translation = FractionalAffineOperation(
+        np.eye(3), frac_delta, xyz="x,y,z", index=1, source="test"
+    )
+    identity = FractionalAffineOperation(
+        np.eye(3), np.zeros(3), xyz="x,y,z", index=0, source="test"
+    )
+    info = DisorderInfo(
+        labels=["C1"],
+        symbols=["C"],
+        frac_coords=np.zeros((1, 3)),
+        occupancies=[1.0],
+        disorder_groups=[0],
+        assemblies=[""],
+        crystal_symmetry=CrystalSymmetry(
+            operations=(identity, translation),
+            space_group_number=1,
+            space_group_symbol="P 1",
+            source="test",
+        ),
+    )
+    audit = audit_parent_symmetry(info, [0], lattice, tolerance_angstrom=0.35)
+    assert audit.respects_parent_group is True
+    assert audit.operations[1].closes
+    assert abs(audit.operations[1].residual_angstrom_max - brute) < 1e-6
+    assert audit.operations[1].residual_angstrom_max < window
+
+
+def test_more_skew_cells_match_an_independent_search():
+    generator = np.random.default_rng(20261117)
+    compared = 0
+    for _draw in range(4):
+        basis = generator.normal(size=(3, 3))
+        basis[0] *= 4.0
+        basis[1] *= 2.5
+        basis[2] *= 3.0
+        if abs(float(np.linalg.det(basis))) < 0.5:
+            continue
+        frac_delta = generator.uniform(-2.0, 2.0, size=3)
+        try:
+            half_width = _exact_shift_half_width(basis, 1.0)
+        except ParentSymmetryNotAssessed:
+            continue
+        brute = _brute_image_distance(frac_delta, basis, half_width + 1)
+        translation = FractionalAffineOperation(
+            np.eye(3), frac_delta, xyz="x,y,z", index=0, source="test"
+        )
+        info = DisorderInfo(
+            labels=["C1"],
+            symbols=["C"],
+            frac_coords=np.zeros((1, 3)),
+            occupancies=[1.0],
+            disorder_groups=[0],
+            assemblies=[""],
+            crystal_symmetry=CrystalSymmetry(
+                operations=(translation,),
+                space_group_number=1,
+                space_group_symbol="P 1",
+                source="test",
+            ),
+        )
+        audit = audit_parent_symmetry(info, [0], basis, tolerance_angstrom=1.0)
+        if brute <= 1.0:
+            assert audit.respects_parent_group is True
+            assert abs(audit.operations[0].residual_angstrom_max - brute) < 1e-6
+            compared += 1
+        elif audit.respects_parent_group is not None:
+            assert audit.operations[0].residual_angstrom_max > 1.0
+            compared += 1
+    assert compared >= 3
+
+
+def test_degenerate_metric_is_not_a_false_parent_closure():
+    lattice = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    identity = FractionalAffineOperation(
+        np.eye(3), np.array([0.2, 0.2, 0.0]), xyz="x,y,z", index=0, source="test"
+    )
+    info = DisorderInfo(
+        labels=["C1"],
+        symbols=["C"],
+        frac_coords=np.zeros((1, 3)),
+        occupancies=[1.0],
+        disorder_groups=[0],
+        assemblies=[""],
+        crystal_symmetry=CrystalSymmetry(
+            operations=(identity,),
+            space_group_number=1,
+            space_group_symbol="P 1",
+            source="test",
+        ),
+    )
+    audit = audit_parent_symmetry(info, [0], lattice, tolerance_angstrom=0.35)
+    assert audit.respects_parent_group is None
+    assert any("not assessed" in note for note in audit.notes)
+    assert audit.operations == ()
+
+
+def test_exact_image_search_stays_bounded_on_an_orthogonal_cell():
+    import time
+
+    generator = np.random.default_rng(1)
+    frac = generator.random((60, 3))
+    lattice = np.diag([8.0, 9.0, 11.0])
+    started = time.perf_counter()
+    for _repeat in range(4):
+        distances = _pairwise_min_image_distances(
+            frac, frac, lattice, (True, True, True), 0.35
+        )
+    elapsed = time.perf_counter() - started
+    assert elapsed < 1.5
+    assert np.max(np.abs(np.diag(distances))) < 1e-8
 
 
 def test_nonidentity_at_index_zero_is_still_noted():
