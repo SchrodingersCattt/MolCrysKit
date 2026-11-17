@@ -18,6 +18,7 @@
 |---|---|---|---|---|
 | Parse CIF | `mck.read_mol_crystal` | CIF path | `MolecularCrystal` | source docstring |
 | Convert pymatgen Structure | `to_pymatgen_structure`, `from_pymatgen_structure`, `MolecularCrystal.to_pymatgen`, `MolecularCrystal.from_pymatgen` | `MolecularCrystal` / `Structure` | `Structure` / `MolecularCrystal` | preserves occupancy; source docstring |
+| Read Mercury stored sites | `read_mryx_atoms`, `read_mryx` | MRYX path, optional index | ASE Atoms or MolecularCrystal (or list) | [Mercury import](mryx.md) |
 | Read CIF symmetry | `read_cif_symmetry` | CIF path/text | `CrystalSymmetry` | source docstring |
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices`, `identify_molecules` | ASE/CIF-derived structure | molecule indices or molecules | `disorder_policy` defaults to `as_refined` (no atoms dropped). `major` and `exclusive` are explicit |
@@ -109,7 +110,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 ### `mck.io`
 Read/write interfaces.
 
-- Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
+- Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`, `read_mryx_atoms`, `read_mryx`
 - pymatgen Structure bridge: `to_pymatgen_structure`, `from_pymatgen_structure` (occupancy-preserving; mixed sites expand to one atom per composition component; the reverse conversion does not re-collapse co-located atoms into a multi-species site)
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
