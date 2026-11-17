@@ -11,7 +11,7 @@ occupancy sum.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, List, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -80,28 +80,17 @@ class ParentSymmetryAudit:
 
 
 def _component_key(info, atom_index: int) -> str:
-    group = int(info.disorder_groups[atom_index]) if atom_index < len(info.disorder_groups) else 0
+    group = (
+        int(info.disorder_groups[atom_index])
+        if atom_index < len(info.disorder_groups)
+        else 0
+    )
     assembly = ""
     if info.assemblies and atom_index < len(info.assemblies):
         assembly = str(info.assemblies[atom_index] or "")
     if assembly:
         return f"{assembly}:{group}"
     return str(group)
-
-
-def _minimum_image_cart(
-    frac_a: np.ndarray,
-    frac_b: np.ndarray,
-    lattice: np.ndarray,
-    pbc: Sequence[bool],
-) -> np.ndarray:
-    delta = np.asarray(frac_a, dtype=float) - np.asarray(frac_b, dtype=float)
-    pbc_mask = np.asarray(pbc, dtype=bool)
-    if pbc_mask.all():
-        delta = delta - np.round(delta)
-    else:
-        delta[..., pbc_mask] -= np.round(delta[..., pbc_mask])
-    return delta @ np.asarray(lattice, dtype=float)
 
 
 def _parent_symmetry(info) -> Optional[CrystalSymmetry]:
@@ -112,6 +101,26 @@ def _parent_symmetry(info) -> Optional[CrystalSymmetry]:
     if source is not None and getattr(source, "operations", None):
         return source
     return None
+
+
+def _pairwise_min_image_distances(
+    frac_a: np.ndarray,
+    frac_b: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+) -> np.ndarray:
+    """Return Cartesian min-image distances with shape ``(len(a), len(b))``."""
+    delta = (
+        np.asarray(frac_a, dtype=float)[:, None, :]
+        - np.asarray(frac_b, dtype=float)[None, :, :]
+    )
+    pbc_mask = np.asarray(pbc, dtype=bool)
+    if pbc_mask.all():
+        delta = delta - np.round(delta)
+    else:
+        delta[..., pbc_mask] -= np.round(delta[..., pbc_mask])
+    cart = np.einsum("...j,jk->...k", delta, np.asarray(lattice, dtype=float))
+    return np.linalg.norm(cart, axis=-1)
 
 
 def audit_parent_symmetry(
@@ -136,9 +145,7 @@ def audit_parent_symmetry(
         ``DISORDER_CONFIG["PARENT_SYMMETRY_AUDIT_TOLERANCE"]``.
     """
     if tolerance_angstrom is None:
-        tolerance_angstrom = float(
-            DISORDER_CONFIG["PARENT_SYMMETRY_AUDIT_TOLERANCE"]
-        )
+        tolerance_angstrom = float(DISORDER_CONFIG["PARENT_SYMMETRY_AUDIT_TOLERANCE"])
     notes: list[str] = []
     symmetry = _parent_symmetry(info)
     if symmetry is None:
@@ -171,59 +178,45 @@ def audit_parent_symmetry(
     frac = np.asarray(info.frac_coords, dtype=float)
     symbols = list(info.symbols)
     kept_frac = frac[kept]
-    kept_symbols = [symbols[index] for index in kept]
+    kept_symbols = np.asarray([symbols[index] for index in kept], dtype=object)
+    kept_component_keys = [_component_key(info, index) for index in kept]
     lattice_array = np.asarray(lattice, dtype=float)
+    same_symbol = kept_symbols[:, None] == kept_symbols[None, :]
 
     operation_audits: list[ParentSymmetryOperationAudit] = []
     all_close = True
     for operation in operations:
         mapped = operation.apply(kept_frac, wrap=False)
-        residuals: list[float] = []
-        unmapped = 0
+        distances = _pairwise_min_image_distances(mapped, kept_frac, lattice_array, pbc)
+        masked = np.where(same_symbol, distances, np.inf)
+        best_target_local = np.argmin(masked, axis=1)
+        best_distance = masked[np.arange(len(kept)), best_target_local]
+
+        unmapped = int(
+            np.sum(~np.isfinite(best_distance) | (best_distance > tolerance_angstrom))
+        )
+        finite = best_distance[np.isfinite(best_distance)]
+        residual_max = float(np.max(finite)) if finite.size else float("inf")
+        residual_mean = float(np.mean(finite)) if finite.size else float("inf")
+
         component_map: dict[str, str] = {}
-        for source_local, image_frac in enumerate(mapped):
-            source_index = kept[source_local]
-            source_symbol = kept_symbols[source_local]
-            best_distance = np.inf
-            best_target = None
-            for target_local, target_index in enumerate(kept):
-                if kept_symbols[target_local] != source_symbol:
-                    continue
-                distance = float(
-                    np.linalg.norm(
-                        _minimum_image_cart(
-                            image_frac,
-                            kept_frac[target_local],
-                            lattice_array,
-                            pbc,
-                        )
-                    )
-                )
-                if distance < best_distance:
-                    best_distance = distance
-                    best_target = target_index
-            if best_target is None or best_distance > tolerance_angstrom:
-                unmapped += 1
-                residuals.append(
-                    float(best_distance if np.isfinite(best_distance) else np.inf)
-                )
-                continue
-            residuals.append(best_distance)
-            source_key = _component_key(info, source_index)
-            target_key = _component_key(info, best_target)
+        mapped_mask = np.isfinite(best_distance) & (best_distance <= tolerance_angstrom)
+        for source_local in np.flatnonzero(mapped_mask):
+            source_key = kept_component_keys[int(source_local)]
+            target_key = kept_component_keys[int(best_target_local[source_local])]
             previous = component_map.get(source_key)
             if previous is None:
                 component_map[source_key] = target_key
             elif previous != target_key:
                 component_map[source_key] = f"{previous}|{target_key}"
-        finite = [value for value in residuals if np.isfinite(value)]
-        residual_max = float(max(finite)) if finite else float("inf")
-        residual_mean = float(np.mean(finite)) if finite else float("inf")
+
         closes = unmapped == 0 and residual_max <= tolerance_angstrom
         all_close = all_close and closes
         operation_audits.append(
             ParentSymmetryOperationAudit(
-                operation_index=int(operation.index if operation.index is not None else 0),
+                operation_index=int(
+                    operation.index if operation.index is not None else 0
+                ),
                 xyz=operation.xyz,
                 residual_angstrom_max=residual_max,
                 residual_angstrom_mean=residual_mean,
@@ -265,11 +258,7 @@ def audit_parent_symmetry(
             for index in disordered:
                 key = (
                     int(info.disorder_groups[index]),
-                    str(
-                        info.assemblies[index]
-                        if index < len(info.assemblies)
-                        else ""
-                    ),
+                    str(info.assemblies[index] if index < len(info.assemblies) else ""),
                 )
                 if key in seen:
                     continue
@@ -283,11 +272,7 @@ def audit_parent_symmetry(
             for index in kept_members:
                 key = (
                     int(info.disorder_groups[index]),
-                    str(
-                        info.assemblies[index]
-                        if index < len(info.assemblies)
-                        else ""
-                    ),
+                    str(info.assemblies[index] if index < len(info.assemblies) else ""),
                 )
                 if key in seen_kept:
                     continue
@@ -298,9 +283,7 @@ def audit_parent_symmetry(
             # kept alternative's occupancy is one of the declared component
             # occupancies and does not exceed the declared sum.
             closes = kept_sum <= declared_sum + 1e-6 and (
-                any(
-                    abs(kept_sum - occ) <= 1e-6 for occ in declared_component_occs
-                )
+                any(abs(kept_sum - occ) <= 1e-6 for occ in declared_component_occs)
                 or abs(kept_sum - declared_sum) <= 1e-6
             )
             occupancy_rows.append(
