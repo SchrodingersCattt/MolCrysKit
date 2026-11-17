@@ -55,7 +55,9 @@ write_extxyz(crystal, "stored-sites.extxyz")
 
 ## Safety and dependencies
 
-`defusedxml>=0.7.1` is a required dependency. No CCDC installation is needed.
+`read_mryx` imports ASE and `defusedxml`. Both come from the `desktop` extra
+(`pip install "molcrys-kit[desktop]"`). The core install does not load either
+module until `read_mryx` is called. No CCDC installation is needed.
 No file references are opened, no expressions are evaluated and no archive paths
 are extracted. Entities and external XML references are forbidden; the plain
 `<!DOCTYPE CCDC_XML>` declaration is accepted. Input is capped at 16 MiB and
