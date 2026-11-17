@@ -97,7 +97,8 @@ Core crystal data model.
 
 ### `mck.chemistry`
 Independent immutable chemistry records and crystal-to-chemistry mapping.
-Implemented rule families and strict refusal boundaries are tracked in
+Implemented rule families, the bidirectional naming acceptance totals, and
+strict refusal boundaries are tracked in
 [Chemistry coverage and release gates](chemistry_coverage.md).
 
 - Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`, `BondOrderOptions`, `BondOrderResult`
