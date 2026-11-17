@@ -416,6 +416,32 @@ def test_intermediate_contact_remains_visible_when_endpoints_are_separated():
     assert result.metadata["images"][-1]["new_contacts"] == []
 
 
+def test_periodic_intermediate_contact_uses_the_closer_image():
+    cell = np.diag([4.8, 4.8, 4.8])
+    start = np.array(
+        [[0.0, 0.0, 0.0], [3.45, 0.8, 0.0], [1.5, 2.4, 2.4], [1.5, 2.4, 3.7]]
+    )
+    target = start.copy()
+    target[1] = [3.45, -0.8, 0.0]
+    reactant = _crystal(
+        start, symbols=["C", "H", "C", "C"], cell=cell, molecule_index=[0, 1, 2, 2]
+    )
+    product = _crystal(
+        target, symbols=["C", "H", "C", "C"], cell=cell, molecule_index=[0, 1, 2, 2]
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[RigidGroup((0,), "anchor"), RigidGroup((2, 3), "spectator")],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    middle = result.metadata["images"][1]
+    assert middle["min_nonbonded_distance_A"] == pytest.approx(1.35, abs=1e-6)
+    assert [0, 1] in middle["new_contacts"]
+    assert result.metadata["images"][0]["new_contacts"] == []
+    assert result.metadata["images"][-1]["new_contacts"] == []
+
+
 def test_boundary_crossing_chain_unwraps_along_bonds():
     cell = np.array(
         [[10.0, 0.0, 0.0], [1.5, 8.0, 0.0], [0.4, 0.3, 9.0]],

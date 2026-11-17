@@ -553,13 +553,11 @@ def _min_nonbonded_distance(
         cell=np.asarray(lattice, dtype=float),
         pbc=pbc,
     )
-    first, second, distances = neighbor_list(
-        "ijd", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF)
-    )
+    first, second = neighbor_list("ij", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF))
     best: float | None = None
     new_contacts: list[tuple[int, int]] = []
     seen: set[tuple[int, int]] = set()
-    for atom_i, atom_j, distance in zip(first, second, distances):
+    for atom_i, atom_j in zip(first, second):
         left, right = int(atom_i), int(atom_j)
         if left == right:
             continue
@@ -573,12 +571,13 @@ def _min_nonbonded_distance(
             continue
         if group_of.get(left) is not None and group_of.get(left) == group_of.get(right):
             continue
-        value = float(distance)
-        if best is None or value < best:
-            best = value
-        bonded_now, _, _ = _pair_is_bonded(
+        # Neighbor lists can yield a longer periodic image before the closest
+        # one. The reported distance is the minimum image, not that row.
+        bonded_now, mic_distance, _ = _pair_is_bonded(
             symbols, positions, left, right, lattice, pbc, bond_scale
         )
+        if best is None or mic_distance < best:
+            best = mic_distance
         if bonded_now:
             new_contacts.append(pair)
     return best, new_contacts

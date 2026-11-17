@@ -66,7 +66,8 @@ path parameter as the rigid groups. Result metadata records the resolved
 image shifts, each group's rotation angle along the path, and the minimum
 non-bonded distance around the moving atoms. That distance ignores reactant
 bonds and declared bond changes, and still counts a contact that only appears
-in the middle of the path. `write_reactive_path` copies
+in the middle of the path. The minimum is the closest periodic image, and
+those new pairs are recorded with the image diagnostics. `write_reactive_path` copies
 that metadata into the JSON sidecar.
 
 ## Multi-species reactive endpoints
