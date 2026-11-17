@@ -16,8 +16,10 @@ reproducible ensemble and `enumerate` only for a bounded state space.
 Symmetry-expanded copies choose independently by default. `--coupled` is the
 legacy group lock, not a guarantee that distinct assemblies stay apart; use
 `--independent-assemblies` for that. For parent-group closure use
-`--report audit.json` and optionally `--symmetry-consistent`. A positive
-`--count` limits the beam before that filter; `--report` still runs the audit.
+`--report audit.json` and optionally `--symmetry-consistent`. The filter
+keeps a replica only when its completed audit closes. An unassessed cell is
+not kept and is not reported as a proved failure. A positive `--count`
+limits the beam before that filter; `--report` still runs the audit.
 
 ## Add missing hydrogen
 

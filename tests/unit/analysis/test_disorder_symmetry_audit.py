@@ -5,18 +5,26 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pytest
 from click.testing import CliRunner
 
+from molcrys_kit.analysis.disorder import solver as disorder_solver
+from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
 from molcrys_kit.analysis.disorder.process import (
     generate_ordered_replicas_from_disordered_sites,
 )
+from molcrys_kit.analysis.disorder.solver import DisorderSolver
 from molcrys_kit.analysis.disorder.symmetry_audit import (
     ParentSymmetryNotAssessed,
     _exact_shift_half_width,
     _pairwise_min_image_distances,
+    ParentSymmetryAudit,
     audit_parent_symmetry,
+    replica_parent_symmetry_closure,
     replica_respects_parent_symmetry,
 )
+from molcrys_kit.constants.config import DISORDER_CONFIG
+from molcrys_kit.io.cif import scan_cif_disorder
 from molcrys_kit.cli import main
 from molcrys_kit.io.cif import DisorderInfo
 from molcrys_kit.structures.symmetry import (
@@ -431,6 +439,206 @@ def test_exact_image_search_stays_bounded_on_an_orthogonal_cell():
     elapsed = time.perf_counter() - started
     assert elapsed < 1.5
     assert np.max(np.abs(np.diag(distances))) < 1e-8
+
+
+def _solve_cif(path: Path, **kwargs):
+    info = scan_cif_disorder(str(path))
+    lattice = np.asarray(info.lattice_matrix, dtype=float)
+    graph = DisorderGraphBuilder(info, lattice, coupled=False).build()
+    return DisorderSolver(info, graph, lattice, coupled=False).solve(
+        method="enumerate",
+        num_structures=0,
+        symmetry_consistent=True,
+        **kwargs,
+    )
+
+
+def test_bool_helper_rejects_unassessed_without_calling_it_proved_open():
+    singular = SYNTHETIC.read_text(encoding="utf-8").replace(
+        "_cell_length_c 10", "_cell_length_c 0"
+    )
+    path = SYNTHETIC.with_name("_tmp_singular_parent.cif")
+    path.write_text(singular, encoding="utf-8")
+    try:
+        info = scan_cif_disorder(str(path))
+        closure = replica_parent_symmetry_closure(info, [0], info.lattice_matrix)
+        assert closure is None
+        assert replica_respects_parent_symmetry(info, [0], info.lattice_matrix) is False
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_singular_cell_opt_in_is_not_a_proved_failure(tmp_path: Path):
+    singular = SYNTHETIC.read_text(encoding="utf-8").replace(
+        "_cell_length_c 10", "_cell_length_c 0"
+    )
+    cif_path = tmp_path / "singular.cif"
+    cif_path.write_text(singular, encoding="utf-8")
+    with pytest.raises(ValueError, match="could be assessed") as caught:
+        _solve_cif(cif_path)
+    message = str(caught.value)
+    assert "not a proved failure" in message
+    assert "degenerate" in message
+    assert "were assessed and do not close" not in message
+
+    output = tmp_path / "ordered.cif"
+    result = CliRunner().invoke(
+        main,
+        [
+            "operate",
+            "disorder",
+            str(cif_path),
+            "-o",
+            str(output),
+            "--method",
+            "enumerate",
+            "--symmetry-consistent",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "could be assessed" in result.output
+    assert "degenerate" in result.output
+    assert "were assessed and do not close" not in result.output
+
+
+def test_budget_overrun_opt_in_is_not_a_proved_failure(tmp_path: Path):
+    skewed = SYNTHETIC.read_text(encoding="utf-8").replace(
+        "_cell_angle_gamma 90", "_cell_angle_gamma 70"
+    )
+    cif_path = tmp_path / "skewed.cif"
+    cif_path.write_text(skewed, encoding="utf-8")
+    previous = DISORDER_CONFIG["PARENT_SYMMETRY_EXACT_PAIR_BUDGET"]
+    DISORDER_CONFIG["PARENT_SYMMETRY_EXACT_PAIR_BUDGET"] = 0
+    try:
+        with pytest.raises(ValueError, match="could be assessed") as caught:
+            _solve_cif(cif_path)
+        assert "pair budget" in str(caught.value)
+        assert "not a proved failure" in str(caught.value)
+        assert "were assessed and do not close" not in str(caught.value)
+        output = tmp_path / "ordered.cif"
+        result = CliRunner().invoke(
+            main,
+            [
+                "operate",
+                "disorder",
+                str(cif_path),
+                "-o",
+                str(output),
+                "--method",
+                "enumerate",
+                "--count",
+                "4",
+                "--symmetry-consistent",
+            ],
+        )
+    finally:
+        DISORDER_CONFIG["PARENT_SYMMETRY_EXACT_PAIR_BUDGET"] = previous
+    assert result.exit_code != 0
+    assert "could be assessed" in result.output
+    assert "were assessed and do not close" not in result.output
+
+
+def test_proved_open_opt_in_says_the_audit_completed():
+    # One site per exclusive group, with the mirror image absent. Expansion
+    # in a CIF would add that image, so this uses the solver on the same
+    # metadata the audit already treats as open.
+    info = DisorderInfo(
+        labels=["C1A", "C1B"],
+        symbols=["C", "C"],
+        frac_coords=np.array([[0.20, 0.30, 0.40], [0.20, 0.35, 0.40]]),
+        occupancies=[0.6, 0.4],
+        disorder_groups=[1, 2],
+        assemblies=["A", "A"],
+        sym_op_indices=[0, 0],
+        asym_id=[0, 0],
+        crystal_symmetry=_pm_symmetry(),
+    )
+    lattice = np.eye(3) * 10.0
+    graph = DisorderGraphBuilder(info, lattice, coupled=False).build()
+    with pytest.raises(ValueError, match="were assessed and do not close") as caught:
+        DisorderSolver(info, graph, lattice, coupled=False).solve(
+            method="enumerate",
+            num_structures=0,
+            symmetry_consistent=True,
+        )
+    message = str(caught.value)
+    assert "could be assessed" not in message
+    assert "not a proved failure" not in message
+    assert replica_respects_parent_symmetry(info, [0], lattice) is False
+    assert (
+        audit_parent_symmetry(info, [0], lattice).respects_parent_group is False
+    )
+
+
+def test_mixed_beam_reports_open_and_unassessed(monkeypatch):
+    calls = {"n": 0}
+
+    def scripted(info, candidate, lattice, tolerance_angstrom=None):
+        calls["n"] += 1
+        closed = False if calls["n"] % 2 else None
+        return ParentSymmetryAudit(
+            parent_space_group_number=None,
+            parent_space_group_symbol=None,
+            parent_operation_count=1,
+            mapping_tolerance_angstrom=0.35,
+            respects_parent_group=closed,
+            notes=() if closed is False else ("not assessed: scripted",),
+        )
+
+    monkeypatch.setattr(disorder_solver, "audit_parent_symmetry", scripted)
+    with pytest.raises(ValueError, match="were not assessed") as caught:
+        generate_ordered_replicas_from_disordered_sites(
+            str(SYNTHETIC),
+            method="enumerate",
+            generate_count=0,
+            symmetry_consistent=True,
+        )
+    message = str(caught.value)
+    assert "were assessed and do not close" in message
+    assert "not a proved failure" in message
+    assert calls["n"] >= 2
+
+
+def test_unassessed_candidate_is_not_kept_beside_a_closed_one(monkeypatch, caplog):
+    def scripted(info, candidate, lattice, tolerance_angstrom=None):
+        closed = tuple(sorted(candidate)) in {(0, 1), (2, 3)}
+        return ParentSymmetryAudit(
+            parent_space_group_number=6,
+            parent_space_group_symbol="P m",
+            parent_operation_count=2,
+            mapping_tolerance_angstrom=0.35,
+            respects_parent_group=True if closed else None,
+            notes=() if closed else ("not assessed: scripted",),
+        )
+
+    monkeypatch.setattr(disorder_solver, "audit_parent_symmetry", scripted)
+    with caplog.at_level("WARNING"):
+        replicas = generate_ordered_replicas_from_disordered_sites(
+            str(SYNTHETIC),
+            method="enumerate",
+            generate_count=0,
+            symmetry_consistent=True,
+        )
+    assert len(replicas) == 2
+    assert all(
+        replica.disorder_provenance.respects_parent_group is True
+        for replica in replicas
+    )
+    assert "unassessed" in caplog.text
+
+
+def test_known_closed_candidate_is_still_kept():
+    replicas = generate_ordered_replicas_from_disordered_sites(
+        str(SYNTHETIC),
+        method="enumerate",
+        generate_count=0,
+        symmetry_consistent=True,
+    )
+    assert replicas
+    assert all(
+        replica.disorder_provenance.respects_parent_group is True
+        for replica in replicas
+    )
 
 
 def test_nonidentity_at_index_zero_is_still_noted():

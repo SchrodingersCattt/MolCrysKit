@@ -74,8 +74,9 @@ def generate_ordered_replicas_from_disordered_sites(
         Attach a parent-symmetry audit to each replica's
         ``disorder_provenance``. Default True.
     symmetry_consistent : bool, optional
-        Keep only candidates that close under every parent crystallographic
-        operation. Default False.
+        Keep only candidates whose completed parent-symmetry audit closes.
+        An unassessed cell is not kept. An empty beam reports unassessed,
+        assessed-and-open, or a mixture of those two separately. Default False.
 
     Returns
     -------

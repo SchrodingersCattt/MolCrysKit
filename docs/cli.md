@@ -139,7 +139,11 @@ mck operate disorder-supercell structure.cif -o supercell.cif \
 `--coupled` is the legacy group lock described in
 [Disorder integrity](disorder-integrity.md); it is not a parent-group filter.
 Use `--report` / `--symmetry-consistent` for parent
-closure. `--strict-formula` and `--independent-assemblies` are opt-in on
+closure. The filter keeps a replica only when its completed audit closes.
+An empty beam says whether every candidate was unassessed, every candidate
+was assessed and does not close, or the beam mixed those two. An unassessed
+cell is not reported as a proved failure. `--strict-formula` and
+`--independent-assemblies` are opt-in on
 `disorder`, `disorder-supercell`, and on any command that loads a CIF with
 `--resolve-disorder` (`io info`, `io molecules`, `io extract-molecule`,
 `io convert`, `operate nanocluster`, `operate void`, `operate supercell`).

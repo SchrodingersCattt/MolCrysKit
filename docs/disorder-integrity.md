@@ -121,10 +121,14 @@ audit (`symmetry_audit=True`):
   occupancy bookkeeping succeeds
 
 `mck operate disorder ... --report audit.json` writes that provenance as JSON.
-`--symmetry-consistent` keeps only generated candidates with
-`respects_parent_group`. A positive `--count` on `enumerate` limits that
-beam before the filter; count `0` enumerates exhaustively first. The filter
-does not claim that no parent-closed packing exists outside the beam.
+`--symmetry-consistent` keeps only generated candidates whose completed
+audit closes. An unassessed cell is not kept. If the beam is then empty, the
+error says whether every candidate was unassessed, every candidate was
+assessed and does not close, or the beam mixed those two. An unassessed
+metric is never described as a proved failure. A positive `--count` on
+`enumerate` limits that beam before the filter; count `0` enumerates
+exhaustively first. The filter does not claim that no parent-closed packing
+exists outside the beam.
 `method=optimal` may still return a subgroup packing; the audit and provenance
 notes make that explicit. `--no-symmetry-audit` skips the audit object.
 `--report` still runs the audit, because the JSON is the audit. The

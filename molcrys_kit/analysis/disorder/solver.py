@@ -21,15 +21,46 @@ from ase.geometry import get_distances
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
 from .provenance import DisorderProvenance
-from .symmetry_audit import (
-    audit_parent_symmetry,
-    replica_respects_parent_symmetry,
-)
+from .symmetry_audit import audit_parent_symmetry
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 from ...constants.config import DISORDER_CONFIG
 from ...analysis.interactions import get_bonding_threshold
 from ...analysis.formula_moiety import parse_moiety_string
+
+
+def _symmetry_consistent_failure(statuses: list[bool | None], notes: list[str]) -> str:
+    """Explain an empty symmetry_consistent beam without collapsing tri-state."""
+    n_closed = sum(status is True for status in statuses)
+    n_open = sum(status is False for status in statuses)
+    n_unknown = sum(status is None for status in statuses)
+    if n_closed:
+        raise RuntimeError("closed candidates cannot produce an empty-beam error")
+    beam = (
+        "symmetry_consistent filters the candidates this call already produced; "
+        "a positive enumerate count is a top-N beam, and an exhaustive enumerate "
+        "uses count 0."
+    )
+    if n_unknown and not n_open:
+        reason = notes[0] if notes else "parent-symmetry distances were not assessed"
+        reason = reason.rstrip(".")
+        return (
+            "No generated candidate could be assessed for parent symmetry. "
+            f"{reason}. An unassessed cell is not a proved failure to close. "
+            f"{beam} Disable symmetry_consistent and read the audit notes."
+        )
+    if n_open and not n_unknown:
+        return (
+            "No generated candidate closes under every parent symmetry "
+            f"operation. All {n_open} candidate(s) were assessed and do not "
+            f"close. {beam} Disable symmetry_consistent to inspect that beam."
+        )
+    return (
+        "No generated candidate has a completed parent-symmetry audit that "
+        f"closes. {n_open} candidate(s) were assessed and do not close; "
+        f"{n_unknown} candidate(s) were not assessed. An unassessed metric "
+        f"is not a proved failure. {beam}"
+    )
 
 
 def _is_integral_count(value: float, *, tolerance: float = 1e-9) -> bool:
@@ -1974,20 +2005,32 @@ class DisorderSolver:
                     logger.warning("%s Returning unvalidated candidates.", message)
 
         if symmetry_consistent and cleaned_sets:
+            audits = [
+                audit_parent_symmetry(self.info, candidate, self.lattice)
+                for candidate in cleaned_sets
+            ]
+            statuses = [audit.respects_parent_group for audit in audits]
             consistent = [
                 candidate
-                for candidate in cleaned_sets
-                if replica_respects_parent_symmetry(
-                    self.info, candidate, self.lattice
-                )
+                for candidate, status in zip(cleaned_sets, statuses)
+                if status is True
             ]
             if not consistent:
-                raise ValueError(
-                    "No generated candidate closes under every parent symmetry "
-                    "operation. symmetry_consistent filters the candidates this "
-                    "call already produced; a positive enumerate count is a "
-                    "top-N beam, and an exhaustive enumerate uses count 0. "
-                    "Disable symmetry_consistent to inspect the unfiltered beam."
+                notes = [
+                    note
+                    for audit in audits
+                    for note in audit.notes
+                    if "not assessed" in note
+                ]
+                raise ValueError(_symmetry_consistent_failure(statuses, notes))
+            n_unknown = sum(status is None for status in statuses)
+            if n_unknown:
+                logger.warning(
+                    "symmetry_consistent kept %s assessed parent-closed "
+                    "candidate(s) and dropped %s unassessed candidate(s). "
+                    "An unassessed metric was not treated as a proved failure.",
+                    len(consistent),
+                    n_unknown,
                 )
             cleaned_sets = consistent
 

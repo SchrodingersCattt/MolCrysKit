@@ -16,6 +16,7 @@ from .symmetry_audit import (
     ParentSymmetryAudit,
     ParentSymmetryOperationAudit,
     audit_parent_symmetry,
+    replica_parent_symmetry_closure,
     replica_respects_parent_symmetry,
 )
 
@@ -34,6 +35,7 @@ __all__ = [
     "generate_ordered_replicas_from_disordered_sites",
     "is_minor_site",
     "normalize_disorder_policy",
+    "replica_parent_symmetry_closure",
     "replica_respects_parent_symmetry",
     "DisorderProvenance",
 ]

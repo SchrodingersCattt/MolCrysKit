@@ -133,6 +133,8 @@ def _pairwise_min_image_distances(
     rounded = np.array(delta, copy=True)
     rounded[..., periodic] -= np.round(rounded[..., periodic])
     lattice_array = np.asarray(lattice, dtype=float)
+    # A collapsed axis can look orthogonal. Refuse it before rounding.
+    _exact_shift_half_width(lattice_array, float(tolerance_angstrom))
     if _independent_rounding_is_exact(lattice_array):
         cartesian = np.einsum("...j,jk->...k", rounded, lattice_array)
         return np.linalg.norm(cartesian, axis=-1)
@@ -454,17 +456,18 @@ def audit_parent_symmetry(
     )
 
 
-def replica_respects_parent_symmetry(
+def replica_parent_symmetry_closure(
     info,
     kept_indices: Sequence[int],
     lattice: np.ndarray,
     *,
     tolerance_angstrom: float | None = None,
-) -> bool:
-    """Return whether the audit completed and every parent operation closes.
+) -> bool | None:
+    """Return the tri-state parent-closure flag for one replica.
 
-    An unassessed metric returns False. That is not a report that the
-    replica breaks the parent group.
+    ``True`` means the audit completed and the replica closes. ``False``
+    means the audit completed and the replica does not close. ``None`` means
+    the distances were not assessed.
     """
     audit = audit_parent_symmetry(
         info,
@@ -472,7 +475,32 @@ def replica_respects_parent_symmetry(
         lattice,
         tolerance_angstrom=tolerance_angstrom,
     )
-    return bool(audit.respects_parent_group)
+    return audit.respects_parent_group
+
+
+def replica_respects_parent_symmetry(
+    info,
+    kept_indices: Sequence[int],
+    lattice: np.ndarray,
+    *,
+    tolerance_angstrom: float | None = None,
+) -> bool:
+    """Return whether a completed audit says the replica closes.
+
+    This stays a bool for callers that only need a conservative accept/reject.
+    ``False`` covers both a proved open replica and an unassessed metric.
+    Inspect :func:`replica_parent_symmetry_closure` or
+    :func:`audit_parent_symmetry` before describing a failure.
+    """
+    return (
+        replica_parent_symmetry_closure(
+            info,
+            kept_indices,
+            lattice,
+            tolerance_angstrom=tolerance_angstrom,
+        )
+        is True
+    )
 
 
 __all__ = [
@@ -480,5 +508,6 @@ __all__ = [
     "ParentSymmetryAudit",
     "ParentSymmetryOperationAudit",
     "audit_parent_symmetry",
+    "replica_parent_symmetry_closure",
     "replica_respects_parent_symmetry",
 ]

@@ -96,8 +96,10 @@ avoids that lock only when both labels are multi-group or
 forced into one component. Parent-group closure is reported separately by the
 per-replica parent-symmetry audit on `DisorderProvenance.symmetry_audit`
 (and by CLI `--report`). `symmetry_consistent=True` /
-`--symmetry-consistent` keeps the generated candidates that close under every
-parent operation. A positive enumerate count limits that beam first.
+`--symmetry-consistent` keeps generated candidates whose completed audit
+closes. An unassessed cell is dropped and, when nothing remains, the error
+separates that case from a completed audit that does not close. A positive
+enumerate count limits that beam first.
 
 `method="optimal"` returns one occupancy-favoured packing.  When exclusive
 components are related by a parent mirror or other operation, that packing can

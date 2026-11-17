@@ -97,7 +97,10 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
 @click.option(
     "--symmetry-consistent",
     is_flag=True,
-    help="Keep only replicas that close under every parent symmetry operation.",
+    help=(
+        "Keep only replicas whose completed parent-symmetry audit closes. "
+        "An unassessed cell is not kept and is not reported as a proved failure."
+    ),
 )
 @click.option(
     "--no-symmetry-audit",
@@ -837,7 +840,10 @@ def supercell(
 @click.option(
     "--symmetry-consistent",
     is_flag=True,
-    help="Keep only replicas that close under every parent symmetry operation.",
+    help=(
+        "Keep only replicas whose completed parent-symmetry audit closes. "
+        "An unassessed cell is not kept and is not reported as a proved failure."
+    ),
 )
 @STRICT_FORMULA
 @INDEPENDENT_ASSEMBLIES
