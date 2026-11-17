@@ -363,8 +363,11 @@ def _assign_double_bond(
     center_id = left_id if left_top >= right_top else right_id
     # Directional bonds are stored in the direction they were written. Each
     # marker is turned to point from the alkene atom out to its ligand before
-    # the two sides are compared, so a reversed traversal does not flip E/Z.
-    # Opposite outward markers are trans (E); equal outward markers are cis (Z).
+    # the two sides are compared. For one substituent on each alkene carbon,
+    # that keeps a reversed traversal on the same E/Z label. A second
+    # substituent can still split, because the first stored marker is not
+    # required to be the CIP-senior ligand. Opposite outward markers are
+    # trans (E); equal outward markers are cis (Z).
     explicit = _explicit_double_bond_descriptor(
         left_id,
         right_id,

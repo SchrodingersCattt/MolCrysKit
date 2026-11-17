@@ -96,9 +96,13 @@ a redundant locant (`(13C)methane`) and cite isotopic hydrogen by count
 Explicit `@`/`@@` centres are labeled `R`/`S` only when the CIP digraph
 assigns them. A bracket hydrogen stays in the OpenSMILES neighbour slot:
 after the from-atom, or first when the chiral atom opens the string.
-Directional `/` and `\` bonds are compared after both markers point away
-from the double bond, so an equivalent traversal keeps the same `R`/`S` or
-`E`/`Z` name. A carbocyclic aromatic bond contributes one duplicate node, as
+Directional `/` and `\` bonds on a single substituent are compared after
+both markers point away from the double bond, so `F/C=C/F` and `F\C=C\F`
+share one `E`/`Z` label. That outward comparison does not cover every
+equivalent writing. `C/C(F)=C/C` and `F/C(C)=C\C` are the same configuration
+and still receive different labels, because the first stored marker is not
+required to sit on the CIP-senior ligand. That split is older than this
+contract and is unchanged here. A carbocyclic aromatic bond contributes one duplicate node, as
 a double bond does, and a ring digit is ordered where it is written.
 Heteroatom-containing mancude rings are ranked by P-92.1.4.4 with averaged
 duplicate atomic numbers; this digraph does not apply that average, so a
