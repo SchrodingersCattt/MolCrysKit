@@ -18,7 +18,12 @@ from ase import Atoms
 from ase.neighborlist import neighbor_list
 
 from ..analysis.interactions.bonding import get_bonding_threshold
-from ..constants import get_atomic_radius, has_atomic_radius, is_metal_element
+from ..constants import (
+    DEFAULT_NEIGHBOR_CUTOFF,
+    get_atomic_radius,
+    has_atomic_radius,
+    is_metal_element,
+)
 from ..constants.config import (
     BOND_LENGTHS,
     BOND_ROTATION_AXIS_TOLERANCE,
@@ -26,7 +31,12 @@ from ..constants.config import (
 )
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
-from ..utils.geometry import frac_to_cart, kabsch_align, rotation_to_axis_angle
+from ..utils.geometry import (
+    frac_to_cart,
+    get_rotation_matrix,
+    kabsch_align,
+    rotation_to_axis_angle,
+)
 from ._path_core import (
     InterpolationMethod,
     coerce_interpolation_method,
@@ -63,6 +73,20 @@ class BondChange:
     atom_j: int
     reactant_bonded: bool
     product_bonded: bool
+
+
+@dataclass(frozen=True)
+class FreeAtomArc:
+    """Polar arc of one free atom about a pivot, on the shared path parameter.
+
+    The direction from the pivot is slerped from the reactant vector to the
+    product vector, and the distance changes linearly. The pivot may belong
+    to a rigid group; its motion and the arc are applied in one pass.
+    ``atom_index`` and ``pivot_index`` are reactant-global indices.
+    """
+
+    atom_index: int
+    pivot_index: int
 
 
 @dataclass(frozen=True)
@@ -105,6 +129,9 @@ class _RigidGroupPose:
     fit_rmsd_A: float
     pose_rmsd_A: float
     image_shift: ImageShift
+    reactant_positions: np.ndarray
+    reactant_atom_image_shifts: tuple[ImageShift, ...]
+    atom_image_shifts: tuple[ImageShift, ...]
 
 
 def _validate_mapping(
@@ -166,6 +193,25 @@ def _validate_groups(
     return resolved, used
 
 
+def _unwrap_about_first_atom(
+    positions: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+) -> tuple[np.ndarray, tuple[ImageShift, ...]]:
+    """Bring every atom onto the minimum image relative to the first atom."""
+    unwrapped = np.array(positions, dtype=float, copy=True)
+    shifts: list[ImageShift] = []
+    if len(unwrapped) == 0:
+        return unwrapped, tuple(shifts)
+    anchor = unwrapped[0]
+    shifts.append((0, 0, 0))
+    for index in range(1, len(unwrapped)):
+        mic, shift = minimum_image_displacement(unwrapped[index] - anchor, lattice, pbc)
+        unwrapped[index] = anchor + mic
+        shifts.append(shift)
+    return unwrapped, tuple(shifts)
+
+
 def _fit_rigid_group(
     group: RigidGroup,
     positions_a: np.ndarray,
@@ -174,12 +220,17 @@ def _fit_rigid_group(
     pbc: Sequence[bool],
     tolerance_A: float,
     image_shift: ImageShift | None = None,
+    stationary_tolerance_A: float = 1.0e-8,
 ) -> tuple[_RigidGroupPose, np.ndarray]:
     indices = np.asarray(group.atom_indices, dtype=int)
-    group_a = positions_a[indices]
-    group_b_raw = positions_b[indices]
+    group_a, reactant_atom_image_shifts = _unwrap_about_first_atom(
+        positions_a[indices], lattice, pbc
+    )
+    group_b, atom_image_shifts = _unwrap_about_first_atom(
+        positions_b[indices], lattice, pbc
+    )
     center_a = np.mean(group_a, axis=0)
-    center_b_raw = np.mean(group_b_raw, axis=0)
+    center_b_raw = np.mean(group_b, axis=0)
     if image_shift is None:
         translation, image_shift = minimum_image_displacement(
             center_b_raw - center_a, lattice, pbc
@@ -192,13 +243,13 @@ def _fit_rigid_group(
             + frac_to_cart(np.asarray(image_shift, dtype=float), lattice)
         )
     shift_cart = frac_to_cart(np.asarray(image_shift, dtype=float), lattice)
-    group_b = group_b_raw + shift_cart
+    group_b = group_b + shift_cart
     center_b = center_b_raw + shift_cart
-    # A group that does not move should stay on its reactant coordinates.
-    # A near-zero Kabsch rotation otherwise wanders by about 1e-8 Å on some
-    # BLAS builds during the intermediate screw frames.
+    # Identical groups skip Kabsch. A near-zero singular rotation otherwise
+    # wanders by about 1e-8 Å on some BLAS builds. The threshold is the
+    # endpoint tolerance, so a real displacement above that tolerance is kept.
     atom_shift = np.linalg.norm(group_b - group_a, axis=1)
-    if float(np.max(atom_shift)) <= tolerance_A:
+    if float(np.max(atom_shift)) <= stationary_tolerance_A:
         pose = _RigidGroupPose(
             group=group,
             center_a=center_a,
@@ -209,6 +260,9 @@ def _fit_rigid_group(
             fit_rmsd_A=0.0,
             pose_rmsd_A=0.0,
             image_shift=image_shift,
+            reactant_positions=group_a,
+            reactant_atom_image_shifts=reactant_atom_image_shifts,
+            atom_image_shifts=atom_image_shifts,
         )
         return pose, group_a.copy()
 
@@ -236,6 +290,9 @@ def _fit_rigid_group(
         fit_rmsd_A=float(fit_rmsd),
         pose_rmsd_A=pose_rmsd,
         image_shift=image_shift,
+        reactant_positions=group_a,
+        reactant_atom_image_shifts=reactant_atom_image_shifts,
+        atom_image_shifts=atom_image_shifts,
     )
     return pose, group_b
 
@@ -256,6 +313,199 @@ def _interpolate_group(
         lam=lam,
         method=method,
     )
+
+
+@dataclass(frozen=True)
+class _PreparedArc:
+    atom_index: int
+    pivot_index: int
+    reactant_vector: np.ndarray
+    product_vector: np.ndarray
+
+
+def _polar_offset(
+    reactant_vector: np.ndarray, product_vector: np.ndarray, lam: float
+) -> np.ndarray:
+    """Slerp the direction and linearly interpolate the length."""
+    start = np.asarray(reactant_vector, dtype=float)
+    end = np.asarray(product_vector, dtype=float)
+    start_length = float(np.linalg.norm(start))
+    end_length = float(np.linalg.norm(end))
+    if (
+        start_length <= BOND_ROTATION_AXIS_TOLERANCE
+        or end_length <= BOND_ROTATION_AXIS_TOLERANCE
+    ):
+        raise ValueError(
+            "polar arc requires a nonzero distance from the pivot at both endpoints"
+        )
+    direction_start = start / start_length
+    direction_end = end / end_length
+    cross = np.cross(direction_start, direction_end)
+    sine = float(np.linalg.norm(cross))
+    cosine = float(np.clip(np.dot(direction_start, direction_end), -1.0, 1.0))
+    if sine <= BOND_ROTATION_AXIS_TOLERANCE:
+        if cosine > 0.0:
+            direction = direction_start
+        else:
+            helper = (
+                np.array([1.0, 0.0, 0.0])
+                if abs(float(direction_start[0])) < 0.9
+                else np.array([0.0, 1.0, 0.0])
+            )
+            axis = np.cross(direction_start, helper)
+            axis = axis / np.linalg.norm(axis)
+            direction = (
+                direction_start @ get_rotation_matrix(axis, float(lam) * np.pi).T
+            )
+    else:
+        axis = cross / sine
+        angle = float(np.arctan2(sine, cosine))
+        direction = direction_start @ get_rotation_matrix(axis, float(lam) * angle).T
+    length = (1.0 - float(lam)) * start_length + float(lam) * end_length
+    return direction * length
+
+
+def _prepare_free_atom_arcs(
+    arcs: Sequence[FreeAtomArc],
+    free_indices: Sequence[int],
+    poses: Sequence[_RigidGroupPose],
+    positions_a: np.ndarray,
+    target_positions: np.ndarray,
+) -> dict[int, _PreparedArc]:
+    free = set(free_indices)
+    reactant_frame = np.array(positions_a, dtype=float, copy=True)
+    for pose in poses:
+        reactant_frame[list(pose.group.atom_indices)] = pose.reactant_positions
+    prepared: dict[int, _PreparedArc] = {}
+    for arc in arcs:
+        atom_index = _require_int(arc.atom_index, "FreeAtomArc.atom_index")
+        pivot_index = _require_int(arc.pivot_index, "FreeAtomArc.pivot_index")
+        if atom_index == pivot_index:
+            raise ValueError("a polar arc pivot must be a different atom")
+        if atom_index not in free:
+            raise ValueError(
+                f"polar arc atom {atom_index} must be outside the rigid groups"
+            )
+        if atom_index in prepared:
+            raise ValueError(f"duplicate polar arc for atom {atom_index}")
+        n_atoms = len(positions_a)
+        if (
+            atom_index < 0
+            or atom_index >= n_atoms
+            or pivot_index < 0
+            or pivot_index >= n_atoms
+        ):
+            raise ValueError("polar arc atom index is out of range")
+        prepared[atom_index] = _PreparedArc(
+            atom_index=atom_index,
+            pivot_index=pivot_index,
+            reactant_vector=reactant_frame[atom_index] - reactant_frame[pivot_index],
+            product_vector=target_positions[atom_index] - target_positions[pivot_index],
+        )
+    for arc in prepared.values():
+        if arc.pivot_index in prepared:
+            raise ValueError("a polar arc pivot cannot itself follow an arc")
+    return prepared
+
+
+def _image_diagnostics(
+    symbols: Sequence[str],
+    positions_by_image: Sequence[np.ndarray],
+    lambdas: np.ndarray,
+    scheduled_angles: Sequence[Sequence[float]],
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+    poses: Sequence[_RigidGroupPose],
+    free_indices: Sequence[int],
+    bond_changes: Sequence[BondChange],
+    arcs: dict[int, _PreparedArc],
+    bond_scale: float,
+) -> list[dict[str, Any]]:
+    """Closest non-bonded approach of a moving atom, plus the scheduled angles."""
+    moving = set(free_indices)
+    group_of: dict[int, int] = {}
+    for group_index, pose in enumerate(poses):
+        active = pose.angle_rad != 0.0 or bool(np.any(pose.translation))
+        for atom_index in pose.group.atom_indices:
+            group_of[int(atom_index)] = group_index
+            if active:
+                moving.add(int(atom_index))
+    ignored = {
+        tuple(sorted((int(change.atom_i), int(change.atom_j))))
+        for change in bond_changes
+    }
+    for arc in arcs.values():
+        ignored.add(tuple(sorted((arc.atom_index, arc.pivot_index))))
+    diagnostics = []
+    for image_index, (positions, lam, angles) in enumerate(
+        zip(positions_by_image, lambdas, scheduled_angles)
+    ):
+        diagnostics.append(
+            {
+                "image_index": int(image_index),
+                "lambda": float(lam),
+                "min_nonbonded_distance_A": _min_nonbonded_distance(
+                    symbols,
+                    positions,
+                    lattice,
+                    pbc,
+                    moving,
+                    group_of,
+                    ignored,
+                    bond_scale,
+                ),
+                "rigid_group_angles_deg": [float(angle) for angle in angles],
+            }
+        )
+    return diagnostics
+
+
+def _min_nonbonded_distance(
+    symbols: Sequence[str],
+    positions: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+    moving: set[int],
+    group_of: dict[int, int],
+    ignored_pairs: set[tuple[int, int]],
+    bond_scale: float,
+) -> float | None:
+    if not moving:
+        return None
+    atoms = Atoms(
+        symbols=list(symbols),
+        positions=np.asarray(positions, dtype=float),
+        cell=np.asarray(lattice, dtype=float),
+        pbc=pbc,
+    )
+    first, second, distances = neighbor_list(
+        "ijd", atoms, cutoff=float(DEFAULT_NEIGHBOR_CUTOFF)
+    )
+    best: float | None = None
+    seen: set[tuple[int, int]] = set()
+    for atom_i, atom_j, distance in zip(first, second, distances):
+        left, right = int(atom_i), int(atom_j)
+        if left == right:
+            continue
+        if left > right:
+            left, right = right, left
+        pair = (left, right)
+        if pair in seen or pair in ignored_pairs:
+            continue
+        seen.add(pair)
+        if left not in moving and right not in moving:
+            continue
+        if group_of.get(left) is not None and group_of.get(left) == group_of.get(right):
+            continue
+        bonded, _, _ = _pair_is_bonded(
+            symbols, positions, left, right, lattice, pbc, bond_scale
+        )
+        if bonded:
+            continue
+        value = float(distance)
+        if best is None or value < best:
+            best = value
+    return best
 
 
 def _pair_is_bonded(
@@ -384,16 +634,22 @@ def interpolate_reactive_path(
     bond_changes: Sequence[BondChange] = (),
     config: ReactivePathConfig | None = None,
     rigid_group_image_shifts: Sequence[ImageShift | None] | None = None,
+    free_atom_arcs: Sequence[FreeAtomArc] = (),
 ) -> ReactivePathResult:
     """Generate a fixed-cell atom-mapped reactive initial path.
 
     Rigid groups move independently but share the same interpolation parameter.
-    Atoms outside all rigid groups interpolate linearly between endpoint images.
-    ``rigid_group_image_shifts`` selects the lattice image of each product
-    group. The default, ``None``, uses the minimum image of the group centre.
-    An explicit shift keeps that image of the supplied coordinates, so a
-    requested displacement longer than half a cell edge is not replaced by
-    the shorter periodic return.
+    Each group is unwrapped about its first atom before the fit, so a group
+    whose atoms were stored on different lattice images remains rigid. Atoms
+    outside the groups move on straight lines unless ``free_atom_arcs`` gives
+    them a polar arc about a pivot. Arcs use the same path parameter as the
+    rigid motion.
+
+    ``rigid_group_image_shifts`` is an optional override for the lattice image
+    of each product-group centroid after that internal unwrap. It is relative
+    to the reactant centroid. ``None`` selects the minimum image. Pass an
+    explicit shift only to keep a displacement that is longer than half a
+    cell edge.
     """
     config = config or ReactivePathConfig()
     method = coerce_interpolation_method(config.method)
@@ -437,6 +693,7 @@ def interpolate_reactive_path(
             reactant.pbc,
             config.rigid_fit_tolerance_A,
             image_shift=group_shift,
+            stationary_tolerance_A=config.endpoint_tolerance_A,
         )
         indices = np.asarray(group.atom_indices, dtype=int)
         target_positions[indices] = group_target
@@ -473,25 +730,38 @@ def interpolate_reactive_path(
         )
         del reference_atoms.arrays["molecule_index"]
 
+    arcs = _prepare_free_atom_arcs(
+        free_atom_arcs, free_indices, poses, positions_a, target_positions
+    )
+    linear_free = [index for index in free_indices if index not in arcs]
     images: list[Atoms] = []
+    scheduled_angles: list[list[float]] = []
     for image_index, lam_value in enumerate(lambdas):
         lam = float(lam_value)
-        if lam == 0.0:
-            positions = positions_a.copy()
-        elif lam == 1.0:
+        positions = positions_a.copy()
+        if lam == 1.0:
             positions = target_positions.copy()
         else:
-            positions = positions_a.copy()
             for pose in poses:
                 indices = np.asarray(pose.group.atom_indices, dtype=int)
-                positions[indices] = _interpolate_group(
-                    positions_a[indices], pose, lam, method
-                )
-            if free_indices:
-                indices = np.asarray(free_indices, dtype=int)
+                if lam == 0.0:
+                    positions[indices] = pose.reactant_positions
+                else:
+                    positions[indices] = _interpolate_group(
+                        pose.reactant_positions, pose, lam, method
+                    )
+            if linear_free and lam != 0.0:
+                indices = np.asarray(linear_free, dtype=int)
                 positions[indices] = (1.0 - lam) * positions_a[
                     indices
                 ] + lam * target_positions[indices]
+        for arc in arcs.values():
+            positions[arc.atom_index] = positions[arc.pivot_index] + _polar_offset(
+                arc.reactant_vector, arc.product_vector, lam
+            )
+        scheduled_angles.append(
+            [float(np.degrees(pose.angle_rad) * lam) for pose in poses]
+        )
 
         images.append(
             materialize_atoms_frame(
@@ -536,6 +806,10 @@ def interpolate_reactive_path(
                 "name": pose.group.name,
                 "atom_indices": list(pose.group.atom_indices),
                 "product_image_shift": list(pose.image_shift),
+                "reactant_atom_image_shifts": [
+                    list(shift) for shift in pose.reactant_atom_image_shifts
+                ],
+                "atom_image_shifts": [list(shift) for shift in pose.atom_image_shifts],
                 "fit_rmsd_A": pose.fit_rmsd_A,
                 "pose_rmsd_A": pose.pose_rmsd_A,
                 "angle_deg": float(np.degrees(pose.angle_rad)),
@@ -554,6 +828,23 @@ def interpolate_reactive_path(
         "bond_changes": bond_records,
         "bond_validation_enabled": bool(config.validate_bond_changes),
         "endpoint_max_error_A": endpoint_error,
+        "free_atom_arcs": [
+            {"atom_index": arc.atom_index, "pivot_index": arc.pivot_index}
+            for arc in arcs.values()
+        ],
+        "images": _image_diagnostics(
+            symbols_a,
+            [frame.positions for frame in images],
+            lambdas,
+            scheduled_angles,
+            lattice_a,
+            reactant.pbc,
+            poses,
+            free_indices,
+            bond_changes,
+            arcs,
+            config.bond_scale,
+        ),
     }
     return ReactivePathResult(
         images=images,
@@ -765,19 +1056,23 @@ def _require_exact_changes(
         )
 
 
+def _indices_by_molecule(molecule_index: np.ndarray) -> dict[int, tuple[int, ...]]:
+    grouped: dict[int, list[int]] = {}
+    for atom_index, owner in enumerate(np.asarray(molecule_index, dtype=int)):
+        grouped.setdefault(int(owner), []).append(int(atom_index))
+    return {owner: tuple(indices) for owner, indices in grouped.items()}
+
+
 def _species_records(
     symbols: Sequence[str],
     molecule_index: np.ndarray,
     charges: dict[int, int],
     roles: dict[int, str],
 ) -> list[dict[str, Any]]:
+    grouped = _indices_by_molecule(molecule_index)
     records = []
     for mol_index in sorted(charges):
-        atom_indices = [
-            int(index)
-            for index, owner in enumerate(molecule_index)
-            if int(owner) == mol_index
-        ]
+        atom_indices = list(grouped.get(mol_index, ()))
         counts: dict[str, int] = {}
         for index in atom_indices:
             symbol = symbols[index]
@@ -922,13 +1217,10 @@ def _rigid_groups_by_molecule(
     roles: dict[int, str],
     skip: set[int],
 ) -> list[RigidGroup]:
+    grouped = _indices_by_molecule(molecule_index)
     groups: list[RigidGroup] = []
-    for mol_index in _molecule_indices_of(molecule_index):
-        indices = tuple(
-            int(index)
-            for index, owner in enumerate(molecule_index)
-            if int(owner) == mol_index and int(index) not in skip
-        )
+    for mol_index in sorted(grouped):
+        indices = tuple(index for index in grouped[mol_index] if index not in skip)
         if not indices:
             continue
         name = roles.get(mol_index, f"molecule-{mol_index}")
@@ -1223,12 +1515,13 @@ def build_bond_cleavage_path(
     roles = {index: "spectator" for index in present}
     roles[molecule_index] = "fragment_fixed"
     roles[new_index] = "fragment_moving"
+    grouped = _indices_by_molecule(owners)
     groups = [
         RigidGroup(fixed, name="fragment_fixed"),
         RigidGroup(moving, name="fragment_moving"),
     ]
     for spectator in spectators:
-        indices = tuple(int(index) for index in np.where(owners == spectator)[0])
+        indices = grouped.get(spectator, ())
         if indices:
             groups.append(RigidGroup(indices, name=f"spectator-{spectator}"))
     if len(groups) < 2:

@@ -100,6 +100,7 @@ from .reorientation import reorient_crystal, ReorientationInfo
 
 from .reactive_path import (
     BondChange,
+    FreeAtomArc,
     ReactivePathConfig,
     ReactivePathResult,
     RigidGroup,
@@ -249,6 +250,7 @@ __all__ = [
     "reorient_crystal",
     "ReorientationInfo",
     "BondChange",
+    "FreeAtomArc",
     "ReactivePathConfig",
     "ReactivePathResult",
     "RigidGroup",

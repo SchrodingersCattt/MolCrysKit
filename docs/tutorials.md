@@ -54,6 +54,18 @@ split molecular components, so it does not claim that the reactant's
 `molecule_index` partition remains chemically valid. That input partition is
 retained only as the `reactant_molecule_index` provenance array.
 
+Each rigid group is unwrapped about its first atom before the fit, then moved
+by one group translation. Atoms stored on different lattice images of the same
+group stay rigid without a caller-supplied image shift.
+`rigid_group_image_shifts` overrides only that group-centroid image, relative
+to the reactant centroid after the unwrap. Leave it unset to use the minimum
+image. A free atom follows a straight line unless it is listed in
+`free_atom_arcs` as a `FreeAtomArc` about a pivot atom. The arc uses the same
+path parameter as the rigid groups. Result metadata records the resolved
+image shifts, each group's rotation angle along the path, and the minimum
+non-bonded distance around the moving atoms. `write_reactive_path` copies
+that metadata into the JSON sidecar.
+
 ## Multi-species reactive endpoints
 
 `build_proton_transfer_path` and `build_bond_cleavage_path` construct the
