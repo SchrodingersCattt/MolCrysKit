@@ -96,6 +96,8 @@ class ReactivePathConfig:
     method: InterpolationMethod | str = InterpolationMethod.SE3_SCREW
     n_images: int = 11
     include_endpoints: bool = True
+    # Construction accuracy. Independently relaxed endpoints usually need
+    # about 0.1 Å; a residual of 0.01-0.1 Å is normal and is not a geometry bug.
     rigid_fit_tolerance_A: float = 1.0e-5
     endpoint_tolerance_A: float = 1.0e-8
     # Groups closer than this are treated as unmoved, so a singular Kabsch
@@ -314,7 +316,12 @@ def _fit_rigid_group(
         label = group.name or str(tuple(group.atom_indices))
         raise ValueError(
             f"Rigid group {label!r} is not rigid-reachable: fit RMSD "
-            f"{fit_rmsd:.6g} Å exceeds {tolerance_A:.6g} Å"
+            f"{fit_rmsd:.6g} Å exceeds rigid_fit_tolerance_A="
+            f"{tolerance_A:.6g} Å. Constructed endpoints can keep the "
+            "default 1e-5 Å. Endpoints relaxed independently under a "
+            "potential usually need ReactivePathConfig("
+            "rigid_fit_tolerance_A=0.1); a residual of 0.01-0.1 Å is "
+            "normal and is not a geometry bug."
         )
     axis, angle = rotation_to_axis_angle(rotation)
     fitted = (group_a - center_a) @ rotation.T + center_a + translation
@@ -753,9 +760,16 @@ def interpolate_reactive_path(
     Rigid groups move independently but share the same interpolation parameter.
     Each group is unwrapped by a walk along its periodic bonds, so a chain
     that spans more than half a cell is not folded back onto the first atom.
-    A group that is not one bond component is refused. Atoms
-    outside the groups move on straight lines unless ``free_atom_arcs`` gives
-    them a polar arc about a pivot. Arcs use the same path parameter as the
+    A group that is not one bond component is refused. The default
+    ``rigid_fit_tolerance_A`` of 1e-5 Å accepts only a construction-accurate
+    rigid motion. Endpoints taken from independent relaxations usually
+    differ by 0.01-0.1 Å inside a group; pass
+    ``ReactivePathConfig(rigid_fit_tolerance_A=0.1)`` for that input.
+    Atoms outside the groups, and not listed in ``free_atom_arcs``, move on
+    the straight minimum-image line between their own two endpoint
+    coordinates, including when the surrounding groups were relaxed
+    separately. ``free_atom_arcs`` replaces that line for one atom with a
+    polar arc about a pivot. Arcs use the same path parameter as the
     rigid motion.
 
     ``rigid_group_image_shifts`` is an optional override for the lattice image

@@ -184,7 +184,7 @@ def test_non_rigid_group_is_rejected():
     target = product.to_ase()
     target.positions[1, 0] += 0.2
     deformed = MolecularCrystal.from_ase_atoms(target)
-    with pytest.raises(ValueError, match="not rigid-reachable"):
+    with pytest.raises(ValueError, match="rigid_fit_tolerance_A=0.1"):
         interpolate_reactive_path(
             reactant,
             deformed,

@@ -58,6 +58,14 @@ Each rigid group is unwrapped by walking its periodic bonds, then moved by
 one group translation. A chain that crosses more than half a cell keeps those
 bond images instead of folding every atom toward the first one. A group that
 is not a single bond component is refused.
+The default `rigid_fit_tolerance_A` of 1e-5 Å is construction accuracy.
+Two copies of the same polyatomic group that were relaxed independently
+usually disagree by 0.01-0.1 Å; that residual is not a broken mapping.
+Pass `ReactivePathConfig(rigid_fit_tolerance_A=0.1)` for relaxed endpoints.
+Atoms that are in no rigid group and have no `FreeAtomArc` stay on the
+straight minimum-image line between their own endpoint coordinates. That
+line is what makes the band usable as an NEB initial guess when the two
+ends were relaxed separately.
 `rigid_group_image_shifts` overrides only that group-centroid image, relative
 to the reactant centroid after the unwrap. Leave it unset to use the minimum
 image. The endpoint check uses the minimum-image gap, so a free atom that
