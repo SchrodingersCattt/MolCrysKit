@@ -60,7 +60,11 @@ bond images instead of folding every atom toward the first one. A group that
 is not a single bond component is refused.
 `rigid_group_image_shifts` overrides only that group-centroid image, relative
 to the reactant centroid after the unwrap. Leave it unset to use the minimum
-image. A free atom follows a straight line unless it is listed in
+image. The endpoint check uses the minimum-image gap, so a free atom that
+joins another molecule and is stored one cell away is still the same endpoint.
+`stationary_tolerance_A` decides which rigid groups count as unmoved. It is
+not `endpoint_tolerance_A`; widening the endpoint check does not remove a
+real rotation. A free atom follows a straight line unless it is listed in
 `free_atom_arcs` as a `FreeAtomArc` about a pivot atom. The arc uses the same
 path parameter as the rigid groups, and its radius is the minimum-image
 distance to the unwrapped pivot. Result metadata records the resolved

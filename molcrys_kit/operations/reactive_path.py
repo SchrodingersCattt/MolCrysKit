@@ -31,6 +31,7 @@ from ..constants.config import (
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import CrystalMolecule
 from ..utils.geometry import (
+    cart_to_frac,
     frac_to_cart,
     get_rotation_matrix,
     kabsch_align,
@@ -97,6 +98,10 @@ class ReactivePathConfig:
     include_endpoints: bool = True
     rigid_fit_tolerance_A: float = 1.0e-5
     endpoint_tolerance_A: float = 1.0e-8
+    # Groups closer than this are treated as unmoved, so a singular Kabsch
+    # rotation cannot drift them. This is independent of endpoint_tolerance_A:
+    # widening the endpoint check must not erase a real rigid motion.
+    stationary_tolerance_A: float = 1.0e-8
     bond_scale: float = 1.0
     validate_bond_changes: bool = True
 
@@ -397,6 +402,27 @@ def _polar_offset(
         direction = direction_start @ get_rotation_matrix(axis, float(lam) * angle).T
     length = (1.0 - float(lam)) * start_length + float(lam) * end_length
     return direction * length
+
+
+def _minimum_image_endpoint_error(
+    frame_positions: np.ndarray,
+    target_positions: np.ndarray,
+    lattice: np.ndarray,
+    pbc: Sequence[bool],
+) -> float:
+    """Largest minimum-image gap between a frame and the recorded target.
+
+    A lattice-vector offset is the same structure. The raw Cartesian gap can
+    be one cell edge when a free atom joins another molecule and is re-imaged
+    with that molecule.
+    """
+    worst = 0.0
+    for index in range(len(frame_positions)):
+        mic, _ = minimum_image_displacement(
+            frame_positions[index] - target_positions[index], lattice, pbc
+        )
+        worst = max(worst, float(np.linalg.norm(mic)))
+    return worst
 
 
 def _prepare_free_atom_arcs(
@@ -780,7 +806,7 @@ def interpolate_reactive_path(
             reactant.pbc,
             config.rigid_fit_tolerance_A,
             image_shift=group_shift,
-            stationary_tolerance_A=config.endpoint_tolerance_A,
+            stationary_tolerance_A=config.stationary_tolerance_A,
             symbols=symbols_a,
             bond_scale=config.bond_scale,
         )
@@ -830,6 +856,16 @@ def interpolate_reactive_path(
         lattice_a,
         reactant.pbc,
     )
+    for arc in arcs.values():
+        # Land on the bond image about the pivot. The reactant-minimum-image
+        # continuation can sit a lattice vector away once the atom has joined
+        # the pivot's molecule.
+        landing = target_positions[arc.pivot_index] + arc.product_vector
+        fractional = cart_to_frac(landing - positions_b[arc.atom_index], lattice_a)
+        image_shift = np.rint(fractional)
+        image_shift[~np.asarray(reactant.pbc, dtype=bool)] = 0
+        target_positions[arc.atom_index] = landing
+        shifts[arc.atom_index] = image_shift.astype(int)
     linear_free = [index for index in free_indices if index not in arcs]
     images: list[Atoms] = []
     scheduled_angles: list[list[float]] = []
@@ -875,8 +911,8 @@ def interpolate_reactive_path(
 
     endpoint_error = 0.0
     if len(lambdas) and float(lambdas[-1]) == 1.0:
-        endpoint_error = float(
-            np.max(np.linalg.norm(images[-1].positions - target_positions, axis=1))
+        endpoint_error = _minimum_image_endpoint_error(
+            images[-1].positions, target_positions, lattice_a, reactant.pbc
         )
         if endpoint_error > config.endpoint_tolerance_A:
             raise RuntimeError(
@@ -1338,6 +1374,7 @@ def _run_declared_path(
     config: ReactivePathConfig,
     *,
     rigid_group_image_shifts: Sequence[ImageShift | None] | None = None,
+    free_atom_arcs: Sequence[FreeAtomArc] = (),
     cell_charge: int,
     multiplicity: int,
     n_electrons: int,
@@ -1353,6 +1390,7 @@ def _run_declared_path(
         bond_changes=bond_changes,
         config=config,
         rigid_group_image_shifts=rigid_group_image_shifts,
+        free_atom_arcs=free_atom_arcs,
     )
     return _annotate_result(
         result,
@@ -1379,6 +1417,7 @@ def build_proton_transfer_path(
     product_species_charges: Sequence[tuple[int, int]],
     product_distance_A: float | None = None,
     config: ReactivePathConfig | None = None,
+    free_atom_arcs: Sequence[FreeAtomArc] = (),
 ) -> ReactivePathResult:
     """Build a fixed-cell path that moves one hydrogen onto another species.
 
@@ -1493,6 +1532,7 @@ def build_proton_transfer_path(
             BondChange(hydrogen_index, acceptor_index, False, True),
         ],
         config,
+        free_atom_arcs=free_atom_arcs,
         cell_charge=cell_charge,
         multiplicity=multiplicity,
         n_electrons=n_electrons,

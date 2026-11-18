@@ -185,6 +185,13 @@ def test_proton_transfer_round_trip_keeps_coordinates_and_charges(tmp_path):
     ] == [(0, 0), (1, 0), (2, 0)]
 
 
+def test_proton_transfer_arc_about_the_acceptor_keeps_the_endpoint():
+    result = _proton_path(free_atom_arcs=[FreeAtomArc(1, 3)])
+    delta = result.images[-1].positions[1] - result.images[-1].positions[3]
+    assert float(np.linalg.norm(delta)) == pytest.approx(0.96, abs=1e-6)
+    assert result.metadata["endpoint_max_error_A"] <= 1.0e-8
+
+
 def test_proton_transfer_rejects_unbalanced_charge():
     with pytest.raises(ValueError, match="cell charge"):
         _proton_path(reactant_species_charges=((0, 1), (1, 0), (2, 0)))
@@ -591,7 +598,9 @@ def test_product_image_shifts_reconstruct_unwrapped_frames():
             [6.0, 2.2, 1.0],
         ]
     )
-    atoms = Atoms(symbols=["C", "C", "C", "O", "O", "O"], positions=wrapped, cell=cell, pbc=True)
+    atoms = Atoms(
+        symbols=["C", "C", "C", "O", "O", "O"], positions=wrapped, cell=cell, pbc=True
+    )
     atoms.set_array("molecule_index", np.array([0, 0, 0, 1, 1, 1]))
     crystal = MolecularCrystal.from_ase_atoms(atoms)
     result = interpolate_reactive_path(

@@ -490,6 +490,69 @@ def test_boundary_crossing_chain_unwraps_along_bonds():
             assert distance == pytest.approx(1.5, abs=1e-5)
 
 
+def test_wide_endpoint_tolerance_does_not_erase_a_rigid_rotation():
+    reactant = _crystal(START)
+    target = START.copy()
+    target[:3] = _rotate(START[:3], 25.0, [0.0, 0.0, 0.0])
+    product = _crystal(target)
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=_groups(),
+        config=ReactivePathConfig(
+            n_images=3,
+            validate_bond_changes=False,
+            endpoint_tolerance_A=1.0e9,
+        ),
+    )
+    donor = result.metadata["rigid_groups"][0]
+    assert donor["angle_deg"] == pytest.approx(25.0, abs=0.5)
+    assert donor["displacement_A"] < 1.0e-6
+
+
+def test_arc_across_a_molecule_change_accepts_the_cell_image():
+    cell = np.diag([10.0, 10.0, 10.0])
+    symbols = ["N", "C", "O", "C", "H"]
+    start = np.array(
+        [
+            [2.0, 5.0, 5.0],
+            [2.0, 6.4, 5.0],
+            [9.0, 5.0, 5.0],
+            [9.0, 6.4, 5.0],
+            [2.9, 5.0, 5.0],
+        ]
+    )
+    # The container stores the product hydrogen next to the acceptor oxygen.
+    # The reactant-minimum-image continuation of that hydrogen is one cell away.
+    target = start.copy()
+    target[4] = [8.04, 5.0, 5.0]
+    molecule_index = [0, 0, 1, 1, 0]
+    reactant = _crystal(
+        start, symbols=symbols, cell=cell, molecule_index=molecule_index
+    )
+    product = _crystal(
+        target, symbols=symbols, cell=cell, molecule_index=[0, 0, 1, 1, 1]
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[
+            RigidGroup((0, 1), "donor"),
+            RigidGroup((2, 3), "acceptor"),
+        ],
+        free_atom_arcs=[FreeAtomArc(4, 2)],
+        bond_changes=[
+            BondChange(0, 4, True, False),
+            BondChange(4, 2, False, True),
+        ],
+        config=ReactivePathConfig(n_images=5),
+    )
+    delta = result.images[-1].positions[4] - result.images[-1].positions[2]
+    delta -= np.round(delta / 10.0) * 10.0
+    assert float(np.linalg.norm(delta)) == pytest.approx(0.96, abs=1e-6)
+    assert result.metadata["endpoint_max_error_A"] <= 1.0e-8
+
+
 def test_endpoint_exclusion_uses_existing_frame_count_semantics():
     reactant, product = _endpoint_pair()
     config = ReactivePathConfig(
