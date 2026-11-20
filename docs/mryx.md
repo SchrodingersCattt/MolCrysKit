@@ -8,10 +8,13 @@ read-only, conservative subset reader, not a Mercury session converter.
 
 Both functions select the first structure by default, an integer index selects
 another structure (negative indices count from the end), and `index=":"` returns
-a list in document order. Every structure is validated before selection. Missing
-or unsupported structural layouts, nonstandard atom labels, invalid coordinate
-matrices/vectors, bad bond endpoints and unresolved disorder references fail
-with `ValueError`. Missing files retain `FileNotFoundError`.
+a list in document order. Every structure is validated. A single index then
+keeps ASE atoms and raw provenance for that structure only. `index=":"` is
+eager: every structure is materialized before the list is returned, and the
+result is not a streaming iterator. `read_mryx` uses the same selection.
+Missing or unsupported structural layouts, nonstandard atom labels, invalid
+coordinate matrices/vectors, bad bond endpoints and unresolved disorder
+references fail with `ValueError`. Missing files retain `FileNotFoundError`.
 
 ```python
 from molcrys_kit.io import read_mryx_atoms, read_mryx, write_extxyz
@@ -55,11 +58,25 @@ write_extxyz(crystal, "stored-sites.extxyz")
 
 ## Safety and dependencies
 
-`read_mryx` imports ASE and `defusedxml`. Both come from the `desktop` extra
-(`pip install "molcrys-kit[desktop]"`). The core install does not load either
-module until `read_mryx` is called. No CCDC installation is needed.
-No file references are opened, no expressions are evaluated and no archive paths
-are extracted. Entities and external XML references are forbidden; the plain
-`<!DOCTYPE CCDC_XML>` declaration is accepted. Input is capped at 16 MiB and
-expanded XML at 64 MiB, with additional depth (128) and node (500,000) bounds.
-Malformed or truncated gzip/XML input raises `ValueError`.
+`read_mryx` and `read_mryx_atoms` import ASE and `defusedxml`. Both come from
+the `desktop` extra (`pip install "molcrys-kit[desktop]"`). The core install
+is NumPy, NetworkX, and Click. Importing `molcrys_kit.io` does not import ASE,
+`defusedxml`, or the Mercury module; the first call to either reader does.
+No CCDC installation is needed. No file references are opened, no expressions
+are evaluated and no archive paths are extracted. Entities and external XML
+references are forbidden; the plain `<!DOCTYPE CCDC_XML>` declaration is
+accepted.
+
+Input is capped at 16 MiB and expanded XML at 64 MiB, with depth 128 and
+500,000 nodes. Atom labels are limited to 128 characters so one long label
+cannot set the width of the NumPy label array. A document may contain at most
+4,096 structures, and each structure at most 100,000 stored sites. Malformed
+or truncated gzip/XML input raises `ValueError`. Graphics items are visited
+one at a time. A single index copies only the selected structure into ASE
+atoms and raw provenance; each other item is validated and discarded before
+the next item is kept. `index=":"` still builds the full list before returning.
+
+These checks use independently constructed documents. They do not certify
+every Mercury version. Someone with Mercury can compare one local export
+(cell, stored sites, labels, and structure index) with this reader. This
+package does not ship sample exports.

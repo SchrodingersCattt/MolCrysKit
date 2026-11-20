@@ -112,6 +112,7 @@ Implemented rule families and strict refusal boundaries are tracked in
 Read/write interfaces.
 
 - Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`, `read_mryx_atoms`, `read_mryx`
+  - `read_mryx_atoms` and `read_mryx` need the desktop extra (ASE and defusedxml). Importing `molcrys_kit.io` does not import them. A single index validates every structure and materializes only that one; other graphics items are discarded during the walk. `index=":"` eagerly builds the full list before returning. See [Mercury import](mryx.md).
 - pymatgen Structure bridge: `to_pymatgen_structure`, `from_pymatgen_structure` (occupancy-preserving; mixed sites expand to one atom per composition component; the reverse conversion does not re-collapse co-located atoms into a multi-species site)
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.

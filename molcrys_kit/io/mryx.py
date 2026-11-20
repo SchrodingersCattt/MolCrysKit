@@ -11,6 +11,11 @@ identification in ``read_mryx`` is separate from the stored bond table.
 This is a deliberately conservative structural reader, not a Mercury session
 loader or round-trip writer. It never evaluates expressions or resolves external
 resources. Unsupported variants fail rather than fabricate coordinates.
+
+A single structure index validates every structure, then retains ASE atoms and
+raw provenance for that structure only. ``index=':'`` eagerly materializes
+every structure before returning. Bounds and synthetic documents exercise this
+subset; they do not certify every Mercury version.
 """
 
 from __future__ import annotations
@@ -35,6 +40,9 @@ from ..constants.mryx import (
     MRYX_CELL_TOLERANCE,
     MRYX_COORDINATE_TOLERANCE_A,
     MRYX_MAX_COMPRESSED_BYTES,
+    MRYX_MAX_LABEL_LENGTH,
+    MRYX_MAX_SITES,
+    MRYX_MAX_STRUCTURES,
     MRYX_MAX_XML_BYTES,
     MRYX_MAX_XML_DEPTH,
     MRYX_MAX_XML_NODES,
@@ -88,7 +96,7 @@ def _raw(node):
     }
 
 
-def _read_root(filepath):
+def _read_payload(filepath):
     with Path(filepath).open("rb") as handle:
         payload = handle.read(MRYX_MAX_COMPRESSED_BYTES + 1)
     if len(payload) > MRYX_MAX_COMPRESSED_BYTES:
@@ -101,30 +109,67 @@ def _read_root(filepath):
             raise ValueError("MRYX invalid or truncated gzip container") from exc
     if len(payload) > MRYX_MAX_XML_BYTES:
         raise ValueError("MRYX expanded XML exceeds the byte limit")
-    # Parse incrementally to cap tree size/depth as well as byte size. A plain
-    # <!DOCTYPE CCDC_XML> is permitted; entities and external references are not.
-    depth = count = 0
+    return payload
+
+
+def _collect_structures(payload, materialize_index):
+    """Validate each graphics item, copying only the requested ones.
+
+    ``materialize_index`` is an integer structure index, ``':'``, or ``None``.
+    ``None`` validates and returns the structure count. Each graphics item is
+    discarded before the next one is retained, so unselected structures are
+    not kept as an element tree, raw provenance, or ASE atoms.
+    """
+    seen = 0
+    kept = []
+    selected = None
+    stack = []
+    count = 0
     try:
+        # A plain <!DOCTYPE CCDC_XML> is permitted; entities and external
+        # references are not. Depth and node caps are applied as the document
+        # is walked, one graphics item at a time.
         context = SafeET.iterparse(
             io.BytesIO(payload),
             events=("start", "end"),
             forbid_entities=True,
             forbid_external=True,
         )
-        for event, _ in context:
+        for event, elem in context:
             if event == "start":
-                depth += 1
+                stack.append(elem)
                 count += 1
-                if depth > MRYX_MAX_XML_DEPTH or count > MRYX_MAX_XML_NODES:
+                if len(stack) > MRYX_MAX_XML_DEPTH or count > MRYX_MAX_XML_NODES:
                     raise ValueError("MRYX XML exceeds the depth/node limit")
-            else:
-                depth -= 1
+                continue
+            stack.pop()
+            parent = stack[-1] if stack else None
+            if elem.tag != "item" or parent is None or parent.tag != "graphics_crystal":
+                continue
+            if seen >= MRYX_MAX_STRUCTURES:
+                raise ValueError("MRYX document exceeds the structure limit")
+            keep = materialize_index == ":" or materialize_index == seen
+            atoms = _structure(elem, seen, materialize=keep)
+            if materialize_index == ":":
+                kept.append(atoms)
+            elif keep:
+                selected = atoms
+            elem.clear()
+            seen += 1
         root = context.root
     except (ET.ParseError, DefusedXmlException) as exc:
         raise ValueError("MRYX malformed or unsafe XML") from exc
     if root.tag != "All":
         raise ValueError("MRYX expected an All CCDC_XML root")
-    return root
+    if seen == 0:
+        raise ValueError("MRYX contains no graphics crystal structures")
+    if materialize_index is None:
+        return seen
+    if materialize_index == ":":
+        return kept
+    if selected is None:
+        raise ValueError("MRYX structure index is out of range")
+    return selected
 
 
 def _cell(structure):
@@ -181,7 +226,7 @@ def _cell(structure):
     return cell, matrix, matrix_node is not None
 
 
-def _structure(item, index):
+def _structure(item, index, *, materialize=True):
     structures = item.findall(".//value[@type='ConcreteCrystalStructure']")
     if len(structures) != 1:
         raise ValueError("MRYX expected one ConcreteCrystalStructure per graphics item")
@@ -190,13 +235,18 @@ def _structure(item, index):
     if molecule is None:
         raise ValueError("MRYX structure has no supported Molecule3d")
     cell, matrix, has_transform = _cell(structure)
-    symbols, labels, positions, raw_atoms = [], [], [], []
+    symbols, labels, positions = [], [], []
+    raw_atoms = []
     serials, codes = set(), {}
     for handle in molecule.findall("atoms/item"):
         atom = handle.find("value[@type='Atom3d']")
         if atom is None:
             raise ValueError("MRYX unresolved or unsupported atom handle")
         label = _text(atom, "label")
+        if len(label) > MRYX_MAX_LABEL_LENGTH:
+            raise ValueError("MRYX atom label exceeds the length limit")
+        if len(symbols) >= MRYX_MAX_SITES:
+            raise ValueError("MRYX structure exceeds the site limit")
         # Only conventional crystallographic element-prefixed labels are
         # supported without a published internal element-code mapping.
         match = re.fullmatch(r"([A-Z][a-z]?)(?:[0-9_].*)?", label)
@@ -244,7 +294,8 @@ def _structure(item, index):
         symbols.append(symbol)
         labels.append(label)
         positions.append(position)
-        raw_atoms.append(_raw(handle))
+        if materialize:
+            raw_atoms.append(_raw(handle))
     if not symbols:
         raise ValueError("MRYX structure has no stored atom sites")
     for bond in molecule.findall("bonds/item"):
@@ -256,6 +307,8 @@ def _structure(item, index):
     ):
         if _text(ref, "serial_number") not in serials:
             raise ValueError("MRYX disorder group references an unknown atom handle")
+    if not materialize:
+        return None
     diagnostics = [
         "Elements inferred from conventional atom labels; internal element codes are not atomic numbers.",
         "Stored sites only: symmetry is preserved as metadata, not expanded; this may be an asymmetric unit, not a full cell.",
@@ -285,11 +338,15 @@ def read_mryx_atoms(filepath: str | Path, index: int | str = 0) -> Atoms | list[
     """Read stored Mercury sites as ASE Atoms, retaining raw structural metadata.
 
     ``index=0`` selects the first structure in document order; integers (including
-    negative indices) select one structure, and ``index=':'`` returns all. A
-    UserWarning and ``info['mryx']['diagnostics']`` describe conservative import
-    semantics. No symmetry expansion, verified occupancy, source bond-order
-    decoding, session-state restoration or MRYX writing is provided. Gzip and
-    plain CCDC_XML input are bounded; malformed/unsafe documents raise ValueError.
+    negative indices) select one structure, and ``index=':'`` returns all. Every
+    structure is validated. A single index keeps ASE atoms and raw provenance
+    for that structure only; other graphics items are discarded as the document
+    is walked. ``index=':'`` is eager: the full list is built before the call
+    returns. A UserWarning and ``info['mryx']['diagnostics']`` describe
+    conservative import semantics. No symmetry expansion, verified occupancy,
+    source bond-order decoding, session-state restoration or MRYX writing is
+    provided. Gzip and plain CCDC_XML input are bounded, including label length
+    and structure/site counts; malformed/unsafe documents raise ValueError.
     """
     if index != ":":
         if isinstance(index, bool):
@@ -298,21 +355,23 @@ def read_mryx_atoms(filepath: str | Path, index: int | str = 0) -> Atoms | list[
             index = operator.index(index)
         except TypeError as exc:
             raise ValueError("MRYX index must be an integer or ':'") from exc
-    root = _read_root(filepath)
-    items = root.findall("graphics_crystal/item")
-    if not items:
-        raise ValueError("MRYX contains no graphics crystal structures")
-    # Validate all structures even when selecting one, so malformed siblings
-    # cannot become silently different results in count/read/all entry points.
-    frames = [_structure(item, i) for i, item in enumerate(items)]
+    payload = _read_payload(filepath)
+    # Validate every structure so a malformed sibling cannot be skipped by
+    # selecting a different index. Only requested structures are copied out.
     if index == ":":
-        result = frames
+        result = _collect_structures(payload, ":")
+    elif index >= 0:
+        result = _collect_structures(payload, index)
     else:
-        if not -len(frames) <= index < len(frames):
+        count = _collect_structures(payload, None)
+        if not -count <= index < count:
             raise ValueError("MRYX structure index is out of range")
-        result = frames[index]
+        result = _collect_structures(payload, index % count)
+    diagnostics = (result[0] if isinstance(result, list) else result).info["mryx"][
+        "diagnostics"
+    ]
     warnings.warn(
-        "MRYX conservative import: " + " ".join(frames[0].info["mryx"]["diagnostics"]),
+        "MRYX conservative import: " + " ".join(diagnostics),
         UserWarning,
         stacklevel=2,
     )
