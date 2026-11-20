@@ -105,6 +105,13 @@ from .reactive_path import (
     RigidGroup,
     interpolate_reactive_path,
 )
+from .periodic_path import (
+    PeriodicPathCandidate,
+    PeriodicPathConfig,
+    PeriodicPathError,
+    PeriodicPathResult,
+    interpolate_periodic_paths,
+)
 from .periodic_chain import build_periodic_chains
 
 from .forward import (
@@ -250,6 +257,11 @@ __all__ = [
     "ReactivePathResult",
     "RigidGroup",
     "interpolate_reactive_path",
+    "PeriodicPathCandidate",
+    "PeriodicPathConfig",
+    "PeriodicPathError",
+    "PeriodicPathResult",
+    "interpolate_periodic_paths",
     "build_periodic_chains",
     "AverageAtomSite",
     "ConstructionValidationError",

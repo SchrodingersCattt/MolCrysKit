@@ -68,6 +68,7 @@
 | Interpolation | `interpolate_crystal`, `interpolate_molecule`, `interpolate_pose` | two states | path/frames | source docstring |
 | Composite conformational interpolation | `interpolate_molecule_with_internal_dofs` | two `CrystalMolecule` conformers | rigid + bridge-torsion/Cremer–Pople frames | source docstring |
 | Reactive initial path | `interpolate_reactive_path` | atom-mapped endpoints + rigid groups | flat ASE frames + result metadata | [Tutorials](tutorials.md) |
+| Periodic geometric paths | `interpolate_periodic_paths` | mapped `MolecularCrystal` endpoints | screened candidates and periodic topology snapshots | purely geometric; bounded winding search |
 | Build periodic fragment chains | `build_periodic_chains` | templates, connection rules, cell, and closure | `PeriodicBundle` | [Periodic chains](periodic-chains.md) |
 | Validate periodic bundle | `validate_periodic_bundle` | bundle structure and sidecar metadata | integrity, graph, and periodic-distance report | [Periodic chains](periodic-chains.md) |
 
@@ -138,6 +139,7 @@ Structure-changing workflows. Prefer functional helpers for simple tasks and cla
 - Interpolation: `InterpolationConfig`, `InterpolationMethod`, `MoleculeMatch`, `VCMoleculeMatch`, `best_atom_mapping`, `find_flipping_molecules`, `interpolate_crystal`, `interpolate_crystal_vc`, `interpolate_molecule`, `interpolate_pose`, `match_molecules`, `match_molecules_vc`
 - Internal DOF interpolation: `interpolate_molecule_with_internal_dofs`
 - Reactive paths: `RigidGroup`, `BondChange`, `ReactivePathConfig`, `ReactivePathResult`, `interpolate_reactive_path`
+- Periodic geometric paths: `PeriodicPathCandidate`, `PeriodicPathConfig`, `PeriodicPathError`, `PeriodicPathResult`, `interpolate_periodic_paths`
 - Forward construction: `MolecularTemplate`, `MolecularPose`, `ForwardConstructionContext`, `CrystalConstructionContext`, `prepare_construction_context`, `prepare_context_from_cif`, `SiteSymmetryAnalysis`, `analyze_molecular_pose`, `analyze_site_symmetry`, `construct_molecular_crystal`, `build_molecular_crystal`, `build_symmetry_complete_crystal`, `MolecularAlternative`, `AverageAtomSite`, `StatisticalDisorderModel`, `construct_statistical_disorder`, `build_orientational_disorder`, `select_ordered_realization`, `read_statistical_disorder_companion`, `intermolecular_contacts`, `PeriodicBondRecord`, `DISORDER_COMPANION_SCHEMA`, `DISORDER_CONSTRAINT_SCHEMA`, `ConstructionValidationError`, `InvalidOrientationError`, `InvalidSymmetryError`, `IncompatibleSiteError`, `IncompatibleChemistryError`, `DisorderCompanionLossError`
   - Declared space-group number, Hermann–Mauguin symbol, Hall symbol, setting, origin, and basis must match the complete operation set. An unlabelled closed group stays valid.
   - `chemistry_policy="enantiopure"` is checked against the full group. Allowed improper mates reassign known stereo from the typed graph and transformed coordinates; indeterminate mates stay unknown.
