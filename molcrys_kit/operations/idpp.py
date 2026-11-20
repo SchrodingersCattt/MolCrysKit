@@ -15,7 +15,12 @@ from ase.constraints import FixAtoms
 from ase.geometry import complete_cell, find_mic, minkowski_reduce
 from scipy.optimize import minimize
 
-from ..constants.idpp import IDPP_GRADIENT_TOLERANCE, IDPP_MAX_ITERATIONS, IDPP_MINIMUM_DISTANCE_A
+from ..constants.idpp import (
+    IDPP_FUNCTION_TOLERANCE,
+    IDPP_GRADIENT_TOLERANCE,
+    IDPP_MAX_ITERATIONS,
+    IDPP_MINIMUM_DISTANCE_A,
+)
 
 
 @dataclass
@@ -184,7 +189,11 @@ def refine_idpp_path(
                 seed[free].ravel(),
                 method="L-BFGS-B",
                 jac=True,
-                options={"maxiter": int(max_iterations), "gtol": float(gradient_tolerance)},
+                options={
+                    "maxiter": int(max_iterations),
+                    "gtol": float(gradient_tolerance),
+                    "ftol": IDPP_FUNCTION_TOLERANCE,
+                },
             )
             positions = seed.copy()
             positions[free] = result.x.reshape((-1, 3))

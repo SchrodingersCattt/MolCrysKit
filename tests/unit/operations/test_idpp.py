@@ -167,3 +167,16 @@ def test_variable_cells_preserve_cells_and_requested_progress():
     for source, frame in zip(images, result.images):
         np.testing.assert_array_equal(source.cell.array, frame.cell.array)
     np.testing.assert_array_equal(result.images[1].positions[0], images[1].positions[0])
+
+
+def test_near_converged_path_reaches_requested_gradient_tolerance():
+    rng = np.random.default_rng(6301)
+    start = rng.uniform(0, 5, (6, 3))
+    end = start + rng.normal(0, 0.08, (6, 3))
+    middle = (start + end) / 2 + rng.normal(0, 0.0002, (6, 3))
+    images = [Atoms("C6", positions=positions) for positions in (start, middle, end)]
+    result = refine_idpp_path(
+        images, prescribed_atom_indices=(0,), gradient_tolerance=3e-6, max_iterations=400
+    )
+    assert result.converged
+    assert result.diagnostics[0]["maximum_free_gradient_component"] <= 3e-6
