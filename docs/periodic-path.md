@@ -64,9 +64,10 @@ remain intact. Always inspect the diagnostics and compare independent methods
 for the target application.
 
 
-
 When specified, `fixed_atom_indices` holds the listed reactant-order atoms
 fixed in Cartesian coordinates during initial construction and optimization.
 Their product positions must match the initial positions modulo the product
 lattice. The output frames carry the same fixed-atom constraint. Structure
 conversion does not infer these indices; callers must provide them explicitly.
+
+For independent-image pair-distance refinement of an explicit warm path, see [IDPP refinement](idpp-refinement.md).

@@ -1,0 +1,5 @@
+"""Numerical defaults for independent-image IDPP refinement."""
+
+IDPP_MAX_ITERATIONS = 400
+IDPP_GRADIENT_TOLERANCE = 1.0e-3
+IDPP_MINIMUM_DISTANCE_A = 1.0e-8

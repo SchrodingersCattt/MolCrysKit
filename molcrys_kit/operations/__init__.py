@@ -105,6 +105,8 @@ from .reactive_path import (
     RigidGroup,
     interpolate_reactive_path,
 )
+from .idpp import IDPPRefinementResult, refine_idpp_path
+
 from .periodic_path import (
     PeriodicPathCandidate,
     PeriodicPathConfig,
@@ -257,6 +259,8 @@ __all__ = [
     "ReactivePathResult",
     "RigidGroup",
     "interpolate_reactive_path",
+    "IDPPRefinementResult",
+    "refine_idpp_path",
     "PeriodicPathCandidate",
     "PeriodicPathConfig",
     "PeriodicPathError",
