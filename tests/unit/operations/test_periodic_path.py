@@ -15,7 +15,7 @@ from molcrys_kit.operations._periodic_path_geometry import (
     interpolate_cells,
     nearest_image,
 )
-from molcrys_kit.operations.periodic_path import _objective
+from molcrys_kit.operations.periodic_path import _image_choices, _objective
 from molcrys_kit.structures.crystal import MolecularCrystal
 
 
@@ -436,3 +436,89 @@ def test_objective_gradient_matches_finite_difference():
             _objective(plus, *args)[0] - _objective(minus, *args)[0]
         ) / 2e-6
     np.testing.assert_allclose(gradient, numerical, atol=1e-6, rtol=1e-5)
+
+
+def test_fixed_atom_stays_fixed_while_free_atom_avoids_overlap():
+    cell = np.eye(3) * 10
+    start = _crystal("CH", [[0, 0, 0], [-1.2, 0, 0]], cell)
+    end = _crystal("CH", [[0, 0, 0], [1.2, 0, 0]], cell)
+    cfg = _config(fixed_atom_indices=(0,))
+    result = interpolate_periodic_paths(start, end, product_index_by_reactant=[0, 1], config=cfg)
+    for image in result.candidates[0].images:
+        np.testing.assert_array_equal(image.positions[0], start.to_ase().positions[0])
+        assert image.constraints
+    assert result.diagnostics["fixed_atom_indices"] == [0]
+
+
+def test_fixed_atom_accepts_equivalent_periodic_image():
+    cell = np.eye(3) * 10
+    start = _crystal("C", [[9.0, 1, 1]], cell)
+    end = _crystal("C", [[-1.0, 1, 1]], cell)
+    result = interpolate_periodic_paths(start, end, product_index_by_reactant=[0], config=_config(fixed_atom_indices=(0,)))
+    for image in result.candidates[0].images:
+        np.testing.assert_allclose(image.positions[0], [9, 1, 1])
+
+
+def test_fixed_atom_rejects_incompatible_endpoints():
+    cell = np.eye(3) * 10
+    start = _crystal("C", [[1.0, 1, 1]], cell)
+    end = _crystal("C", [[1.5, 1, 1]], cell)
+    with pytest.raises(ValueError, match="fixed atom endpoints"):
+        interpolate_periodic_paths(start, end, product_index_by_reactant=[0], config=_config(fixed_atom_indices=(0,)))
+
+
+def test_all_fixed_atoms_with_identical_endpoints():
+    cell = np.eye(3) * 10
+    crystal = _crystal("CH", [[1, 1, 1], [4, 4, 4]], cell)
+    result = interpolate_periodic_paths(crystal, crystal, product_index_by_reactant=[0, 1], config=_config(fixed_atom_indices=(0, 1)))
+    assert result.candidates[0].diagnostics["optimizer_success"]
+    assert result.candidates[0].diagnostics["total_iterations"] == 0
+    for image in result.candidates[0].images:
+        np.testing.assert_allclose(image.positions, crystal.to_ase().positions)
+
+
+@pytest.mark.parametrize("indices", [(-1,), (0,0), (True,), (0.5,)])
+def test_reject_invalid_fixed_indices(indices):
+    with pytest.raises(ValueError, match="fixed atom indices"):
+        _config(fixed_atom_indices=indices)
+
+
+def test_reject_out_of_range_fixed_index():
+    cell = np.eye(3) * 10
+    crystal = _crystal("C", [[1, 1, 1]], cell)
+    with pytest.raises(ValueError, match="out of range"):
+        interpolate_periodic_paths(crystal, crystal, product_index_by_reactant=[0], config=_config(fixed_atom_indices=(1,)))
+
+
+
+def test_fixed_atom_candidates_are_deduplicated_before_the_limit():
+    shifts = np.zeros((2, 3), dtype=int)
+    positions = np.zeros((2, 3))
+    choices = _image_choices(
+        shifts,
+        [([0], True), ([1], True)],
+        positions,
+        positions,
+        np.eye(3) * 10,
+        np.eye(3, dtype=int),
+        np.ones(3, dtype=bool),
+        3,
+        np.array([0]),
+        np.zeros((1, 3), dtype=int),
+    )
+    assert len(choices) == 3
+    assert all(np.array_equal(choice[0], [0, 0, 0]) for choice in choices)
+    assert len({tuple(choice[1]) for choice in choices}) == 3
+
+
+def test_all_fixed_candidate_count_reports_unique_choices():
+    cell = np.eye(3) * 10
+    crystal = _crystal("CH", [[1, 1, 1], [4, 4, 4]], cell)
+    config = PeriodicPathConfig(
+        n_images=5, max_candidates=3, fixed_atom_indices=(0, 1)
+    )
+    result = interpolate_periodic_paths(
+        crystal, crystal, product_index_by_reactant=[0, 1], config=config
+    )
+    assert result.diagnostics["candidate_count_evaluated"] == 1
+    assert len(result.candidates) == 1

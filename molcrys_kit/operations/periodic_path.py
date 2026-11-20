@@ -15,9 +15,10 @@ from typing import Any, Sequence
 
 import numpy as np
 from ase import Atoms
+from ase.constraints import FixAtoms
 from ase.data import covalent_radii
 from ase.neighborlist import neighbor_list
-from scipy.optimize import minimize
+from scipy.optimize import OptimizeResult, minimize
 from scipy.spatial.transform import Rotation
 
 from ..constants.periodic_path import (
@@ -79,8 +80,15 @@ class PeriodicPathConfig:
     collision_weight: float = PERIODIC_PATH_COLLISION_WEIGHT
     smoothness_weight: float = PERIODIC_PATH_SMOOTHNESS_WEIGHT
     seed_weight: float = PERIODIC_PATH_SEED_WEIGHT
+    fixed_atom_indices: tuple[int, ...] = ()
 
     def __post_init__(self):
+        fixed = tuple(self.fixed_atom_indices)
+        if any(isinstance(i, bool) or not isinstance(i, (int, np.integer)) or i < 0 for i in fixed):
+            raise ValueError("fixed atom indices must be non-negative integers")
+        if len(set(fixed)) != len(fixed):
+            raise ValueError("fixed atom indices must be unique")
+        object.__setattr__(self, "fixed_atom_indices", tuple(int(i) for i in fixed))
         for name, minimum in (
             ("n_images", 3),
             ("max_candidates", 1),
@@ -240,7 +248,10 @@ def _components_and_shifts(start_edges, end_edges, start, end, end_cell, pbc):
     return shifts, start_gauge, components, ambiguous
 
 
-def _image_choices(shifts, components, start, end, end_cell, start_basis, pbc, maximum):
+def _image_choices(
+    shifts, components, start, end, end_cell, start_basis, pbc, maximum,
+    fixed=None, fixed_shifts=None,
+):
     choices = [shifts.copy()]
     for members, _ in components:
         for axis in np.flatnonzero(pbc):
@@ -250,6 +261,9 @@ def _image_choices(shifts, components, start, end, end_cell, start_basis, pbc, m
                 choices.append(candidate)
     unique = {}
     for candidate in choices:
+        candidate = candidate.copy()
+        if fixed is not None:
+            candidate[fixed] = fixed_shifts
         displacement = end + candidate @ end_cell - start
         score = float(np.sum(displacement * displacement))
         unique[tuple(candidate.ravel())] = (score, candidate)
@@ -328,7 +342,9 @@ def _contacts(positions, cell, pbc, numbers, scale):
     )
 
 
-def _separate_exact_overlaps(frames, cells, pbc, numbers, start, target, basis, scale):
+def _separate_exact_overlaps(frames, cells, pbc, numbers, start, target, basis, scale, fixed_mask=None):
+    if fixed_mask is None:
+        fixed_mask = np.zeros(len(start),dtype=bool)
     for k in range(1, len(frames) - 1):
         for _ in range(PERIODIC_PATH_INITIAL_SEPARATION_STEPS):
             first, second, vectors, _, distances, limits = _contacts(
@@ -352,8 +368,15 @@ def _separate_exact_overlaps(frames, cells, pbc, numbers, start, target, basis, 
                     * float(limits[index])
                     * direction
                 )
-                frames[k, left] -= displacement
-                frames[k, right] += displacement
+                if fixed_mask[left] and fixed_mask[right]:
+                    continue
+                if fixed_mask[left]:
+                    frames[k, right] += 2 * displacement
+                elif fixed_mask[right]:
+                    frames[k, left] -= 2 * displacement
+                else:
+                    frames[k, left] -= displacement
+                    frames[k, right] += displacement
     return frames
 
 
@@ -438,6 +461,13 @@ def _objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config):
     value += config.seed_weight * float(np.sum(delta**2))
     gradient[1:-1] += 2.0 * config.seed_weight * delta
     return value, gradient[1:-1].ravel()
+
+
+def _free_objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config, free):
+    full = seed[1:-1].copy()
+    full[:, free, :] = interior.reshape((len(full), len(free), 3))
+    value, gradient = _objective(full.ravel(), seed, cells, pbc, numbers, edges, d0, d1, config)
+    return value, gradient.reshape(full.shape)[:, free, :].ravel()
 
 
 def _diagnostics(frames, cells, pbc, numbers, edges, d0, d1, conserved, result, config):
@@ -538,6 +568,18 @@ def interpolate_periodic_paths(
     cells, end_transform = interpolate_cells(
         reactant.lattice, product.lattice, pbc, fractions
     )
+    fixed = np.asarray(config.fixed_atom_indices, dtype=int)
+    if np.any(fixed >= len(start)):
+        raise ValueError("fixed atom index out of range")
+    fixed_mask = np.zeros(len(start), dtype=bool)
+    fixed_mask[fixed] = True
+    free = np.flatnonzero(~fixed_mask)
+    fixed_shifts = np.zeros((len(fixed), 3), dtype=int)
+    for k, i in enumerate(fixed):
+        vector, shift = nearest_image(end[i] - start[i], cells[-1], pbc)
+        if np.linalg.norm(vector) > PERIODIC_PATH_OVERLAP_TOLERANCE_A:
+            raise ValueError("fixed atom endpoints differ in Cartesian position")
+        fixed_shifts[k] = shift
     start_records = tuple(reactant.get_bond_records())
     end_records = tuple(product.get_bond_records())
     start_edges, start_graph = records_to_edges(
@@ -566,13 +608,22 @@ def interpolate_periodic_paths(
         start_basis,
         pbc,
         config.max_candidates,
+        fixed,
+        fixed_shifts,
     )
     basis_vectors, _ = canonical_periodic_basis(reactant.lattice, pbc)
     basis_vectors = complete_periodic_cell(basis_vectors, pbc)
     numbers = np.asarray(start_atoms.numbers, dtype=int)
     candidates = []
     rejected = []
+    seen_choices = set()
     for choice in choices:
+        choice = choice.copy()
+        choice[fixed] = fixed_shifts
+        choice_key = tuple(choice.ravel())
+        if choice_key in seen_choices:
+            continue
+        seen_choices.add(choice_key)
         adjusted_end_edges = [
             transform_edge(edge, np.eye(3, dtype=int), choice) for edge in end_edges
         ]
@@ -581,6 +632,7 @@ def interpolate_periodic_paths(
             start, target, cells, start_edges, adjusted_end_edges
         )
         seed = _initial_images(start, end, cells, choice, gauge, components)
+        seed[1:-1, fixed] = start[fixed]
         seed = _separate_exact_overlaps(
             seed,
             cells,
@@ -590,9 +642,10 @@ def interpolate_periodic_paths(
             target,
             basis_vectors,
             config.collision_scale,
+            fixed_mask,
         )
         try:
-            current = seed[1:-1].ravel()
+            current = seed[1:-1, free].ravel()
             refinement_history = []
             for refinement in range(config.max_collision_refinements + 1):
                 stage = replace(
@@ -600,21 +653,27 @@ def interpolate_periodic_paths(
                     collision_weight=config.collision_weight
                     * PERIODIC_PATH_COLLISION_WEIGHT_MULTIPLIER**refinement,
                 )
-                optimum = minimize(
-                    _objective,
-                    current,
-                    args=(seed, cells, pbc, numbers, edges, d0, d1, stage),
-                    method="L-BFGS-B",
-                    jac=True,
-                    options={
-                        "maxiter": config.max_iterations,
-                        "gtol": config.gradient_tolerance,
-                        "ftol": PERIODIC_PATH_FUNCTION_TOLERANCE,
-                    },
-                )
+                objective_args = (seed, cells, pbc, numbers, edges, d0, d1, stage, free)
+                if len(free):
+                    optimum = minimize(
+                        _free_objective,
+                        current,
+                        args=objective_args,
+                        method="L-BFGS-B",
+                        jac=True,
+                        options={
+                            "maxiter": config.max_iterations,
+                            "gtol": config.gradient_tolerance,
+                            "ftol": PERIODIC_PATH_FUNCTION_TOLERANCE,
+                        },
+                    )
+                else:
+                    value, gradient = _free_objective(current, *objective_args)
+                    optimum = OptimizeResult(x=current, fun=value, jac=gradient,
+                                             success=True, nit=0, message="all atoms fixed")
                 current = optimum.x
                 frames = seed.copy()
-                frames[1:-1] = current.reshape(frames[1:-1].shape)
+                frames[1:-1, free] = current.reshape((len(frames)-2,len(free),3))
                 diagnostic = _diagnostics(
                     frames,
                     cells,
@@ -669,6 +728,8 @@ def interpolate_periodic_paths(
             )
             image.set_cell(cells[k], scale_atoms=False)
             image.set_pbc(pbc)
+            if len(fixed):
+                image.set_constraint(FixAtoms(indices=fixed))
             image.info.pop("_molcrys_bond_records", None)
             if "molecule_index" in image.arrays:
                 image.set_array(
@@ -684,7 +745,8 @@ def interpolate_periodic_paths(
     diagnostics = {
         "rejected_candidates": rejected,
         "candidate_count_requested": config.max_candidates,
-        "candidate_count_evaluated": len(choices),
+        "fixed_atom_indices": list(config.fixed_atom_indices),
+        "candidate_count_evaluated": len(seen_choices),
         "ambiguous_common_edges": [list(item) for item in ambiguous],
         "end_basis_transform": end_transform.tolist(),
         "candidate_scope": "base and single-component one-cell windings",
