@@ -112,23 +112,31 @@ def _read_payload(filepath):
     return payload
 
 
+def _release(elem):
+    """Drop an element that the walk has finished."""
+    elem.clear()
+
+
 def _collect_structures(payload, materialize_index):
     """Validate each graphics item, copying only the requested ones.
 
     ``materialize_index`` is an integer structure index, ``':'``, or ``None``.
     ``None`` validates and returns the structure count. Each graphics item is
     discarded before the next one is retained, so unselected structures are
-    not kept as an element tree, raw provenance, or ASE atoms.
+    not kept as an element tree, raw provenance, or ASE atoms. Finished
+    elements outside the item being validated are cleared as the walk proceeds.
     """
     seen = 0
     kept = []
     selected = None
     stack = []
     count = 0
+    open_structures = 0
     try:
         # A plain <!DOCTYPE CCDC_XML> is permitted; entities and external
         # references are not. Depth and node caps are applied as the document
-        # is walked, one graphics item at a time.
+        # is walked. Finished markup outside the graphics item being validated
+        # is dropped, so cameras and other ignored subtrees are not retained.
         context = SafeET.iterparse(
             io.BytesIO(payload),
             events=("start", "end"),
@@ -141,21 +149,34 @@ def _collect_structures(payload, materialize_index):
                 count += 1
                 if len(stack) > MRYX_MAX_XML_DEPTH or count > MRYX_MAX_XML_NODES:
                     raise ValueError("MRYX XML exceeds the depth/node limit")
+                if (
+                    len(stack) >= 2
+                    and elem.tag == "item"
+                    and stack[-2].tag == "graphics_crystal"
+                ):
+                    open_structures += 1
                 continue
             stack.pop()
             parent = stack[-1] if stack else None
-            if elem.tag != "item" or parent is None or parent.tag != "graphics_crystal":
-                continue
-            if seen >= MRYX_MAX_STRUCTURES:
-                raise ValueError("MRYX document exceeds the structure limit")
-            keep = materialize_index == ":" or materialize_index == seen
-            atoms = _structure(elem, seen, materialize=keep)
-            if materialize_index == ":":
-                kept.append(atoms)
-            elif keep:
-                selected = atoms
-            elem.clear()
-            seen += 1
+            is_structure = (
+                elem.tag == "item"
+                and parent is not None
+                and parent.tag == "graphics_crystal"
+            )
+            if is_structure:
+                if seen >= MRYX_MAX_STRUCTURES:
+                    raise ValueError("MRYX document exceeds the structure limit")
+                keep = materialize_index == ":" or materialize_index == seen
+                atoms = _structure(elem, seen, materialize=keep)
+                if materialize_index == ":":
+                    kept.append(atoms)
+                elif keep:
+                    selected = atoms
+                _release(elem)
+                open_structures -= 1
+                seen += 1
+            elif open_structures == 0:
+                _release(elem)
         root = context.root
     except (ET.ParseError, DefusedXmlException) as exc:
         raise ValueError("MRYX malformed or unsafe XML") from exc

@@ -41,8 +41,9 @@ molcrys-kit[desktop]` adds SciPy, ASE, pymatgen, spglib, and defusedxml. Mercury
 `.mryx` import needs that extra because the reader builds ASE atoms and parses
 XML with defusedxml. Importing `molcrys_kit.io` does not import either package;
 the first call to `read_mryx` or `read_mryx_atoms` does. A single index
-validates every structure and materializes only the selected one; other
-graphics items are discarded during the walk. `index=":"` builds the full
+validates every structure and materializes only the selected one. Finished
+non-structure markup and other graphics items are discarded during the walk.
+`index=":"` builds the full
 list before returning. Those packages are not repeated in the required
 dependencies, so the lightweight profile is a normal install rather
 than `pip install --no-deps`.

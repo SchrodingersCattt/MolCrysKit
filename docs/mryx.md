@@ -72,9 +72,12 @@ Input is capped at 16 MiB and expanded XML at 64 MiB, with depth 128 and
 cannot set the width of the NumPy label array. A document may contain at most
 4,096 structures, and each structure at most 100,000 stored sites. Malformed
 or truncated gzip/XML input raises `ValueError`. Graphics items are visited
-one at a time. A single index copies only the selected structure into ASE
-atoms and raw provenance; each other item is validated and discarded before
-the next item is kept. `index=":"` still builds the full list before returning.
+one at a time. Finished markup that is not the graphics item being validated,
+including ignored scene or camera markup, is discarded during the walk. A
+single index copies only the selected structure into ASE atoms and raw
+provenance; each other item is validated and discarded before the next item
+is kept. `index=":"` still builds the full list before returning. The bounded
+document bytes remain available for that one call.
 
 These checks use independently constructed documents. They do not certify
 every Mercury version. Someone with Mercury can compare one local export
