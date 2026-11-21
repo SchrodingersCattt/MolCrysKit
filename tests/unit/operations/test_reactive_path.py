@@ -1,14 +1,18 @@
 """Tests for atom-mapped reactive initial paths."""
 
+import json
+
 import numpy as np
 import pytest
 from ase import Atoms
 
 from molcrys_kit.operations import (
     BondChange,
+    FreeAtomArc,
     ReactivePathConfig,
     RigidGroup,
     interpolate_reactive_path,
+    write_reactive_path,
 )
 from molcrys_kit.structures.crystal import MolecularCrystal
 
@@ -28,11 +32,41 @@ START = np.array(
 )
 
 
-def _crystal(positions, symbols=SYMBOLS, pbc=(True, True, True)):
-    atoms = Atoms(symbols=symbols, positions=positions, cell=CELL, pbc=pbc)
-    atoms.set_array("atom_id", np.arange(len(atoms), dtype=int))
-    atoms.set_array("molecule_index", np.array([0, 0, 0, 0, 1, 1, 1]))
+def _crystal(
+    positions, symbols=SYMBOLS, pbc=(True, True, True), cell=None, molecule_index=None
+):
+    count = len(positions)
+    if molecule_index is None:
+        if count == len(SYMBOLS):
+            molecule_index = [0, 0, 0, 0, 1, 1, 1]
+        else:
+            molecule_index = [0] * count
+    atoms = Atoms(
+        symbols=symbols,
+        positions=positions,
+        cell=CELL if cell is None else cell,
+        pbc=pbc,
+    )
+    atoms.set_array("atom_id", np.arange(count, dtype=int))
+    atoms.set_array("molecule_index", np.asarray(molecule_index, dtype=int))
     return MolecularCrystal.from_ase_atoms(atoms)
+
+
+def _rotate_group(positions, indices, angle_deg):
+    updated = np.array(positions, dtype=float, copy=True)
+    updated[list(indices)] = _rotate(updated[list(indices)], angle_deg, [0.0, 0.0, 0.0])
+    return updated
+
+
+def _groups_from_molecule_index(molecule_index):
+    grouped: dict[int, list[int]] = {}
+    for atom_index, owner in enumerate(np.asarray(molecule_index, dtype=int)):
+        grouped.setdefault(int(owner), []).append(int(atom_index))
+    return [
+        RigidGroup(tuple(indices), f"molecule-{owner}")
+        for owner, indices in sorted(grouped.items())
+        if indices
+    ]
 
 
 def _rotate(points, angle_deg, translation):
@@ -162,7 +196,7 @@ def test_non_rigid_group_is_rejected():
 @pytest.mark.parametrize(
     "groups, message",
     [
-        ([RigidGroup((0, 1, 2))], "at least two"),
+        ([], "at least one"),
         ([RigidGroup(()), RigidGroup((4, 5, 6))], "empty"),
         ([RigidGroup((0, 1, 2)), RigidGroup((2, 4, 5))], "overlap"),
         ([RigidGroup((0, 0)), RigidGroup((4, 5, 6))], "duplicate"),
@@ -212,6 +246,313 @@ def test_inputs_and_reactant_partition_provenance_are_preserved():
         assert frame.info["path_kind"] == "reactive"
 
 
+def test_tiny_rigid_translation_reaches_the_product_endpoint():
+    reactant = _crystal(START)
+    shift = np.array([1.0e-6, 0.0, 0.0])
+    target = START.copy()
+    target[:3] += shift
+    product = _crystal(target)
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=_groups(),
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    np.testing.assert_allclose(
+        result.images[-1].positions[:3],
+        reactant.to_ase().positions[:3] + shift,
+        atol=1e-12,
+    )
+
+
+def test_split_lattice_images_remain_one_rigid_group():
+    cell = np.diag([12.0, 12.0, 12.0])
+    symbols = ["C", "C", "C", "O", "O", "O"]
+    wrapped = np.array(
+        [
+            [0.4, 5.0, 5.0],
+            [11.6, 5.0, 5.0],
+            [0.4, 6.2, 5.0],
+            [6.0, 1.0, 1.0],
+            [7.2, 1.0, 1.0],
+            [6.0, 2.2, 1.0],
+        ]
+    )
+    unwrapped = wrapped.copy()
+    unwrapped[1] = [0.4 - 0.8, 5.0, 5.0]
+    reactant = _crystal(wrapped, cell=cell, symbols=symbols)
+    product = _crystal(
+        _rotate_group(unwrapped, (0, 1, 2), 15.0), cell=cell, symbols=symbols
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[RigidGroup((0, 1, 2), "crossed"), RigidGroup((3, 4, 5), "other")],
+        config=ReactivePathConfig(n_images=5, validate_bond_changes=False),
+    )
+    reference = result.images[0].get_all_distances(mic=False)[
+        np.ix_((0, 1, 2), (0, 1, 2))
+    ]
+    for frame in result.images:
+        current = frame.get_all_distances(mic=False)[np.ix_((0, 1, 2), (0, 1, 2))]
+        np.testing.assert_allclose(current, reference, atol=1e-8)
+    assert result.metadata["rigid_groups"][0]["reactant_atom_image_shifts"][1] == [
+        -1,
+        0,
+        0,
+    ]
+
+
+def test_round_trip_through_the_crystal_container_stays_rigid():
+    cell = np.diag([12.0, 12.0, 12.0])
+    symbols = ["C", "C", "C", "O", "O", "O"]
+    positions = np.array(
+        [
+            [0.4, 5.0, 5.0],
+            [1.2, 5.0, 5.0],
+            [0.4, 5.8, 5.0],
+            [6.0, 1.0, 1.0],
+            [6.8, 1.0, 1.0],
+            [6.0, 1.8, 1.0],
+        ]
+    )
+    atoms = Atoms(symbols=symbols, positions=positions, cell=cell, pbc=True)
+    back = MolecularCrystal.from_ase(atoms).to_ase()
+    reactant = MolecularCrystal.from_ase_atoms(back)
+    groups = _groups_from_molecule_index(back.arrays["molecule_index"])
+    rotated = np.array(back.positions, dtype=float, copy=True)
+    rotated[list(groups[0].atom_indices)] = _rotate(
+        rotated[list(groups[0].atom_indices)], 20.0, [0.2, 0.0, 0.0]
+    )
+    product_atoms = back.copy()
+    product_atoms.positions[:] = rotated
+    product = MolecularCrystal.from_ase_atoms(product_atoms)
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=groups,
+        config=ReactivePathConfig(n_images=4, validate_bond_changes=False),
+    )
+    assert len(groups) >= 2
+    assert result.metadata["endpoint_max_error_A"] <= 1.0e-8
+    reference = result.images[0].get_all_distances(mic=False)
+    group = list(groups[0].atom_indices)
+    for frame in result.images:
+        current = frame.get_all_distances(mic=False)
+        np.testing.assert_allclose(
+            current[np.ix_(group, group)], reference[np.ix_(group, group)], atol=1e-6
+        )
+
+
+def test_polar_arc_stays_off_the_straight_line_chord(tmp_path):
+    cell = np.diag([20.0, 20.0, 20.0])
+    symbols = ["C", "C", "C", "O", "H"]
+    start = np.array(
+        [
+            [0.0, 0.0, 5.0],
+            [1.2, 0.0, 5.0],
+            [0.0, 1.2, 5.0],
+            [3.0, 3.0, 5.0],
+            [0.0, 6.0, 5.0],
+        ]
+    )
+    target = start.copy()
+    target[4] = [6.0, 0.0, 5.0]
+    reactant = _crystal(start, cell=cell, symbols=symbols)
+    product = _crystal(target, cell=cell, symbols=symbols)
+    groups = [RigidGroup((0, 1, 2), "pivot"), RigidGroup((3,), "obstacle")]
+    config = ReactivePathConfig(n_images=5, validate_bond_changes=False)
+    linear = interpolate_reactive_path(
+        reactant, product, rigid_groups=groups, config=config
+    )
+    arced = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=groups,
+        free_atom_arcs=[FreeAtomArc(4, 0)],
+        config=config,
+    )
+    obstacle = np.array([3.0, 3.0, 5.0])
+    linear_gap = np.linalg.norm(linear.images[2].positions[4] - obstacle)
+    arc_gap = np.linalg.norm(arced.images[2].positions[4] - obstacle)
+    assert linear_gap < 0.05
+    assert arc_gap > 1.5
+    np.testing.assert_allclose(arced.images[0].positions[4], start[4], atol=1e-8)
+    np.testing.assert_allclose(arced.images[-1].positions[4], target[4], atol=1e-8)
+    assert arced.images[2].info["path_lambda"] == pytest.approx(0.5)
+    distances = [row["min_nonbonded_distance_A"] for row in arced.metadata["images"]]
+    assert min(value for value in distances if value is not None) > 1.2
+    write_reactive_path(arced, tmp_path / "arc.extxyz")
+    payload = json.loads((tmp_path / "arc.json").read_text(encoding="utf-8"))
+    assert "atom_image_shifts" in payload["rigid_groups"][0]
+    assert payload["images"][2]["rigid_group_angles_deg"] == [0.0, 0.0]
+
+
+def test_intermediate_contact_remains_visible_when_endpoints_are_separated():
+    cell = np.diag([16.0, 16.0, 16.0])
+    symbols = ["C", "C", "C", "H"]
+    start = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.4, 0.0, 0.0],
+            [8.0, 5.0, 5.0],
+            [4.0, 5.0, 5.0],
+        ]
+    )
+    target = start.copy()
+    target[3] = [12.0, 5.0, 5.0]
+    reactant = _crystal(start, symbols=symbols, cell=cell, molecule_index=[0, 0, 1, 2])
+    product = _crystal(target, symbols=symbols, cell=cell, molecule_index=[0, 0, 1, 2])
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[RigidGroup((0, 1), "framework"), RigidGroup((2,), "obstacle")],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    middle = result.metadata["images"][1]
+    assert middle["min_nonbonded_distance_A"] < 0.2
+    assert [2, 3] in middle["new_contacts"]
+    assert result.metadata["images"][0]["new_contacts"] == []
+    assert result.metadata["images"][-1]["new_contacts"] == []
+
+
+def test_periodic_intermediate_contact_uses_the_closer_image():
+    cell = np.diag([4.8, 4.8, 4.8])
+    start = np.array(
+        [[0.0, 0.0, 0.0], [3.45, 0.8, 0.0], [1.5, 2.4, 2.4], [1.5, 2.4, 3.7]]
+    )
+    target = start.copy()
+    target[1] = [3.45, -0.8, 0.0]
+    reactant = _crystal(
+        start, symbols=["C", "H", "C", "C"], cell=cell, molecule_index=[0, 1, 2, 2]
+    )
+    product = _crystal(
+        target, symbols=["C", "H", "C", "C"], cell=cell, molecule_index=[0, 1, 2, 2]
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[RigidGroup((0,), "anchor"), RigidGroup((2, 3), "spectator")],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    middle = result.metadata["images"][1]
+    assert middle["min_nonbonded_distance_A"] == pytest.approx(1.35, abs=1e-6)
+    assert [0, 1] in middle["new_contacts"]
+    assert result.metadata["images"][0]["new_contacts"] == []
+    assert result.metadata["images"][-1]["new_contacts"] == []
+
+
+def test_boundary_crossing_chain_unwraps_along_bonds():
+    cell = np.array(
+        [[10.0, 0.0, 0.0], [1.5, 8.0, 0.0], [0.4, 0.3, 9.0]],
+        dtype=float,
+    )
+    chain = np.column_stack([np.arange(5) * 1.5, np.full(5, 3.0), np.full(5, 3.0)])
+    stored = chain.copy()
+    stored[-1] = chain[-1] - cell[0]
+    other = np.array([[2.0, 6.0, 6.0], [3.4, 6.0, 6.0]])
+    reactant = _crystal(
+        np.vstack([stored, other]),
+        symbols=["C"] * 7,
+        cell=cell,
+        molecule_index=[0, 0, 0, 0, 0, 1, 1],
+    )
+    product = _crystal(
+        np.vstack([chain + np.array([0.0, 0.3, 0.0]), other]),
+        symbols=["C"] * 7,
+        cell=cell,
+        molecule_index=[0, 0, 0, 0, 0, 1, 1],
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[
+            RigidGroup(tuple(range(5)), "chain"),
+            RigidGroup((5, 6), "other"),
+        ],
+        config=ReactivePathConfig(n_images=3, validate_bond_changes=False),
+    )
+    np.testing.assert_allclose(
+        result.images[-1].positions[:5],
+        chain + np.array([0.0, 0.3, 0.0]),
+        atol=1e-6,
+    )
+    assert result.metadata["rigid_groups"][0]["reactant_atom_image_shifts"][4] == [
+        1,
+        0,
+        0,
+    ]
+    for frame in (result.images[0], result.images[-1]):
+        for index in range(4):
+            distance = np.linalg.norm(
+                frame.positions[index + 1] - frame.positions[index]
+            )
+            assert distance == pytest.approx(1.5, abs=1e-5)
+
+
+def test_wide_endpoint_tolerance_does_not_erase_a_rigid_rotation():
+    reactant = _crystal(START)
+    target = START.copy()
+    target[:3] = _rotate(START[:3], 25.0, [0.0, 0.0, 0.0])
+    product = _crystal(target)
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=_groups(),
+        config=ReactivePathConfig(
+            n_images=3,
+            validate_bond_changes=False,
+            endpoint_tolerance_A=1.0e9,
+        ),
+    )
+    donor = result.metadata["rigid_groups"][0]
+    assert donor["angle_deg"] == pytest.approx(25.0, abs=0.5)
+    assert donor["displacement_A"] < 1.0e-6
+
+
+def test_arc_across_a_molecule_change_accepts_the_cell_image():
+    cell = np.diag([10.0, 10.0, 10.0])
+    symbols = ["N", "C", "O", "C", "H"]
+    start = np.array(
+        [
+            [2.0, 5.0, 5.0],
+            [2.0, 6.4, 5.0],
+            [9.0, 5.0, 5.0],
+            [9.0, 6.4, 5.0],
+            [2.9, 5.0, 5.0],
+        ]
+    )
+    # The container stores the product hydrogen next to the acceptor oxygen.
+    # The reactant-minimum-image continuation of that hydrogen is one cell away.
+    target = start.copy()
+    target[4] = [8.04, 5.0, 5.0]
+    molecule_index = [0, 0, 1, 1, 0]
+    reactant = _crystal(
+        start, symbols=symbols, cell=cell, molecule_index=molecule_index
+    )
+    product = _crystal(
+        target, symbols=symbols, cell=cell, molecule_index=[0, 0, 1, 1, 1]
+    )
+    result = interpolate_reactive_path(
+        reactant,
+        product,
+        rigid_groups=[
+            RigidGroup((0, 1), "donor"),
+            RigidGroup((2, 3), "acceptor"),
+        ],
+        free_atom_arcs=[FreeAtomArc(4, 2)],
+        bond_changes=[
+            BondChange(0, 4, True, False),
+            BondChange(4, 2, False, True),
+        ],
+        config=ReactivePathConfig(n_images=5),
+    )
+    delta = result.images[-1].positions[4] - result.images[-1].positions[2]
+    delta -= np.round(delta / 10.0) * 10.0
+    assert float(np.linalg.norm(delta)) == pytest.approx(0.96, abs=1e-6)
+    assert result.metadata["endpoint_max_error_A"] <= 1.0e-8
+
+
 def test_endpoint_exclusion_uses_existing_frame_count_semantics():
     reactant, product = _endpoint_pair()
     config = ReactivePathConfig(
@@ -223,3 +564,72 @@ def test_endpoint_exclusion_uses_existing_frame_count_semantics():
     assert len(result.images) == 4
     lambdas = [frame.info["path_lambda"] for frame in result.images]
     np.testing.assert_allclose(lambdas, [0.2, 0.4, 0.6, 0.8])
+
+
+def test_single_rigid_group_is_supported():
+    reactant, product = _endpoint_pair()
+    result = interpolate_reactive_path(
+        reactant, product, rigid_groups=[RigidGroup((0, 1, 2))],
+        config=ReactivePathConfig(n_images=5, validate_bond_changes=False),
+    )
+    assert len(result.images) == 5
+    assert result.metadata["free_atom_indices"] == [3, 4, 5, 6]
+
+
+def test_disconnected_group_uses_explicit_or_reported_embedding():
+    cell = np.eye(3) * 20.0
+    start = np.array([[2., 2., 2.], [5., 2., 2.], [10., 10., 10.]])
+    target = start.copy()
+    target[:2] += [0.2, 0.3, 0.0]
+    reactant = _crystal(start, symbols=["C", "O", "H"], cell=cell)
+    product = _crystal(target, symbols=["C", "O", "H"], cell=cell)
+    cfg = ReactivePathConfig(n_images=3, validate_bond_changes=False)
+    auto = interpolate_reactive_path(reactant, product, rigid_groups=[RigidGroup((0, 1))], config=cfg)
+    explicit = interpolate_reactive_path(reactant, product, rigid_groups=[RigidGroup((0, 1), unwrap_mode="as_provided")], config=cfg)
+    assert auto.metadata["rigid_groups"][0]["unwrap_mode_used"] == "as_provided_disconnected"
+    assert explicit.metadata["rigid_groups"][0]["unwrap_mode_used"] == "as_provided"
+    for a, b in zip(auto.images, explicit.images):
+        np.testing.assert_allclose(a.positions, b.positions)
+    with pytest.raises(ValueError, match="not one periodic bond component"):
+        interpolate_reactive_path(reactant, product, rigid_groups=[RigidGroup((0, 1), unwrap_mode="bond_walk")], config=cfg)
+
+
+def test_mapping_and_group_indices_do_not_silently_truncate():
+    reactant, product = _endpoint_pair()
+    cfg = ReactivePathConfig(validate_bond_changes=False)
+    with pytest.raises(ValueError, match="integer indices"):
+        interpolate_reactive_path(reactant, product, rigid_groups=_groups(), product_index_by_reactant=[0.1, 1, 2, 3, 4, 5, 6], config=cfg)
+    with pytest.raises(ValueError, match="must be integers"):
+        interpolate_reactive_path(reactant, product, rigid_groups=[RigidGroup((0.5, 1, 2))], config=cfg)
+    with pytest.raises(ValueError, match="bonded states must be booleans"):
+        interpolate_reactive_path(reactant, product, rigid_groups=_groups(), bond_changes=[BondChange(0, 3, "false", True)], config=cfg)
+
+
+def test_stationary_tolerance_never_discards_motion_larger_than_endpoint_tolerance():
+    cell = np.eye(3) * 10
+    start = np.array([[2., 2., 2.], [3.2, 2., 2.], [6., 6., 6.]])
+    end = start.copy()
+    end[:2] += [0.0001, 0., 0.]
+    reactant = _crystal(start, symbols=["C", "C", "H"], cell=cell)
+    product = _crystal(end, symbols=["C", "C", "H"], cell=cell)
+    cfg = ReactivePathConfig(n_images=3, stationary_tolerance_A=0.001, endpoint_tolerance_A=1e-8, validate_bond_changes=False)
+    result = interpolate_reactive_path(reactant, product, rigid_groups=[RigidGroup((0, 1))], config=cfg)
+    np.testing.assert_allclose(result.images[-1].positions, end, atol=1e-8)
+
+
+def test_nonperiodic_group_shift_and_nonfinite_tolerance_are_rejected():
+    cell = np.eye(3) * 10
+    points = [[2., 2., 2.], [3.2, 2., 2.], [6., 6., 6.]]
+    a = _crystal(points, symbols=["C", "C", "H"], cell=cell, pbc=(True, False, False))
+    group = [RigidGroup((0, 1))]
+    with pytest.raises(ValueError, match="non-periodic axes"):
+        interpolate_reactive_path(a, a, rigid_groups=group, rigid_group_image_shifts=[(0, 1, 0)])
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        interpolate_reactive_path(a, a, rigid_groups=group, config=ReactivePathConfig(stationary_tolerance_A=float("nan")))
+
+
+def test_existing_positional_configuration_order_remains_compatible():
+    config = ReactivePathConfig("slerp", 5, True, 1e-5, 1e-8, 1.5, False)
+    assert config.bond_scale == 1.5
+    assert config.validate_bond_changes is False
+    assert config.stationary_tolerance_A == pytest.approx(1e-8)
