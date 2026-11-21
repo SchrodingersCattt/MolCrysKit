@@ -47,6 +47,12 @@ from ..structures.crystal import MolecularCrystal
 from ..structures.records import BondRecord
 from ..utils.geometry import kabsch_align
 from ._path_core import materialize_atoms_frame
+from .path_constraints import (
+    PathRestraint,
+    _prepare_restraints,
+    _restraint_diagnostics,
+    _restraint_objective,
+)
 from ._periodic_path_geometry import (
     ImageEdge,
     _integer_inverse,
@@ -109,12 +115,13 @@ class PeriodicPathConfig:
             "max_spacing_ratio",
             "bond_weight",
             "collision_weight",
-            "smoothness_weight",
             "seed_weight",
         ):
             value = float(getattr(self, name))
             if not np.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be positive and finite")
+        if not np.isfinite(self.smoothness_weight) or self.smoothness_weight < 0:
+            raise ValueError("smoothness_weight must be finite and non-negative")
         if (
             not np.isfinite(self.collision_tolerance_A)
             or self.collision_tolerance_A < 0
@@ -405,7 +412,7 @@ def _targets(start, end, cells, start_edges, end_edges):
     )
 
 
-def _objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config):
+def _objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config, restraints=()):
     frames = seed.copy()
     frames[1:-1] = interior.reshape(frames[1:-1].shape)
     gradient = np.zeros_like(frames)
@@ -452,6 +459,11 @@ def _objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config):
             )
             np.add.at(gradient[k], first, factors)
             np.add.at(gradient[k], second, -factors)
+        extra_value, extra_gradient = _restraint_objective(
+            restraints, k, frames[k], cells[k], pbc
+        )
+        value += extra_value
+        gradient[k] += extra_gradient
     second_difference = frames[:-2] - 2.0 * frames[1:-1] + frames[2:]
     value += config.smoothness_weight * float(np.sum(second_difference**2))
     gradient[:-2] += 2.0 * config.smoothness_weight * second_difference
@@ -463,10 +475,10 @@ def _objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config):
     return value, gradient[1:-1].ravel()
 
 
-def _free_objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config, free):
+def _free_objective(interior, seed, cells, pbc, numbers, edges, d0, d1, config, free, restraints=()):
     full = seed[1:-1].copy()
     full[:, free, :] = interior.reshape((len(full), len(free), 3))
-    value, gradient = _objective(full.ravel(), seed, cells, pbc, numbers, edges, d0, d1, config)
+    value, gradient = _objective(full.ravel(), seed, cells, pbc, numbers, edges, d0, d1, config, restraints)
     return value, gradient.reshape(full.shape)[:, free, :].ravel()
 
 
@@ -528,6 +540,7 @@ def interpolate_periodic_paths(
     *,
     product_index_by_reactant: Sequence[int],
     config: PeriodicPathConfig | None = None,
+    restraints: Sequence[PathRestraint] = (),
 ) -> PeriodicPathResult:
     """Generate bounded geometric path candidates from mapped endpoints.
 
@@ -535,6 +548,9 @@ def interpolate_periodic_paths(
     periodic cell bases are aligned before interpolation. Candidates differ by
     bounded component windings and contain only paths that pass the configured
     geometric checks. Rejected candidates remain available in diagnostics.
+
+    Optional caller-defined geometric restraints add soft penalties; they
+    do not change fixed endpoints or infer electronic or chemical states.
 
     Endpoint bonds are read from the structure objects; no new connectivity is
     guessed here. When all candidates fail, :class:`PeriodicPathError` carries
@@ -565,6 +581,7 @@ def interpolate_periodic_paths(
     if not np.all(np.isfinite(start)) or not np.all(np.isfinite(end)):
         raise ValueError("endpoint positions must be finite")
     fractions = np.linspace(0.0, 1.0, config.n_images)
+    prepared_restraints = _prepare_restraints(restraints, config.n_images)
     cells, end_transform = interpolate_cells(
         reactant.lattice, product.lattice, pbc, fractions
     )
@@ -653,7 +670,7 @@ def interpolate_periodic_paths(
                     collision_weight=config.collision_weight
                     * PERIODIC_PATH_COLLISION_WEIGHT_MULTIPLIER**refinement,
                 )
-                objective_args = (seed, cells, pbc, numbers, edges, d0, d1, stage, free)
+                objective_args = (seed, cells, pbc, numbers, edges, d0, d1, stage, free, prepared_restraints)
                 if len(free):
                     optimum = minimize(
                         _free_objective,
@@ -703,6 +720,9 @@ def interpolate_periodic_paths(
                     <= config.collision_tolerance_A
                 ):
                     break
+            diagnostic["restraints"] = _restraint_diagnostics(
+                prepared_restraints, frames, cells, pbc
+            )
             diagnostic["collision_refinement_steps"] = len(refinement_history) - 1
             diagnostic["refinement_history"] = refinement_history
             diagnostic["total_iterations"] = sum(
@@ -745,6 +765,7 @@ def interpolate_periodic_paths(
     diagnostics = {
         "rejected_candidates": rejected,
         "candidate_count_requested": config.max_candidates,
+        "restraint_count": len(prepared_restraints),
         "fixed_atom_indices": list(config.fixed_atom_indices),
         "candidate_count_evaluated": len(seen_choices),
         "ambiguous_common_edges": [list(item) for item in ambiguous],

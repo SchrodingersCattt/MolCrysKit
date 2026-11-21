@@ -15,6 +15,13 @@ from ase.constraints import FixAtoms
 from ase.geometry import complete_cell, find_mic, minkowski_reduce
 from scipy.optimize import minimize
 
+from .path_constraints import (
+    PathRestraint,
+    _prepare_restraints,
+    _restraint_diagnostics,
+    _restraint_objective,
+)
+
 from ..constants.idpp import (
     IDPP_FUNCTION_TOLERANCE,
     IDPP_GRADIENT_TOLERANCE,
@@ -29,6 +36,7 @@ class IDPPRefinementResult:
 
     images: list[Atoms]
     diagnostics: tuple[dict, ...]
+    restraint_diagnostics: tuple[dict, ...] = ()
 
     @property
     def converged(self) -> bool:
@@ -82,6 +90,7 @@ def refine_idpp_path(
     max_iterations: int = IDPP_MAX_ITERATIONS,
     gradient_tolerance: float = IDPP_GRADIENT_TOLERANCE,
     minimum_distance: float = IDPP_MINIMUM_DISTANCE_A,
+    restraints: Sequence[PathRestraint] = (),
 ) -> IDPPRefinementResult:
     """Refine explicitly supplied path images, retaining both endpoints.
 
@@ -97,6 +106,10 @@ def refine_idpp_path(
     FixAtoms constraints are also honored; other ASE
     constraints are rejected. If atom_id arrays exist, their values must be
     unique and their ordering identical across all images.
+
+    Optional geometric restraints contribute to each interior objective;
+    their targets, weights, units, and any chemical interpretation belong to
+    the caller. They do not move endpoints or prescribed atoms.
 
     Each image is optimized independently, without an inter-image spring.
     Bond preservation, collision avoidance, path spacing and physical
@@ -140,6 +153,8 @@ def refine_idpp_path(
     numbers = frames[0].numbers
     pbc = frames[0].pbc
     ids = frames[0].arrays.get("atom_id")
+    if ids is not None and np.asarray(ids).shape != (count,):
+        raise ValueError("atom_id must contain one scalar per atom")
     if ids is not None and len(np.unique(ids)) != count:
         raise ValueError("atom_id values must be unique")
     for frame in frames:
@@ -156,6 +171,7 @@ def refine_idpp_path(
         if any(not isinstance(c, FixAtoms) for c in frame.constraints):
             raise ValueError("only ASE FixAtoms constraints are supported")
 
+    prepared_restraints = _prepare_restraints(restraints, len(frames))
     first, second = np.triu_indices(count, 1)
     _, start = _distances(frames[0].positions, frames[0].cell, pbc, first, second)
     _, end = _distances(frames[-1].positions, frames[-1].cell, pbc, first, second)
@@ -174,6 +190,10 @@ def refine_idpp_path(
             fixed[constraint.get_indices()] = True
         free = np.flatnonzero(~fixed)
         initial, _ = _objective(seed, frame.cell, pbc, first, second, target, minimum_distance)
+        initial_restraint, _ = _restraint_objective(
+            prepared_restraints, index, seed, frame.cell, pbc
+        )
+        initial += initial_restraint
 
         def objective(flat):
             positions = seed.copy()
@@ -181,7 +201,10 @@ def refine_idpp_path(
             value, gradient = _objective(
                 positions, frame.cell, pbc, first, second, target, minimum_distance
             )
-            return value, gradient[free].ravel()
+            extra_value, extra_gradient = _restraint_objective(
+                prepared_restraints, index, positions, frame.cell, pbc
+            )
+            return value + extra_value, (gradient + extra_gradient)[free].ravel()
 
         if len(free):
             result = minimize(
@@ -221,4 +244,8 @@ def refine_idpp_path(
                 "prescribed_atom_count": int(np.count_nonzero(fixed)),
             }
         )
-    return IDPPRefinementResult(output, tuple(diagnostics))
+    restraint_info = _restraint_diagnostics(
+        prepared_restraints, [frame.positions for frame in output],
+        [frame.cell for frame in output], pbc
+    )
+    return IDPPRefinementResult(output, tuple(diagnostics), tuple(restraint_info))

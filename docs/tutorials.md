@@ -1,9 +1,23 @@
 # MolCrysKit Tutorials
 
+## Composable Geometry for Initial Paths
+
+Construct mapped endpoints or explicit warm images using the general
+interpolation APIs, then apply caller-defined geometric coordinates and soft
+schedules when appropriate. Moving groups can be prescribed per image during
+IDPP refinement, while coordinates can combine distances, angles, signed
+volumes, or custom differentiable functions. See [Path coordinates and
+restraints](path-coordinates.md) for a complete example, units, periodic image
+choices, diagnostics, and limitations. These are geometry operations, not
+reaction-specific endpoint constructors or electronic-state predictions.
+
 ## Atom-Mapped Reactive Initial Paths
 
-`interpolate_reactive_path` moves two or more independently rigid atom groups
-with a shared path parameter. Atoms outside the groups interpolate between
+`interpolate_reactive_path` moves one or more independently rigid atom groups
+with a shared path parameter. `FreeAtomArc` optionally places a free atom on
+a polar arc about a pivot; periodic group coordinates are unwrapped along
+bonds, and per-image diagnostics describe distances and group rotations.
+Atoms outside the groups interpolate between
 explicit endpoint coordinates. The result is an initial guess for an external
 NEB calculation, not a minimum-energy path.
 

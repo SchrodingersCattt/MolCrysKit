@@ -41,3 +41,12 @@ of an atom with its own periodic images.
 
 See Smidstrup et al., J. Chem. Phys. 140, 214106 (2014),
 [DOI: 10.1063/1.4878664](https://doi.org/10.1063/1.4878664).
+
+
+Optional caller-defined soft restraints can be supplied through `restraints`;
+the coordinate primitives, schedules, coupling and image-shift rules are
+documented in [path coordinates](path-coordinates.md). The output includes
+`restraint_diagnostics` with targets, weights, values, residuals, and an
+indicator of which images contributed to the minimized objective. A soft
+restraint does not guarantee satisfaction; inspect its residuals. Endpoints
+and prescribed atoms remain fixed by the refinement.

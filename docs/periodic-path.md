@@ -57,7 +57,7 @@ describe the same atoms and periodic directions; preparing an atom mapping or
 making incompatible supercells commensurate is outside this operation.
 
 The geometric objective combines endpoint-derived edge distances, a short
-contact penalty, and path regularity. These are adjustable numerical criteria,
+contact penalty, and optional path regularity. These are adjustable numerical criteria,
 not universal chemical constraints. Unchanged edge identities are screened
 against interpolated lengths; changed edge identities are not required to
 remain intact. Always inspect the diagnostics and compare independent methods
@@ -71,3 +71,18 @@ lattice. The output frames carry the same fixed-atom constraint. Structure
 conversion does not infer these indices; callers must provide them explicitly.
 
 For independent-image pair-distance refinement of an explicit warm path, see [IDPP refinement](idpp-refinement.md).
+
+
+Cartesian second-difference smoothing is disabled by default because it
+penalizes an exact rigid rotational arc and can distort a rotating component.
+Set `smoothness_weight` explicitly to a positive value only when this tradeoff
+is intended. Zero smoothing does not guarantee shape preservation, adequate
+image spacing, or physical plausibility: collision and bond penalties can
+still move atoms, and screening diagnostics must be inspected.
+
+`interpolate_periodic_paths(..., restraints=...)` accepts caller-specified
+soft geometric coordinates and per-image schedules. The same restraints can
+be used by `refine_idpp_path`; see [path coordinates](path-coordinates.md).
+Targets are not inferred from topology, bonding changes, or electronic state.
+The objective never changes its endpoints or configured fixed atoms; the
+reported restraint values do not imply that a soft target was reached.

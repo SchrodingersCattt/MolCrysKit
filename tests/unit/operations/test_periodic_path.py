@@ -123,7 +123,7 @@ def test_collision_refinement_is_bounded_and_reported():
     cell = np.eye(3) * 10.0
     start = _crystal("HH", [[-1.0, 0, 0], [1.0, 0, 0]], cell)
     end = _crystal("HH", [[1.0, 0, 0], [-1.0, 0, 0]], cell)
-    strict = _config(collision_tolerance_A=1e-4)
+    strict = _config(collision_tolerance_A=1e-4, smoothness_weight=0.2)
     result = interpolate_periodic_paths(
         start, end, product_index_by_reactant=[0, 1], config=strict
     )
@@ -522,3 +522,42 @@ def test_all_fixed_candidate_count_reports_unique_choices():
     )
     assert result.diagnostics["candidate_count_evaluated"] == 1
     assert len(result.candidates) == 1
+
+
+@pytest.mark.parametrize("angle_deg", [150.0, 180.0])
+def test_default_path_keeps_known_large_rigid_rotation_undistorted(angle_deg):
+    """Cartesian smoothing must not shrink an otherwise exact rigid arc."""
+    from scipy.spatial.transform import Rotation
+
+    cell = np.array([[12.0, 0, 0], [2.0, 13.0, 0], [0, 0, 14.0]])
+    center = np.array([11.6, 6.5, 7.0])
+    tetra = np.array([[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]], float)
+    tetra = tetra / np.sqrt(3.0) * np.array([1.09, 1.35, 1.78, 1.94])[:, None]
+    initial = np.vstack([center, center + tetra])
+    rotation = Rotation.from_rotvec([0.0, 0.0, np.deg2rad(angle_deg)])
+    final = center + np.array([1.0, 0.2, 0.0]) + rotation.apply(initial - center)
+
+    def endpoint(positions):
+        atoms = Atoms("CHFClBr", positions=positions, cell=cell, pbc=True)
+        atoms.set_array("molecule_index", np.zeros(5, dtype=int))
+        atoms.set_array("atom_id", np.arange(5))
+        atoms.wrap()
+        records = []
+        for j in range(1, 5):
+            vector, shift = nearest_image(atoms.positions[j] - atoms.positions[0], cell, atoms.pbc)
+            records.append({"molecule_index": 0, "left": 0, "right": j,
+                            "right_image_shift": shift.tolist(), "vector": vector.tolist(),
+                            "role": "covalent"})
+        atoms.info["_molcrys_bond_records"] = records
+        return MolecularCrystal.from_ase_atoms(atoms)
+
+    start, end = endpoint(initial), endpoint(final)
+    result = interpolate_periodic_paths(
+        start, end, product_index_by_reactant=range(5),
+        config=PeriodicPathConfig(n_images=9, max_candidates=1),
+    )
+    first, second = np.triu_indices(5, 1)
+    _, reference = find_mic(start.to_ase().positions[second] - start.to_ase().positions[first], cell, pbc=True)
+    for image in result.candidates[0].images:
+        _, distances = find_mic(image.positions[second] - image.positions[first], cell, pbc=True)
+        np.testing.assert_allclose(distances, reference, atol=1e-6)
