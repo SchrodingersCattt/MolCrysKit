@@ -15,8 +15,11 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-from ase import Atoms
-from ase.geometry import get_distances
+try:
+    from ase import Atoms
+    from ase.geometry import get_distances
+except ImportError:  # phone / minimal install
+    from ...compat.atoms import Atoms, get_distances
 
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
@@ -24,7 +27,7 @@ from .provenance import DisorderProvenance
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
 from ...constants.config import DISORDER_CONFIG
-from ...analysis.interactions import get_bonding_threshold
+from ...analysis.interactions.bonding import get_bonding_threshold
 from ...analysis.formula_moiety import parse_moiety_string
 
 
