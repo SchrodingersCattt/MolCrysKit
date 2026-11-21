@@ -136,3 +136,6 @@ a disconnected cluster: users must supply a consistent embedding and inspect
 the result. Optional group lattice shifts must be zero on nonperiodic axes.
 Atom mappings and indices must be integers, and declared bond-state flags must
 be booleans. No reaction-specific endpoint constructor is required.
+
+A runnable, project-neutral example composing a moving subset and coupled
+coordinates is available at `examples/composed_geometry_path.py`.
