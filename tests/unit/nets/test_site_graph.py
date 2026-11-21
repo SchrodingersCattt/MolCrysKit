@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from ase import Atoms
@@ -22,6 +24,15 @@ from molcrys_kit.nets.policies import (
 from molcrys_kit.nets.site_graph import build_periodic_site_graph
 from molcrys_kit.periodic import analyze_periodic_graph
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
+
+
+def test_documented_crystal_to_rank_example_executes():
+    docs = Path(__file__).resolve().parents[3] / "docs" / "net-topology.md"
+    text = docs.read_text(encoding="utf-8")
+    example = text.split("<!-- crystal-to-rank example -->", 1)[1].split("```python", 1)[1].split("```", 1)[0]
+    namespace = {}
+    exec(compile(example, str(docs), "exec"), namespace)
+    assert namespace["rank"] == 1
 
 
 def _molecule(symbols, positions, **arrays):

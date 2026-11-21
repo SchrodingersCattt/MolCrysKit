@@ -20,6 +20,41 @@ payload = report.to_dict()
 `payload["schema"]` is `mck.net_topology/v1`. The same object is printed by
 `mck analyze net-topology --json`.
 
+## From a crystal to a periodic rank
+
+This synthetic cell defines a one-dimensional contact graph. The cutoff is an
+explicit part of the model: it is not a general chemical bonding criterion.
+
+<!-- crystal-to-rank example -->
+```python
+from ase import Atoms
+from molcrys_kit import periodic_rank
+from molcrys_kit.nets import (
+    DisorderPolicy, EdgePolicy, NodePolicy, build_periodic_site_graph,
+)
+from molcrys_kit.structures import MolecularCrystal
+
+atoms = Atoms("C", positions=[[0, 0, 0]], cell=[2, 10, 10], pbc=True)
+crystal = MolecularCrystal.from_ase(atoms)
+site_graph = build_periodic_site_graph(
+    crystal,
+    node_policy=NodePolicy("atom_sites"),
+    edge_policy=EdgePolicy("contacts", cutoff_A=2.1),
+    disorder_policy=DisorderPolicy("as_refined"),
+)
+if site_graph.disorder_status != "resolved":
+    raise ValueError("resolve or explicitly interpret disorder before computing rank")
+rank = periodic_rank(site_graph.graph)
+assert rank == 1
+```
+
+The result is the largest rank among connected components of the **selected
+graph**, not an unconditional property of the crystal. Select nodes, bonds or
+contacts and disorder handling for the scientific question. In particular,
+the default `supplied` policy uses supplied bond records; it does not infer the
+desired chemical network. `site_graph.nodes` contains provenance records;
+the graph edges are `site_graph.graph.edges`.
+
 ## What a status means
 
 Topology, embedding, and duality are separate fields.
