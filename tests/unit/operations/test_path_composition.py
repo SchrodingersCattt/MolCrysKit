@@ -131,6 +131,32 @@ def test_changed_images_drop_stale_bond_record_cache_without_mutating_input():
     assert result.diagnostics["invalidated_bond_record_images"] == [1]
 
 
+def test_layer_cell_and_pbc_must_already_match_the_base_image():
+    base = _base()
+    shifted = _anchored_layer(base)
+    shifted.images[1].cell[0, 0] = 12.0
+    with pytest.raises(ValueError, match="does not transform cells"):
+        compose_path_images(base, [shifted])
+    rebounded = _anchored_layer(base)
+    rebounded.images[1].set_pbc((True, True, False))
+    with pytest.raises(ValueError, match="PBC must match"):
+        compose_path_images(base, [rebounded])
+
+
+def test_changed_images_drop_fractional_coordinate_arrays():
+    base = _base()
+    for frame in base:
+        frame.set_array("frac_x", np.zeros(len(frame)))
+        frame.info["_molcrys_bond_records"] = [{"left": 0, "right": 1}]
+    result = compose_path_images(base, [_anchored_layer(base)])
+    assert "frac_x" not in result.images[1].arrays
+    assert "_molcrys_bond_records" not in result.images[1].info
+    assert "frac_x" in result.images[0].arrays
+    refined = refine_idpp_path(result.images)
+    assert "frac_x" not in refined.images[1].arrays
+    assert "frac_x" in result.images[0].arrays
+
+
 def test_atom_ids_must_be_one_dimensional():
     base = _base()
     for frame in base:

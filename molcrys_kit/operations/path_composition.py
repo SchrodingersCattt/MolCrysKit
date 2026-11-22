@@ -11,9 +11,13 @@ from typing import Sequence
 
 import numpy as np
 from ase import Atoms
-from ase.constraints import FixAtoms
 
 from ..constants.path_constraints import PATH_COMPOSITION_ENDPOINT_TOLERANCE_A
+from ._path_core import (
+    invalidate_path_geometry_caches,
+    require_same_cell_and_pbc,
+    validate_path_frames,
+)
 from ._periodic_path_geometry import nearest_image
 
 
@@ -106,38 +110,25 @@ def compose_path_images(
     safely interpret them. A layer may not move a FixAtoms atom. When
     ``preserve_endpoints`` is true, layer endpoints must agree with the base
     modulo PBC, and the original endpoint coordinates are retained exactly.
-    Setting it to false explicitly permits endpoint changes. Cells of the
-    base images can vary, but each supplied layer must already use the same
-    Cartesian orientation and units as its corresponding base frame.
+    Setting it to false explicitly permits endpoint changes.     Cells of the
+    base images can vary. Each layer image must already have the same cell and
+    PBC as the base image it overlays. This function does not rotate, rescale,
+    or rewrap a layer into that cell.
 
     Atom order must be stable; when ``atom_id`` arrays exist, both base and
     layers must have them and mapped IDs must match. Without IDs, the explicit
-    row mapping is a caller assumption. Geometric or bond metadata is not
-    recomputed. The known coordinate-derived ``_molcrys_bond_records`` cache
-    is removed from changed images; callers must review other derived metadata.
+    row mapping is a caller assumption.     Geometric or bond metadata is not
+    recomputed. Changed images drop the coordinate-derived bond-record cache,
+    stored fractional-coordinate arrays, and any attached calculator.
     No potential, clash checks, energy optimization or bond inference is run.
     """
     frames = tuple(base_images)
-    if len(frames) < 2 or any(not isinstance(a, Atoms) for a in frames):
-        raise ValueError("base_images must contain at least two ASE Atoms images")
     if not isinstance(preserve_endpoints, (bool, np.bool_)):
         raise TypeError("preserve_endpoints must be boolean")
     if not np.isfinite(endpoint_tolerance_A) or endpoint_tolerance_A < 0:
         raise ValueError("endpoint tolerance must be finite and non-negative")
-    count, numbers, pbc = len(frames[0]), frames[0].numbers, frames[0].pbc
-    if not count:
-        raise ValueError("base images must not be empty")
-    for frame in frames:
-        if len(frame) != count or not np.array_equal(frame.numbers, numbers):
-            raise ValueError("base images must have identical atom order and elements")
-        if not np.array_equal(frame.pbc, pbc):
-            raise ValueError("base images must have identical periodic directions")
-        if not np.all(np.isfinite(frame.positions)) or not np.all(
-            np.isfinite(frame.cell)
-        ):
-            raise ValueError("base positions and cells must be finite")
-        if any(not isinstance(c, FixAtoms) for c in frame.constraints):
-            raise ValueError("only ASE FixAtoms constraints are supported")
+    frame_invariants = validate_path_frames(frames, label="base")
+    count, numbers = len(frames[0]), frames[0].numbers
     base_ids = _stable_atom_ids(frames, label="base")
 
     prepared = []
@@ -157,13 +148,14 @@ def compose_path_images(
             raise ValueError(
                 "each layer must contain one ASE Atoms object per base image"
             )
-        for image in images:
+        for image, base in zip(images, frames):
             if len(image) != len(indices) or not np.array_equal(
                 image.numbers, numbers[indices]
             ):
                 raise ValueError("layer elements must match the mapped base atoms")
             if not np.all(np.isfinite(image.positions)):
                 raise ValueError("layer positions must be finite")
+            require_same_cell_and_pbc(base, image, label="layer")
         local_ids = _stable_atom_ids(images, label="layer")
         if (base_ids is None) != (local_ids is None):
             raise ValueError(
@@ -226,18 +218,18 @@ def compose_path_images(
                     positions[local] = frame.positions[global_index]
             output[k].positions[indices] = positions
         if not np.array_equal(output[k].positions, frame.positions):
-            if "_molcrys_bond_records" in output[k].info:
-                output[k].info.pop("_molcrys_bond_records")
+            removed = invalidate_path_geometry_caches(output[k])
+            if removed:
                 invalidated_bond_record_images.append(k)
-        output[k].calc = None
     return ComposedPathResult(
         output,
         {
             "layers": records,
             "invalidated_bond_record_images": invalidated_bond_record_images,
             "preserve_endpoints": bool(preserve_endpoints),
-            "atom_identity": "atom_id"
-            if base_ids is not None
-            else "explicit row mapping",
+            "atom_identity": frame_invariants["atom_identity"],
+            "frame_count": frame_invariants["frame_count"],
+            "atom_count": frame_invariants["atom_count"],
+            "pbc": frame_invariants["pbc"],
         },
     )

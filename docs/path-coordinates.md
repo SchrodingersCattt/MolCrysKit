@@ -108,8 +108,9 @@ refined = refine_idpp_path(composed.images, prescribed_atom_indices=(4, 7))
 ```
 
 The layer is translated to the base anchor independently at each image, with
-no inferred rotation. Its coordinates must already use the base frame's
-Cartesian orientation and units. `image_policy="preserve"` is the default;
+no inferred rotation. Each layer image must already use that base image's
+cell and periodic directions; composition does not transform one cell into
+the other. `image_policy="preserve"` is the default;
 `"nearest"` explicitly chooses the image nearest each base atom and may alter
 a winding. Layers cannot overlap. If atom IDs exist they must be present and
 match on both sides, with one scalar ID per atom; otherwise the explicit row
@@ -117,10 +118,11 @@ mapping remains an assumption.
 By default layer endpoints must match the base modulo PBC and the exact base
 endpoint coordinates are retained. `preserve_endpoints=False` explicitly
 allows changing them. A layer cannot move an ASE `FixAtoms` atom; other ASE
-constraints are rejected. The operation removes the known coordinate-derived
-`_molcrys_bond_records` cache on changed images, but does not infer connectivity,
-update other derived metadata, or detect clashes. Callers must review those
-separately.
+constraints are rejected. Changed images drop the coordinate-derived
+`_molcrys_bond_records` cache, stored `frac_x`/`frac_y`/`frac_z` arrays, and
+any attached calculator. The same cleanup is used by IDPP refinement and by
+periodic-path frame materialization. Composition does not infer connectivity
+or detect clashes.
 
 
 ## Rigid groups and explicit image choices

@@ -46,7 +46,7 @@ from ..periodic import PeriodicQuotientGraph
 from ..structures.crystal import MolecularCrystal
 from ..structures.records import BondRecord
 from ..utils.geometry import kabsch_align
-from ._path_core import materialize_atoms_frame
+from ._path_core import invalidate_path_geometry_caches, materialize_atoms_frame
 from .path_constraints import (
     PathRestraint,
     _prepare_restraints,
@@ -750,7 +750,7 @@ def interpolate_periodic_paths(
             image.set_pbc(pbc)
             if len(fixed):
                 image.set_constraint(FixAtoms(indices=fixed))
-            image.info.pop("_molcrys_bond_records", None)
+            invalidate_path_geometry_caches(image)
             if "molecule_index" in image.arrays:
                 image.set_array(
                     "reactant_molecule_index", image.arrays["molecule_index"].copy()

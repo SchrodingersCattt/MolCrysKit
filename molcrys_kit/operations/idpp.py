@@ -11,10 +11,10 @@ from typing import Sequence
 
 import numpy as np
 from ase import Atoms
-from ase.constraints import FixAtoms
 from ase.geometry import complete_cell, find_mic, minkowski_reduce
 from scipy.optimize import minimize
 
+from ._path_core import invalidate_path_geometry_caches, validate_path_frames
 from .path_constraints import (
     PathRestraint,
     _prepare_restraints,
@@ -133,6 +133,7 @@ def refine_idpp_path(
     if not np.isfinite(minimum_distance) or minimum_distance <= 0:
         raise ValueError("minimum_distance must be positive and finite")
 
+    validate_path_frames(frames, label="IDPP")
     count = len(frames[0])
     if count < 2:
         raise ValueError("at least two atoms are required")
@@ -150,27 +151,7 @@ def refine_idpp_path(
         ):
             raise ValueError("fractions must increase strictly from 0 to 1")
 
-    numbers = frames[0].numbers
     pbc = frames[0].pbc
-    ids = frames[0].arrays.get("atom_id")
-    if ids is not None and np.asarray(ids).shape != (count,):
-        raise ValueError("atom_id must contain one scalar per atom")
-    if ids is not None and len(np.unique(ids)) != count:
-        raise ValueError("atom_id values must be unique")
-    for frame in frames:
-        if len(frame) != count or not np.array_equal(frame.numbers, numbers):
-            raise ValueError("all frames must have identical atom order and elements")
-        if not np.array_equal(frame.pbc, pbc):
-            raise ValueError("all frames must have the same periodic directions")
-        if not np.all(np.isfinite(frame.positions)) or not np.all(np.isfinite(frame.cell)):
-            raise ValueError("positions and cells must be finite")
-        if (ids is None) != ("atom_id" not in frame.arrays):
-            raise ValueError("atom_id arrays must be present in all frames or none")
-        if ids is not None and not np.array_equal(ids, frame.arrays["atom_id"]):
-            raise ValueError("atom_id order must be identical in every frame")
-        if any(not isinstance(c, FixAtoms) for c in frame.constraints):
-            raise ValueError("only ASE FixAtoms constraints are supported")
-
     prepared_restraints = _prepare_restraints(restraints, len(frames))
     first, second = np.triu_indices(count, 1)
     _, start = _distances(frames[0].positions, frames[0].cell, pbc, first, second)
@@ -230,7 +211,7 @@ def refine_idpp_path(
             converged, iterations, message = True, 0, "all atoms prescribed"
 
         output[index].positions[:] = positions
-        output[index].info.pop("_molcrys_bond_records", None)
+        invalidate_path_geometry_caches(output[index])
         diagnostics.append(
             {
                 "image": index,
