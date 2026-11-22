@@ -1,4 +1,8 @@
-"""Independent validation against traceable public Mercury .mryx exports."""
+"""Networked tier-(A) check against pinned public Mercury exports.
+
+Excluded from the default ``pytest tests/unit`` job. CI runs this file in the
+``mryx-public-validation`` workflow job, which fails closed on download errors.
+"""
 
 from __future__ import annotations
 
@@ -15,35 +19,33 @@ from ase.io import read as ase_read
 from molcrys_kit.constants.mryx import MRYX_COORDINATE_TOLERANCE_A
 from molcrys_kit.io import read_extxyz, read_mryx, read_mryx_atoms, write_extxyz
 
-MANIFEST = Path(__file__).resolve().parents[2] / "data" / "mryx" / "public_manifest.json"
+MANIFEST = Path(__file__).resolve().parents[1] / "data" / "mryx" / "public_manifest.json"
 
 
-def _public_fixtures():
-    data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    return data["fixtures"]
+def _fixtures():
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))["fixtures"]
 
 
-def _fetch_public_fixture(entry: dict, dest: Path) -> Path:
+def _download(entry: dict, dest: Path) -> None:
     request = urllib.request.Request(
         entry["url"],
-        headers={"User-Agent": "MolCrysKit-pytest-mryx/1.0"},
+        headers={"User-Agent": "MolCrysKit-integration-mryx/1.0"},
     )
     with urllib.request.urlopen(request, timeout=120) as response:
         dest.write_bytes(response.read())
     digest = hashlib.sha256(dest.read_bytes()).hexdigest()
     if digest != entry["sha256"]:
         raise AssertionError(f"sha256 mismatch for {entry['id']}")
-    return dest
 
 
-@pytest.mark.parametrize("entry", _public_fixtures(), ids=lambda item: item["id"])
-def test_public_mryx_tier_a_roundtrip(tmp_path, entry):
-    """Real Mercury export → MolCrysKit → ExtXYZ → ASE, with manifest pinning."""
+@pytest.mark.parametrize("entry", _fixtures(), ids=lambda item: item["id"])
+def test_public_mryx_tier_a_integration(tmp_path, entry):
+    """Authentic Mercury bytes → stored-site import → ExtXYZ → ASE (cross-format)."""
     path = tmp_path / entry["filename"].replace(",", "_")
     try:
-        _fetch_public_fixture(entry, path)
+        _download(entry, path)
     except urllib.error.URLError as exc:
-        pytest.skip(f"public fixture download unavailable: {exc}")
+        pytest.fail(f"public fixture download required for integration gate: {exc}")
 
     import warnings
 
@@ -70,6 +72,5 @@ def test_public_mryx_tier_a_roundtrip(tmp_path, entry):
         atol=pos_atol,
     )
     assert atoms.get_chemical_symbols() == ase_atoms.get_chemical_symbols()
-
     rt = read_extxyz(str(out)).to_ase()
     np.testing.assert_allclose(atoms.cell.array, rt.cell.array, atol=1e-6)

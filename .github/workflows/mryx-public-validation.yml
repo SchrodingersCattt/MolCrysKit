@@ -1,0 +1,36 @@
+name: mryx-public-validation
+
+on:
+  pull_request:
+    paths:
+      - "molcrys_kit/io/mryx.py"
+      - "tests/data/mryx/**"
+      - "tests/integration/test_mryx_public_roundtrip.py"
+      - "scripts/validate_mryx_public_roundtrip.py"
+      - ".github/workflows/mryx-public-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tier-a-public-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install desktop test stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test,desktop]"
+
+      - name: Tier (A) public Mercury round-trip (fail closed on download)
+        run: |
+          python scripts/validate_mryx_public_roundtrip.py
+          pytest tests/integration/test_mryx_public_roundtrip.py -q --timeout=180

@@ -79,15 +79,17 @@ provenance; each other item is validated and discarded before the next item
 is kept. `index=":"` still builds the full list before returning. The bounded
 document bytes remain available for that one call.
 
-These checks use independently constructed documents. They do not certify
-every Mercury version, and this package does not ship Mercury exports.
-Real-format compatibility is therefore unverified. A local comparison that
-would close that gap is one Mercury-generated file, or a set of them, checked
-against a reliable export of the same structures: a single stored structure,
-several stored structures, one disordered structure, and one non-orthogonal
-cell. Compare atom count, cell lengths and angles, Cartesian or fractional
-coordinates, atom labels, and the raw metadata that this reader keeps. Record
-the Mercury version. Do not treat the synthetic fixtures as that comparison.
+Synthetic unit tests use independently constructed XML. They prove parser
+contracts only; they are not Mercury exports.
+
+**Real-format status:** tier **(A)** has been run on pinned public Mercury
+exports (see below): the reader ingests authentic `.mryx` bytes and the stored
+geometry survives cross-format export. That is **not** the same as tier **(B)**
+(CIF → Mercury save → this reader) and does **not** certify every Mercury
+version, multi-structure bundles, disorder exports, or session fidelity.
+Compare against a reliable independent structure reference only when one exists
+for the **same** stored sites; do not treat an unrelated CIF from the same
+dataset as a paired reference.
 
 ## Public-format validation (tier A)
 
@@ -97,13 +99,16 @@ be downloaded under stated licenses (currently one CC-BY-4.0 Zenodo deposit from
 
 ```bash
 python scripts/validate_mryx_public_roundtrip.py
-pytest tests/unit/io/test_mryx_public_roundtrip.py
+pytest tests/integration/test_mryx_public_roundtrip.py
 ```
 
+Offline manifest contracts (no network): `pytest tests/unit/io/test_mryx_public_manifest.py`
+
 Tier **(A)** checks: real `.mryx` → `read_mryx` / `read_mryx_atoms` (stored
-sites, no symmetry expansion) → `write_extxyz` → independent ASE read, comparing
+sites, no symmetry expansion) → `write_extxyz` → ASE ExtXYZ read, comparing
 element identities, cell parameters, and Cartesian coordinates within
-`MRYX_COORDINATE_TOLERANCE_A`.
+`MRYX_COORDINATE_TOLERANCE_A`. This validates cross-format geometry transfer,
+not a second independent interpretation of the Mercury XML tree.
 
 Tier **(B)** (public CIF → Mercury save → this reader) is **not** run in CI:
 Mercury needs a desktop install and CSD-Community activation. Coordinators with

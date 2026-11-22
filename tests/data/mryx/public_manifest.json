@@ -20,8 +20,9 @@
         "Gzip-compressed CCDC_XML; structure label GSA_o372_ACN inside the export.",
         "No Mercury/CCDC build or version string was found in the decompressed XML.",
         "P-1 triclinic cell; 116 stored sites; disorder_assemblies container empty.",
-        "Same Zenodo record includes Crystal structure,7ac.cif for a different compound (not paired with this .mryx)."
+        "Same Zenodo record includes Crystal structure,7ac.cif for a different compound; do not use it as a cross-check for this .mryx."
       ],
+      "tier_a_scope": "authentic Mercury bytes and cross-format ExtXYZ/ASE geometry; not tier (B) and not independent Mercury reinterpretation",
       "tier_a_expectations": {
         "n_atoms": 116,
         "spacegroup_name": "P-1",
