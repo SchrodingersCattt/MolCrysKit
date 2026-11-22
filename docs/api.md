@@ -214,7 +214,7 @@ Element data and bond-detection thresholds.
 Geometry, rigid-body math helpers, and graph utilities.
 
 - Graph: `graph_invariant`
-- Coordinates/PBC: `frac_to_cart`, `cart_to_frac`, `minimum_image_distance`, `minimum_image_vector`, `unwrap_positions_along_bonds`, `volume_of_cell`
+- Coordinates/PBC: `frac_to_cart`, `cart_to_frac`, `minimum_image_distance`, `minimum_image_vector` (exact Fincke–Pohst search on general cells; skew or unwrapped displacements may visit many integer images), `unwrap_positions_along_bonds`, `volume_of_cell`
 - Fractional affine: `apply_fractional_affine`, `fractional_linear_to_cartesian`
 - Vector/angles: `normalize_vector`, `distance_between_points`, `angle_between_vectors`, `dihedral_angle`
 - Rotations/alignment: `skew_matrix`, `unskew_matrix`, `kabsch_align`, `rotation_to_axis_angle`, `rotation_log_vector`, `rotation_exp_vector`, `rotation_matrix_to_quaternion`, `quaternion_to_rotation_matrix`, `quaternion_slerp`
