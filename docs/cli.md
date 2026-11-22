@@ -42,8 +42,9 @@ mck validate-periodic-bundle structure.cif --json
 The read-only `skills` viewer exposes the installed Agent Skills without
 requiring a repository checkout. `list` returns entrypoint names and
 frontmatter descriptions; `show NAME` prints only the raw `SKILL.md`; and
-`show NAME --file PATH` reads one resource relative to that skill. `tree NAME`
-reports local links and assets without outputting their bodies. Use
+`show NAME --file PATH` reads one resource relative to that skill. `tree`
+without a name prints link trees for every bundled skill; `tree NAME` scopes
+to one skill. Both report local links and assets without outputting bodies. Use
 `show NAME --all` only when the reachable Markdown pages should be expanded in
 deterministic link order. Scripts, binaries, and external URLs are never
 executed or expanded. Add `--json` to any subcommand for machine-readable
@@ -52,6 +53,7 @@ metadata and text.
 ```bash
 mck skills list --json
 mck skills show operate-molecular-crystal
+mck skills tree
 mck skills tree query-csd-structures
 mck skills show analyze-molecular-crystal --all
 ```

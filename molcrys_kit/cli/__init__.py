@@ -12,6 +12,7 @@ from .skill_viewer import (
     emit_list,
     emit_show,
     emit_tree,
+    emit_trees,
     get_skill,
     json_payload,
 )
@@ -190,12 +191,19 @@ def skills_show(name: str, relative_path: str, all_files: bool, as_json: bool) -
 
 
 @skills_group.command(name="tree")
-@click.argument("name", metavar="SKILL_NAME")
+@click.argument("name", required=False, default=None, metavar="[SKILL_NAME]")
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
-def skills_tree(name: str, as_json: bool) -> None:
-    """Show linked local resources without outputting document bodies."""
+def skills_tree(name: str | None, as_json: bool) -> None:
+    """Show linked local resources without outputting document bodies.
+
+    With SKILL_NAME, report one skill's link tree.  With no name, show every
+    bundled skill in stable name order (same trees as ``list`` would name).
+    """
     try:
-        emit_tree(get_skill(name), as_json=as_json)
+        if name is None:
+            emit_trees(as_json=as_json)
+        else:
+            emit_tree(get_skill(name), as_json=as_json)
     except SkillError as exc:
         _skill_error(exc, as_json=as_json)
 

@@ -65,6 +65,44 @@ def test_skills_tree_has_links_without_bodies() -> None:
     assert all("content" not in resource for resource in payload["resources"])
 
 
+def test_skills_tree_without_name_shows_all_bundled_skills() -> None:
+    runner = CliRunner()
+    listed = runner.invoke(main, ["skills", "list", "--json"])
+    assert listed.exit_code == 0, listed.output
+    names = [item["name"] for item in json.loads(listed.output)["skills"]]
+
+    text = runner.invoke(main, ["skills", "tree"])
+    assert text.exit_code == 0, text.output
+    for name in names:
+        assert name in text.output
+    assert "SKILL.md (markdown)" in text.output
+
+    payload = json.loads(
+        runner.invoke(main, ["skills", "tree", "--json"]).output
+    )
+    assert payload["schema"] == "mck.skills.trees/v1"
+    assert [entry["skill"] for entry in payload["trees"]] == names
+    csd = next(t for t in payload["trees"] if t["skill"] == "query-csd-structures")
+    assert any(r["path"] == "scripts/demo_csd_disorder_workflow.py" for r in csd["resources"])
+
+
+def test_skills_tree_unknown_skill_still_fails() -> None:
+    runner = CliRunner()
+    text = runner.invoke(main, ["skills", "tree", "missing-skill"])
+    assert text.exit_code == 2
+    assert "unknown skill" in text.output
+
+    err_json = runner.invoke(main, ["skills", "tree", "missing-skill", "--json"])
+    assert err_json.exit_code == 2
+    assert json.loads(err_json.stdout)["error"] == "unknown skill: 'missing-skill'"
+
+
+def test_skills_tree_help_shows_optional_skill_name() -> None:
+    result = CliRunner().invoke(main, ["skills", "tree", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "[SKILL_NAME]" in result.output
+
+
 def test_skills_reject_escape() -> None:
     result = CliRunner().invoke(
         main,
