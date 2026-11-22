@@ -339,7 +339,8 @@ def test_dap4_void_extxyz_roundtrip_preserves_valid_arrays(
         remaining.extra_arrays["source_rank"],
     )
     flat = reread.to_ase()
-    assert np.allclose(flat.arrays["occupancy"], 1.0)
+    reference = remaining.to_ase().arrays["occupancy"]
+    np.testing.assert_allclose(flat.arrays["occupancy"], reference)
     for key in ("disorder_group", "assembly", "label", "image_shift"):
         assert key in flat.arrays
     for stale_key in ("frac_x", "frac_y", "frac_z"):

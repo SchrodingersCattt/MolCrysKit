@@ -112,6 +112,24 @@ Build or repair the loop before resolving disorder:
   disorder assembly. Atoms that differ between orientations are the partial
   sites, and the occupancies inside one assembly sum to 1. Do not also list
   the symmetry copies of those bridges in the asymmetric unit.
+- After disorder resolution, site arrays are copied from the source CIF
+  indices that survive in the independent set, once molecule boundaries are
+  fixed. Bonding therefore still runs on default full occupancies; only the
+  exported replica carries refined values. **Occupancy on the replica defaults
+  to the refined CIF value.** It is promoted to 1.0 only when a dropped
+  neighbour was a genuine occupancy alternative: an ``explicit`` assembly/PART
+  conflict between different groups, a ``logical_alternative`` edge between two
+  non-zero groups, an ``implicit_sp`` special-position cluster pick, or a
+  ``symmetry_clash`` between copies of the same asymmetric-unit site. Pure
+  geometric, valence, or valence-geometry clashes that merely remove overlaps
+  do **not** normalize occupancy. Lone partial sites (including lone non-zero
+  disorder groups without a competing component) stay at their refined occupancy.
+- Void carving and nanocluster sidecars set ``input_disorder.all_atom_ordered``
+  when the crystal has solver ``disorder_provenance`` (incompatible alternative
+  sites were removed). Retained ``disorder_group`` / ``assembly`` labels and
+  partial site occupancies are source metadata on the replica, not unresolved
+  disorder. Stats also expose ``retained_disorder_group_label_count`` and
+  ``nonunit_occupancy_count`` for review.
 - `strict_formula=True` rejects candidates that do not match
   `_chemical_formula_moiety` times `_cell_formula_units_Z`. The default warns
   and still returns a best-effort crystal. Write the moiety as discrete
