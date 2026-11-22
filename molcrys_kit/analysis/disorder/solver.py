@@ -307,6 +307,10 @@ class DisorderSolver:
     _MOTIF_HARD_CONFLICTS = frozenset({
         "logical_alternative", "symmetry_clash", "explicit", "valence",
     })
+    # Conflict labels that justify promoting a kept site to occupancy 1.0
+    # after a dropped neighbour.  Geometric/valence clashes remove illegal
+    # overlaps but do not declare a crystallographic occupancy sum.
+    _OCCUPANCY_RESOLUTION_CONFLICTS = frozenset({"explicit", "implicit_sp"})
     # Soft-conflict types and per-element rejection policy.  Water (O)
     # re-uses the historic pre-fix behaviour of rejecting the whole motif
     # if any pair of picked atoms has a soft conflict edge — this filters
@@ -2242,6 +2246,29 @@ class DisorderSolver:
             sym_op_indices=sym_op_indices,
         )
 
+    def _pair_resolves_occupancy_to_one(self, kept: int, dropped: int) -> bool:
+        """Return whether winning over ``dropped`` sets ``kept`` to occupancy 1.0."""
+        if kept == dropped or not self.graph.has_edge(kept, dropped):
+            return False
+        conflict_type = self.graph[kept][dropped].get("conflict_type", "")
+        kept_group = int(self.info.disorder_groups[kept])
+        dropped_group = int(self.info.disorder_groups[dropped])
+        if conflict_type in self._OCCUPANCY_RESOLUTION_CONFLICTS:
+            if conflict_type == "explicit":
+                return kept_group != dropped_group
+            return True
+        if conflict_type == "logical_alternative":
+            return (
+                kept_group != 0
+                and dropped_group != 0
+                and kept_group != dropped_group
+            )
+        if conflict_type == "symmetry_clash":
+            asym_id = getattr(self.info, "asym_id", None)
+            if asym_id and kept < len(asym_id) and dropped < len(asym_id):
+                return int(asym_id[kept]) == int(asym_id[dropped])
+        return False
+
     def _resolved_occupancy_for_site(
         self,
         source_index: int,
@@ -2250,23 +2277,19 @@ class DisorderSolver:
     ) -> float:
         """Map a source site to the occupancy stored on an ordered replica.
 
-        Non-zero disorder groups are mutually exclusive alternatives: the
-        surviving orientation is stored at full occupancy.  Group-zero sites
-        that were not in conflict with any dropped atom keep their refined
-        partial occupancy (isolated vacancies).  When a kept group-zero site
-        excluded a conflicting neighbour, it is promoted to 1.0 like a
-        resolved alternative.
+        Refined occupancies are preserved unless this site survived over a
+        dropped neighbour that was a genuine occupancy alternative (explicit
+        PART/assembly, labelled logical alternative between non-zero groups,
+        implicit special-position clustering, or a symmetry clash between
+        copies of the same asymmetric-unit site).
         """
         refined = float(self.info.occupancies[source_index])
-        disorder_group = int(self.info.disorder_groups[source_index])
-        if disorder_group != 0:
-            return 1.0
         if not dropped_indices:
             return refined
         for other in dropped_indices:
             if other == source_index:
                 continue
-            if self.graph.has_edge(source_index, other):
+            if self._pair_resolves_occupancy_to_one(source_index, other):
                 return 1.0
         return refined
 

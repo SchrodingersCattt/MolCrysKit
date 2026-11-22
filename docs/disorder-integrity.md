@@ -115,11 +115,15 @@ Build or repair the loop before resolving disorder:
 - After disorder resolution, site arrays are copied from the source CIF
   indices that survive in the independent set, once molecule boundaries are
   fixed. Bonding therefore still runs on default full occupancies; only the
-  exported replica carries refined values. A lone group-zero site with partial
-  occupancy and no conflicting neighbour stays at its refined occupancy. A site
-  selected from a non-zero disorder group, or a group-zero site that excluded a
-  conflicting neighbour, is stored at occupancy 1. The solver does not default
-  every survivor to full occupancy.
+  exported replica carries refined values. **Occupancy on the replica defaults
+  to the refined CIF value.** It is promoted to 1.0 only when a dropped
+  neighbour was a genuine occupancy alternative: an ``explicit`` assembly/PART
+  conflict between different groups, a ``logical_alternative`` edge between two
+  non-zero groups, an ``implicit_sp`` special-position cluster pick, or a
+  ``symmetry_clash`` between copies of the same asymmetric-unit site. Pure
+  geometric, valence, or valence-geometry clashes that merely remove overlaps
+  do **not** normalize occupancy. Lone partial sites (including lone non-zero
+  disorder groups without a competing component) stay at their refined occupancy.
 - `strict_formula=True` rejects candidates that do not match
   `_chemical_formula_moiety` times `_cell_formula_units_Z`. The default warns
   and still returns a best-effort crystal. Write the moiety as discrete
