@@ -112,6 +112,14 @@ Build or repair the loop before resolving disorder:
   disorder assembly. Atoms that differ between orientations are the partial
   sites, and the occupancies inside one assembly sum to 1. Do not also list
   the symmetry copies of those bridges in the asymmetric unit.
+- After disorder resolution, site arrays are copied from the source CIF
+  indices that survive in the independent set, once molecule boundaries are
+  fixed. Bonding therefore still runs on default full occupancies; only the
+  exported replica carries refined values. A lone group-zero site with partial
+  occupancy and no conflicting neighbour stays at its refined occupancy. A site
+  selected from a non-zero disorder group, or a group-zero site that excluded a
+  conflicting neighbour, is stored at occupancy 1. The solver does not default
+  every survivor to full occupancy.
 - `strict_formula=True` rejects candidates that do not match
   `_chemical_formula_moiety` times `_cell_formula_units_Z`. The default warns
   and still returns a best-effort crystal. Write the moiety as discrete
