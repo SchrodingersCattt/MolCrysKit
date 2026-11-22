@@ -30,11 +30,20 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
-from ase import Atoms
-from ase.cell import Cell
-from ase.data import atomic_numbers
-from defusedxml import ElementTree as SafeET
-from defusedxml.common import DefusedXmlException
+
+try:
+    from ase import Atoms
+    from ase.cell import Cell
+    from ase.data import atomic_numbers
+    from defusedxml import ElementTree as SafeET
+    from defusedxml.common import DefusedXmlException
+except ImportError as exc:
+    missing = getattr(exc, "name", None) or str(exc)
+    raise ImportError(
+        "Mercury .mryx import needs the desktop extra "
+        '(pip install "molcrys-kit[desktop]"); '
+        f"missing dependency {missing}"
+    ) from exc
 
 from ..constants.mryx import (
     MRYX_CELL_TOLERANCE,

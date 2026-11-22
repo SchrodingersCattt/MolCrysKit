@@ -80,6 +80,11 @@ is kept. `index=":"` still builds the full list before returning. The bounded
 document bytes remain available for that one call.
 
 These checks use independently constructed documents. They do not certify
-every Mercury version. Someone with Mercury can compare one local export
-(cell, stored sites, labels, and structure index) with this reader. This
-package does not ship sample exports.
+every Mercury version, and this package does not ship Mercury exports.
+Real-format compatibility is therefore unverified. A local comparison that
+would close that gap is one Mercury-generated file, or a set of them, checked
+against a reliable export of the same structures: a single stored structure,
+several stored structures, one disordered structure, and one non-orthogonal
+cell. Compare atom count, cell lengths and angles, Cartesian or fractional
+coordinates, atom labels, and the raw metadata that this reader keeps. Record
+the Mercury version. Do not treat the synthetic fixtures as that comparison.
