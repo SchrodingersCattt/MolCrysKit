@@ -223,8 +223,7 @@ def _perfect_matching(allowed: np.ndarray) -> list[int] | None:
     graph.add_nodes_from(targets, bipartite=1)
     rows, columns = np.nonzero(allowed)
     graph.add_edges_from(
-        (sources[int(row)], targets[int(column)])
-        for row, column in zip(rows, columns)
+        (sources[int(row)], targets[int(column)]) for row, column in zip(rows, columns)
     )
     matching = nx.bipartite.hopcroft_karp_matching(graph, top_nodes=sources)
     if any(node not in matching for node in sources):
@@ -268,13 +267,15 @@ def audit_parent_symmetry(
     notes: list[str] = []
     symmetry = _parent_symmetry(info)
     if symmetry is None:
+        # Missing parent symmetry is unknown, not a completed failure. The
+        # bool helper stays false; the tri-state flag stays null.
         return ParentSymmetryAudit(
             parent_space_group_number=None,
             parent_space_group_symbol=None,
             parent_operation_count=0,
             mapping_tolerance_angstrom=float(tolerance_angstrom),
-            respects_parent_group=False,
-            notes=("parent symmetry unavailable",),
+            respects_parent_group=None,
+            notes=("parent symmetry unavailable; closure was not assessed",),
         )
 
     operations = tuple(symmetry.operations)
@@ -325,7 +326,9 @@ def audit_parent_symmetry(
                 respects_parent_group=None,
                 notes=tuple(dict.fromkeys(notes)),
             )
-        allowed = same_symbol & np.isfinite(distances) & (distances <= tolerance_angstrom)
+        allowed = (
+            same_symbol & np.isfinite(distances) & (distances <= tolerance_angstrom)
+        )
         assignment = _perfect_matching(allowed)
         component_map: dict[str, str] = {}
         if assignment is None:
@@ -467,7 +470,8 @@ def replica_parent_symmetry_closure(
 
     ``True`` means the audit completed and the replica closes. ``False``
     means the audit completed and the replica does not close. ``None`` means
-    the distances were not assessed.
+    the audit did not assess closure: the parent symmetry is missing, the
+    cell metric is degenerate, or the exact image search exceeded its budget.
     """
     audit = audit_parent_symmetry(
         info,

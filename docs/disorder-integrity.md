@@ -111,10 +111,12 @@ audit (`symmetry_audit=True`):
   disorder component each kept component maps onto. The residual is the exact
   closest lattice image inside the audit tolerance. The integer box is fixed
   by the cell metric's least eigenvalue, not by a 27-image window. An
-  orthogonal metric uses fractional rounding. A degenerate metric, or a proven
-  box that exceeds `PARENT_SYMMETRY_EXACT_PAIR_BUDGET`, leaves
-  `respects_parent_group` null and records that the distances were not
-  assessed. That null is not a report that the replica breaks the parent group.
+  orthogonal metric uses fractional rounding. A missing parent symmetry, a
+  degenerate metric, or a proven box that exceeds
+  `PARENT_SYMMETRY_EXACT_PAIR_BUDGET`, leaves `respects_parent_group` null and
+  records that closure was not assessed. That null is not a report that the
+  replica breaks the parent group. `symmetry_consistent` and `symmetry_audit`
+  share one audit per candidate when both are requested.
 - for each disordered asymmetric-unit parent: declared versus kept occupancy
   bookkeeping
 - `respects_parent_group` is true only when every parent operation closes and

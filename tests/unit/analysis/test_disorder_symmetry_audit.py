@@ -87,6 +87,60 @@ def _hand_built_info(*, keep_consistent: bool) -> tuple[DisorderInfo, list[int]]
     return info, kept
 
 
+def test_missing_parent_symmetry_is_unknown_not_a_proved_failure():
+    info, kept = _hand_built_info(keep_consistent=True)
+    info.crystal_symmetry = None
+    info.source_symmetry = None
+    lattice = np.eye(3) * 10.0
+    audit = audit_parent_symmetry(info, kept, lattice)
+    assert audit.respects_parent_group is None
+    assert any("not assessed" in note for note in audit.notes)
+    assert replica_parent_symmetry_closure(info, kept, lattice) is None
+    assert replica_respects_parent_symmetry(info, kept, lattice) is False
+
+    graph = DisorderGraphBuilder(info, lattice, coupled=False).build()
+    solver = DisorderSolver(info, graph, lattice, coupled=False)
+    with pytest.raises(ValueError, match="could be assessed") as caught:
+        solver.solve(
+            method="enumerate",
+            num_structures=0,
+            symmetry_consistent=True,
+        )
+    message = str(caught.value)
+    assert "not a proved failure" in message
+    assert "were assessed and do not close" not in message
+
+    replicas = solver.solve(method="enumerate", num_structures=1, symmetry_audit=True)
+    assert replicas[0].disorder_provenance.respects_parent_group is None
+    assert replicas[0].disorder_provenance.symmetry_audit.respects_parent_group is None
+
+
+def test_symmetry_consistent_does_not_audit_a_kept_candidate_twice(monkeypatch):
+    calls = []
+    real = disorder_solver.audit_parent_symmetry
+
+    def wrapped(info, candidate, lattice, tolerance_angstrom=None):
+        calls.append(tuple(int(index) for index in candidate))
+        return real(info, candidate, lattice, tolerance_angstrom=tolerance_angstrom)
+
+    monkeypatch.setattr(disorder_solver, "audit_parent_symmetry", wrapped)
+    info, _kept = _hand_built_info(keep_consistent=True)
+    lattice = np.eye(3) * 10.0
+    graph = DisorderGraphBuilder(info, lattice, coupled=False).build()
+    replicas = DisorderSolver(info, graph, lattice, coupled=False).solve(
+        method="enumerate",
+        num_structures=0,
+        symmetry_consistent=True,
+        symmetry_audit=True,
+    )
+    assert replicas
+    assert calls
+    assert len(calls) == len(set(calls))
+    assert all(
+        replica.disorder_provenance.symmetry_audit is not None for replica in replicas
+    )
+
+
 def test_audit_marks_consistent_same_component_selection():
     info, kept = _hand_built_info(keep_consistent=True)
     lattice = np.eye(3) * 10.0
@@ -565,9 +619,7 @@ def test_proved_open_opt_in_says_the_audit_completed():
     assert "could be assessed" not in message
     assert "not a proved failure" not in message
     assert replica_respects_parent_symmetry(info, [0], lattice) is False
-    assert (
-        audit_parent_symmetry(info, [0], lattice).respects_parent_group is False
-    )
+    assert audit_parent_symmetry(info, [0], lattice).respects_parent_group is False
 
 
 def test_mixed_beam_reports_open_and_unassessed(monkeypatch):

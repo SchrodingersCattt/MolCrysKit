@@ -97,8 +97,11 @@ forced into one component. Parent-group closure is reported separately by the
 per-replica parent-symmetry audit on `DisorderProvenance.symmetry_audit`
 (and by CLI `--report`). `symmetry_consistent=True` /
 `--symmetry-consistent` keeps generated candidates whose completed audit
-closes. An unassessed cell is dropped and, when nothing remains, the error
-separates that case from a completed audit that does not close. A positive
+closes. Missing parent symmetry, a degenerate metric, and an exhausted
+image-search budget are unassessed (`respects_parent_group is None`), not
+proved failures. An unassessed cell is dropped and, when nothing remains, the
+error separates that case from a completed audit that does not close. The
+filter reuses its audit when provenance also requests one. A positive
 enumerate count limits that beam first.
 
 `method="optimal"` returns one occupancy-favoured packing.  When exclusive
