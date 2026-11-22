@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - "molcrys_kit/io/mryx.py"
+      - "docs/mryx.md"
       - "tests/data/mryx/**"
       - "tests/integration/test_mryx_public_roundtrip.py"
+      - "tests/unit/io/test_mryx_public_manifest.py"
+      - "tests/unit/io/test_io_mryx.py"
       - "scripts/validate_mryx_public_roundtrip.py"
       - ".github/workflows/mryx-public-validation.yml"
   workflow_dispatch:

@@ -34,7 +34,9 @@ write_extxyz(crystal, "stored-sites.extxyz")
 - **No automatic symmetry expansion.** The imported periodic lattice contains
   exactly the stored sites, possibly only an asymmetric unit. It is not a claim
   of full-cell composition or a complete crystal packing. Space-group fields and
-  symmetry operators are preserved in raw cell metadata, not applied.
+  symmetry operators are preserved in raw cell metadata, not applied. When the
+  export carries them, ``stored_spacegroup_name`` and ``stored_spacegroup_number``
+  mirror the Mercury XML labels and are not validated symmetry assignments.
 - Elements are inferred from conventional case-sensitive element-prefixed atom
   labels (for example `C12` or `Cl3`). Internal `element/code` values are **not
   atomic numbers**. Conflicting label/code associations fail; custom labels that

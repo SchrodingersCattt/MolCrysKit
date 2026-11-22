@@ -67,12 +67,7 @@ def _tier_a(path: Path, expectations: dict) -> dict:
         atol=expectations.get("cellpar_atol", 0.01),
     )
 
-    sg_name = (
-        atoms.info["mryx"].get("cell", {}).get("spacegroup_name")
-        or atoms.info["mryx"].get("cell", {}).get("name")
-    )
-    if expectations.get("spacegroup_name") and sg_name:
-        assert sg_name == expectations["spacegroup_name"]
+    meta = atoms.info["mryx"]
 
     out = path.with_suffix(".extxyz")
     write_extxyz(crystal, str(out))
@@ -88,8 +83,9 @@ def _tier_a(path: Path, expectations: dict) -> dict:
     return {
         "fixture_path": str(path),
         "n_atoms": len(atoms),
-        "structure_label": atoms.info["mryx"].get("label"),
-        "spacegroup_name": sg_name,
+        "structure_label": meta.get("label"),
+        "stored_spacegroup_name": meta.get("stored_spacegroup_name"),
+        "stored_spacegroup_number": meta.get("stored_spacegroup_number"),
         "extxyz_path": str(out),
         "max_position_delta_A": float(
             np.max(np.abs(atoms.get_positions() - ase_atoms.get_positions()))

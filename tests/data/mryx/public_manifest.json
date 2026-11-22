@@ -25,7 +25,6 @@
       "tier_a_scope": "authentic Mercury bytes and cross-format ExtXYZ/ASE geometry; not tier (B) and not independent Mercury reinterpretation",
       "tier_a_expectations": {
         "n_atoms": 116,
-        "spacegroup_name": "P-1",
         "cellpar_deg": [13.2345, 13.302, 13.8564, 75.237, 85.009, 81.63],
         "cellpar_atol": 0.01,
         "position_atol_A": 0.0001

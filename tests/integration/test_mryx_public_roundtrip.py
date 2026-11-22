@@ -74,3 +74,8 @@ def test_public_mryx_tier_a_integration(tmp_path, entry):
     assert atoms.get_chemical_symbols() == ase_atoms.get_chemical_symbols()
     rt = read_extxyz(str(out)).to_ase()
     np.testing.assert_allclose(atoms.cell.array, rt.cell.array, atol=1e-6)
+
+    meta = atoms.info["mryx"]
+    # Mercury-export labels only; not independent symmetry verification.
+    assert meta.get("stored_spacegroup_name") == "P-1"
+    assert meta.get("stored_spacegroup_number") == 2

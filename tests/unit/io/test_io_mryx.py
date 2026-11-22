@@ -97,6 +97,13 @@ def _read(path, **kwargs):
         return read_mryx_atoms(path, **kwargs)
 
 
+def test_stored_spacegroup_metadata_is_passed_through_uninterpreted(tmp_path):
+    atoms = _read(_save(tmp_path, _document()))
+    meta = atoms.info["mryx"]
+    assert meta["stored_spacegroup_name"] == "P 1"
+    assert meta["stored_spacegroup_number"] == 1
+
+
 @pytest.mark.parametrize("compressed", [True, False])
 def test_cell_coordinates_and_uninterpreted_metadata(tmp_path, compressed):
     atoms = _read(_save(tmp_path, _document(), compressed))
