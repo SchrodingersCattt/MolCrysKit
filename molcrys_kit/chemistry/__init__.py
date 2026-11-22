@@ -1,79 +1,79 @@
-"""Public chemistry-domain models and analysis entry points."""
+"""Public chemistry-domain models and analysis entry points.
 
-from .annotation import ChemistryIndeterminateError, annotate_chemistry
-from .aromaticity_calibration import (
-    CalibrationError,
-    CalibrationPolicy,
-    RING_CLASSES,
-    calibrate_aromaticity_geometry,
-    read_records,
-    runtime_overrides,
-    write_snapshot,
-)
-from .crystal_stereo import (
-    AbsoluteStructureParameter,
-    CrystalStereoClass,
-    CrystalStereoIndeterminateError,
-    CrystalStereoReport,
-    EnantiomerCount,
-    EntityRelationship,
-    EntityStereoSummary,
-    analyze_crystal_stereochemistry,
-    classify_entity_relationship,
-)
-from .equivalence import notations_equivalent
-from .perception import (
-    BondOrderOptions,
-    BondOrderResult,
-    infer_bond_orders,
-    infer_chemistry,
-)
-from .adapters import (
-    infer_bond_orders_array,
-    infer_bond_orders_arrays,
-    infer_bond_orders_from_arrays,
-    infer_bond_orders_batch,
-)
-from .line_notation import (
-    LineNotation,
-    LineNotationError,
-    from_line_notation,
-    to_line_notation,
-)
-from .naming import (
-    NamingIndeterminateError,
-    NamingKind,
-    NamingResult,
-    name_crystal,
-    name_entity,
-)
-from .name_conversion import (
-    NamingParseError,
-    from_iupac_name,
-    iupac_to_smiles,
-    smiles_to_iupac,
-)
-from .topology import (
-    PeriodicTopology,
-    analyze_periodic_topology,
-    integer_translation_basis,
-)
-from .stereo import StereoDescriptor, StereoKind, StereoReport, assign_stereochemistry
-from .models import (
-    BondKind,
-    ChemicalAtom,
-    ChemicalBond,
-    ChemicalEntity,
-    CrystalChemistry,
-    Embedding,
-    Evidence,
-    EvidenceSource,
-    FiniteChemicalEntity,
-    InferenceStatus,
-    MulticomponentEntity,
-    PeriodicChemicalEntity,
-    PolymerChemicalEntity,
-)
+Submodules that need ASE are imported on first attribute access.
+"""
+
+_EXPORTS = {
+    "ChemistryIndeterminateError": (".annotation", "ChemistryIndeterminateError"),
+    "annotate_chemistry": (".annotation", "annotate_chemistry"),
+    "CalibrationError": (".aromaticity_calibration", "CalibrationError"),
+    "CalibrationPolicy": (".aromaticity_calibration", "CalibrationPolicy"),
+    "RING_CLASSES": (".aromaticity_calibration", "RING_CLASSES"),
+    "calibrate_aromaticity_geometry": (
+        ".aromaticity_calibration",
+        "calibrate_aromaticity_geometry",
+    ),
+    "read_records": (".aromaticity_calibration", "read_records"),
+    "runtime_overrides": (".aromaticity_calibration", "runtime_overrides"),
+    "write_snapshot": (".aromaticity_calibration", "write_snapshot"),
+    "AbsoluteStructureParameter": (".crystal_stereo", "AbsoluteStructureParameter"),
+    "CrystalStereoClass": (".crystal_stereo", "CrystalStereoClass"),
+    "CrystalStereoIndeterminateError": (
+        ".crystal_stereo",
+        "CrystalStereoIndeterminateError",
+    ),
+    "CrystalStereoReport": (".crystal_stereo", "CrystalStereoReport"),
+    "EnantiomerCount": (".crystal_stereo", "EnantiomerCount"),
+    "EntityRelationship": (".crystal_stereo", "EntityRelationship"),
+    "EntityStereoSummary": (".crystal_stereo", "EntityStereoSummary"),
+    "analyze_crystal_stereochemistry": (
+        ".crystal_stereo",
+        "analyze_crystal_stereochemistry",
+    ),
+    "classify_entity_relationship": (".crystal_stereo", "classify_entity_relationship"),
+    "notations_equivalent": (".equivalence", "notations_equivalent"),
+    "BondOrderOptions": (".perception", "BondOrderOptions"),
+    "BondOrderResult": (".perception", "BondOrderResult"),
+    "infer_bond_orders": (".perception", "infer_bond_orders"),
+    "infer_chemistry": (".perception", "infer_chemistry"),
+    "infer_bond_orders_array": (".adapters", "infer_bond_orders_array"),
+    "infer_bond_orders_arrays": (".adapters", "infer_bond_orders_arrays"),
+    "infer_bond_orders_from_arrays": (".adapters", "infer_bond_orders_from_arrays"),
+    "infer_bond_orders_batch": (".adapters", "infer_bond_orders_batch"),
+    "LineNotation": (".line_notation", "LineNotation"),
+    "LineNotationError": (".line_notation", "LineNotationError"),
+    "from_line_notation": (".line_notation", "from_line_notation"),
+    "to_line_notation": (".line_notation", "to_line_notation"),
+    "NamingIndeterminateError": (".naming", "NamingIndeterminateError"),
+    "NamingKind": (".naming", "NamingKind"),
+    "NamingResult": (".naming", "NamingResult"),
+    "name_crystal": (".naming", "name_crystal"),
+    "name_entity": (".naming", "name_entity"),
+    "NamingParseError": (".name_conversion", "NamingParseError"),
+    "from_iupac_name": (".name_conversion", "from_iupac_name"),
+    "iupac_to_smiles": (".name_conversion", "iupac_to_smiles"),
+    "smiles_to_iupac": (".name_conversion", "smiles_to_iupac"),
+    "PeriodicTopology": (".topology", "PeriodicTopology"),
+    "analyze_periodic_topology": (".topology", "analyze_periodic_topology"),
+    "integer_translation_basis": (".topology", "integer_translation_basis"),
+    "StereoDescriptor": (".stereo", "StereoDescriptor"),
+    "StereoKind": (".stereo", "StereoKind"),
+    "StereoReport": (".stereo", "StereoReport"),
+    "assign_stereochemistry": (".stereo", "assign_stereochemistry"),
+    "BondKind": (".models", "BondKind"),
+    "ChemicalAtom": (".models", "ChemicalAtom"),
+    "ChemicalBond": (".models", "ChemicalBond"),
+    "ChemicalEntity": (".models", "ChemicalEntity"),
+    "CrystalChemistry": (".models", "CrystalChemistry"),
+    "Embedding": (".models", "Embedding"),
+    "Evidence": (".models", "Evidence"),
+    "EvidenceSource": (".models", "EvidenceSource"),
+    "FiniteChemicalEntity": (".models", "FiniteChemicalEntity"),
+    "InferenceStatus": (".models", "InferenceStatus"),
+    "MulticomponentEntity": (".models", "MulticomponentEntity"),
+    "PeriodicChemicalEntity": (".models", "PeriodicChemicalEntity"),
+    "PolymerChemicalEntity": (".models", "PolymerChemicalEntity"),
+}
 
 __all__ = [
     "AbsoluteStructureParameter",
@@ -137,3 +137,19 @@ __all__ = [
     "to_line_notation",
     "write_snapshot",
 ]
+
+
+def __getattr__(name: str):
+    if name in _EXPORTS:
+        import importlib
+
+        module_name, attribute = _EXPORTS[name]
+        module = importlib.import_module(module_name, __name__)
+        value = getattr(module, attribute)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

@@ -26,8 +26,8 @@ LABEL org.opencontainers.image.licenses="MIT"
 # -- MolCrysKit from GitHub archive zip ------------------------------------
 # MOLCRYSKIT_REF must be a GitHub archive ref, e.g. refs/heads/main or
 # refs/tags/vX.Y.Z.
-# No git clone needed: pip resolves the archive URL directly and installs all
-# dependencies declared in pyproject.toml automatically.
+# No git clone needed: pip resolves the archive URL directly. [desktop]
+# installs SciPy, ASE, pymatgen, and spglib on top of the core package.
 ARG MOLCRYSKIT_REF=refs/heads/main
 RUN pip install --no-cache-dir \
-    "molcrys-kit @ https://github.com/SchrodingersCattt/MolCrysKit/archive/${MOLCRYSKIT_REF}.zip"
+    "molcrys-kit[desktop] @ https://github.com/SchrodingersCattt/MolCrysKit/archive/${MOLCRYSKIT_REF}.zip"
