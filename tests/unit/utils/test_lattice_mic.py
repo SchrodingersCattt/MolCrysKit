@@ -57,12 +57,22 @@ def _oracle_from_fractional(frac_delta, lattice):
 def test_issue_237_skew_flat_cell_reproduction():
     lattice = cellpar_to_cell([5.108, 2.895, 4.291, 73.19, 79.94, 153.04])
     frac_delta = np.array([0.161, 1.476, 1.494])
+    cart_delta = frac_to_cart(frac_delta, lattice)
     mic = minimum_image_vector(frac_delta, lattice)
     expected, expected_len = _oracle_from_fractional(frac_delta, lattice)
     assert np.linalg.norm(mic) == pytest.approx(expected_len, abs=1e-8)
     np.testing.assert_allclose(mic, expected, atol=1e-8)
     assert np.linalg.norm(mic) < 0.35
     assert np.linalg.norm(mic) == pytest.approx(0.18965033508813575, rel=0, abs=1e-6)
+    # Integer cell shift S in ``cart_mic = cart_delta + S @ lattice`` (add convention).
+    minimizing_shift = np.array([-1, -3, -1])
+    np.testing.assert_allclose(
+        cart_delta + minimizing_shift @ lattice, mic, atol=1e-8
+    )
+    wrong_shift = np.array([1, 3, 1])
+    assert np.linalg.norm(cart_delta + wrong_shift @ lattice) == pytest.approx(
+        16.822563027509837, rel=0, abs=1e-6
+    )
 
 
 def test_large_unwrapped_fractional_displacement_matches_oracle():
@@ -73,7 +83,7 @@ def test_large_unwrapped_fractional_displacement_matches_oracle():
     np.testing.assert_allclose(mic, expected, atol=1e-8)
 
 
-def test_vectorized_batch_shapes_and_oracle():
+def test_batch_preserves_shape_and_matches_oracle():
     lattice = np.diag([8.0, 9.0, 10.0])
     deltas = np.array([[0.8, 0.0, 0.0], [0.0, -0.9, 0.0], [4.2, 3.3, -5.1]])
     batch = minimum_image_vector(deltas, lattice)
@@ -86,13 +96,22 @@ def test_vectorized_batch_shapes_and_oracle():
 
 
 def test_equal_length_tie_breaks_on_lexicographic_shift():
+    """At a half-cell displacement, shifts ``(0,0,0)`` and ``(-1,0,0)`` tie in length."""
     lattice = np.diag([10.0, 10.0, 10.0])
-    delta = np.array([7.5, 0.0, 0.0])
-    left = minimum_image_cartesian(delta, lattice, np.ones(3, dtype=bool))
-    right = minimum_image_cartesian(-delta, lattice, np.ones(3, dtype=bool))
-    np.testing.assert_allclose(left, [-2.5, 0.0, 0.0], atol=1e-10)
-    np.testing.assert_allclose(right, [2.5, 0.0, 0.0], atol=1e-10)
-    assert abs(np.linalg.norm(left) - np.linalg.norm(right)) <= 1e-10
+    delta = np.array([5.0, 0.0, 0.0])
+    zero_shift = np.zeros(3, dtype=int)
+    tying_shift = np.array([-1, 0, 0], dtype=int)
+    length_zero = float(np.linalg.norm(delta + zero_shift @ lattice))
+    length_minus_one = float(np.linalg.norm(delta + tying_shift @ lattice))
+    assert length_zero == pytest.approx(5.0)
+    assert length_minus_one == pytest.approx(5.0)
+    assert tying_shift.tolist() < zero_shift.tolist()
+    vector = minimum_image_cartesian(delta, lattice, np.ones(3, dtype=bool))
+    np.testing.assert_allclose(vector, [-5.0, 0.0, 0.0], atol=1e-10)
+    oracle_vector, _ = _exhaustive_minimum_cartesian(
+        delta, lattice, np.ones(3, dtype=bool)
+    )
+    np.testing.assert_allclose(vector, oracle_vector, atol=1e-10)
 
 
 def test_partial_pbc_matches_path_core_contract():
@@ -123,6 +142,7 @@ def test_enumeration_lists_only_strict_ball_members():
 
 
 def test_minimum_image_batch_performance_smoke():
+    """Smoke wall-time guard only; not a regression benchmark."""
     lattice = cellpar_to_cell([13.2, 13.1, 13.8, 80.0, 75.0, 62.0])
     rng = np.random.default_rng(237)
     deltas = rng.normal(size=(256, 3))

@@ -477,6 +477,10 @@ def minimum_image_vector(frac_delta: np.ndarray, lattice: np.ndarray) -> np.ndar
     For partial periodicity use the private compat carrier or provide a custom
     wrapper around :func:`~molcrys_kit.utils.lattice_mic.minimum_image_cartesian`.
 
+    Batched inputs ``(N, 3)`` are handled by a per-row Python loop over exact
+    searches; batching preserves array shape but is not an array-wide vectorized
+    MIC kernel.
+
     Very flat or nearly singular cells can require exploring many integer
     shifts for long unwraped displacements; cost scales with the volume of the
     search ball, not with a fixed image count. Neighbor-list-scale workloads
