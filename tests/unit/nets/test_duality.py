@@ -374,3 +374,87 @@ def test_unfilled_prism_and_capped_assembly_are_not_dual():
     assert capped.status == "undetermined"
     assert capped.reason == "tiling_assembly_capped"
     assert capped.status != "dual"
+
+
+def _placed_box(size):
+    from molcrys_kit.nets.duality import _PlacedFace, _PlacedTile
+
+    sx, sy, sz = size
+
+    def corner(x, y, z):
+        return ("a", (x, y, z))
+
+    def face(face_id, vertices):
+        return _PlacedFace(face_id, "source", tuple(vertices))
+
+    c000 = corner(0, 0, 0)
+    c100 = corner(sx, 0, 0)
+    c010 = corner(0, sy, 0)
+    c110 = corner(sx, sy, 0)
+    c001 = corner(0, 0, sz)
+    c101 = corner(sx, 0, sz)
+    c011 = corner(0, sy, sz)
+    c111 = corner(sx, sy, sz)
+    # Outward normals. Each cycle is the reverse of the inward trial order.
+    faces = (
+        face("px", (c100, c110, c111, c101)),
+        face("nx", (c000, c001, c011, c010)),
+        face("py", (c010, c011, c111, c110)),
+        face("ny", (c000, c100, c101, c001)),
+        face("pz", (c001, c101, c111, c011)),
+        face("nz", (c000, c010, c110, c100)),
+    )
+    return _PlacedTile("t", faces)
+
+
+def test_skew_subgroup_overlap_is_not_reported_disjoint():
+    """A short subgroup vector can have large Hermite coefficients.
+
+    The old coordinate-width window missed translation ``(0, 1, 0)`` for the
+    basis ``((1, 0, 0), (100, 1, 0), (0, 0, 1))``. A tile of height 2 overlaps
+    that translate, so disjointness must be false.
+    """
+    from fractions import Fraction
+
+    from molcrys_kit.nets.duality import _interiors_disjoint, _tile_is_convex
+
+    positions = {"a": (Fraction(0), Fraction(0), Fraction(0))}
+    tile = _placed_box((1, 2, 1))
+    basis = ((1, 0, 0), (100, 1, 0), (0, 0, 1))
+    assert _tile_is_convex(tile, positions)
+    assert _interiors_disjoint((tile,), positions, basis) is False
+    thin = _placed_box((1, 1, 1))
+    # The unit cube meets that translate on a face only; interiors stay apart.
+    assert _tile_is_convex(thin, positions)
+    assert (
+        _interiors_disjoint((thin,), positions, ((1, 0, 0), (0, 1, 0), (0, 0, 1)))
+        is True
+    )
+
+
+def test_unproved_neighbor_window_does_not_certify_disjointness(monkeypatch):
+    from molcrys_kit.constants.config import NET_TOPOLOGY_CONFIG
+    from molcrys_kit.nets.duality import _interiors_disjoint
+
+    monkeypatch.setitem(NET_TOPOLOGY_CONFIG, "TILING_NEIGHBOR_COEFFICIENT_LIMIT", 8)
+    positions = {"a": (0, 0, 0)}
+    tile = _placed_box((1, 2, 1))
+    basis = ((1, 0, 0), (100, 1, 0), (0, 0, 1))
+    assert _interiors_disjoint((tile,), positions, basis) is None
+
+
+def test_nonplanar_face_is_not_a_convex_tile():
+    from molcrys_kit.nets.duality import _PlacedFace, _tile_is_convex
+
+    tile = _placed_box((1, 1, 1))
+    warped = []
+    for face in tile.faces:
+        if face.face_id == "pz":
+            cycle = list(face.cycle)
+            node_id, image = cycle[2]
+            cycle[2] = (node_id, (image[0], image[1], image[2] + 1))
+            warped.append(_PlacedFace(face.face_id, face.side, tuple(cycle)))
+        else:
+            warped.append(face)
+    bent = type(tile)(tile.tile_id, tuple(warped))
+    assert _tile_is_convex(bent, {"a": (0, 0, 0)}) is False

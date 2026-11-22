@@ -4,14 +4,26 @@ A dual net is built only from a caller-supplied face pairing that passes one
 of two certificates.
 
 The space-filling certificate accepts a periodic tiling of Euclidean 3-space.
-Each tile develops to a convex ball, opposite sides of every face meet at the
-claimed lattice shift, the link of every edge is one cycle of at least three
-faces, tile interiors are disjoint, and the tile volumes sum to the
-translation cell. The witness records the primal face, the two tiles, and the
+Each tile develops to a convex ball whose faces are planar and consistently
+oriented. Opposite sides of every face meet at the claimed lattice shift, the
+link of every edge is one cycle of at least three faces, tile interiors are
+disjoint, and the tile volumes sum to the translation cell. Interior
+comparisons enumerate every translation-subgroup image whose bounding boxes
+can meet. The coefficient box is the exact image of those boxes under the
+inverse of the subgroup basis. A box past
+``TILING_NEIGHBOR_COEFFICIENT_LIMIT`` is not a certificate. Separation uses a
+face plane of either body. That proves the bodies are apart when it succeeds.
+Two disjoint convex bodies can still need an edge-edge axis, and those pairs
+are not certified; an intersecting pair is never reported as separated,
+because a point of the intersection lies inside every face plane of a convex
+tile. The witness records the primal face, the two tiles, and the
 shift of the dual edge. An edge may lie in any number of face orbits other
 than two. That count is not a reason to reject the tiling.
 
-If that certificate does not apply, the closed-surface certificate still
+An unproved neighbor window refuses the input
+(``tiling_neighbor_window_unproved``) instead of falling through. If the
+space-filling certificate does not apply and does not refuse, the
+closed-surface certificate still
 accepts a quotient surface: every face is a cover cycle crossed once, lattice
 translates and reversals of one cycle are one face, every adjacency shift is
 the primitive normal of that face, every primal edge lies in exactly two face
@@ -28,6 +40,7 @@ duality. With no tiling the status is ``not_assessed``.
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass
 from fractions import Fraction
@@ -473,7 +486,10 @@ def _space_filling(
         total = sum((volume for _tile, volume in volumes), Fraction(0))
         if total != Fraction(cell):
             continue
-        if not _interiors_disjoint(placed, positions, family.subgroup.basis):
+        disjoint = _interiors_disjoint(placed, positions, family.subgroup.basis)
+        if disjoint is None:
+            return _Filling(False, "tiling_neighbor_window_unproved", {})
+        if not disjoint:
             continue
         accepted.append(
             {
@@ -845,6 +861,17 @@ def _tile_is_convex(tile: _PlacedTile, positions) -> bool:
         if normal is None or normal == (Fraction(0), Fraction(0), Fraction(0)):
             return False
         origin = located[0]
+        if any(_fdot(_fsub(point, origin), normal) != 0 for point in located):
+            return False
+        turns = []
+        for index in range(len(located)):
+            previous = located[index - 1]
+            current = located[index]
+            nxt = located[(index + 1) % len(located)]
+            turn = _fcross(_fsub(current, previous), _fsub(nxt, current))
+            turns.append(_sign(_fdot(turn, normal)))
+        if any(turn < 0 for turn in turns) or not any(turn > 0 for turn in turns):
+            return False
         signs = {
             _sign(_fdot(_fsub(point, origin), normal))
             for point in points
@@ -1063,8 +1090,17 @@ def _tile_volumes(placed, positions) -> list[tuple[str, Fraction]]:
     return rows
 
 
-def _interiors_disjoint(placed, positions, basis: tuple[ImageShift, ...]) -> bool:
+def _interiors_disjoint(
+    placed, positions, basis: tuple[ImageShift, ...]
+) -> bool | None:
+    """Return whether proved bounding-box neighbors have disjoint interiors.
+
+    ``None`` means the proved coefficient box is larger than the configured
+    limit, so disjointness was not decided.
+    """
     window = _neighbor_window(placed, positions, basis)
+    if window is None:
+        return None
     bodies = [(tile, (0, 0, 0)) for tile in placed]
     translated = []
     for tile in placed:
@@ -1087,24 +1123,93 @@ def _pair_key_fresh(left_tile, right_tile, right_shift) -> bool:
 
 
 def _neighbor_window(placed, positions, basis: tuple[ImageShift, ...]):
-    span = 1
+    """Translations whose axis-aligned boxes can meet, or ``None`` if uncapped.
+
+    A subgroup vector ``c @ basis`` moves ambient coordinates by ``d``. Two
+    tiles can meet only when ``d`` lies in the box
+    ``(min_left - max_right, max_left - min_right)`` on every axis. Those
+    boxes map to coefficient ranges through the adjugate of ``basis``. Every
+    integer coefficient inside the ranges is returned. A product of those
+    lengths above ``TILING_NEIGHBOR_COEFFICIENT_LIMIT`` is not truncated.
+    """
+    from ..constants.config import NET_TOPOLOGY_CONFIG
+    from ..periodic._lattice import adjugate
+
+    determinant = det_basis(basis)
+    if determinant == 0:
+        return None
+    inverse = adjugate(basis)
+    ranges = _coefficient_ranges(placed, positions, inverse, determinant)
+    if ranges is None:
+        return []
+    lengths = [high - low + 1 for low, high in ranges]
+    if any(length <= 0 for length in lengths):
+        return []
+    budget = int(NET_TOPOLOGY_CONFIG["TILING_NEIGHBOR_COEFFICIENT_LIMIT"])
+    count = 1
+    for length in lengths:
+        count *= length
+        if count > budget:
+            return None
+    vectors = []
+    for i in range(ranges[0][0], ranges[0][1] + 1):
+        for j in range(ranges[1][0], ranges[1][1] + 1):
+            for k in range(ranges[2][0], ranges[2][1] + 1):
+                vectors.append(_combine_basis(basis, i, j, k))
+    return vectors
+
+
+def _coefficient_ranges(placed, positions, inverse, determinant: int):
+    """Integer coefficient bounds covering every bounding-box overlap."""
+    boxes = []
     for tile in placed:
         points = _unique_points(tile, positions)
-        for axis in range(3):
-            values = [point[axis] for point in points]
-            width = max(values) - min(values)
-            span = max(span, int(width) + 1)
-    vectors = []
-    coefficients = range(-span, span + 1)
-    for i in coefficients:
-        for j in coefficients:
-            for k in coefficients:
-                if (i, j, k) == (0, 0, 0):
+        if not points:
+            return None
+        lows = [min(point[axis] for point in points) for axis in range(3)]
+        highs = [max(point[axis] for point in points) for axis in range(3)]
+        boxes.append((lows, highs))
+    overall = None
+    for left_low, left_high in boxes:
+        for right_low, right_high in boxes:
+            low = tuple(
+                Fraction(left_low[axis] - right_high[axis]) for axis in range(3)
+            )
+            high = tuple(
+                Fraction(left_high[axis] - right_low[axis]) for axis in range(3)
+            )
+            if any(low[axis] > high[axis] for axis in range(3)):
+                continue
+            for corner in itertools.product(*zip(low, high, strict=True)):
+                coefficient = _coefficient(corner, inverse, determinant)
+                if overall is None:
+                    overall = [list(coefficient), list(coefficient)]
                     continue
-                vectors.append(_combine_basis(basis, i, j, k))
-    # Also the zero vector so two distinct representatives in one cell are compared.
-    vectors.append((0, 0, 0))
-    return vectors
+                for axis, value in enumerate(coefficient):
+                    overall[0][axis] = min(overall[0][axis], value)
+                    overall[1][axis] = max(overall[1][axis], value)
+    if overall is None:
+        return [(-1, -1), (-1, -1), (-1, -1)]
+    return [
+        (math.ceil(overall[0][axis]), math.floor(overall[1][axis])) for axis in range(3)
+    ]
+
+
+def _coefficient(corner, inverse, determinant: int):
+    """Return ``corner @ inverse / determinant`` as fractions."""
+    scale = Fraction(1, determinant)
+    values = []
+    for axis in range(3):
+        column = (inverse[0][axis], inverse[1][axis], inverse[2][axis])
+        numer = sum(
+            (
+                Fraction(component) * int(weight)
+                for component, weight in zip(corner, column)
+            ),
+            Fraction(0),
+        )
+        values.append(numer * scale)
+    return tuple(values)
 
 
 def _combine_basis(basis, i, j, k) -> ImageShift:

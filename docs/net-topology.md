@@ -317,6 +317,16 @@ from a tile to itself is `inconsistent_adjacency_shift`. Each tile must be a
 convex ball, the link of every edge must be a single cycle of at least three
 faces, and the link of every vertex must be a sphere. Tile interiors are
 disjoint, and the volumes sum to the index of the translation lattice. The
+neighbor search is every integer combination of the translation basis whose
+image can meet the tiles' axis-aligned boxes; the coefficient ranges are the
+image of those boxes under the inverse basis. A box larger than
+`TILING_NEIGHBOR_COEFFICIENT_LIMIT` is `undetermined` with reason
+`tiling_neighbor_window_unproved`, not a disjointness claim. Face planes of
+either body are the separating test. A plane that puts the other body on its
+outer side proves the interiors are apart. An intersecting convex pair cannot
+pass that test. Some disjoint convex pairs are separable only by an edge-edge
+axis; those pairs are not certified. Each face used in the test is planar and
+consistently oriented. The
 quotient Euler characteristic `V - E + F - T` is 0. The witness kind is
 `space_filling_tiling`. An edge may lie in any number of face orbits. A count
 other than two does not by itself reject the tiling.
