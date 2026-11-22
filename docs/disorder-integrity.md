@@ -125,9 +125,11 @@ Build or repair the loop before resolving disorder:
   do **not** normalize occupancy. Lone partial sites (including lone non-zero
   disorder groups without a competing component) stay at their refined occupancy.
 - Void carving and nanocluster sidecars set ``input_disorder.all_atom_ordered``
-  when the crystal has solver ``disorder_provenance`` and no competing
-  ``disorder_group`` or ``assembly`` labels. Partial site occupancies alone do
-  not mark the input unresolved.
+  when the crystal has solver ``disorder_provenance`` (incompatible alternative
+  sites were removed). Retained ``disorder_group`` / ``assembly`` labels and
+  partial site occupancies are source metadata on the replica, not unresolved
+  disorder. Stats also expose ``retained_disorder_group_label_count`` and
+  ``nonunit_occupancy_count`` for review.
 - `strict_formula=True` rejects candidates that do not match
   `_chemical_formula_moiety` times `_cell_formula_units_Z`. The default warns
   and still returns a best-effort crystal. Write the moiety as discrete

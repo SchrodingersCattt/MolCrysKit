@@ -13,48 +13,18 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
-from ..analysis.disorder import UnresolvedDisorderWarning
 from ..constants.config import KEY_ASSEMBLY, KEY_DISORDER_GROUP, KEY_OCCUPANCY
 from ..structures.crystal import MolecularCrystal
 from ..structures.molecule import _strip_stale_frac_arrays
+from .disorder_input import warn_if_unresolved_disorder
 
 
 def _warn_if_unresolved_disorder(
     crystal: MolecularCrystal,
 ) -> dict[str, bool | int]:
-    nonunit_occupancies = 0
-    active_groups = 0
-    active_assemblies = 0
-    for molecule in crystal.molecules:
-        occupancies = np.asarray(molecule.arrays.get(KEY_OCCUPANCY, []), dtype=float)
-        nonunit_occupancies += int(
-            np.count_nonzero(~np.isclose(occupancies, 1.0, rtol=0.0, atol=1e-8))
-        )
-        active_groups += sum(
-            str(value).strip() not in {"", ".", "?", "0"}
-            for value in molecule.arrays.get(KEY_DISORDER_GROUP, [])
-        )
-        active_assemblies += sum(
-            str(value).strip() not in {"", ".", "?", "0"}
-            for value in molecule.arrays.get(KEY_ASSEMBLY, [])
-        )
-    alternatives_clear = not bool(active_groups or active_assemblies)
-    ordered_replica = crystal.disorder_provenance is not None
-    stats = {
-        # Solver replica with no competing PART labels; partial site occ may remain.
-        "all_atom_ordered": ordered_replica and alternatives_clear,
-        "nonunit_occupancy_count": nonunit_occupancies,
-        "active_disorder_group_count": active_groups,
-        "active_disorder_assembly_count": active_assemblies,
-    }
-    if not stats["all_atom_ordered"]:
-        warnings.warn(
-            "create_supercell is continuing with unresolved disorder; resolve an "
-            "ordered replica before production MD.",
-            UnresolvedDisorderWarning,
-            stacklevel=2,
-        )
-    return stats
+    return warn_if_unresolved_disorder(
+        crystal, operation="create_supercell"
+    )
 
 
 def create_supercell(

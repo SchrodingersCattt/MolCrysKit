@@ -11,7 +11,9 @@ from molcrys_kit.analysis.disorder.process import (
 )
 from molcrys_kit.analysis.structure_summary import summarize_structure
 from molcrys_kit.constants.config import PARTIAL_OCCUPANCY_TOLERANCE
-from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.io.cif import read_mol_crystal, scan_cif_disorder
+from molcrys_kit.analysis.disorder.graph import DisorderGraphBuilder
+from molcrys_kit.operations.disorder_input import disorder_input_stats
 
 CIF_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "data", "cif")
@@ -27,6 +29,8 @@ GROUP0_GEOM_OVERLAP_CIF = os.path.join(
 )
 BONDED_PARTIAL_CIF = os.path.join(CIF_DIR, "issue226_bonded_partial_water.cif")
 INDEPENDENT_ASM_CIF = os.path.join(CIF_DIR, "issue226_independent_assemblies.cif")
+GROUP0_VS_PART_CIF = os.path.join(CIF_DIR, "issue226_group0_vs_dropped_part.cif")
+DAP4_CIF = os.path.join(CIF_DIR, "DAP-4.cif")
 
 
 def test_lone_group_zero_partial_occupancy_survives_resolve_disorder():
@@ -100,6 +104,50 @@ def test_independent_assemblies_explicit_winners_are_full_occupancy():
         for site in resolved.get_site_records():
             assert site.occupancy == pytest.approx(1.0)
             assert site.disorder_group in {1, 2}
+
+
+def test_group_zero_partial_wins_over_dropped_part_without_occ_promotion():
+    """Group-0 partial vs dropped non-zero PART: geometric clash only."""
+    resolved = read_mol_crystal(GROUP0_VS_PART_CIF, resolve_disorder=True)
+    sites = resolved.get_site_records()
+    assert len(sites) == 1
+    assert sites[0].symbol == "O"
+    assert sites[0].occupancy == pytest.approx(0.6)
+    assert sites[0].disorder_group == 0
+
+
+def test_resolved_replica_with_part_labels_is_still_ordered():
+    path = os.path.join(CIF_DIR, "1-HTP.cif")
+    resolved = read_mol_crystal(path, resolve_disorder=True)
+    stats = disorder_input_stats(resolved)
+    assert stats["ordered_replica"] is True
+    assert stats["all_atom_ordered"] is True
+    assert stats["retained_disorder_group_label_count"] > 0
+
+
+def test_dap4_resolved_replica_ordered_with_partial_sites():
+    unresolved = read_mol_crystal(DAP4_CIF, resolve_disorder=False)
+    resolved = read_mol_crystal(DAP4_CIF, resolve_disorder=True)
+    assert disorder_input_stats(unresolved)["all_atom_ordered"] is False
+    stats = disorder_input_stats(resolved)
+    assert stats["ordered_replica"] is True
+    assert stats["all_atom_ordered"] is True
+    assert stats["nonunit_occupancy_count"] == 32
+    info = scan_cif_disorder(DAP4_CIF)
+    graph = DisorderGraphBuilder(info, info.lattice_matrix).build()
+    kept = resolved.disorder_provenance.kept_indices
+    dropped = set(resolved.disorder_provenance.dropped_indices)
+    partial_kept = [i for i in kept if info.occupancies[i] < 0.999]
+    assert len(partial_kept) == 32
+    for index in partial_kept:
+        for other in dropped:
+            if graph.has_edge(index, other):
+                ct = graph[index][other].get("conflict_type", "")
+                assert ct not in {
+                    "explicit",
+                    "logical_alternative",
+                    "implicit_sp",
+                }
 
 
 def test_crystal_carrier_path_preserves_partial_occupancy():
