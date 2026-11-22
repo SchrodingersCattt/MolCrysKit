@@ -4,7 +4,6 @@ Geometry utilities for molecular crystals.
 This module provides coordinate transformations and geometric calculations.
 """
 
-import itertools
 import numpy as np
 from typing import List, Optional, Tuple
 from ..constants import get_atomic_mass, has_atomic_mass
@@ -454,45 +453,51 @@ def dihedral_angle(
 
 
 def minimum_image_vector(frac_delta: np.ndarray, lattice: np.ndarray) -> np.ndarray:
+    """Return the shortest Cartesian lattice image for fractional displacement(s).
+
+    Each row of ``frac_delta`` is treated as a displacement in fractional
+    coordinates on a fully periodic 3D cell (all axes periodic). The search is
+    exact on general cells via Fincke–Pohst enumeration in
+    :mod:`molcrys_kit.utils.lattice_mic` (not a fixed ``{-1,0,1}³`` stencil).
+
+    Parameters
+    ----------
+    frac_delta : np.ndarray
+        Shape ``(3,)`` or ``(N, 3)`` fractional displacement(s).
+    lattice : np.ndarray
+        ``(3, 3)`` lattice with row vectors.
+
+    Returns
+    -------
+    np.ndarray
+        Minimum-image Cartesian vector(s), same batching as the input.
+
+    Notes
+    -----
+    For partial periodicity use the private compat carrier or provide a custom
+    wrapper around :func:`~molcrys_kit.utils.lattice_mic.minimum_image_cartesian`.
+
+    Very flat or nearly singular cells can require exploring many integer
+    shifts for long unwraped displacements; cost scales with the volume of the
+    search ball, not with a fixed image count. Neighbor-list-scale workloads
+    should keep cutoffs modest on skew cells. When ``|det(lattice)|`` is below
+    :data:`~molcrys_kit.constants.config.LATTICE_MIC_CELL_DET_EPS`, periodic
+    rows with negligible length are ignored and the raw displacement is a
+    feasible image along those directions.
     """
-    Vectorized Minimum Image Convention.
-    Check 27 images to find the shortest Cartesian vector.
-    """
-    frac_delta = np.atleast_2d(frac_delta)  # Shape becomes (N, 3)
+    from .lattice_mic import minimum_image_cartesian
 
-    # 1. First approximation: simple rounding to center at origin
-    # This brings vectors roughly to [-0.5, 0.5]
-    frac_delta = frac_delta - np.round(frac_delta)
-
-    # 2. Check 27 neighbors
-    # shifts shape: (27, 3)
-    shifts = np.array(list(itertools.product([-1, 0, 1], repeat=3)))
-
-    # Broadcasting magic:
-    # We want result shape (N, 27, 3)
-    # frac_delta[:, None, :] is (N, 1, 3)
-    # shifts[None, :, :]     is (1, 27, 3)
-    candidates_frac = frac_delta[:, None, :] + shifts[None, :, :]
-
-    # Convert to Cartesian: (N, 27, 3) dot (3, 3) -> (N, 27, 3)
-    candidates_cart = np.dot(candidates_frac, lattice)
-
-    # Calculate squared distances: (N, 27)
-    dists_sq = np.sum(candidates_cart**2, axis=2)
-
-    # Find index of min distance for each atom pair: (N,)
-    min_indices = np.argmin(dists_sq, axis=1)
-
-    # Select the best vectors
-    # Advanced indexing to pick the right candidate for each row
-    n_rows = frac_delta.shape[0]
-    best_vectors = candidates_cart[np.arange(n_rows), min_indices]
-
-    # If input was single vector, flatten back
-    if best_vectors.shape[0] == 1:
-        return best_vectors.flatten()
-
-    return best_vectors
+    single = np.ndim(frac_delta) == 1
+    frac_delta = np.atleast_2d(np.asarray(frac_delta, dtype=float))
+    lattice = np.asarray(lattice, dtype=float).reshape(3, 3)
+    cart_batch = np.dot(frac_delta, lattice)
+    pbc = np.ones(3, dtype=bool)
+    best = np.empty_like(cart_batch)
+    for index, cart_delta in enumerate(cart_batch):
+        best[index] = minimum_image_cartesian(cart_delta, lattice, pbc)
+    if single:
+        return best[0]
+    return best
 
 
 def minimum_image_distance(
