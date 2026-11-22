@@ -52,7 +52,10 @@ CIF reading, special-position clustering, and CIF/POSCAR/XYZ export run on
 the core install. `molcrys_kit.compat` is a private fallback for that
 profile. It parses symmetry operations as bounded affine `x,y,z` expressions,
 including grouping parentheses such as `(x+1/2)`, and carries Cartesian
-structures for the calls the CIF path makes. It is not
+structures for the calls the CIF path makes. Pair distances and neighbor
+images enumerate every periodic lattice translation inside a ball that is
+proven to contain them, including atoms that already sit several cells from
+the origin and cells that are not orthogonal. The carrier is not
 a second ASE or pymatgen API. When ASE is installed, `CrystalMolecule` still
 subclasses `ase.Atoms`.
 

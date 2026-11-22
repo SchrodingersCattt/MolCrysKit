@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 from ase import Atoms as AseAtoms
+from ase.geometry import get_distances as ase_get_distances
+from ase.neighborlist import neighbor_list as ase_neighbor_list
 
-from molcrys_kit.compat.atoms import Atoms
+from molcrys_kit.compat.atoms import Atoms, get_distances, neighbor_list
 from molcrys_kit.compat.symmetry import SymmOp
 
 _SYMBOLS = ["H", "C", "O", "N"]
@@ -148,3 +151,202 @@ def test_vendored_space_group_operations_are_crystallographic():
             assert np.all(np.isin(np.rint(parsed.rotation_matrix), [-1, 0, 1]))
             seen += 1
     assert seen > 1000
+
+
+def _exhaustive_minimum(delta, cell, pbc):
+    """Shortest image inside the interplanar bound around the raw vector.
+
+    Any lattice image shorter than ``delta`` has fractional component
+    ``|f_k| < ||delta|| / h_k`` along each periodic axis, where ``h_k`` is
+    the spacing between lattice planes. The box below contains that image.
+    """
+    delta = np.asarray(delta, dtype=float)
+    cell = np.asarray(cell, dtype=float)
+    periodic = np.asarray(pbc, dtype=bool)
+    ranges = []
+    raw = float(np.linalg.norm(delta))
+    for axis in range(3):
+        if not periodic[axis]:
+            ranges.append([0])
+            continue
+        other = np.cross(cell[(axis + 1) % 3], cell[(axis + 2) % 3])
+        height = abs(float(np.dot(cell[axis], other))) / (
+            float(np.linalg.norm(other)) + 1e-15
+        )
+        count = int(np.ceil(raw / max(height, 1e-8))) + 1
+        ranges.append(range(-count, count + 1))
+    best_vector = delta.copy()
+    best_length = raw
+    for shift in itertools.product(*ranges):
+        vector = delta + np.asarray(shift, dtype=float) @ cell
+        length = float(np.linalg.norm(vector))
+        if length < best_length:
+            best_vector = vector
+            best_length = length
+    return best_vector
+
+
+def test_get_distance_uses_minimum_image_on_the_carrier():
+    carrier, _reference = _pair(
+        positions=np.array([[0.0, 0.0, 0.0], [20.5, 0.0, 0.0]]),
+        symbols=["C", "C"],
+    )
+    vector = carrier.get_distance(0, 1, mic=True, vector=True)
+    np.testing.assert_allclose(vector, [0.5, 0.0, 0.0])
+    assert carrier.get_distance(0, 1, mic=True) == pytest.approx(0.5)
+    np.testing.assert_allclose(
+        carrier.get_distance(0, 1, mic=False, vector=True), [20.5, 0.0, 0.0]
+    )
+
+
+def test_neighbor_list_finds_contact_several_cells_away():
+    cell = np.diag([10.0, 10.0, 10.0])
+    positions = np.array([[0.0, 0.0, 0.0], [20.5, 0.0, 0.0]])
+    atoms = Atoms(symbols=["C", "C"], positions=positions, cell=cell, pbc=True)
+    indices_i, indices_j, distances, shifts = neighbor_list("ijdS", atoms, 1.0)
+    found = {
+        (int(left), int(right)): (
+            float(distance),
+            tuple(int(value) for value in shift),
+        )
+        for left, right, distance, shift in zip(indices_i, indices_j, distances, shifts)
+    }
+    assert found[(0, 1)][0] == pytest.approx(0.5)
+    assert found[(0, 1)][1] == (-2, 0, 0)
+    assert found[(1, 0)][1] == (2, 0, 0)
+    reference = AseAtoms(symbols=["C", "C"], positions=positions, cell=cell, pbc=True)
+    ref_i, ref_j, ref_d, ref_s = ase_neighbor_list("ijdS", reference, 1.0)
+    assert sorted(zip(ref_i.tolist(), ref_j.tolist(), ref_s.tolist())) == sorted(
+        zip(indices_i.tolist(), indices_j.tolist(), shifts.tolist())
+    )
+    np.testing.assert_allclose(sorted(distances), sorted(ref_d))
+
+
+def test_neighbor_images_follow_individual_and_collective_lattice_translations():
+    cell = np.array([[4.0, 0.0, 0.0], [1.5, 3.0, 0.0], [0.2, -0.4, 5.0]], dtype=float)
+    base = np.array([[0.2, 0.1, 0.0], [1.2, 2.4, 0.3], [3.5, 0.2, 4.0]], dtype=float)
+    cutoff = 3.0
+
+    def pairs(positions):
+        atoms = Atoms(symbols=["C", "C", "C"], positions=positions, cell=cell, pbc=True)
+        indices_i, indices_j, _distances, vectors, shifts = neighbor_list(
+            "ijdDS", atoms, cutoff
+        )
+        found = {}
+        for left, right, vector, shift in zip(indices_i, indices_j, vectors, shifts):
+            shift = np.asarray(shift, dtype=int)
+            reconstructed = positions[right] + shift @ cell - positions[left]
+            np.testing.assert_allclose(reconstructed, vector, atol=1e-8)
+            found[(int(left), int(right), tuple(int(value) for value in shift))] = (
+                np.asarray(vector, dtype=float)
+            )
+        return found
+
+    original = pairs(base)
+    assert original
+    translation = np.array([2, -1, 3])
+    moved = np.array(base, copy=True)
+    moved[1] = moved[1] + translation @ cell
+    shifted = pairs(moved)
+    for (left, right, shift), vector in original.items():
+        updated = np.asarray(shift, dtype=int)
+        if right == 1:
+            updated = updated - translation
+        if left == 1:
+            updated = updated + translation
+        key = (left, right, tuple(int(value) for value in updated))
+        assert key in shifted
+        np.testing.assert_allclose(shifted[key], vector, atol=1e-8)
+
+    collective = base + np.array([-1, 2, 1], dtype=float) @ cell
+    again = pairs(collective)
+    assert set(again) == set(original)
+    for key, vector in original.items():
+        np.testing.assert_allclose(again[key], vector, atol=1e-8)
+
+
+def test_get_distances_matches_exhaustive_search_on_skew_cells():
+    cells = [
+        np.diag([10.0, 11.0, 12.0]),
+        np.array([[1.0, 0.0, 0.0], [0.6, 0.2, 0.0], [0.0, 0.0, 1.0]]),
+        np.array([[4.0, 0.0, 0.0], [1.5, 3.0, 0.0], [0.2, -0.4, 5.0]]),
+    ]
+    masks = [
+        np.array([True, True, True]),
+        np.array([True, True, False]),
+        np.array([True, False, True]),
+    ]
+    points = np.array(
+        [[0.0, 0.0, 0.0], [0.5, 0.1, 0.0], [2.2, -0.4, 0.7], [20.5, 1.0, -3.0]]
+    )
+    for cell in cells:
+        for mask in masks:
+            vectors, distances = get_distances(
+                points[:2], points[2:], cell=cell, pbc=mask
+            )
+            for row, origin in enumerate(points[:2]):
+                for column, target in enumerate(points[2:]):
+                    expected = _exhaustive_minimum(target - origin, cell, mask)
+                    np.testing.assert_allclose(
+                        vectors[row, column], expected, atol=1e-8
+                    )
+                    assert distances[row, column] == pytest.approx(
+                        float(np.linalg.norm(expected))
+                    )
+
+
+def test_neighbor_list_skew_cell_stays_within_regression_wall_time():
+    """Witness MIC translation enumeration cost on a representative skew cell."""
+    import time
+
+    cell = np.array(
+        [[13.2, 0.1, 0.2], [1.9, 13.1, 0.3], [0.1, -0.4, 13.8]],
+        dtype=float,
+    )
+    generator = np.random.default_rng(0)
+    count = 48
+    positions = generator.random((count, 3)) @ cell
+    atoms = Atoms(symbols=["C"] * count, positions=positions, cell=cell, pbc=True)
+    started = time.perf_counter()
+    indices_i, indices_j, distances, _shifts = neighbor_list("ijdS", atoms, 3.5)
+    elapsed = time.perf_counter() - started
+    assert indices_i.size > 0
+    assert elapsed < 5.0, (
+        f"carrier neighbor_list took {elapsed:.2f}s on n={count} skew cell; "
+        "review _translations_within bounding"
+    )
+    reference = AseAtoms(symbols=atoms.get_chemical_symbols(), positions=positions, cell=cell, pbc=True)
+    ref_i, ref_j, ref_d, _ref_s = ase_neighbor_list("ijdS", reference, 3.5)
+    assert sorted(zip(ref_i.tolist(), ref_j.tolist())) == sorted(
+        zip(indices_i.tolist(), indices_j.tolist())
+    )
+    np.testing.assert_allclose(sorted(distances), sorted(ref_d), rtol=0, atol=1e-8)
+
+
+def test_get_distances_matches_ase_for_full_periodicity_and_is_not_longer():
+    generator = np.random.default_rng(0)
+    for _trial in range(12):
+        factor = np.linalg.qr(generator.normal(size=(3, 3)))[0]
+        cell = factor * generator.uniform(2.0, 6.0, size=3)
+        cell = cell + generator.normal(scale=0.2, size=(3, 3))
+        if abs(float(np.linalg.det(cell))) < 0.3:
+            continue
+        points = generator.normal(scale=8.0, size=(4, 3))
+        full_vectors, full_distances = get_distances(
+            points[:2], points[2:], cell=cell, pbc=True
+        )
+        ase_vectors, ase_distances = ase_get_distances(
+            points[:2], points[2:], cell=cell, pbc=True
+        )
+        np.testing.assert_allclose(full_distances, ase_distances, atol=1e-6)
+        np.testing.assert_allclose(full_vectors, ase_vectors, atol=1e-6)
+        partial = generator.random(3) > 0.25
+        if not np.any(partial):
+            partial[0] = True
+        _vectors, distances = get_distances(
+            points[:2], points[2:], cell=cell, pbc=partial
+        )
+        _ase_vectors, ase_partial = ase_get_distances(
+            points[:2], points[2:], cell=cell, pbc=partial
+        )
+        assert np.all(distances <= ase_partial + 1e-6)
