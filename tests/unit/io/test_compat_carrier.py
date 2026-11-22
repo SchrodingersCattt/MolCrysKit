@@ -295,6 +295,34 @@ def test_get_distances_matches_exhaustive_search_on_skew_cells():
                     )
 
 
+def test_neighbor_list_skew_cell_stays_within_regression_wall_time():
+    """Witness MIC translation enumeration cost on a representative skew cell."""
+    import time
+
+    cell = np.array(
+        [[13.2, 0.1, 0.2], [1.9, 13.1, 0.3], [0.1, -0.4, 13.8]],
+        dtype=float,
+    )
+    generator = np.random.default_rng(0)
+    count = 48
+    positions = generator.random((count, 3)) @ cell
+    atoms = Atoms(symbols=["C"] * count, positions=positions, cell=cell, pbc=True)
+    started = time.perf_counter()
+    indices_i, indices_j, distances, _shifts = neighbor_list("ijdS", atoms, 3.5)
+    elapsed = time.perf_counter() - started
+    assert indices_i.size > 0
+    assert elapsed < 5.0, (
+        f"carrier neighbor_list took {elapsed:.2f}s on n={count} skew cell; "
+        "review _translations_within bounding"
+    )
+    reference = AseAtoms(symbols=atoms.get_chemical_symbols(), positions=positions, cell=cell, pbc=True)
+    ref_i, ref_j, ref_d, _ref_s = ase_neighbor_list("ijdS", reference, 3.5)
+    assert sorted(zip(ref_i.tolist(), ref_j.tolist())) == sorted(
+        zip(indices_i.tolist(), indices_j.tolist())
+    )
+    np.testing.assert_allclose(sorted(distances), sorted(ref_d), rtol=0, atol=1e-8)
+
+
 def test_get_distances_matches_ase_for_full_periodicity_and_is_not_longer():
     generator = np.random.default_rng(0)
     for _trial in range(12):
