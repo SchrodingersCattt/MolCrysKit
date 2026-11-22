@@ -25,19 +25,23 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.18.0",
-    "scipy>=1.4.0",
     "networkx>=2.5.0",
-    "ase>=3.26.0",
-    "pymatgen>=2022.0.3",
-    "spglib>=2.5",
     "click>=8.0,<9",
-    "defusedxml>=0.7.1",
 ]
 
 [project.scripts]
 mck = "molcrys_kit.cli:main"
 
 [project.optional-dependencies]
+# Full scientific stack. The core install above is the resolvable lightweight
+# profile (CIF read, special-position clustering, and structure export).
+desktop = [
+    "scipy>=1.4.0",
+    "ase>=3.26.0",
+    "pymatgen>=2022.0.3",
+    "spglib>=2.5",
+    "defusedxml>=0.7.1",
+]
 vis = ["nglview", "py3Dmol"]
 test = [
     "pytest>=6.0.0",
@@ -48,7 +52,7 @@ test = [
     "build",
 ]
 dev = [
-    "molcrys-kit[test,vis]",
+    "molcrys-kit[test,vis,desktop]",
     "ruff==0.15.14",
     "pre-commit",
     "nbstripout",
@@ -68,6 +72,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 molcrys_kit = ["constants/*.json"]
+"molcrys_kit.compat" = ["data/*.json", "data/*.txt"]
 "molcrys_kit._bundled_skills" = ["**/*"]
 
 [tool.setuptools.exclude-package-data]

@@ -242,6 +242,82 @@ def test_resource_limits(tmp_path, monkeypatch, constant, limit):
         read_mryx_atoms(path)
 
 
+def test_label_site_and_structure_caps(tmp_path, monkeypatch):
+    path = _save(tmp_path, _document())
+    monkeypatch.setattr(mryx, "MRYX_MAX_LABEL_LENGTH", 3)
+    with pytest.raises(ValueError, match="label exceeds"):
+        read_mryx_atoms(path)
+    monkeypatch.setattr(mryx, "MRYX_MAX_LABEL_LENGTH", 128)
+    monkeypatch.setattr(mryx, "MRYX_MAX_SITES", 1)
+    with pytest.raises(ValueError, match="site limit"):
+        read_mryx_atoms(path)
+    monkeypatch.setattr(mryx, "MRYX_MAX_SITES", 100_000)
+    monkeypatch.setattr(mryx, "MRYX_MAX_STRUCTURES", 2)
+    with pytest.raises(ValueError, match="structure limit"):
+        read_mryx_atoms(_save(tmp_path, _document(n=3)))
+
+
+def test_single_index_does_not_copy_unselected_structures(tmp_path, monkeypatch):
+    path = _save(tmp_path, _document(n=3))
+    calls = {"n": 0}
+    original = mryx._raw
+
+    def spy(node):
+        calls["n"] += 1
+        return original(node)
+
+    monkeypatch.setattr(mryx, "_raw", spy)
+    atoms = _read(path, index=0)
+    one = calls["n"]
+    assert one > 0
+    assert atoms.info["mryx"]["structure_index"] == 0
+    assert len(atoms.info["mryx"]["atoms"]) == 2
+    calls["n"] = 0
+    last = _read(path, index=-1)
+    assert calls["n"] == one
+    assert last.info["mryx"]["structure_index"] == 2
+    calls["n"] = 0
+    frames = _read(path, index=":")
+    assert calls["n"] == one * 3
+    assert [frame.info["mryx"]["structure_index"] for frame in frames] == [0, 1, 2]
+
+
+def test_ignored_markup_is_discarded_and_does_not_change_sites(tmp_path, monkeypatch):
+    root = _document(n=2)
+    scene = ET.Element("scene")
+    for index in range(12):
+        style = ET.SubElement(scene, "style")
+        ET.SubElement(style, "item").text = f"ignored-{index}"
+    root.insert(0, scene)
+    camera = ET.SubElement(root, "camera")
+    ET.SubElement(camera, "item").text = "ignored-camera"
+    path = _save(tmp_path, root)
+    cleared = []
+    original = mryx._release
+
+    def spy(elem):
+        cleared.append(elem.tag)
+        return original(elem)
+
+    monkeypatch.setattr(mryx, "_release", spy)
+    atoms = _read(path, index=0)
+    assert atoms.get_chemical_symbols() == ["C", "O"]
+    assert atoms.info["mryx"]["structure_index"] == 0
+    assert "scene" in cleared and "camera" in cleared and "style" in cleared
+    labels = root.findall(".//value[@type='Atom3d']/label")
+    labels[2].text = "custom"
+    with pytest.raises(ValueError, match="infer an element"):
+        read_mryx_atoms(_save(tmp_path, root), index=0)
+
+
+def test_unselected_malformed_structure_still_fails(tmp_path):
+    root = _document(n=2)
+    labels = root.findall(".//value[@type='Atom3d']/label")
+    labels[2].text = "custom"
+    with pytest.raises(ValueError, match="infer an element"):
+        read_mryx_atoms(_save(tmp_path, root), index=0)
+
+
 def test_standard_model_and_extxyz_output(tmp_path):
     path = _save(tmp_path, _document(n=2))
     with pytest.warns(UserWarning, match="MRYX"):
