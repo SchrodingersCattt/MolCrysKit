@@ -184,8 +184,20 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
         assert listed.returncode == 0, listed.stdout + listed.stderr
         names = [item["name"] for item in json.loads(listed.stdout)["skills"]]
 
-        tree = subprocess.run(
+        missing = subprocess.run(
             [sys.executable, "-m", "molcrys_kit", "skills", "tree"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=isolated_env,
+            cwd=cli_cwd,
+        )
+        assert missing.returncode == 2, missing.stdout + missing.stderr
+        assert "SKILL_NAME or --all" in missing.stderr
+        assert "Missing argument" not in missing.stderr
+
+        tree = subprocess.run(
+            [sys.executable, "-m", "molcrys_kit", "skills", "tree", "--all"],
             capture_output=True,
             text=True,
             check=False,

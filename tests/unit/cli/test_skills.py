@@ -86,32 +86,85 @@ def test_skills_tree_has_links_without_bodies() -> None:
     assert all("content" not in resource for resource in payload["resources"])
 
 
-def test_skills_tree_without_name_shows_all_bundled_skills() -> None:
+def test_skills_tree_without_name_reports_usage_with_choices() -> None:
+    runner = CliRunner()
+    names = _bundled_skill_names(runner)
+
+    text = runner.invoke(main, ["skills", "tree"])
+    assert text.exit_code == 2, text.output
+    assert "skills tree requires SKILL_NAME or --all" in text.output
+    assert "Missing argument" not in text.output
+    for name in names:
+        assert name in text.output
+    assert "mck skills tree --all" in text.output
+    assert "SKILL.md (markdown)" not in text.output
+
+    err_json = runner.invoke(main, ["skills", "tree", "--json"])
+    assert err_json.exit_code == 2
+    payload = json.loads(err_json.stdout)
+    assert payload == {
+        "choices": names,
+        "error": "skills tree requires SKILL_NAME or --all",
+        "ok": False,
+        "schema": "mck.error/v1",
+    }
+
+
+def test_skills_tree_all_shows_aggregate() -> None:
     runner = CliRunner()
     names = _bundled_skill_names(runner)
     listed = json.loads(runner.invoke(main, ["skills", "list", "--json"]).output)
 
-    text = runner.invoke(main, ["skills", "tree"])
+    text = runner.invoke(main, ["skills", "tree", "--all"])
     assert text.exit_code == 0, text.output
     blocks = _aggregate_tree_blocks(text.output)
     assert [block.splitlines()[0] for block in blocks] == names
     for block in blocks:
         indented = [line for line in block.splitlines()[1:] if line.startswith("  ")]
         assert indented, block
-        assert all("content" not in line for line in indented)
     for item in listed["skills"]:
         assert item["description"] not in text.output
     for name in names:
         assert _first_markdown_heading_from_show(runner, name) not in text.output
 
-    payload = json.loads(
-        runner.invoke(main, ["skills", "tree", "--json"]).output
-    )
+    payload = json.loads(runner.invoke(main, ["skills", "tree", "--all", "--json"]).output)
     assert payload["schema"] == "mck.skills.trees/v1"
     assert [entry["skill"] for entry in payload["trees"]] == names
     for entry in payload["trees"]:
         assert any(r["path"] == "SKILL.md" for r in entry["resources"])
         assert all("content" not in resource for resource in entry["resources"])
+
+
+def test_skills_tree_rejects_name_with_all() -> None:
+    runner = CliRunner()
+    text = runner.invoke(main, ["skills", "tree", "analyze-molecular-crystal", "--all"])
+    assert text.exit_code == 2
+    assert "not both" in text.output
+
+    err_json = runner.invoke(
+        main, ["skills", "tree", "analyze-molecular-crystal", "--all", "--json"]
+    )
+    assert err_json.exit_code == 2
+    assert json.loads(err_json.stdout) == {
+        "error": "skills tree accepts SKILL_NAME or --all, not both",
+        "ok": False,
+        "schema": "mck.error/v1",
+    }
+
+
+def test_skills_group_help_documents_tree_invocation() -> None:
+    result = CliRunner().invoke(main, ["skills", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "tree --all" in result.output
+    assert "skill name" in result.output.lower()
+
+
+def test_skills_tree_help_documents_all_option() -> None:
+    result = CliRunner().invoke(main, ["skills", "tree", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--all" in result.output
+    assert "SKILL_NAME" in result.output
+    assert "aggregate" in result.output.lower() or "every" in result.output.lower()
 
 
 def test_skills_tree_unknown_skill_still_fails() -> None:
@@ -127,12 +180,6 @@ def test_skills_tree_unknown_skill_still_fails() -> None:
         "ok": False,
         "schema": "mck.error/v1",
     }
-
-
-def test_skills_tree_help_shows_optional_skill_name() -> None:
-    result = CliRunner().invoke(main, ["skills", "tree", "--help"])
-    assert result.exit_code == 0, result.output
-    assert "[SKILL_NAME]" in result.output
 
 
 def test_skills_reject_escape() -> None:
