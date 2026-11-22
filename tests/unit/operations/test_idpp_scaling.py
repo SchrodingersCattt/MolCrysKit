@@ -1,4 +1,7 @@
-"""The all-pairs IDPP probe runs on a small grid and reports its shape."""
+"""Smoke test for the IDPP scaling probe (shape and loose wall time only).
+
+This is not a performance regression gate: see ``benchmarks/idpp_scaling.py``.
+"""
 
 from benchmarks.idpp_scaling import time_idpp_grid
 
