@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -120,3 +121,66 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
         leftover = work / "molcrys_kit" / "_bundled_skills"
         assert leftover.is_dir()
         assert sorted(p.name for p in leftover.iterdir()) == ["__init__.py"]
+
+        site = Path(tmp) / "site"
+        install = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-deps",
+                "--target",
+                str(site),
+                str(wheels[0]),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        assert install.returncode == 0, install.stdout + install.stderr
+        # Wheel metadata lists runtime deps; install them beside the wheel payload.
+        for dependency in ("click>=8.0,<9", "numpy>=1.18.0", "networkx>=2.5.0"):
+            deps = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--quiet",
+                    "--target",
+                    str(site),
+                    dependency,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            assert deps.returncode == 0, deps.stdout + deps.stderr
+        isolated_env = dict(env)
+        isolated_env["PYTHONPATH"] = str(site)
+
+        listed = subprocess.run(
+            [sys.executable, "-m", "molcrys_kit", "skills", "list", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=isolated_env,
+        )
+        assert listed.returncode == 0, listed.stdout + listed.stderr
+        names = [item["name"] for item in json.loads(listed.stdout)["skills"]]
+
+        tree = subprocess.run(
+            [sys.executable, "-m", "molcrys_kit", "skills", "tree"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=isolated_env,
+        )
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        blocks = [b for b in tree.stdout.strip().split("\n\n") if b.strip()]
+        assert [block.splitlines()[0] for block in blocks] == names
+        assert "SKILL.md (markdown)" in tree.stdout
