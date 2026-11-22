@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 _CORE = {"numpy", "networkx", "click"}
-_DESKTOP = {"scipy", "ase", "pymatgen", "spglib"}
+_DESKTOP = {"scipy", "ase", "pymatgen", "spglib", "defusedxml"}
 
 
 def _distribution_name(requirement: str) -> str:

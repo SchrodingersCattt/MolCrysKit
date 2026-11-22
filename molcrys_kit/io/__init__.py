@@ -1,7 +1,9 @@
 """Input and output for MolCrysKit.
 
 Readers that need ASE or pymatgen are imported on first use so the CIF path
-can load without them.
+can load without them. Mercury MRYX readers stay on that same lazy table:
+importing ``molcrys_kit.io`` does not import ASE until ``read_mryx`` or
+``read_mryx_atoms`` is used.
 """
 
 _EXPORTS = {
@@ -27,6 +29,8 @@ _EXPORTS = {
     "write_xyz": (".output", "write_xyz"),
     "write_xyz_with_freeze": (".output", "write_xyz_with_freeze"),
     "read_xyz": (".xyz", "read_xyz"),
+    "read_mryx": (".mryx", "read_mryx"),
+    "read_mryx_atoms": (".mryx", "read_mryx_atoms"),
     "read_poscar": (".poscar", "read_poscar"),
     "read_periodic_bundle": (".periodic_bundle", "read_periodic_bundle"),
     "write_periodic_bundle": (".periodic_bundle", "write_periodic_bundle"),

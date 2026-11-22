@@ -7,7 +7,7 @@
 ## Core Concepts
 
 - `MolecularCrystal` is the central object for most workflows.
-- The core install is NumPy, NetworkX, and Click (`pip install molcrys-kit`). `pip install molcrys-kit[desktop]` adds SciPy, ASE, pymatgen, and spglib. CIF reading, special-position clustering, and structure export run on the core install. `molcrys_kit.compat` is a private fallback for that install, not a public ASE or pymatgen API.
+- The core install is NumPy, NetworkX, and Click (`pip install molcrys-kit`). `pip install "molcrys-kit[desktop]"` adds SciPy, ASE, pymatgen, spglib, and defusedxml. CIF reading, special-position clustering, and structure export run on the core install. Mercury `.mryx` import needs the desktop extra. `molcrys_kit.compat` is a private fallback for the core install, not a public ASE or pymatgen API.
 - Typical flow: CIF/ASE → `MolecularCrystal` → operation or analysis → writer.
 - Operations return new objects; treat inputs as immutable unless a docstring says otherwise.
 - Use `import molcrys_kit as mck`; common entry point: `mck.read_mol_crystal(path)`.
@@ -19,6 +19,7 @@
 |---|---|---|---|---|
 | Parse CIF | `mck.read_mol_crystal` | CIF path | `MolecularCrystal` | source docstring |
 | Convert pymatgen Structure | `to_pymatgen_structure`, `from_pymatgen_structure`, `MolecularCrystal.to_pymatgen`, `MolecularCrystal.from_pymatgen` | `MolecularCrystal` / `Structure` | `Structure` / `MolecularCrystal` | preserves occupancy; source docstring |
+| Read Mercury stored sites | `read_mryx_atoms`, `read_mryx` | MRYX path, optional index | ASE Atoms or MolecularCrystal (or list) | [Mercury import](mryx.md) |
 | Read CIF symmetry | `read_cif_symmetry` | CIF path/text | `CrystalSymmetry` | source docstring |
 | Parse CIF (class) | `MolecularCrystal.from_cif` | CIF path, `use_asu_first=` | `MolecularCrystal` | source docstring |
 | Identify molecules | `identify_molecule_indices`, `identify_molecules` | ASE/CIF-derived structure | molecule indices or molecules | `disorder_policy` defaults to `as_refined` (no atoms dropped). `major` and `exclusive` are explicit |
@@ -110,7 +111,8 @@ Implemented rule families and strict refusal boundaries are tracked in
 ### `mck.io`
 Read/write interfaces.
 
-- Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`
+- Read: `read_mol_crystal`, `read_cif_symmetry`, `parse_cif_advanced`, `identify_molecule_indices`, `read_xyz`, `read_poscar`, `read_extxyz`, `read_mryx_atoms`, `read_mryx`
+  - `read_mryx_atoms` and `read_mryx` need the desktop extra (ASE and defusedxml). Importing `molcrys_kit.io` does not import them. A single index validates every structure and materializes only that one. Finished non-structure markup and other graphics items are discarded during the walk. `index=":"` eagerly builds the full list before returning. See [Mercury import](mryx.md).
 - pymatgen Structure bridge: `to_pymatgen_structure`, `from_pymatgen_structure` (occupancy-preserving; mixed sites expand to one atom per composition component; the reverse conversion does not re-collapse co-located atoms into a multi-species site)
 - Periodic bundles: `read_periodic_bundle`, `write_periodic_bundle`
   - `read_mol_crystal` uses `scan_cif_disorder` as the sole authority for coordinates and disorder metadata.
