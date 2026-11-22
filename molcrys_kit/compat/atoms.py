@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-from itertools import product
 
 import numpy as np
 
@@ -262,6 +261,29 @@ class Atoms:
             raise ValueError(f"{name} must contain one value per atom")
         self.arrays[name] = array
 
+    def get_distance(self, a0, a1, mic: bool = False, vector: bool = False):
+        """Distance from atom ``a0`` to atom ``a1``.
+
+        ``mic=True`` uses the minimum image. ``vector=True`` returns the
+        Cartesian vector from ``a0`` to ``a1`` instead of its length. This is
+        the one pair call ``io/cif.py`` makes for an explicit bond that did
+        not carry an image shift.
+        """
+        return self.get_distances(a0, [a1], mic=mic, vector=vector)[0]
+
+    def get_distances(self, a, indices, mic: bool = False, vector: bool = False):
+        """Distances from atom ``a`` to each index in ``indices``."""
+        positions = self.get_positions()
+        chosen = np.asarray(indices, dtype=int).reshape(-1)
+        cell = self.get_cell() if mic else None
+        periodic = self.get_pbc() if mic else None
+        vectors, lengths = get_distances(
+            positions[int(a)], positions[chosen], cell=cell, pbc=periodic
+        )
+        if vector:
+            return np.asarray(vectors, dtype=float).reshape(-1, 3)
+        return np.asarray(lengths, dtype=float).reshape(-1)
+
     def get_chemical_formula(self) -> str:
         counts: dict[str, int] = {}
         for symbol in self._symbols:
@@ -294,15 +316,20 @@ def neighbor_list(
     vectors = []
     shifts = []
     if count and max_cutoff > 0.0:
-        for shift in _image_shifts(cell, pbc, max_cutoff):
-            offset = shift @ cell
-            for i in range(count):
-                for j in range(count):
+        # Search every periodic image inside the cutoff, including atoms that
+        # already sit several cells away from the origin. The shift is the
+        # original-cell image: ``r_j + S @ cell - r_i``.
+        for i in range(count):
+            for j in range(count):
+                limit = float(pair_cutoff[i, j])
+                if limit <= 0.0:
+                    continue
+                delta = positions[j] - positions[i]
+                for shift in _translations_within(delta, cell, pbc, limit + 1e-8):
                     if not self_interaction and i == j and not np.any(shift):
                         continue
-                    vector = positions[j] + offset - positions[i]
+                    vector = delta + shift @ cell
                     distance = float(np.linalg.norm(vector))
-                    limit = pair_cutoff[i, j]
                     if distance < limit and distance > 1e-12:
                         indices_i.append(i)
                         indices_j.append(j)
@@ -320,7 +347,13 @@ def neighbor_list(
 
 
 def get_distances(p1, p2, cell=None, pbc=None):
-    """Return ``(vectors, distances)`` with ASE's pair-matrix layout."""
+    """Return ``(vectors, distances)`` with ASE's pair-matrix layout.
+
+    Periodic distances are minimum images on a general cell. A coordinate-wise
+    ``rint`` of the fractional difference is not that minimum once the cell is
+    skewed, so each Cartesian difference is replaced by the shortest lattice
+    image inside a ball that is known to contain it.
+    """
     left = np.asarray(p1, dtype=float)
     right = np.asarray(p2, dtype=float)
     if left.ndim == 1:
@@ -328,16 +361,13 @@ def get_distances(p1, p2, cell=None, pbc=None):
     if right.ndim == 1:
         right = right.reshape(1, 3)
     delta = right[None, :, :] - left[:, None, :]
-    matrix = None if cell is None else np.asarray(cell, dtype=float)
-    periodic = np.zeros(3, dtype=bool) if pbc is None else np.asarray(pbc, dtype=bool)
-    if (
-        matrix is not None
-        and abs(float(np.linalg.det(matrix))) > 1e-12
-        and np.any(periodic)
-    ):
-        fractional = delta @ np.linalg.inv(matrix)
-        fractional[..., periodic] -= np.rint(fractional[..., periodic])
-        delta = fractional @ matrix
+    matrix = None if cell is None else np.asarray(cell, dtype=float).reshape(3, 3)
+    periodic = _periodic_mask(pbc)
+    if matrix is not None and np.any(periodic):
+        flat = delta.reshape(-1, 3)
+        for index, vector in enumerate(flat):
+            flat[index] = _minimum_image_vector(vector, matrix, periodic)
+        delta = flat.reshape(delta.shape)
     distances = np.linalg.norm(delta, axis=-1)
     return delta, distances
 
@@ -358,7 +388,9 @@ def _integer_indices(index, count: int) -> np.ndarray:
     array = np.asarray(index)
     if array.ndim == 0:
         item = array.item()
-        if isinstance(item, (int, np.integer)) and not isinstance(item, (bool, np.bool_)):
+        if isinstance(item, (int, np.integer)) and not isinstance(
+            item, (bool, np.bool_)
+        ):
             return _integer_indices(int(item), count)
         raise IndexError("atom index must be integers, a slice, or a boolean mask")
     if array.dtype == bool:
@@ -416,18 +448,156 @@ def _pair_cutoff(symbols: list[str], cutoff) -> np.ndarray:
     return result
 
 
-def _image_shifts(cell: np.ndarray, pbc: np.ndarray, cutoff: float):
-    if abs(float(np.linalg.det(cell))) < 1e-12:
-        return [np.zeros(3, dtype=int)]
-    ranges = []
-    for axis in range(3):
-        if not pbc[axis]:
-            ranges.append([0])
+def _periodic_mask(pbc) -> np.ndarray:
+    """Normalize an ASE-style ``pbc`` value to three booleans."""
+    if pbc is None:
+        return np.zeros(3, dtype=bool)
+    if isinstance(pbc, (bool, np.bool_)):
+        return np.full(3, bool(pbc), dtype=bool)
+    values = np.asarray(pbc, dtype=bool).reshape(-1)
+    if values.size == 1:
+        return np.full(3, bool(values[0]), dtype=bool)
+    if values.size != 3:
+        return np.zeros(3, dtype=bool)
+    return values.copy()
+
+
+def _gram_schmidt_rows(basis: np.ndarray):
+    """Return ``(mu, orthogonal, norm2)`` for row vectors."""
+    count = basis.shape[0]
+    mu = np.zeros((count, count), dtype=float)
+    orthogonal = np.zeros((count, 3), dtype=float)
+    norm2 = np.zeros(count, dtype=float)
+    for i in range(count):
+        vector = np.array(basis[i], dtype=float, copy=True)
+        for j in range(i):
+            if norm2[j] <= 1e-24:
+                mu[i, j] = 0.0
+                continue
+            mu[i, j] = float(np.dot(basis[i], orthogonal[j]) / norm2[j])
+            vector -= mu[i, j] * orthogonal[j]
+        orthogonal[i] = vector
+        norm2[i] = float(np.dot(vector, vector))
+    return mu, orthogonal, norm2
+
+
+def _translations_within(delta, cell, pbc, radius: float):
+    """Integer shifts ``S`` with ``||delta + S @ cell|| < radius``.
+
+    Only periodic, nonzero lattice rows vary. The search is Fincke–Pohst
+    enumeration on the Gram–Schmidt form of those rows: a coefficient outside
+    the remaining ball cannot lead to a vector inside it, and every integer
+    combination inside the ball is visited. The returned shift is expressed in
+    the original cell, not in a reduced basis.
+    """
+    delta = np.asarray(delta, dtype=float).reshape(3)
+    cell = np.asarray(cell, dtype=float).reshape(3, 3)
+    mask = _periodic_mask(pbc)
+    if radius <= 0.0 or not np.any(mask):
+        if float(np.linalg.norm(delta)) < radius:
+            return [np.zeros(3, dtype=int)]
+        return []
+    active = [
+        axis
+        for axis in range(3)
+        if mask[axis] and float(np.linalg.norm(cell[axis])) > 1e-12
+    ]
+    if not active:
+        if float(np.linalg.norm(delta)) < radius:
+            return [np.zeros(3, dtype=int)]
+        return []
+    basis = cell[np.asarray(active, dtype=int)]
+    mu, orthogonal, norm2 = _gram_schmidt_rows(basis)
+    sigma = np.zeros(len(active), dtype=float)
+    parallel2 = 0.0
+    for level, length2 in enumerate(norm2):
+        if length2 <= 1e-24:
             continue
-        other = np.cross(cell[(axis + 1) % 3], cell[(axis + 2) % 3])
-        height = abs(float(np.dot(cell[axis], other))) / (
-            float(np.linalg.norm(other)) + 1e-15
-        )
-        count = int(np.ceil(cutoff / max(height, 1e-8)))
-        ranges.append(range(-count, count + 1))
-    return [np.array(shift, dtype=int) for shift in product(*ranges)]
+        sigma[level] = float(np.dot(delta, orthogonal[level]) / length2)
+        parallel2 += sigma[level] ** 2 * length2
+    outside2 = max(0.0, float(np.dot(delta, delta)) - parallel2)
+    limit2 = float(radius) * float(radius)
+    if outside2 >= limit2:
+        return []
+    found: list[np.ndarray] = []
+    coeffs = np.zeros(len(active), dtype=int)
+
+    def walk(level: int, used2: float) -> None:
+        if norm2[level] <= 1e-24:
+            coeffs[level] = 0
+            if level == 0:
+                found.append(coeffs.copy())
+            else:
+                walk(level - 1, used2)
+            return
+        extra = float(sigma[level])
+        for higher in range(level + 1, len(active)):
+            extra += float(coeffs[higher]) * float(mu[higher, level])
+        budget = limit2 - used2
+        if budget < 0.0:
+            return
+        reach = float(np.sqrt(budget / norm2[level]))
+        low = int(np.ceil(-reach - extra - 1e-9))
+        high = int(np.floor(reach - extra + 1e-9))
+        for coeff in range(low, high + 1):
+            coeffs[level] = coeff
+            used_next = used2 + (coeff + extra) ** 2 * float(norm2[level])
+            if used_next > limit2 + 1e-8:
+                continue
+            if level == 0:
+                found.append(coeffs.copy())
+            else:
+                walk(level - 1, used_next)
+
+    walk(len(active) - 1, outside2)
+    shifts = []
+    for coeff in found:
+        shift = np.zeros(3, dtype=int)
+        for local, axis in enumerate(active):
+            shift[axis] = int(coeff[local])
+        vector = delta + shift @ cell
+        if float(np.dot(vector, vector)) < limit2:
+            shifts.append(shift)
+    shifts.sort(key=lambda item: (int(item[0]), int(item[1]), int(item[2])))
+    return shifts
+
+
+def _minimum_image_vector(delta, cell, pbc) -> np.ndarray:
+    """Shortest Cartesian image of ``delta`` under the periodic lattice.
+
+    The zero shift is one feasible image. Rounding the periodic fractional
+    coordinates gives another. The shorter of those two is an upper bound, so
+    the exhaustive ball around it contains a true minimum. Equal lengths keep
+    the lexicographically smallest original-cell shift.
+    """
+    delta = np.asarray(delta, dtype=float).reshape(3)
+    cell = np.asarray(cell, dtype=float).reshape(3, 3)
+    mask = _periodic_mask(pbc)
+    if not np.any(mask):
+        return delta.copy()
+    best_shift = np.zeros(3, dtype=int)
+    best_vector = delta.copy()
+    best_length = float(np.dot(best_vector, best_vector))
+    if abs(float(np.linalg.det(cell))) > 1e-12:
+        fractional = delta @ np.linalg.inv(cell)
+        rounded = np.zeros(3, dtype=int)
+        rounded[mask] = -np.rint(fractional[mask]).astype(int)
+        rounded_vector = delta + rounded @ cell
+        rounded_length = float(np.dot(rounded_vector, rounded_vector))
+        if rounded_length < best_length - 1e-18:
+            best_shift = rounded
+            best_vector = rounded_vector
+            best_length = rounded_length
+    radius = float(np.sqrt(max(best_length, 0.0))) + 1e-8
+    for shift in _translations_within(delta, cell, mask, radius):
+        vector = delta + shift @ cell
+        length = float(np.dot(vector, vector))
+        if length < best_length - 1e-18 or (
+            abs(length - best_length) <= 1e-18
+            and tuple(int(value) for value in shift)
+            < tuple(int(value) for value in best_shift)
+        ):
+            best_shift = shift
+            best_vector = vector
+            best_length = length
+    return best_vector
