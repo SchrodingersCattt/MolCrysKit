@@ -38,10 +38,11 @@ def _warn_if_unresolved_disorder(
             str(value).strip() not in {"", ".", "?", "0"}
             for value in molecule.arrays.get(KEY_ASSEMBLY, [])
         )
+    alternatives_clear = not bool(active_groups or active_assemblies)
+    ordered_replica = crystal.disorder_provenance is not None
     stats = {
-        "all_atom_ordered": not bool(
-            nonunit_occupancies or active_groups or active_assemblies
-        ),
+        # Solver replica with no competing PART labels; partial site occ may remain.
+        "all_atom_ordered": ordered_replica and alternatives_clear,
         "nonunit_occupancy_count": nonunit_occupancies,
         "active_disorder_group_count": active_groups,
         "active_disorder_assembly_count": active_assemblies,
