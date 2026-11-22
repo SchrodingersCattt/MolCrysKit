@@ -88,3 +88,30 @@ several stored structures, one disordered structure, and one non-orthogonal
 cell. Compare atom count, cell lengths and angles, Cartesian or fractional
 coordinates, atom labels, and the raw metadata that this reader keeps. Record
 the Mercury version. Do not treat the synthetic fixtures as that comparison.
+
+## Public-format validation (tier A)
+
+`tests/data/mryx/public_manifest.json` pins traceable Mercury exports that can
+be downloaded under stated licenses (currently one CC-BY-4.0 Zenodo deposit from
+`10.1021/acs.joc.4c02538`). Run:
+
+```bash
+python scripts/validate_mryx_public_roundtrip.py
+pytest tests/unit/io/test_mryx_public_roundtrip.py
+```
+
+Tier **(A)** checks: real `.mryx` → `read_mryx` / `read_mryx_atoms` (stored
+sites, no symmetry expansion) → `write_extxyz` → independent ASE read, comparing
+element identities, cell parameters, and Cartesian coordinates within
+`MRYX_COORDINATE_TOLERANCE_A`.
+
+Tier **(B)** (public CIF → Mercury save → this reader) is **not** run in CI:
+Mercury needs a desktop install and CSD-Community activation. Coordinators with
+Mercury: install [Free Mercury](https://www.ccdc.cam.ac.uk/support-and-resources/downloads/),
+activate **CSD-Community**, open a public CIF, save `.mryx`, and compare cell,
+site count, labels, and structure index with `read_mryx_atoms` or `mck io convert`.
+
+**Current manifest coverage:** single-structure triclinic periodic crystal; not
+multi-structure, disordered, or version-tagged. ACS/RSC supplementary `.mryx`
+bundles named in the literature are listed under `investigated_but_blocked` in
+the manifest (publisher bot protection from this environment).

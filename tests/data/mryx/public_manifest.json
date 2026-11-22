@@ -1,0 +1,52 @@
+{
+  "schema": "molcrys-kit.mryx-public-fixtures.v1",
+  "description": "Traceable Mercury .mryx exports for independent format validation. Files are not vendored in git; pytest and scripts/validate_mryx_public_roundtrip.py download them on demand.",
+  "fixtures": [
+    {
+      "id": "zenodo-5aa-triclinic",
+      "filename": "Crystal_structure,5aa.mryx",
+      "url": "https://zenodo.org/records/14614827/files/Crystal%20structure%2C5aa.mryx?download=1",
+      "sha256": "645ed350f516e7cfc94a21cbfed021084cf5ba5689d371cd4149f08800ee188c",
+      "md5": "bd2c4070b1e5f48cd1034cb53d61fcd4",
+      "license": "CC-BY-4.0",
+      "source": {
+        "repository": "Zenodo",
+        "record_url": "https://zenodo.org/records/14614827",
+        "doi": "10.5281/zenodo.14614827",
+        "article_doi": "10.1021/acs.joc.4c02538",
+        "title": "1,4-Dihydropyrrolo[3,2-b]pyrroles with Two Embedded Heptagons via Alkyne Annulation"
+      },
+      "provenance_notes": [
+        "Gzip-compressed CCDC_XML; structure label GSA_o372_ACN inside the export.",
+        "No Mercury/CCDC build or version string was found in the decompressed XML.",
+        "P-1 triclinic cell; 116 stored sites; disorder_assemblies container empty.",
+        "Same Zenodo record includes Crystal structure,7ac.cif for a different compound (not paired with this .mryx)."
+      ],
+      "tier_a_expectations": {
+        "n_atoms": 116,
+        "spacegroup_name": "P-1",
+        "cellpar_deg": [13.2345, 13.302, 13.8564, 75.237, 85.009, 81.63],
+        "cellpar_atol": 0.01,
+        "position_atol_A": 0.0001
+      }
+    }
+  ],
+  "investigated_but_blocked": [
+    {
+      "id": "acs-jchemed-jc9b01085",
+      "description": "J. Chem. Educ. 2020 SI bundle with multiple teaching .mryx files and centroids",
+      "url": "https://doi.org/10.1021/acs.jchemed.9b01085",
+      "blocker": "pubs.acs.org supporting-information download returned HTTP 403 (Cloudflare) from this environment"
+    },
+    {
+      "id": "rsc-crystengcomm-c1ce06096a",
+      "description": "CrystEngComm 2012 supplementary Mercury MRYX figures",
+      "url": "https://pubs.rsc.org/en/content/articlelanding/2012/ce/c1ce06096a",
+      "blocker": "pubs.rsc.org supplementary paths returned HTTP 403 (Cloudflare) from this environment"
+    }
+  ],
+  "tier_b_status": {
+    "mercury_installed_in_cloud_agent": false,
+    "notes": "CCDC Mercury requires GUI activation (CSD-Community). Tier (B) CIF→Mercury→MRYX is not executed here; see docs/mryx.md for coordinator desktop steps."
+  }
+}
