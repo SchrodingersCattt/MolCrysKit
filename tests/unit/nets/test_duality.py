@@ -9,7 +9,13 @@ from molcrys_kit.nets.duality import (
     assess_duality,
 )
 from molcrys_kit.nets.limits import NetAnalysisLimits
-from molcrys_kit.periodic import PeriodicQuotientGraph
+from molcrys_kit.periodic import (
+    PeriodicQuotientGraph,
+    apply_node_gauge,
+    apply_unimodular_basis,
+    equivalent_supercell,
+)
+from molcrys_kit.periodic._lattice import adjugate, det3, vecmul
 
 
 def _graph(nodes, edges):
@@ -79,6 +85,14 @@ def test_cube_tiling_is_dual_to_its_net_and_not_to_a_chain():
     dual = assess_duality(primal, primal, tiling)
     assert dual.status == "dual", dual.reason
     assert dual.witness is not None
+    assert dual.witness["kind"] == "space_filling_tiling"
+    assert dual.witness["tile_volumes"] == [{"tile_id": "t", "volume": "1"}]
+    assert dual.witness["quotient_edge_face_orbits"] == [2, 2, 2]
+    assert {row["faces"] for row in dual.witness["edge_links"]} == {4}
+    assert dual.witness["vertex_links"][0]["euler_characteristic"] == 2
+    incidence = dual.witness["incidence"]
+    assert {row["face_id"] for row in incidence} == {"fx", "fy", "fz"}
+    assert dual.witness["equivalence"]["proof"] == "explicit_isomorphism"
     other = assess_duality(primal, _chain(), tiling)
     assert other.status == "not_dual"
 
@@ -193,3 +207,254 @@ def test_capped_isomorphism_leaves_duality_undetermined():
         primal, primal, _cube_tiling(), NetAnalysisLimits(**limits)
     )
     assert assessment.status == "undetermined"
+
+
+def _face(face_id, vertices):
+    return TilingFace(face_id, tuple(("a", vertex) for vertex in vertices))
+
+
+def _prism_tiling():
+    """Two triangular prisms that fill one cubic cell.
+
+    The diagonal face is shared inside the cell, so its adjacency shift is
+    zero while its normal is ``(1, 1, 0)``. Every quotient edge lies in three
+    face orbits. The closed-surface rule, which demands two orbits and a
+    normal shift, does not apply.
+    """
+    return PeriodicTiling(
+        ("A", "B"),
+        (
+            _face("triA", ((0, 0, 0), (1, 0, 0), (0, 1, 0))),
+            _face("triB", ((1, 0, 0), (1, 1, 0), (0, 1, 0))),
+            _face("wallX", ((0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0))),
+            _face("wallY", ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1))),
+            _face("cut", ((1, 0, 0), (0, 1, 0), (0, 1, 1), (1, 0, 1))),
+        ),
+        (
+            TilingAdjacency("triA", "A", "A", (0, 0, 1)),
+            TilingAdjacency("triB", "B", "B", (0, 0, 1)),
+            TilingAdjacency("wallX", "A", "B", (-1, 0, 0)),
+            TilingAdjacency("wallY", "A", "B", (0, -1, 0)),
+            TilingAdjacency("cut", "A", "B", (0, 0, 0)),
+        ),
+    )
+
+
+def _prism_skeleton():
+    return _graph(
+        ("a",),
+        [
+            ("ex", "a", "a", (1, 0, 0)),
+            ("ey", "a", "a", (0, 1, 0)),
+            ("ez", "a", "a", (0, 0, 1)),
+            ("ed", "a", "a", (1, -1, 0)),
+        ],
+    )
+
+
+def _prism_dual():
+    return _graph(
+        ("A", "B"),
+        [
+            ("zA", "A", "A", (0, 0, 1)),
+            ("zB", "B", "B", (0, 0, 1)),
+            ("x", "A", "B", (-1, 0, 0)),
+            ("y", "A", "B", (0, -1, 0)),
+            ("c", "A", "B", (0, 0, 0)),
+        ],
+    )
+
+
+def _transform_shift(shift, matrix):
+    determinant = det3(matrix)
+    scaled = vecmul(shift, adjugate(matrix))
+    return tuple(component // determinant for component in scaled)
+
+
+def _transform_tiling(tiling, matrix):
+    faces = tuple(
+        TilingFace(
+            face.face_id,
+            tuple(
+                (node_id, _transform_shift(image, matrix))
+                for node_id, image in face.vertices
+            ),
+        )
+        for face in tiling.faces
+    )
+    adjacencies = tuple(
+        TilingAdjacency(
+            adjacency.face_id,
+            adjacency.source_tile,
+            adjacency.target_tile,
+            _transform_shift(adjacency.image_shift, matrix),
+        )
+        for adjacency in tiling.adjacencies
+    )
+    return PeriodicTiling(tiling.tiles, faces, adjacencies)
+
+
+def _gauge_tiling(tiling, gauge):
+    faces = tuple(
+        TilingFace(
+            face.face_id,
+            tuple((node_id, _add(image, gauge)) for node_id, image in face.vertices),
+        )
+        for face in tiling.faces
+    )
+    return PeriodicTiling(tiling.tiles, faces, tiling.adjacencies)
+
+
+def test_prism_tiling_is_dual_with_a_recoverable_incidence():
+    primal = _prism_skeleton()
+    tiling = _prism_tiling()
+    dual = assess_duality(primal, _prism_dual(), tiling)
+    assert dual.status == "dual", dual.reason
+    assert dual.witness["kind"] == "space_filling_tiling"
+    assert dual.witness["quotient_edge_face_orbits"] == [3, 3, 3, 3]
+    assert min(row["faces"] for row in dual.witness["edge_links"]) >= 3
+    assert {row["volume"] for row in dual.witness["tile_volumes"]} == {"1/2"}
+    by_face = {row["face_id"]: row for row in dual.witness["incidence"]}
+    assert by_face["cut"]["image_shift"] == [0, 0, 0]
+    assert by_face["cut"]["source_tile"] == "A"
+    assert by_face["cut"]["target_tile"] == "B"
+    assert by_face["cut"]["dual_edge_id"] == "cut"
+    assert dual.witness["equivalence"]["proof"] == "explicit_isomorphism"
+    assert dual.witness["equivalence"]["status"] == "isomorphic"
+    different = assess_duality(primal, _prism_skeleton(), tiling)
+    assert different.status == "not_dual"
+    assert different.status != "dual"
+    missing = assess_duality(primal, _prism_dual(), None)
+    assert missing.status == "not_assessed"
+
+
+def test_prism_duality_is_stable_under_reordering_gauge_basis_and_supercell():
+    primal = _prism_skeleton()
+    tiling = _prism_tiling()
+    dual = _prism_dual()
+    matrix = ((1, 1, 0), (0, 1, 0), (0, 0, 1))
+    reordered = PeriodicTiling(
+        tiling.tiles,
+        tuple(reversed(tiling.faces)),
+        tuple(reversed(tiling.adjacencies)),
+    )
+    gauged_graph = apply_node_gauge(primal, {"a": (2, -1, 3)}).graph
+    gauged_tiling = _gauge_tiling(tiling, (2, -1, 3))
+    changed_graph = apply_unimodular_basis(primal, matrix).graph
+    changed_tiling = _transform_tiling(tiling, matrix)
+    changed_dual = apply_unimodular_basis(dual, matrix).graph
+    supercell = equivalent_supercell(dual, ((2, 0, 0), (0, 1, 0), (0, 0, 1))).graph
+    cases = (
+        (primal, dual, reordered),
+        (gauged_graph, dual, gauged_tiling),
+        (changed_graph, changed_dual, changed_tiling),
+        (primal, supercell, tiling),
+    )
+    for left, right, faces in cases:
+        assessment = assess_duality(left, right, faces)
+        assert assessment.status == "dual", assessment.reason
+        assert assessment.witness["kind"] == "space_filling_tiling"
+
+
+def test_unfilled_prism_and_capped_assembly_are_not_dual():
+    primal = _prism_skeleton()
+    tiling = _prism_tiling()
+    faces = tuple(face for face in tiling.faces if face.face_id != "cut")
+    adjacencies = tuple(
+        adjacency for adjacency in tiling.adjacencies if adjacency.face_id != "cut"
+    )
+    incomplete = PeriodicTiling(tiling.tiles, faces, adjacencies)
+    assessment = assess_duality(primal, _prism_dual(), incomplete)
+    assert assessment.status == "undetermined"
+    assert assessment.reason == "incomplete_tiling"
+    assert assessment.status != "dual"
+    limits = NetAnalysisLimits.from_config().to_dict()
+    limits["tiling_assembly_limit"] = 1
+    capped = assess_duality(_pcu(), _pcu(), _cube_tiling(), NetAnalysisLimits(**limits))
+    assert capped.status == "undetermined"
+    assert capped.reason == "tiling_assembly_capped"
+    assert capped.status != "dual"
+
+
+def _placed_box(size):
+    from molcrys_kit.nets.duality import _PlacedFace, _PlacedTile
+
+    sx, sy, sz = size
+
+    def corner(x, y, z):
+        return ("a", (x, y, z))
+
+    def face(face_id, vertices):
+        return _PlacedFace(face_id, "source", tuple(vertices))
+
+    c000 = corner(0, 0, 0)
+    c100 = corner(sx, 0, 0)
+    c010 = corner(0, sy, 0)
+    c110 = corner(sx, sy, 0)
+    c001 = corner(0, 0, sz)
+    c101 = corner(sx, 0, sz)
+    c011 = corner(0, sy, sz)
+    c111 = corner(sx, sy, sz)
+    # Outward normals. Each cycle is the reverse of the inward trial order.
+    faces = (
+        face("px", (c100, c110, c111, c101)),
+        face("nx", (c000, c001, c011, c010)),
+        face("py", (c010, c011, c111, c110)),
+        face("ny", (c000, c100, c101, c001)),
+        face("pz", (c001, c101, c111, c011)),
+        face("nz", (c000, c010, c110, c100)),
+    )
+    return _PlacedTile("t", faces)
+
+
+def test_skew_subgroup_overlap_is_not_reported_disjoint():
+    """A short subgroup vector can have large Hermite coefficients.
+
+    The old coordinate-width window missed translation ``(0, 1, 0)`` for the
+    basis ``((1, 0, 0), (100, 1, 0), (0, 0, 1))``. A tile of height 2 overlaps
+    that translate, so disjointness must be false.
+    """
+    from fractions import Fraction
+
+    from molcrys_kit.nets.duality import _interiors_disjoint, _tile_is_convex
+
+    positions = {"a": (Fraction(0), Fraction(0), Fraction(0))}
+    tile = _placed_box((1, 2, 1))
+    basis = ((1, 0, 0), (100, 1, 0), (0, 0, 1))
+    assert _tile_is_convex(tile, positions)
+    assert _interiors_disjoint((tile,), positions, basis) is False
+    thin = _placed_box((1, 1, 1))
+    # The unit cube meets that translate on a face only; interiors stay apart.
+    assert _tile_is_convex(thin, positions)
+    assert (
+        _interiors_disjoint((thin,), positions, ((1, 0, 0), (0, 1, 0), (0, 0, 1)))
+        is True
+    )
+
+
+def test_unproved_neighbor_window_does_not_certify_disjointness(monkeypatch):
+    from molcrys_kit.constants.config import NET_TOPOLOGY_CONFIG
+    from molcrys_kit.nets.duality import _interiors_disjoint
+
+    monkeypatch.setitem(NET_TOPOLOGY_CONFIG, "TILING_NEIGHBOR_COEFFICIENT_LIMIT", 8)
+    positions = {"a": (0, 0, 0)}
+    tile = _placed_box((1, 2, 1))
+    basis = ((1, 0, 0), (100, 1, 0), (0, 0, 1))
+    assert _interiors_disjoint((tile,), positions, basis) is None
+
+
+def test_nonplanar_face_is_not_a_convex_tile():
+    from molcrys_kit.nets.duality import _PlacedFace, _tile_is_convex
+
+    tile = _placed_box((1, 1, 1))
+    warped = []
+    for face in tile.faces:
+        if face.face_id == "pz":
+            cycle = list(face.cycle)
+            node_id, image = cycle[2]
+            cycle[2] = (node_id, (image[0], image[1], image[2] + 1))
+            warped.append(_PlacedFace(face.face_id, face.side, tuple(cycle)))
+        else:
+            warped.append(face)
+    bent = type(tile)(tile.tile_id, tuple(warped))
+    assert _tile_is_convex(bent, {"a": (0, 0, 0)}) is False

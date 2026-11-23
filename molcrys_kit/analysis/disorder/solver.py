@@ -15,17 +15,75 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-from ase import Atoms
-from ase.geometry import get_distances
+try:
+    from ase import Atoms
+    from ase.geometry import get_distances
+except ImportError:  # phone / minimal install
+    from ...compat.atoms import Atoms, get_distances
 
 from ...structures.crystal import MolecularCrystal
 from .info import DisorderInfo
 from .provenance import DisorderProvenance
+from .symmetry_audit import audit_parent_symmetry
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
-from ...constants.config import DISORDER_CONFIG
-from ...analysis.interactions import get_bonding_threshold
+from ...constants.config import (
+    DISORDER_CONFIG,
+    KEY_ASSEMBLY,
+    KEY_ASYM_ID,
+    KEY_ATOM_ID,
+    KEY_DISORDER_GROUP,
+    KEY_FORMAL_CHARGE,
+    KEY_FORMAL_CHARGE_KNOWN,
+    KEY_FRAC_X,
+    KEY_FRAC_Y,
+    KEY_FRAC_Z,
+    KEY_ISOTOPE,
+    KEY_LABEL,
+    KEY_OCCUPANCY,
+    KEY_SITE_SYMMETRY_ORDER,
+    KEY_SOURCE_ASU_FRAC,
+    KEY_SOURCE_ASU_INDEX,
+    KEY_SYM_OP_INDEX,
+    KEY_U_CART,
+    KEY_UISO,
+)
+from ...analysis.interactions.bonding import get_bonding_threshold
 from ...analysis.formula_moiety import parse_moiety_string
+
+
+def _symmetry_consistent_failure(statuses: list[bool | None], notes: list[str]) -> str:
+    """Explain an empty symmetry_consistent beam without collapsing tri-state."""
+    n_closed = sum(status is True for status in statuses)
+    n_open = sum(status is False for status in statuses)
+    n_unknown = sum(status is None for status in statuses)
+    if n_closed:
+        raise RuntimeError("closed candidates cannot produce an empty-beam error")
+    beam = (
+        "symmetry_consistent filters the candidates this call already produced; "
+        "a positive enumerate count is a top-N beam, and an exhaustive enumerate "
+        "uses count 0."
+    )
+    if n_unknown and not n_open:
+        reason = notes[0] if notes else "parent-symmetry distances were not assessed"
+        reason = reason.rstrip(".")
+        return (
+            "No generated candidate could be assessed for parent symmetry. "
+            f"{reason}. An unassessed cell is not a proved failure to close. "
+            f"{beam} Disable symmetry_consistent and read the audit notes."
+        )
+    if n_open and not n_unknown:
+        return (
+            "No generated candidate closes under every parent symmetry "
+            f"operation. All {n_open} candidate(s) were assessed and do not "
+            f"close. {beam} Disable symmetry_consistent to inspect that beam."
+        )
+    return (
+        "No generated candidate has a completed parent-symmetry audit that "
+        f"closes. {n_open} candidate(s) were assessed and do not close; "
+        f"{n_unknown} candidate(s) were not assessed. An unassessed metric "
+        f"is not a proved failure. {beam}"
+    )
 
 
 def _is_integral_count(value: float, *, tolerance: float = 1e-9) -> bool:
@@ -93,7 +151,11 @@ class DisorderSolver:
                 and disorder_group != 0
                 and (disorder_group < 0 or not self._coupled)
             ):
-                sym_op = self.info.sym_op_indices[i] if i < len(self.info.sym_op_indices) else 0
+                sym_op = (
+                    self.info.sym_op_indices[i]
+                    if i < len(self.info.sym_op_indices)
+                    else 0
+                )
                 group_key = (disorder_group, assembly, sym_op)
             else:
                 # Legacy coupled behaviour for positive PARTs, and fallback
@@ -138,7 +200,8 @@ class DisorderSolver:
                     has_asym = hasattr(self.info, "asym_id") and self.info.asym_id
                     if has_asym and disorder_group != 0:
                         asym_ids_in_group = set(
-                            self.info.asym_id[a] for a in group_atoms
+                            self.info.asym_id[a]
+                            for a in group_atoms
                             if a < len(self.info.asym_id)
                         )
                     else:
@@ -153,7 +216,7 @@ class DisorderSolver:
                     # symop copies together.
                     group_coords = self.info.frac_coords[group_atoms]
                     cart_coords = np.dot(group_coords, self.lattice)
-                    _pbc = getattr(self.info, 'pbc', None)
+                    _pbc = getattr(self.info, "pbc", None)
                     _pbc = _pbc if _pbc is not None else (True, True, True)
                     dist_matrix = get_distances(
                         cart_coords, cart_coords, cell=self.lattice, pbc=_pbc
@@ -162,6 +225,7 @@ class DisorderSolver:
                     temp_graph.add_nodes_from(range(len(group_atoms)))
                     # Connect same-asym_id atoms (symop copies of same site)
                     from collections import defaultdict
+
                     asym_buckets: dict = defaultdict(list)
                     for local_i, atom_idx in enumerate(group_atoms):
                         if atom_idx < len(self.info.asym_id):
@@ -174,11 +238,21 @@ class DisorderSolver:
                         for j in range(i + 1, len(group_atoms)):
                             symbol_i = self.info.symbols[group_atoms[i]]
                             symbol_j = self.info.symbols[group_atoms[j]]
-                            radius_i = get_atomic_radius(symbol_i) if has_atomic_radius(symbol_i) else 0.5
-                            radius_j = get_atomic_radius(symbol_j) if has_atomic_radius(symbol_j) else 0.5
+                            radius_i = (
+                                get_atomic_radius(symbol_i)
+                                if has_atomic_radius(symbol_i)
+                                else 0.5
+                            )
+                            radius_j = (
+                                get_atomic_radius(symbol_j)
+                                if has_atomic_radius(symbol_j)
+                                else 0.5
+                            )
                             is_metal_i = is_metal_element(symbol_i)
                             is_metal_j = is_metal_element(symbol_j)
-                            threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
+                            threshold = get_bonding_threshold(
+                                radius_i, radius_j, is_metal_i, is_metal_j
+                            )
                             if dist_matrix[i, j] < threshold:
                                 temp_graph.add_edge(i, j)
                     # Each connected component becomes a rigid body
@@ -194,7 +268,7 @@ class DisorderSolver:
 
                 # Calculate pairwise distances between atoms in the group
                 # Using ASE's get_distances which handles PBC
-                _pbc = getattr(self.info, 'pbc', None)
+                _pbc = getattr(self.info, "pbc", None)
                 _pbc = _pbc if _pbc is not None else (True, True, True)
                 dist_matrix = get_distances(
                     cart_coords, cart_coords, cell=self.lattice, pbc=_pbc
@@ -209,22 +283,32 @@ class DisorderSolver:
                 for i in range(len(group_atoms)):
                     for j in range(i + 1, len(group_atoms)):
                         distance = dist_matrix[i, j]
-                        
+
                         # Get symbols for both atoms
                         symbol_i = self.info.symbols[group_atoms[i]]
                         symbol_j = self.info.symbols[group_atoms[j]]
-                        
+
                         # Get atomic radii
-                        radius_i = get_atomic_radius(symbol_i) if has_atomic_radius(symbol_i) else 0.5
-                        radius_j = get_atomic_radius(symbol_j) if has_atomic_radius(symbol_j) else 0.5
-                        
+                        radius_i = (
+                            get_atomic_radius(symbol_i)
+                            if has_atomic_radius(symbol_i)
+                            else 0.5
+                        )
+                        radius_j = (
+                            get_atomic_radius(symbol_j)
+                            if has_atomic_radius(symbol_j)
+                            else 0.5
+                        )
+
                         # Check if atoms are metals
                         is_metal_i = is_metal_element(symbol_i)
                         is_metal_j = is_metal_element(symbol_j)
-                        
+
                         # Calculate bonding threshold
-                        threshold = get_bonding_threshold(radius_i, radius_j, is_metal_i, is_metal_j)
-                        
+                        threshold = get_bonding_threshold(
+                            radius_i, radius_j, is_metal_i, is_metal_j
+                        )
+
                         if distance < threshold:
                             temp_graph.add_edge(i, j)
 
@@ -248,7 +332,7 @@ class DisorderSolver:
                     conflict_atoms: set = set()
                     if len(comp_atoms) > 1:
                         for ii, idx1 in enumerate(comp_atoms):
-                            for idx2 in comp_atoms[ii + 1:]:
+                            for idx2 in comp_atoms[ii + 1 :]:
                                 if self.graph.has_edge(idx1, idx2):
                                     conflict_atoms.add(idx1)
                                     conflict_atoms.add(idx2)
@@ -258,8 +342,7 @@ class DisorderSolver:
                         continue
 
                     stable_local = [
-                        k for k in comp_list
-                        if group_atoms[k] not in conflict_atoms
+                        k for k in comp_list if group_atoms[k] not in conflict_atoms
                     ]
                     if stable_local:
                         stable_subgraph = temp_graph.subgraph(stable_local)
@@ -275,15 +358,26 @@ class DisorderSolver:
 
     # Per-element settings for chemical-motif reconstruction
     # (water O + 2 H; ammonium N + 4 H).  Subclasses can extend.
-    _MOTIF_BOND_CUTOFF = {"O": 1.4, "N": 1.5}        # Å, X-H upper bound
-    _MOTIF_BOND_MIN = {"O": 0.6, "N": 0.7}           # Å, X-H lower bound
-    _MOTIF_MAX_H = {"O": 2, "N": 4}                  # H atoms per X
-    _MOTIF_ANGLE_RANGE = {"O": (90.0, 120.0),        # H-X-H bounds
-                          "N": (95.0, 125.0)}
-    _MOTIF_HEAVY_CUTOFF = 1.8                        # Å, isolation check
-    _MOTIF_HARD_CONFLICTS = frozenset({
-        "logical_alternative", "symmetry_clash", "explicit", "valence",
-    })
+    _MOTIF_BOND_CUTOFF = {"O": 1.4, "N": 1.5}  # Å, X-H upper bound
+    _MOTIF_BOND_MIN = {"O": 0.6, "N": 0.7}  # Å, X-H lower bound
+    _MOTIF_MAX_H = {"O": 2, "N": 4}  # H atoms per X
+    _MOTIF_ANGLE_RANGE = {
+        "O": (90.0, 120.0),  # H-X-H bounds
+        "N": (95.0, 125.0),
+    }
+    _MOTIF_HEAVY_CUTOFF = 1.8  # Å, isolation check
+    _MOTIF_HARD_CONFLICTS = frozenset(
+        {
+            "logical_alternative",
+            "symmetry_clash",
+            "explicit",
+            "valence",
+        }
+    )
+    # Conflict labels that justify promoting a kept site to occupancy 1.0
+    # after a dropped neighbour.  Geometric/valence clashes remove illegal
+    # overlaps but do not declare a crystallographic occupancy sum.
+    _OCCUPANCY_RESOLUTION_CONFLICTS = frozenset({"explicit", "implicit_sp"})
     # Soft-conflict types and per-element rejection policy.  Water (O)
     # re-uses the historic pre-fix behaviour of rejecting the whole motif
     # if any pair of picked atoms has a soft conflict edge — this filters
@@ -292,9 +386,13 @@ class DisorderSolver:
     # (N) keeps the permissive policy because its 24-orientation SP
     # disorder produces soft conflict edges between every H pair, so any
     # rejection there drops the whole NH4+ motif (the original PAP-4 bug).
-    _MOTIF_SOFT_CONFLICTS = frozenset({
-        "geometric", "valence_geometry", "implicit_sp",
-    })
+    _MOTIF_SOFT_CONFLICTS = frozenset(
+        {
+            "geometric",
+            "valence_geometry",
+            "implicit_sp",
+        }
+    )
     _MOTIF_REJECT_SOFT = {"O": True, "N": False}
     _MAX_MOTIF_ORIENTATIONS_PER_CENTER = 16
     _MAX_ALTERNATIVES_PER_COMPONENT = 32
@@ -355,7 +453,8 @@ class DisorderSolver:
             return
 
         h_singletons = [
-            i for i in range(n_atoms)
+            i
+            for i in range(n_atoms)
             if self.info.symbols[i] in ("H", "D")
             and 0 < self.info.occupancies[i] < 1.0
             and atom_to_group.get(i) is not None
@@ -369,7 +468,7 @@ class DisorderSolver:
         diff = c_frac[:, None, :] - h_frac[None, :, :]
         diff = diff - np.round(diff)
         cart_vecs = np.einsum("nij,jk->nik", diff, self.lattice)  # (n_c, n_h, 3)
-        dists_c_h = np.linalg.norm(cart_vecs, axis=2)             # (n_c, n_h)
+        dists_c_h = np.linalg.norm(cart_vecs, axis=2)  # (n_c, n_h)
 
         # Each H atom can only be a real X-H bond for at most one center.
         # Pre-assign every H to the *closest* center within that center's
@@ -379,15 +478,21 @@ class DisorderSolver:
         # positions: split-occupancy refinements often place O and H within
         # ~0.4 Å of each other, which would otherwise win the closest-center
         # contest despite being below any chemically valid X-H bond length.
-        cutoffs_max = np.array([
-            self._MOTIF_BOND_CUTOFF[self.info.symbols[centers[ci]]]
-            for ci in range(len(centers))
-        ])
-        cutoffs_min = np.array([
-            self._MOTIF_BOND_MIN[self.info.symbols[centers[ci]]]
-            for ci in range(len(centers))
-        ])
-        within = (dists_c_h < cutoffs_max[:, None]) & (dists_c_h >= cutoffs_min[:, None])
+        cutoffs_max = np.array(
+            [
+                self._MOTIF_BOND_CUTOFF[self.info.symbols[centers[ci]]]
+                for ci in range(len(centers))
+            ]
+        )
+        cutoffs_min = np.array(
+            [
+                self._MOTIF_BOND_MIN[self.info.symbols[centers[ci]]]
+                for ci in range(len(centers))
+            ]
+        )
+        within = (dists_c_h < cutoffs_max[:, None]) & (
+            dists_c_h >= cutoffs_min[:, None]
+        )
         masked = np.where(within, dists_c_h, np.inf)
         best_ci_per_h = np.argmin(masked, axis=0) if len(centers) else np.array([], int)
         any_within = np.any(within, axis=0)
@@ -398,7 +503,11 @@ class DisorderSolver:
         for ci, c_idx in enumerate(centers):
             allowed_h_mask = any_within & (best_ci_per_h == ci)
             picked_atoms = self._select_motif_hydrogens(
-                c_idx, ci, dists_c_h, cart_vecs, h_singletons,
+                c_idx,
+                ci,
+                dists_c_h,
+                cart_vecs,
+                h_singletons,
                 allowed_h_mask=allowed_h_mask,
             )
             if not picked_atoms:
@@ -419,8 +528,7 @@ class DisorderSolver:
             return
 
         rebuilt = [
-            g for gi, g in enumerate(self.atom_groups)
-            if gi not in merged_group_indices
+            g for gi, g in enumerate(self.atom_groups) if gi not in merged_group_indices
         ]
         rebuilt.extend(new_groups)
         self.atom_groups = rebuilt
@@ -448,7 +556,8 @@ class DisorderSolver:
             return
 
         h_singletons = [
-            i for i in range(n_atoms)
+            i
+            for i in range(n_atoms)
             if self.info.symbols[i] in ("H", "D")
             and 0 < self.info.occupancies[i] < 1.0
             and atom_to_group.get(i) is not None
@@ -464,15 +573,21 @@ class DisorderSolver:
         cart_vecs = np.einsum("nij,jk->nik", diff, self.lattice)
         dists_c_h = np.linalg.norm(cart_vecs, axis=2)
 
-        cutoffs_max = np.array([
-            self._MOTIF_BOND_CUTOFF[self.info.symbols[centers[ci]]]
-            for ci in range(len(centers))
-        ])
-        cutoffs_min = np.array([
-            self._MOTIF_BOND_MIN[self.info.symbols[centers[ci]]]
-            for ci in range(len(centers))
-        ])
-        within = (dists_c_h < cutoffs_max[:, None]) & (dists_c_h >= cutoffs_min[:, None])
+        cutoffs_max = np.array(
+            [
+                self._MOTIF_BOND_CUTOFF[self.info.symbols[centers[ci]]]
+                for ci in range(len(centers))
+            ]
+        )
+        cutoffs_min = np.array(
+            [
+                self._MOTIF_BOND_MIN[self.info.symbols[centers[ci]]]
+                for ci in range(len(centers))
+            ]
+        )
+        within = (dists_c_h < cutoffs_max[:, None]) & (
+            dists_c_h >= cutoffs_min[:, None]
+        )
         masked = np.where(within, dists_c_h, np.inf)
         best_ci_per_h = np.argmin(masked, axis=0) if len(centers) else np.array([], int)
         any_within = np.any(within, axis=0)
@@ -513,8 +628,7 @@ class DisorderSolver:
             return
 
         rebuilt = [
-            g for gi, g in enumerate(self.atom_groups)
-            if gi not in merged_group_indices
+            g for gi, g in enumerate(self.atom_groups) if gi not in merged_group_indices
         ]
         rebuilt.extend(new_groups)
         self.atom_groups = rebuilt
@@ -533,7 +647,8 @@ class DisorderSolver:
 
         for sym in self._MOTIF_BOND_CUTOFF.keys():
             cands = [
-                i for i in range(n_atoms)
+                i
+                for i in range(n_atoms)
                 if self.info.symbols[i] == sym
                 and 0 < self.info.occupancies[i] <= 1.0
                 and atom_to_group.get(i) is not None
@@ -542,9 +657,7 @@ class DisorderSolver:
             if not cands:
                 continue
 
-            disq_mask = np.array(
-                [s not in ("H", "D", sym) for s in self.info.symbols]
-            )
+            disq_mask = np.array([s not in ("H", "D", sym) for s in self.info.symbols])
             disq_indices = np.where(disq_mask)[0]
             if len(disq_indices) == 0:
                 centers.extend(cands)
@@ -557,14 +670,13 @@ class DisorderSolver:
             cart = np.einsum("nij,jk->nik", diff, self.lattice)
             dists = np.linalg.norm(cart, axis=2)
             is_isolated = ~np.any(dists < self._MOTIF_HEAVY_CUTOFF, axis=1)
-            centers.extend(
-                cands[i] for i in range(len(cands)) if is_isolated[i]
-            )
+            centers.extend(cands[i] for i in range(len(cands)) if is_isolated[i])
 
         return centers
 
-    def _select_motif_hydrogens(self, c_idx, ci, dists_c_h, cart_vecs,
-                                 h_singletons, allowed_h_mask=None):
+    def _select_motif_hydrogens(
+        self, c_idx, ci, dists_c_h, cart_vecs, h_singletons, allowed_h_mask=None
+    ):
         """Greedy distance-sorted selection of H atoms around one motif center.
 
         Returns the picked H indices (subset of ``h_singletons``).  Empty
@@ -664,7 +776,7 @@ class DisorderSolver:
         if reject_soft and picked_atoms:
             motif_atoms = [c_idx] + picked_atoms
             for i, a in enumerate(motif_atoms):
-                for b in motif_atoms[i + 1:]:
+                for b in motif_atoms[i + 1 :]:
                     if self.graph.has_edge(a, b):
                         ct = self.graph[a][b].get("conflict_type", "")
                         if ct in self._MOTIF_SOFT_CONFLICTS:
@@ -672,8 +784,9 @@ class DisorderSolver:
 
         return picked_atoms
 
-    def _enumerate_motif_candidates(self, c_idx, ci, dists_c_h, cart_vecs,
-                                    h_singletons, allowed_h_mask=None):
+    def _enumerate_motif_candidates(
+        self, c_idx, ci, dists_c_h, cart_vecs, h_singletons, allowed_h_mask=None
+    ):
         """Enumerate valid H choices around one isolated motif center.
 
         Candidates are capped and ranked by local X-H distance so implicit-SP
@@ -738,7 +851,7 @@ class DisorderSolver:
                 return False
             motif_atoms = [c_idx] + picked_atoms
             for i, a in enumerate(motif_atoms):
-                for b in motif_atoms[i + 1:]:
+                for b in motif_atoms[i + 1 :]:
                     if not self.graph.has_edge(a, b):
                         continue
                     ct = self.graph[a][b].get("conflict_type", "")
@@ -809,16 +922,19 @@ class DisorderSolver:
             # Preserve legacy tolerance for incomplete motifs when no complete
             # orientation passes the combinatorial checks.
             fallback = self._select_motif_hydrogens(
-                c_idx, ci, dists_c_h, cart_vecs, h_singletons,
+                c_idx,
+                ci,
+                dists_c_h,
+                cart_vecs,
+                h_singletons,
                 allowed_h_mask=allowed_h_mask,
             )
             return [fallback] if fallback else []
 
         candidates.sort(key=lambda item: (len(item[0]), -item[1]), reverse=True)
         return [
-            atoms for atoms, _score in candidates[
-                : self._MAX_MOTIF_ORIENTATIONS_PER_CENTER
-            ]
+            atoms
+            for atoms, _score in candidates[: self._MAX_MOTIF_ORIENTATIONS_PER_CENTER]
         ]
 
     def _max_weight_independent_set_by_groups(
@@ -860,8 +976,11 @@ class DisorderSolver:
             # tiny noise would give them positive randomized_weight, letting
             # them slip past the score>0 check.  Using the canonical occupancy
             # from DisorderInfo prevents this.
-            base_occs = [self.info.occupancies[node] for node in group
-                         if node < len(self.info.occupancies)]
+            base_occs = [
+                self.info.occupancies[node]
+                for node in group
+                if node < len(self.info.occupancies)
+            ]
             if base_occs and all(occ <= 0.0 for occ in base_occs):
                 group_scores.append(-1.0)  # Mark as invalid — zero-occ group
                 continue
@@ -1009,7 +1128,7 @@ class DisorderSolver:
             if len(group_indices) < 2:
                 continue
             for i, group_a in enumerate(group_indices):
-                for group_b in group_indices[i + 1:]:
+                for group_b in group_indices[i + 1 :]:
                     if group_a != group_b:
                         group_graph.add_edge(group_a, group_b)
 
@@ -1105,7 +1224,8 @@ class DisorderSolver:
                 max_alts=max_alts_per_component,
             )
             optimal_groups = [
-                group_idx for group_idx in component
+                group_idx
+                for group_idx in component
                 if set(group_graph.nodes[group_idx]["atoms"]).issubset(optimal_set)
             ]
             if optimal_groups:
@@ -1119,7 +1239,9 @@ class DisorderSolver:
                     for group_idx in optimal_groups
                 )
                 optimal_key = set(optimal_atoms)
-                if not any(set(atoms) == optimal_key for atoms, _weight in alternatives):
+                if not any(
+                    set(atoms) == optimal_key for atoms, _weight in alternatives
+                ):
                     alternatives.insert(0, (optimal_atoms, optimal_weight))
             if alternatives:
                 all_alternatives.append(alternatives)
@@ -1243,7 +1365,9 @@ class DisorderSolver:
                         self._MAX_ENUMERATED_STRUCTURES,
                     )
                     break
-        products = self._enumerate_weighted_products(component_alternatives, limit=limit)
+        products = self._enumerate_weighted_products(
+            component_alternatives, limit=limit
+        )
         reference = getattr(self, "_reference_independent_set", None)
         if not reference:
             return products
@@ -1287,7 +1411,9 @@ class DisorderSolver:
         for other in selected:
             if other == atom_idx:
                 continue
-            if self._minimum_image_distance(atom_idx, other) < self._bond_threshold(atom_idx, other):
+            if self._minimum_image_distance(atom_idx, other) < self._bond_threshold(
+                atom_idx, other
+            ):
                 neighbors.append(other)
         return neighbors
 
@@ -1358,7 +1484,9 @@ class DisorderSolver:
             if min_margin > 0.05:
                 break
 
-        self.info.frac_coords[h_atom] = best_frac if best_frac is not None else original_frac
+        self.info.frac_coords[h_atom] = (
+            best_frac if best_frac is not None else original_frac
+        )
 
     def _is_complete_motif_group(self, group: List[int], center_symbol: str) -> bool:
         symbols = [self.info.symbols[a] for a in group]
@@ -1623,9 +1751,7 @@ class DisorderSolver:
                 actual[formula] = actual.get(formula, 0) + 1
             return actual == expected_molecules
         except Exception:
-            logger.debug(
-                "Formula validation reconstruction failed", exc_info=True
-            )
+            logger.debug("Formula validation reconstruction failed", exc_info=True)
             return False
 
     def _postprocess_independent_set(self, independent_set: List[int]) -> List[int]:
@@ -1763,9 +1889,7 @@ class DisorderSolver:
             if len(neighbors) <= max_coord["C"]:
                 continue
 
-            h_neighbors = [
-                n for n in neighbors if self.info.symbols[n] in ("H", "D")
-            ]
+            h_neighbors = [n for n in neighbors if self.info.symbols[n] in ("H", "D")]
             if not h_neighbors:
                 continue
 
@@ -1785,7 +1909,8 @@ class DisorderSolver:
                 reverse=True,
             ):
                 targets = [
-                    c for c in undercoord_carbons
+                    c
+                    for c in undercoord_carbons
                     if (
                         self._minimum_image_distance(h_atom, c)
                         < DISORDER_CONFIG["SP_COMPLETION_UNDERCOORD_H_SEARCH"]
@@ -1816,6 +1941,9 @@ class DisorderSolver:
         random_seed: Optional[int] = None,
         return_kept_indices: bool = False,
         strict_formula: bool = False,
+        *,
+        symmetry_audit: bool = True,
+        symmetry_consistent: bool = False,
     ) -> List[MolecularCrystal] | List[Tuple[MolecularCrystal, List[int]]]:
         """
         Solve the disorder problem and generate ordered structures using Group-Based approach.
@@ -1830,6 +1958,9 @@ class DisorderSolver:
             'optimal' for the single greedy MWIS structure, 'random' for
             occupancy-weighted sampling across PART/SP alternatives, and
             'enumerate' for Cartesian enumeration of those alternatives.
+            ``optimal`` returns one occupancy-favoured packing and may lower
+            the detected space group below the parent group when a mirror or
+            other operation relates exclusive disorder components.
         random_seed : int, optional
             Seed for reproducible 'random' ensembles. Has no effect for
             'optimal' or 'enumerate'.
@@ -1841,6 +1972,13 @@ class DisorderSolver:
         strict_formula : bool, optional
             Require parseable formula moiety and Z and reject results if no
             candidate matches. Defaults to False for backwards compatibility.
+        symmetry_audit : bool, optional
+            Attach a parent-symmetry audit to each replica's
+            ``DisorderProvenance``. Default True.
+        symmetry_consistent : bool, optional
+            Keep only candidates that close under every parent operation.
+            Default False. When True and no candidate closes, raise
+            ``ValueError``.
 
         Returns:
         --------
@@ -1856,6 +1994,12 @@ class DisorderSolver:
         the declared composition.  For 'random' mode, if reject-sampling
         yields too few valid structures, a capped enumeration fallback is
         used (controlled by DISORDER_CONFIG["FORMULA_FILTER_ENUM_CAP"]).
+
+        ``coupled=True`` locks symmetry-expanded copies of one labelled
+        assembly (and legacy motif merge) to the same PART/orientation
+        choice.  It does **not** couple distinct assemblies, distinct ASU
+        sites that only share a local group number, or components that are
+        only approximate images of each other under the parent group.
         """
         # Initialize atom groups (Identify Rigid Bodies)
         self.atom_groups = []
@@ -1907,7 +2051,8 @@ class DisorderSolver:
 
         # --- Formula-based stoichiometry filter ---
         if strict_formula and not (
-            self.info.formula_moiety and self.info.z_value
+            self.info.formula_moiety
+            and self.info.z_value
             and self._parse_expected_element_totals()
         ):
             raise ValueError(
@@ -1915,29 +2060,28 @@ class DisorderSolver:
                 "verify the declared composition before ordering."
             )
         if strict_formula and not cleaned_sets:
-            raise ValueError("No ordered candidates were generated for formula validation.")
+            raise ValueError(
+                "No ordered candidates were generated for formula validation."
+            )
         if cleaned_sets and self.info.formula_moiety and self.info.z_value:
             expected = self._parse_expected_element_totals()
             if expected:
-                valid = [s for s in cleaned_sets
-                         if self._is_formula_valid(s)]
+                valid = [s for s in cleaned_sets if self._is_formula_valid(s)]
                 if method == "random" and len(valid) < (num_structures or 1):
                     # Reject sampling has low hit rate for linkage disorder;
                     # fall back to capped enumeration and sample from valid set.
                     from ...constants.config import DISORDER_CONFIG
-                    enum_cap = DISORDER_CONFIG.get(
-                        "FORMULA_FILTER_ENUM_CAP", 64
-                    )
+
+                    enum_cap = DISORDER_CONFIG.get("FORMULA_FILTER_ENUM_CAP", 64)
                     all_enum = self._solve_enumerate(enum_cap)
-                    all_cleaned = [self._postprocess_independent_set(s)
-                                   for s in all_enum]
-                    all_valid = [s for s in all_cleaned
-                                 if self._is_formula_valid(s)]
+                    all_cleaned = [
+                        self._postprocess_independent_set(s) for s in all_enum
+                    ]
+                    all_valid = [s for s in all_cleaned if self._is_formula_valid(s)]
                     if all_valid:
                         rng_sample = _random_module.Random(random_seed)
                         target = num_structures or 1
-                        sampled = [rng_sample.choice(all_valid)
-                                   for _ in range(target)]
+                        sampled = [rng_sample.choice(all_valid) for _ in range(target)]
                         valid = sampled
                 if valid:
                     cleaned_sets = valid
@@ -1949,6 +2093,42 @@ class DisorderSolver:
                     if strict_formula:
                         raise ValueError(message)
                     logger.warning("%s Returning unvalidated candidates.", message)
+
+        audits_by_candidate: dict[tuple[int, ...], object] = {}
+        if symmetry_consistent and cleaned_sets:
+            paired = [
+                (candidate, audit_parent_symmetry(self.info, candidate, self.lattice))
+                for candidate in cleaned_sets
+            ]
+            audits_by_candidate = {
+                tuple(int(index) for index in candidate): audit
+                for candidate, audit in paired
+            }
+            audits = [audit for _candidate, audit in paired]
+            statuses = [audit.respects_parent_group for audit in audits]
+            consistent = [
+                candidate
+                for candidate, status in zip(cleaned_sets, statuses)
+                if status is True
+            ]
+            if not consistent:
+                notes = [
+                    note
+                    for audit in audits
+                    for note in audit.notes
+                    if "not assessed" in note
+                ]
+                raise ValueError(_symmetry_consistent_failure(statuses, notes))
+            n_unknown = sum(status is None for status in statuses)
+            if n_unknown:
+                logger.warning(
+                    "symmetry_consistent kept %s assessed parent-closed "
+                    "candidate(s) and dropped %s unassessed candidate(s). "
+                    "An unassessed metric was not treated as a proved failure.",
+                    len(consistent),
+                    n_unknown,
+                )
+            cleaned_sets = consistent
 
         if cleaned_sets and method in {"random", "enumerate"}:
             reference_set = cleaned_sets[0]
@@ -1976,16 +2156,21 @@ class DisorderSolver:
 
         crystals = []
         for independent_set in cleaned_sets:
-            provenance = self._build_provenance(independent_set, method)
+            provenance = self._build_provenance(
+                independent_set,
+                method,
+                symmetry_audit=symmetry_audit,
+                prepared_audit=audits_by_candidate.get(
+                    tuple(int(index) for index in independent_set)
+                ),
+            )
             crystal = self._reconstruct_crystal(
                 independent_set, disorder_provenance=provenance
             )
             issues = check_valence_completeness(crystal, self.info)
             if issues:
                 for issue in issues:
-                    logger.warning(
-                        "Valence-completeness check: %s", issue
-                    )
+                    logger.warning("Valence-completeness check: %s", issue)
             if return_kept_indices:
                 crystals.append((crystal, list(independent_set)))
             else:
@@ -2040,9 +2225,10 @@ class DisorderSolver:
         picked from a nearby but slightly different position.
         """
         from ...constants.config import DISORDER_CONFIG
-        H_BOND_CUTOFF     = DISORDER_CONFIG["ORPHAN_H_BOND_CUTOFF"]
-        O_H_CUTOFF        = DISORDER_CONFIG["WATER_O_H_CUTOFF"]
-        O_H_SWEEP_CUTOFF  = DISORDER_CONFIG["WATER_O_H_SWEEP_CUTOFF"]
+
+        H_BOND_CUTOFF = DISORDER_CONFIG["ORPHAN_H_BOND_CUTOFF"]
+        O_H_CUTOFF = DISORDER_CONFIG["WATER_O_H_CUTOFF"]
+        O_H_SWEEP_CUTOFF = DISORDER_CONFIG["WATER_O_H_SWEEP_CUTOFF"]
         HEAVY_BOND_CUTOFF = DISORDER_CONFIG["WATER_O_HEAVY_BOND_CUTOFF"]
 
         # Pre-compute O-coordination in the FULL structure (not just survived),
@@ -2051,33 +2237,39 @@ class DisorderSolver:
         n_atoms_total = len(self.info.labels)
 
         # Symbols that, if bonded to O, mean the O is NOT water
-        non_water_O_neighbors = {s for s in set(self.info.symbols)
-                                  if s not in ("H", "D", "O")}
+        non_water_O_neighbors = {
+            s for s in set(self.info.symbols) if s not in ("H", "D", "O")
+        }
 
         # Build boolean mask of "potentially disqualifying" atoms
-        disq_mask = np.array([s in non_water_O_neighbors
-                              for s in self.info.symbols], dtype=bool)
+        disq_mask = np.array(
+            [s in non_water_O_neighbors for s in self.info.symbols], dtype=bool
+        )
         disq_indices = np.where(disq_mask)[0]
 
         # Candidate partial-occ O atoms
-        partial_O_indices = [i for i in range(n_atoms_total)
-                             if (self.info.symbols[i] == "O"
-                                 and self.info.occupancies[i] < 1.0)]
+        partial_O_indices = [
+            i
+            for i in range(n_atoms_total)
+            if (self.info.symbols[i] == "O" and self.info.occupancies[i] < 1.0)
+        ]
 
         is_water_O = {}
         if partial_O_indices and len(disq_indices) > 0:
             # Vectorized PBC distance: partial_O × disqualifying_atoms
-            o_frac = self.info.frac_coords[partial_O_indices]   # (n_o, 3)
-            d_frac = self.info.frac_coords[disq_indices]         # (n_d, 3)
-            diff = o_frac[:, None, :] - d_frac[None, :, :]      # (n_o, n_d, 3)
-            _info_pbc = getattr(self.info, 'pbc', None)
-            _pbc = np.array(_info_pbc if _info_pbc is not None else (True, True, True), dtype=bool)
+            o_frac = self.info.frac_coords[partial_O_indices]  # (n_o, 3)
+            d_frac = self.info.frac_coords[disq_indices]  # (n_d, 3)
+            diff = o_frac[:, None, :] - d_frac[None, :, :]  # (n_o, n_d, 3)
+            _info_pbc = getattr(self.info, "pbc", None)
+            _pbc = np.array(
+                _info_pbc if _info_pbc is not None else (True, True, True), dtype=bool
+            )
             if _pbc.all():
                 diff = diff - np.round(diff)
             else:
                 diff[..., _pbc] -= np.round(diff[..., _pbc])
             cart = np.einsum("nij,jk->nik", diff, self.lattice)  # (n_o, n_d, 3)
-            dists_o_d = np.linalg.norm(cart, axis=2)            # (n_o, n_d)
+            dists_o_d = np.linalg.norm(cart, axis=2)  # (n_o, n_d)
 
             for oi, i in enumerate(partial_O_indices):
                 bonded_non_water = bool(np.any(dists_o_d[oi] < HEAVY_BOND_CUTOFF))
@@ -2095,11 +2287,11 @@ class DisorderSolver:
             surv_set = set(survived)
 
             # --- Pass 1: orphan H ---
-            h_atoms  = [a for a in survived if self.info.symbols[a] in ("H", "D")]
+            h_atoms = [a for a in survived if self.info.symbols[a] in ("H", "D")]
             hvy_atoms = [a for a in survived if self.info.symbols[a] not in ("H", "D")]
 
             if h_atoms and hvy_atoms:
-                h_frac   = self.info.frac_coords[h_atoms]
+                h_frac = self.info.frac_coords[h_atoms]
                 hvy_frac = self.info.frac_coords[hvy_atoms]
                 diff = h_frac[:, None, :] - hvy_frac[None, :, :]
                 diff = diff - np.round(diff)
@@ -2114,7 +2306,9 @@ class DisorderSolver:
                     logger.debug(
                         "Removing %d orphan H/D atom(s) with no heavy-atom "
                         "partner within %.2f Å: indices %s",
-                        len(orphan_H), H_BOND_CUTOFF, sorted(orphan_H),
+                        len(orphan_H),
+                        H_BOND_CUTOFF,
+                        sorted(orphan_H),
                     )
                 surv_set -= orphan_H
 
@@ -2124,8 +2318,11 @@ class DisorderSolver:
             # any H within O_H_SWEEP_CUTOFF that have NO other surviving heavy
             # atom within H_BOND_CUTOFF — i.e., H that are exclusively bonded
             # to this incomplete O and would become orphans anyway.
-            o_atoms = [a for a in surv_set if self.info.symbols[a] == "O"
-                       and is_water_O.get(a, False)]
+            o_atoms = [
+                a
+                for a in surv_set
+                if self.info.symbols[a] == "O" and is_water_O.get(a, False)
+            ]
             h_atoms2 = [a for a in surv_set if self.info.symbols[a] in ("H", "D")]
 
             if o_atoms and h_atoms2:
@@ -2138,7 +2335,9 @@ class DisorderSolver:
 
                 # Also compute H-to-all-heavy distances to check if H has
                 # another heavy anchor besides the incomplete O
-                hvy_in_surv = [a for a in surv_set if self.info.symbols[a] not in ("H", "D")]
+                hvy_in_surv = [
+                    a for a in surv_set if self.info.symbols[a] not in ("H", "D")
+                ]
                 if hvy_in_surv:
                     h_frac3 = self.info.frac_coords[h_atoms2]
                     hvy_frac3 = self.info.frac_coords[hvy_in_surv]
@@ -2166,7 +2365,10 @@ class DisorderSolver:
                                     # within H_BOND_CUTOFF (i.e., not just this O)
                                     near_hvy_count = 0
                                     for ki, hvy_idx in enumerate(hvy_in_surv):
-                                        if hvy_idx != o_idx and dists_h_hvy3[hj, ki] < H_BOND_CUTOFF:
+                                        if (
+                                            hvy_idx != o_idx
+                                            and dists_h_hvy3[hj, ki] < H_BOND_CUTOFF
+                                        ):
                                             near_hvy_count += 1
                                             break
                                     if near_hvy_count == 0:
@@ -2175,13 +2377,17 @@ class DisorderSolver:
                     logger.debug(
                         "Removing %d incomplete water O atom(s) with < 2 bonded H "
                         "within %.2f Å: indices %s",
-                        len(incomplete_O), O_H_CUTOFF, sorted(incomplete_O),
+                        len(incomplete_O),
+                        O_H_CUTOFF,
+                        sorted(incomplete_O),
                     )
                 if h_to_remove:
                     logger.debug(
                         "Removing %d H/D atom(s) near incomplete water O "
                         "(sweep cutoff %.2f Å): indices %s",
-                        len(h_to_remove), O_H_SWEEP_CUTOFF, sorted(h_to_remove),
+                        len(h_to_remove),
+                        O_H_SWEEP_CUTOFF,
+                        sorted(h_to_remove),
                     )
                 surv_set -= incomplete_O
                 surv_set -= h_to_remove
@@ -2199,7 +2405,12 @@ class DisorderSolver:
         return result
 
     def _build_provenance(
-        self, independent_set: List[int], method: str
+        self,
+        independent_set: List[int],
+        method: str,
+        *,
+        symmetry_audit: bool = True,
+        prepared_audit=None,
     ) -> DisorderProvenance:
         """Return source-site provenance for a cleaned independent set."""
         kept_indices = [int(i) for i in independent_set]
@@ -2211,13 +2422,266 @@ class DisorderSolver:
         sym_op_indices = None
         if source_sym_ops is not None and len(source_sym_ops) >= len(self.info.labels):
             sym_op_indices = [int(source_sym_ops[i]) for i in kept_indices]
+
+        audit = None
+        notes: list[str] = []
+        if method == "optimal":
+            notes.append(
+                "method='optimal' returns one occupancy-favoured packing and "
+                "may lower the space group below the parent group"
+            )
+        if symmetry_audit:
+            audit = (
+                prepared_audit
+                if prepared_audit is not None
+                else audit_parent_symmetry(self.info, kept_indices, self.lattice)
+            )
+            notes.extend(audit.notes)
+            return DisorderProvenance(
+                kept_indices=kept_indices,
+                dropped_indices=dropped_indices,
+                method=method,
+                coupled=bool(self._coupled),
+                sym_op_indices=sym_op_indices,
+                symmetry_audit=audit,
+                parent_space_group_number=audit.parent_space_group_number,
+                parent_space_group_symbol=audit.parent_space_group_symbol,
+                respects_parent_group=audit.respects_parent_group,
+                notes=tuple(dict.fromkeys(notes)),
+            )
+
+        parent = getattr(self.info, "crystal_symmetry", None) or getattr(
+            self.info, "source_symmetry", None
+        )
         return DisorderProvenance(
             kept_indices=kept_indices,
             dropped_indices=dropped_indices,
             method=method,
             coupled=bool(self._coupled),
             sym_op_indices=sym_op_indices,
+            parent_space_group_number=(
+                None if parent is None else parent.space_group_number
+            ),
+            parent_space_group_symbol=(
+                None if parent is None else parent.space_group_symbol
+            ),
+            notes=tuple(dict.fromkeys(notes)),
         )
+
+    def _pair_resolves_occupancy_to_one(self, kept: int, dropped: int) -> bool:
+        """Return whether winning over ``dropped`` sets ``kept`` to occupancy 1.0."""
+        if kept == dropped or not self.graph.has_edge(kept, dropped):
+            return False
+        conflict_type = self.graph[kept][dropped].get("conflict_type", "")
+        kept_group = int(self.info.disorder_groups[kept])
+        dropped_group = int(self.info.disorder_groups[dropped])
+        if conflict_type in self._OCCUPANCY_RESOLUTION_CONFLICTS:
+            if conflict_type == "explicit":
+                return kept_group != dropped_group
+            return True
+        if conflict_type == "logical_alternative":
+            return (
+                kept_group != 0
+                and dropped_group != 0
+                and kept_group != dropped_group
+            )
+        if conflict_type == "symmetry_clash":
+            asym_id = getattr(self.info, "asym_id", None)
+            if asym_id and kept < len(asym_id) and dropped < len(asym_id):
+                return int(asym_id[kept]) == int(asym_id[dropped])
+        return False
+
+    def _resolved_occupancy_for_site(
+        self,
+        source_index: int,
+        *,
+        dropped_indices: Optional[List[int]] = None,
+    ) -> float:
+        """Map a source site to the occupancy stored on an ordered replica.
+
+        Refined occupancies are preserved unless this site survived over a
+        dropped neighbour that was a genuine occupancy alternative (explicit
+        PART/assembly, labelled logical alternative between non-zero groups,
+        implicit special-position clustering, or a symmetry clash between
+        copies of the same asymmetric-unit site).
+        """
+        refined = float(self.info.occupancies[source_index])
+        if not dropped_indices:
+            return refined
+        for other in dropped_indices:
+            if other == source_index:
+                continue
+            if self._pair_resolves_occupancy_to_one(source_index, other):
+                return 1.0
+        return refined
+
+    def _attach_source_metadata_to_molecules(
+        self,
+        molecules,
+        independent_set: List[int],
+        *,
+        disorder_provenance: Optional[DisorderProvenance] = None,
+    ) -> None:
+        """Attach per-site CIF metadata after molecule identification.
+
+        Bonding and component splitting use default full occupancies on the
+        transient ASE object; refined occupancies are restored here so they
+        cannot perturb graph-based molecule boundaries.
+        """
+        kept = [int(i) for i in independent_set]
+        dropped = (
+            list(disorder_provenance.dropped_indices) if disorder_provenance else None
+        )
+        for molecule in molecules:
+            flat_indices = [
+                int(i)
+                for i in molecule.info.get(
+                    "atom_indices", list(range(len(molecule)))
+                )
+            ]
+            source_indices = [kept[flat] for flat in flat_indices]
+            frac_coords = np.asarray(self.info.frac_coords, dtype=float)[source_indices]
+            molecule.set_array(
+                KEY_OCCUPANCY,
+                np.array(
+                    [
+                        self._resolved_occupancy_for_site(
+                            i, dropped_indices=dropped
+                        )
+                        for i in source_indices
+                    ],
+                    dtype=float,
+                ),
+            )
+            molecule.set_array(
+                KEY_DISORDER_GROUP,
+                np.array(
+                    [int(self.info.disorder_groups[i]) for i in source_indices],
+                    dtype=int,
+                ),
+            )
+            molecule.set_array(
+                KEY_ASSEMBLY,
+                np.array([self.info.assemblies[i] for i in source_indices]),
+            )
+            molecule.set_array(
+                KEY_LABEL, np.array([self.info.labels[i] for i in source_indices])
+            )
+            if self.info.atom_ids and len(self.info.atom_ids) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_ATOM_ID,
+                    np.asarray([self.info.atom_ids[i] for i in source_indices], dtype=str),
+                )
+            if (
+                self.info.molecule_ids
+                and len(self.info.molecule_ids) == len(self.info.labels)
+            ):
+                molecule.set_array(
+                    "mck_molecule_id",
+                    np.asarray(
+                        [self.info.molecule_ids[i] for i in source_indices], dtype=int
+                    ),
+                )
+            if self.info.sym_op_indices and len(self.info.sym_op_indices) >= len(
+                self.info.labels
+            ):
+                molecule.set_array(
+                    KEY_SYM_OP_INDEX,
+                    np.array(
+                        [int(self.info.sym_op_indices[i]) for i in source_indices],
+                        dtype=int,
+                    ),
+                )
+            if self.info.asym_id and len(self.info.asym_id) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_ASYM_ID,
+                    np.array([int(self.info.asym_id[i]) for i in source_indices], dtype=int),
+                )
+            if self.info.site_symmetry_order and len(
+                self.info.site_symmetry_order
+            ) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_SITE_SYMMETRY_ORDER,
+                    np.array(
+                        [
+                            int(self.info.site_symmetry_order[i])
+                            for i in source_indices
+                        ],
+                        dtype=int,
+                    ),
+                )
+            if self.info.uiso is not None and len(self.info.uiso) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_UISO,
+                    np.asarray([self.info.uiso[i] for i in source_indices], dtype=float),
+                )
+            if self.info.u_cart is not None and len(self.info.u_cart) >= len(
+                self.info.labels
+            ):
+                molecule.set_array(
+                    KEY_U_CART,
+                    np.asarray(self.info.u_cart, dtype=float).reshape(-1, 9)[
+                        source_indices
+                    ],
+                )
+            if self.info.isotopes and any(value > 0 for value in self.info.isotopes):
+                molecule.set_array(
+                    KEY_ISOTOPE,
+                    np.asarray([self.info.isotopes[i] for i in source_indices], dtype=int),
+                )
+            if (
+                self.info.source_asu_index
+                and len(self.info.source_asu_index) == len(self.info.labels)
+            ):
+                molecule.set_array(
+                    KEY_SOURCE_ASU_INDEX,
+                    np.asarray(
+                        [self.info.source_asu_index[i] for i in source_indices], dtype=int
+                    ),
+                )
+                molecule.set_array(
+                    KEY_SOURCE_ASU_FRAC,
+                    np.asarray(self.info.source_asu_fractional, dtype=float).reshape(
+                        -1, 3
+                    )[source_indices],
+                )
+            if self.info.atomic_masses and any(
+                value is not None for value in self.info.atomic_masses
+            ):
+                masses = np.asarray(molecule.get_masses(), dtype=float)
+                for local_index, source_index in enumerate(source_indices):
+                    mass = self.info.atomic_masses[source_index]
+                    if mass is not None and np.isfinite(float(mass)):
+                        masses[local_index] = float(mass)
+                molecule.set_masses(masses)
+            if self.info.site_formal_charges and any(
+                value is not None for value in self.info.site_formal_charges
+            ):
+                molecule.set_array(
+                    KEY_FORMAL_CHARGE,
+                    np.asarray(
+                        [
+                            0
+                            if self.info.site_formal_charges[i] is None
+                            else self.info.site_formal_charges[i]
+                            for i in source_indices
+                        ],
+                        dtype=int,
+                    ),
+                )
+                molecule.set_array(
+                    KEY_FORMAL_CHARGE_KNOWN,
+                    np.asarray(
+                        [
+                            self.info.site_formal_charges[i] is not None
+                            for i in source_indices
+                        ],
+                        dtype=bool,
+                    ),
+                )
+            molecule.set_array(KEY_FRAC_X, frac_coords[:, 0].copy())
+            molecule.set_array(KEY_FRAC_Y, frac_coords[:, 1].copy())
+            molecule.set_array(KEY_FRAC_Z, frac_coords[:, 2].copy())
 
     def _reconstruct_crystal(
         self,
@@ -2229,7 +2693,7 @@ class DisorderSolver:
         selected_symbols = [self.info.symbols[i] for i in independent_set]
         selected_frac_coords = self.info.frac_coords[independent_set]
 
-        _info_pbc = getattr(self.info, 'pbc', None)
+        _info_pbc = getattr(self.info, "pbc", None)
         pbc = _info_pbc if _info_pbc is not None else (True, True, True)
 
         atoms = Atoms(
@@ -2239,6 +2703,11 @@ class DisorderSolver:
             pbc=pbc,
         )
         molecules = identify_molecules(atoms, disorder_policy="as_refined")
+        self._attach_source_metadata_to_molecules(
+            molecules,
+            independent_set,
+            disorder_provenance=disorder_provenance,
+        )
         crystal = MolecularCrystal(
             self.lattice,
             molecules,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from ase import Atoms
@@ -22,6 +24,30 @@ from molcrys_kit.nets.policies import (
 from molcrys_kit.nets.site_graph import build_periodic_site_graph
 from molcrys_kit.periodic import analyze_periodic_graph
 from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
+
+
+@pytest.fixture(scope="module")
+def documented_rank_example():
+    docs = Path(__file__).resolve().parents[3] / "docs" / "net-topology.md"
+    text = docs.read_text(encoding="utf-8")
+    example = (
+        text.split("<!-- crystal-to-rank example -->", 1)[1]
+        .split("```python", 1)[1]
+        .split("```", 1)[0]
+    )
+    namespace = {}
+    exec(compile(example, str(docs), "exec"), namespace)
+    return namespace
+
+
+def test_documented_crystal_to_rank_example_executes(documented_rank_example):
+    graph = documented_rank_example["site_graph"].graph
+    assert documented_rank_example["disorder_status"] == "resolved"
+    assert len(graph.node_ids) == 1
+    assert len(graph.edges) == 1
+    assert graph.edges[0].source == graph.edges[0].target == graph.node_ids[0]
+    assert graph.edges[0].image_shift == (1, 0, 0)
+    assert documented_rank_example["rank"] == 1
 
 
 def _molecule(symbols, positions, **arrays):
@@ -45,6 +71,79 @@ def _water(origin):
 
 def _sites(symbols, positions, **arrays):
     return _crystal([_molecule(symbols, positions, **arrays)])
+
+
+def _disordered_contact_crystal():
+    atoms = Atoms("CC", positions=[[0, 0, 0], [0.4, 0, 0]], cell=[2, 10, 10], pbc=True)
+    atoms.set_array(KEY_OCCUPANCY, np.array([0.7, 0.3]))
+    atoms.set_array(KEY_DISORDER_GROUP, np.array([1, 2]))
+    atoms.set_array(KEY_ASSEMBLY, np.array(["A", "A"], dtype=object))
+    atoms.set_array(KEY_ATOM_ID, np.array(["major", "minor"], dtype=object))
+    molecule = CrystalMolecule(atoms, check_pbc=False)
+    return MolecularCrystal(np.diag([2.0, 10.0, 10.0]), [molecule])
+
+
+@pytest.mark.parametrize(
+    ("policy", "selected_id", "reason"),
+    [
+        (DisorderPolicy("major"), "major", "major_component"),
+        (
+            DisorderPolicy("explicit", selected_groups=(("A", 2),)),
+            "minor",
+            "explicit_selection",
+        ),
+    ],
+)
+def test_documented_rank_qualifies_conditional_selection(
+    documented_rank_example, policy, selected_id, reason
+):
+    site_graph = build_periodic_site_graph(
+        _disordered_contact_crystal(),
+        node_policy=NodePolicy("atom_sites"),
+        edge_policy=EdgePolicy("contacts", cutoff_A=2.1),
+        disorder_policy=policy,
+    )
+    assert [node.site_ids for node in site_graph.nodes] == [(selected_id,)]
+    assert documented_rank_example["rank_with_disorder_status"](site_graph) == (
+        1,
+        "conditional",
+        reason,
+    )
+
+
+def test_documented_rank_qualifies_retained_partial_occupancy(documented_rank_example):
+    atoms = Atoms("C", positions=[[0, 0, 0]], cell=[2, 10, 10], pbc=True)
+    atoms.set_array(KEY_OCCUPANCY, np.array([0.7]))
+    molecule = CrystalMolecule(atoms, check_pbc=False)
+    crystal = MolecularCrystal(np.diag([2.0, 10.0, 10.0]), [molecule])
+    site_graph = build_periodic_site_graph(
+        crystal,
+        node_policy=NodePolicy("atom_sites"),
+        edge_policy=EdgePolicy("contacts", cutoff_A=2.1),
+        disorder_policy=DisorderPolicy("as_refined"),
+    )
+    assert documented_rank_example["rank_with_disorder_status"](site_graph) == (
+        1,
+        "conditional",
+        "partial_occupancy_retained",
+    )
+
+
+@pytest.mark.parametrize(
+    "policy", [DisorderPolicy("as_refined"), DisorderPolicy("explicit")]
+)
+def test_documented_rank_rejects_indeterminate_disorder(
+    documented_rank_example, policy
+):
+    site_graph = build_periodic_site_graph(
+        _disordered_contact_crystal(),
+        node_policy=NodePolicy("atom_sites"),
+        edge_policy=EdgePolicy("contacts", cutoff_A=2.1),
+        disorder_policy=policy,
+    )
+    assert site_graph.disorder_status == "indeterminate"
+    with pytest.raises(ValueError, match="determinate disorder model"):
+        documented_rank_example["rank_with_disorder_status"](site_graph)
 
 
 def test_same_formula_stays_two_molecular_nodes_and_bonds_stay_inside_them():

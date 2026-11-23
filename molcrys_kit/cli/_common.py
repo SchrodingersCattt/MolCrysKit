@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
 
-CRYSTAL_INPUT_EXTENSIONS = {".cif", ".vasp", ".poscar", ".contcar", ".extxyz"}
+CRYSTAL_INPUT_EXTENSIONS = {".cif", ".vasp", ".poscar", ".contcar", ".extxyz", ".mryx"}
 
 
 STRICT_FORMULA = click.option(
@@ -48,7 +48,7 @@ def load_crystal(
     ``resolve_disorder`` is true, so callers that omit them keep legacy
     coupling, geometry heuristics, and soft formula filtering.
     """
-    from molcrys_kit.io import read_extxyz, read_mol_crystal, read_poscar
+    from molcrys_kit.io import read_extxyz, read_mol_crystal, read_poscar, read_mryx
 
     if (strict_formula or independent_assemblies) and not resolve_disorder:
         raise click.UsageError(
@@ -59,6 +59,11 @@ def load_crystal(
     file_path = Path(path)
     suffix = file_path.suffix.lower()
     name = file_path.name.lower()
+
+    if suffix == ".mryx":
+        if resolve_disorder:
+            raise click.UsageError("MRYX disorder resolution is not supported; raw groups are retained as metadata.")
+        return read_mryx(file_path, bond_scale=bond_scale)
 
     if suffix == ".cif":
         try:
@@ -86,7 +91,7 @@ def load_crystal(
         return crystal
 
     raise click.ClickException(
-        f"Unsupported input format for {file_path!s}; expected CIF, POSCAR/CONTCAR, or ExtXYZ."
+        f"Unsupported input format for {file_path!s}; expected CIF, POSCAR/CONTCAR, ExtXYZ, or MRYX."
     )
 
 

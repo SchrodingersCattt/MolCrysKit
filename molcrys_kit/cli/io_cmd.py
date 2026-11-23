@@ -384,6 +384,8 @@ def extract_molecule(
 @INDEPENDENT_ASSEMBLIES
 @click.option("--bond-scale", type=float, default=1.0, show_default=True,
               help="Scale factor for bonding thresholds (< 1.0 tightens, > 1.0 loosens).")
+@click.option("--structure-index", type=int, default=0, show_default=True,
+              help="Zero-based MRYX structure index; negative indices count from the end.")
 def convert(
     input: Path,
     output: Path,
@@ -391,8 +393,20 @@ def convert(
     strict_formula: bool,
     independent_assemblies: bool,
     bond_scale: float,
+    structure_index: int,
 ) -> None:
     """Convert a structure file by output extension."""
+    if input.suffix.lower() == ".mryx":
+        if resolve_disorder or strict_formula or independent_assemblies:
+            raise click.UsageError("MRYX disorder resolution is not supported.")
+        from molcrys_kit.io import read_mryx
+
+        crystal = read_mryx(input, index=structure_index, bond_scale=bond_scale)
+        write_structure(crystal, output)
+        click.echo(f"Wrote {output}")
+        return
+    if structure_index != 0:
+        raise click.UsageError("--structure-index applies only to MRYX input.")
     crystal = load_crystal(
         input,
         resolve_disorder=resolve_disorder,

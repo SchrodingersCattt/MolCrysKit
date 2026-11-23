@@ -80,6 +80,12 @@ single/double pattern is normalized to the aromatic representation before
 naming, so `C1=CC=CC=C1` and `c1ccccc1` share the benzene result. Saturated
 ketones keep the `an` ending (`hexan-2-one`). Acyclic polyenes keep the
 linking vowel in both directions (`hepta-2,4-diene`, `buta-1,3-diene`).
+Mono-N-alkyl and symmetric N,N-dialkyl formamides, alkyl isocyanates, alkyl
+hydroperoxides and peroxyl radicals, and dialkyl sulfides, sulfoxides, and
+sulfones use that same alkane stem table in both directions
+(`N-propylformamide`, `N,N-diethylformamide`, `(butylsulfanyl)pentane`,
+`hexyl hydroperoxide`). An unsymmetric N,N-dialkyl formamide such as
+`N-ethyl-N-methylformamide` is outside this contract.
 Repeated skeletal-replacement prefixes are grouped (`2,8-dioxa`). Retained
 parents are used for pyridine, naphthalene, furan, thiophene, and pyrrole.
 Benzene polyols use the hydroxy suffix (`benzene-1,2-diol`). A single
@@ -88,7 +94,15 @@ a redundant locant (`(13C)methane`) and cite isotopic hydrogen by count
 (`(2H4)methane`).
 
 Explicit `@`/`@@` centres are labeled `R`/`S` only when the CIP digraph
-assigns them. A carbocyclic aromatic bond contributes one duplicate node, as
+assigns them. A bracket hydrogen stays in the OpenSMILES neighbour slot:
+after the from-atom, or first when the chiral atom opens the string.
+Directional `/` and `\` bonds on a single substituent are compared after
+both markers point away from the double bond, so `F/C=C/F` and `F\C=C\F`
+share one `E`/`Z` label. That outward comparison does not cover every
+equivalent writing. `C/C(F)=C/C` and `F/C(C)=C\C` are the same configuration
+and still receive different labels, because the first stored marker is not
+required to sit on the CIP-senior ligand. That split is older than this
+contract and is unchanged here. A carbocyclic aromatic bond contributes one duplicate node, as
 a double bond does, and a ring digit is ordered where it is written.
 Heteroatom-containing mancude rings are ranked by P-92.1.4.4 with averaged
 duplicate atomic numbers; this digraph does not apply that average, so a
@@ -110,6 +124,27 @@ parents, and a simple substituent stays on that parent
 (`2-methylquinoline`). A mancude benzo-azine outside that set is not given
 a von Baeyer name.
 Generated names are general IUPAC names, not preferred names.
+The acceptance manifest records general IUPAC names independently of the
+generator. On the 80 diagram inputs, 78 match that manifest in both
+directions, one strict call is a refusal (`S,S'-carbonylbis(glutathione)`
+stays outside the grammar), and one strict call round-trips without a
+reviewed name. That row's functional-class label is not the emitted
+substitutive spelling, and the round trip stays provisional. Those two rows
+are not counted as certified names. Of the 79
+strict successes, 67 come back as OpenSMILES and 12 as MCK-LN; the line
+notation is transport, not a second naming standard. Fourteen documented
+aliases parse to the same graph and are not the canonical spelling. Seven
+malformed spellings, including `hex-2-one`, `4-hydroxy-4-oxobutanoic acid`,
+and the higher oxa locant set, fail closed. Twenty homologous seeds and 37
+further held-out family members match the same rules. The seeded invariance
+sweep is 389 equivalent inputs (six RDKit traversals per diagram structure,
+seed `20261031`, deduplicated, plus the Kekulé form): graph identity is
+checked before the name, and that sweep has no support change and no
+canonical-name change. Each strict forward call, reference inverse, and
+emitted-name inverse must finish within 5 seconds; the suite records no
+timeout. Full per-family and per-direction totals are in
+`tests/data/chemistry_golden/iupac_coverage_206.json`.
+
 The `strict=False` compatibility path deliberately preserves the lower-level
 parser's unresolved hydrogen fields before one-way naming, so the same
 unbracketed input may remain a composition description there.  Empty or
