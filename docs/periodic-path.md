@@ -32,8 +32,22 @@ candidate image shifts are expressed in the aligned product basis.
 `PeriodicPathConfig` controls image count, candidate count, numerical weights,
 and screening tolerances. Candidates include a lowest-displacement assignment
 and bounded single-component one-cell winding alternatives. The returned
-diagnostics describe evaluated and rejected candidates, ambiguous common
-edges, convergence, collisions, bond deviations, and path spacing. When no
+`image_shift_enumeration` block records the **finite family** size
+(`family_unique_count`), whether `max_candidates` **truncated** that family,
+and whether search was **complete within that family** (`search_complete_within_family`).
+Truncation does **not** imply an exhaustive search over arbitrary multi-cell
+windings or coupled component moves.
+
+Per-candidate diagnostics distinguish **optimizer success** (`optimizer_success`,
+L-BFGS-B `gtol=gradient_tolerance`) from **geometric screening**
+(`passes_geometric_screening`, alias `accepted`). Screening compares the reported
+`maximum_gradient_component` to
+`gradient_screening_threshold = gradient_tolerance × gradient_acceptance_factor`
+(`gradient_acceptance_factor` defaults to `2.0` in `molcrys_kit.constants.periodic_path`).
+Passing screening is not a claim of physical convergence or a NEB solution.
+
+The returned diagnostics also describe evaluated and rejected candidates,
+ambiguous common edges, collisions, bond deviations, and path spacing. When no
 candidate passes screening, `PeriodicPathError` exposes the diagnostics.
 
 The method preserves explicit image shifts on periodic edges. It does not
@@ -44,7 +58,7 @@ exactly are separated deterministically before optimization and are checked
 again afterward. Non-periodic cell vectors may be zero, provided the active
 periodic vectors are linearly independent.
 
-When a converged candidate misses the short-contact tolerance, the optimizer
+When an optimizer-successful candidate misses the short-contact tolerance, the optimizer
 can increase the contact penalty and retry a bounded number of times. Every
 stage and its iteration count is included in the diagnostics; persistent
 failures are rejected rather than silently accepted.

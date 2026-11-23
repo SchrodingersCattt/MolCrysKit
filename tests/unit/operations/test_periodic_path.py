@@ -494,7 +494,7 @@ def test_reject_out_of_range_fixed_index():
 def test_fixed_atom_candidates_are_deduplicated_before_the_limit():
     shifts = np.zeros((2, 3), dtype=int)
     positions = np.zeros((2, 3))
-    choices = _image_choices(
+    enumeration = _image_choices(
         shifts,
         [([0], True), ([1], True)],
         positions,
@@ -506,7 +506,11 @@ def test_fixed_atom_candidates_are_deduplicated_before_the_limit():
         np.array([0]),
         np.zeros((1, 3), dtype=int),
     )
+    choices = enumeration.choices
+    assert enumeration.family_unique_count >= 3
     assert len(choices) == 3
+    if enumeration.family_unique_count > 3:
+        assert enumeration.truncated
     assert all(np.array_equal(choice[0], [0, 0, 0]) for choice in choices)
     assert len({tuple(choice[1]) for choice in choices}) == 3
 
@@ -522,6 +526,40 @@ def test_all_fixed_candidate_count_reports_unique_choices():
     )
     assert result.diagnostics["candidate_count_evaluated"] == 1
     assert len(result.candidates) == 1
+
+
+def test_image_shift_enumeration_reports_truncation_within_finite_family():
+    cell = np.eye(3) * 10
+    crystal = _crystal("CH", [[1, 1, 1], [4, 4, 4]], cell)
+    config = PeriodicPathConfig(n_images=5, max_candidates=1)
+    result = interpolate_periodic_paths(
+        crystal, crystal, product_index_by_reactant=[0, 1], config=config
+    )
+    meta = result.diagnostics["image_shift_enumeration"]
+    assert meta["family_unique_count"] > config.max_candidates
+    assert meta["enumeration_truncated"] is True
+    assert meta["search_complete_within_family"] is False
+    assert meta["candidates_returned_for_search"] == 1
+
+
+def test_geometric_screening_documents_gradient_acceptance_factor():
+    cell = np.eye(3) * 10
+    crystal = _crystal("C", [[1, 1, 1]], cell)
+    result = interpolate_periodic_paths(
+        crystal, crystal, product_index_by_reactant=[0], config=_config()
+    )
+    diag = result.candidates[0].diagnostics
+    from molcrys_kit.constants.periodic_path import PERIODIC_PATH_GRADIENT_ACCEPTANCE_FACTOR
+
+    assert diag["gradient_acceptance_factor"] == PERIODIC_PATH_GRADIENT_ACCEPTANCE_FACTOR
+    assert diag["gradient_screening_threshold"] == pytest.approx(
+        diag["gradient_tolerance_optimizer"] * PERIODIC_PATH_GRADIENT_ACCEPTANCE_FACTOR
+    )
+    assert diag["passes_geometric_screening"] is diag["accepted"]
+    assert (
+        diag["passes_gradient_screening"]
+        == (diag["maximum_gradient_component"] <= diag["gradient_screening_threshold"])
+    )
 
 
 @pytest.mark.parametrize("angle_deg", [150.0, 180.0])

@@ -10,6 +10,11 @@ as separate candidates.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+
+IMAGE_SHIFT_FAMILY_SCOPE = (
+    "base product-image assignment plus single-component ±one-cell windings "
+    "along each periodic axis of the reactant canonical basis"
+)
 from collections import defaultdict, deque
 from typing import Any, Sequence
 
@@ -255,10 +260,25 @@ def _components_and_shifts(start_edges, end_edges, start, end, end_cell, pbc):
     return shifts, start_gauge, components, ambiguous
 
 
+@dataclass(frozen=True)
+class ImageShiftEnumeration:
+    """Finite image-shift family before and after the configured return cap."""
+
+    choices: tuple[np.ndarray, ...]
+    family_unique_count: int
+    max_returned: int
+    truncated: bool
+    family_scope: str = IMAGE_SHIFT_FAMILY_SCOPE
+
+    @property
+    def returned_count(self) -> int:
+        return len(self.choices)
+
+
 def _image_choices(
     shifts, components, start, end, end_cell, start_basis, pbc, maximum,
     fixed=None, fixed_shifts=None,
-):
+) -> ImageShiftEnumeration:
     choices = [shifts.copy()]
     for members, _ in components:
         for axis in np.flatnonzero(pbc):
@@ -274,12 +294,20 @@ def _image_choices(
         displacement = end + candidate @ end_cell - start
         score = float(np.sum(displacement * displacement))
         unique[tuple(candidate.ravel())] = (score, candidate)
-    return [
+    ranked = [
         item[1]
         for item in sorted(
             unique.values(), key=lambda item: (item[0], tuple(item[1].ravel()))
-        )[:maximum]
+        )
     ]
+    family_unique_count = len(ranked)
+    truncated = family_unique_count > maximum
+    return ImageShiftEnumeration(
+        choices=tuple(ranked[:maximum]),
+        family_unique_count=family_unique_count,
+        max_returned=maximum,
+        truncated=truncated,
+    )
 
 
 def _initial_images(start, end, cells, shifts, gauge, components):
@@ -511,26 +539,35 @@ def _diagnostics(frames, cells, pbc, numbers, edges, d0, d1, conserved, result, 
         else 1.0
     )
     grad = float(np.max(np.abs(result.jac))) if len(result.jac) else 0.0
+    gradient_screening_threshold = (
+        config.gradient_tolerance * PERIODIC_PATH_GRADIENT_ACCEPTANCE_FACTOR
+    )
+    passes_gradient_screening = grad <= gradient_screening_threshold
+    passes_geometric_screening = bool(
+        result.success
+        and np.isfinite(result.fun)
+        and passes_gradient_screening
+        and not exact
+        and clash <= config.collision_tolerance_A
+        and max_bond <= config.bond_tolerance_A
+        and spacing <= config.max_spacing_ratio
+    )
     return {
         "optimizer_success": bool(result.success),
         "optimizer_message": str(result.message),
         "iterations": int(result.nit),
         "objective": float(result.fun),
         "maximum_gradient_component": grad,
+        "gradient_tolerance_optimizer": float(config.gradient_tolerance),
+        "gradient_acceptance_factor": float(PERIODIC_PATH_GRADIENT_ACCEPTANCE_FACTOR),
+        "gradient_screening_threshold": float(gradient_screening_threshold),
+        "passes_gradient_screening": bool(passes_gradient_screening),
         "maximum_collision_penetration_A": clash,
         "exact_overlap": exact,
         "maximum_conserved_bond_deviation_A": max_bond,
         "spacing_ratio": spacing,
-        "accepted": bool(
-            result.success
-            and np.isfinite(result.fun)
-            and grad
-            <= config.gradient_tolerance * PERIODIC_PATH_GRADIENT_ACCEPTANCE_FACTOR
-            and not exact
-            and clash <= config.collision_tolerance_A
-            and max_bond <= config.bond_tolerance_A
-            and spacing <= config.max_spacing_ratio
-        ),
+        "passes_geometric_screening": passes_geometric_screening,
+        "accepted": passes_geometric_screening,
     }
 
 
@@ -616,7 +653,7 @@ def interpolate_periodic_paths(
         start_edges, end_edges, start, end, cells[-1], pbc
     )
     _, start_basis = canonical_periodic_basis(reactant.lattice, pbc)
-    choices = _image_choices(
+    enumeration = _image_choices(
         shifts,
         components,
         start,
@@ -628,6 +665,7 @@ def interpolate_periodic_paths(
         fixed,
         fixed_shifts,
     )
+    choices = list(enumeration.choices)
     basis_vectors, _ = canonical_periodic_basis(reactant.lattice, pbc)
     basis_vectors = complete_periodic_cell(basis_vectors, pbc)
     numbers = np.asarray(start_atoms.numbers, dtype=int)
@@ -770,7 +808,15 @@ def interpolate_periodic_paths(
         "candidate_count_evaluated": len(seen_choices),
         "ambiguous_common_edges": [list(item) for item in ambiguous],
         "end_basis_transform": end_transform.tolist(),
-        "candidate_scope": "base and single-component one-cell windings",
+        "candidate_scope": enumeration.family_scope,
+        "image_shift_enumeration": {
+            "family_scope": enumeration.family_scope,
+            "family_unique_count": enumeration.family_unique_count,
+            "max_candidates_configured": config.max_candidates,
+            "candidates_returned_for_search": enumeration.returned_count,
+            "enumeration_truncated": enumeration.truncated,
+            "search_complete_within_family": not enumeration.truncated,
+        },
     }
     if not candidates:
         raise PeriodicPathError(
