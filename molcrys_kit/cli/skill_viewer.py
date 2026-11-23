@@ -335,6 +335,25 @@ def emit_tree(skill: Skill, *, as_json: bool) -> None:
             print(f"    -> {link['target']}{suffix}")
 
 
+def emit_trees(*, as_json: bool) -> None:
+    """Show link trees for every bundled skill (discoverable aggregate view)."""
+    skills = list_skills()
+    if as_json:
+        print(
+            json_payload({
+                "schema": "mck.skills.trees/v1",
+                "trees": [
+                    {"skill": item.name, "resources": tree(item)} for item in skills
+                ],
+            })
+        )
+        return
+    for index, item in enumerate(skills):
+        if index:
+            print()
+        emit_tree(item, as_json=False)
+
+
 __all__ = [
     "Skill",
     "SkillError",
@@ -342,6 +361,7 @@ __all__ = [
     "emit_list",
     "emit_show",
     "emit_tree",
+    "emit_trees",
     "get_skill",
     "list_skills",
 ]

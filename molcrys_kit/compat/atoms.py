@@ -6,6 +6,14 @@ import copy
 
 import numpy as np
 
+from ..utils.lattice_mic import (
+    minimum_image_cartesian,
+    periodic_mask as _periodic_mask,
+    translations_within_cartesian as _translations_within,
+)
+
+_minimum_image_vector = minimum_image_cartesian
+
 _ATOMIC_NUMBERS = {
     "H": 1,
     "He": 2,
@@ -448,156 +456,3 @@ def _pair_cutoff(symbols: list[str], cutoff) -> np.ndarray:
     return result
 
 
-def _periodic_mask(pbc) -> np.ndarray:
-    """Normalize an ASE-style ``pbc`` value to three booleans."""
-    if pbc is None:
-        return np.zeros(3, dtype=bool)
-    if isinstance(pbc, (bool, np.bool_)):
-        return np.full(3, bool(pbc), dtype=bool)
-    values = np.asarray(pbc, dtype=bool).reshape(-1)
-    if values.size == 1:
-        return np.full(3, bool(values[0]), dtype=bool)
-    if values.size != 3:
-        return np.zeros(3, dtype=bool)
-    return values.copy()
-
-
-def _gram_schmidt_rows(basis: np.ndarray):
-    """Return ``(mu, orthogonal, norm2)`` for row vectors."""
-    count = basis.shape[0]
-    mu = np.zeros((count, count), dtype=float)
-    orthogonal = np.zeros((count, 3), dtype=float)
-    norm2 = np.zeros(count, dtype=float)
-    for i in range(count):
-        vector = np.array(basis[i], dtype=float, copy=True)
-        for j in range(i):
-            if norm2[j] <= 1e-24:
-                mu[i, j] = 0.0
-                continue
-            mu[i, j] = float(np.dot(basis[i], orthogonal[j]) / norm2[j])
-            vector -= mu[i, j] * orthogonal[j]
-        orthogonal[i] = vector
-        norm2[i] = float(np.dot(vector, vector))
-    return mu, orthogonal, norm2
-
-
-def _translations_within(delta, cell, pbc, radius: float):
-    """Integer shifts ``S`` with ``||delta + S @ cell|| < radius``.
-
-    Only periodic, nonzero lattice rows vary. The search is Fincke–Pohst
-    enumeration on the Gram–Schmidt form of those rows: a coefficient outside
-    the remaining ball cannot lead to a vector inside it, and every integer
-    combination inside the ball is visited. The returned shift is expressed in
-    the original cell, not in a reduced basis.
-    """
-    delta = np.asarray(delta, dtype=float).reshape(3)
-    cell = np.asarray(cell, dtype=float).reshape(3, 3)
-    mask = _periodic_mask(pbc)
-    if radius <= 0.0 or not np.any(mask):
-        if float(np.linalg.norm(delta)) < radius:
-            return [np.zeros(3, dtype=int)]
-        return []
-    active = [
-        axis
-        for axis in range(3)
-        if mask[axis] and float(np.linalg.norm(cell[axis])) > 1e-12
-    ]
-    if not active:
-        if float(np.linalg.norm(delta)) < radius:
-            return [np.zeros(3, dtype=int)]
-        return []
-    basis = cell[np.asarray(active, dtype=int)]
-    mu, orthogonal, norm2 = _gram_schmidt_rows(basis)
-    sigma = np.zeros(len(active), dtype=float)
-    parallel2 = 0.0
-    for level, length2 in enumerate(norm2):
-        if length2 <= 1e-24:
-            continue
-        sigma[level] = float(np.dot(delta, orthogonal[level]) / length2)
-        parallel2 += sigma[level] ** 2 * length2
-    outside2 = max(0.0, float(np.dot(delta, delta)) - parallel2)
-    limit2 = float(radius) * float(radius)
-    if outside2 >= limit2:
-        return []
-    found: list[np.ndarray] = []
-    coeffs = np.zeros(len(active), dtype=int)
-
-    def walk(level: int, used2: float) -> None:
-        if norm2[level] <= 1e-24:
-            coeffs[level] = 0
-            if level == 0:
-                found.append(coeffs.copy())
-            else:
-                walk(level - 1, used2)
-            return
-        extra = float(sigma[level])
-        for higher in range(level + 1, len(active)):
-            extra += float(coeffs[higher]) * float(mu[higher, level])
-        budget = limit2 - used2
-        if budget < 0.0:
-            return
-        reach = float(np.sqrt(budget / norm2[level]))
-        low = int(np.ceil(-reach - extra - 1e-9))
-        high = int(np.floor(reach - extra + 1e-9))
-        for coeff in range(low, high + 1):
-            coeffs[level] = coeff
-            used_next = used2 + (coeff + extra) ** 2 * float(norm2[level])
-            if used_next > limit2 + 1e-8:
-                continue
-            if level == 0:
-                found.append(coeffs.copy())
-            else:
-                walk(level - 1, used_next)
-
-    walk(len(active) - 1, outside2)
-    shifts = []
-    for coeff in found:
-        shift = np.zeros(3, dtype=int)
-        for local, axis in enumerate(active):
-            shift[axis] = int(coeff[local])
-        vector = delta + shift @ cell
-        if float(np.dot(vector, vector)) < limit2:
-            shifts.append(shift)
-    shifts.sort(key=lambda item: (int(item[0]), int(item[1]), int(item[2])))
-    return shifts
-
-
-def _minimum_image_vector(delta, cell, pbc) -> np.ndarray:
-    """Shortest Cartesian image of ``delta`` under the periodic lattice.
-
-    The zero shift is one feasible image. Rounding the periodic fractional
-    coordinates gives another. The shorter of those two is an upper bound, so
-    the exhaustive ball around it contains a true minimum. Equal lengths keep
-    the lexicographically smallest original-cell shift.
-    """
-    delta = np.asarray(delta, dtype=float).reshape(3)
-    cell = np.asarray(cell, dtype=float).reshape(3, 3)
-    mask = _periodic_mask(pbc)
-    if not np.any(mask):
-        return delta.copy()
-    best_shift = np.zeros(3, dtype=int)
-    best_vector = delta.copy()
-    best_length = float(np.dot(best_vector, best_vector))
-    if abs(float(np.linalg.det(cell))) > 1e-12:
-        fractional = delta @ np.linalg.inv(cell)
-        rounded = np.zeros(3, dtype=int)
-        rounded[mask] = -np.rint(fractional[mask]).astype(int)
-        rounded_vector = delta + rounded @ cell
-        rounded_length = float(np.dot(rounded_vector, rounded_vector))
-        if rounded_length < best_length - 1e-18:
-            best_shift = rounded
-            best_vector = rounded_vector
-            best_length = rounded_length
-    radius = float(np.sqrt(max(best_length, 0.0))) + 1e-8
-    for shift in _translations_within(delta, cell, mask, radius):
-        vector = delta + shift @ cell
-        length = float(np.dot(vector, vector))
-        if length < best_length - 1e-18 or (
-            abs(length - best_length) <= 1e-18
-            and tuple(int(value) for value in shift)
-            < tuple(int(value) for value in best_shift)
-        ):
-            best_shift = shift
-            best_vector = vector
-            best_length = length
-    return best_vector

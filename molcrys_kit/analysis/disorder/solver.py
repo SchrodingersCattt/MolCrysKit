@@ -27,7 +27,27 @@ from .provenance import DisorderProvenance
 from .symmetry_audit import audit_parent_symmetry
 from ...io.cif import identify_molecules
 from ...constants import get_atomic_radius, has_atomic_radius, is_metal_element
-from ...constants.config import DISORDER_CONFIG
+from ...constants.config import (
+    DISORDER_CONFIG,
+    KEY_ASSEMBLY,
+    KEY_ASYM_ID,
+    KEY_ATOM_ID,
+    KEY_DISORDER_GROUP,
+    KEY_FORMAL_CHARGE,
+    KEY_FORMAL_CHARGE_KNOWN,
+    KEY_FRAC_X,
+    KEY_FRAC_Y,
+    KEY_FRAC_Z,
+    KEY_ISOTOPE,
+    KEY_LABEL,
+    KEY_OCCUPANCY,
+    KEY_SITE_SYMMETRY_ORDER,
+    KEY_SOURCE_ASU_FRAC,
+    KEY_SOURCE_ASU_INDEX,
+    KEY_SYM_OP_INDEX,
+    KEY_U_CART,
+    KEY_UISO,
+)
 from ...analysis.interactions.bonding import get_bonding_threshold
 from ...analysis.formula_moiety import parse_moiety_string
 
@@ -354,6 +374,10 @@ class DisorderSolver:
             "valence",
         }
     )
+    # Conflict labels that justify promoting a kept site to occupancy 1.0
+    # after a dropped neighbour.  Geometric/valence clashes remove illegal
+    # overlaps but do not declare a crystallographic occupancy sum.
+    _OCCUPANCY_RESOLUTION_CONFLICTS = frozenset({"explicit", "implicit_sp"})
     # Soft-conflict types and per-element rejection policy.  Water (O)
     # re-uses the historic pre-fix behaviour of rejecting the whole motif
     # if any pair of picked atoms has a soft conflict edge — this filters
@@ -2444,6 +2468,221 @@ class DisorderSolver:
             notes=tuple(dict.fromkeys(notes)),
         )
 
+    def _pair_resolves_occupancy_to_one(self, kept: int, dropped: int) -> bool:
+        """Return whether winning over ``dropped`` sets ``kept`` to occupancy 1.0."""
+        if kept == dropped or not self.graph.has_edge(kept, dropped):
+            return False
+        conflict_type = self.graph[kept][dropped].get("conflict_type", "")
+        kept_group = int(self.info.disorder_groups[kept])
+        dropped_group = int(self.info.disorder_groups[dropped])
+        if conflict_type in self._OCCUPANCY_RESOLUTION_CONFLICTS:
+            if conflict_type == "explicit":
+                return kept_group != dropped_group
+            return True
+        if conflict_type == "logical_alternative":
+            return (
+                kept_group != 0
+                and dropped_group != 0
+                and kept_group != dropped_group
+            )
+        if conflict_type == "symmetry_clash":
+            asym_id = getattr(self.info, "asym_id", None)
+            if asym_id and kept < len(asym_id) and dropped < len(asym_id):
+                return int(asym_id[kept]) == int(asym_id[dropped])
+        return False
+
+    def _resolved_occupancy_for_site(
+        self,
+        source_index: int,
+        *,
+        dropped_indices: Optional[List[int]] = None,
+    ) -> float:
+        """Map a source site to the occupancy stored on an ordered replica.
+
+        Refined occupancies are preserved unless this site survived over a
+        dropped neighbour that was a genuine occupancy alternative (explicit
+        PART/assembly, labelled logical alternative between non-zero groups,
+        implicit special-position clustering, or a symmetry clash between
+        copies of the same asymmetric-unit site).
+        """
+        refined = float(self.info.occupancies[source_index])
+        if not dropped_indices:
+            return refined
+        for other in dropped_indices:
+            if other == source_index:
+                continue
+            if self._pair_resolves_occupancy_to_one(source_index, other):
+                return 1.0
+        return refined
+
+    def _attach_source_metadata_to_molecules(
+        self,
+        molecules,
+        independent_set: List[int],
+        *,
+        disorder_provenance: Optional[DisorderProvenance] = None,
+    ) -> None:
+        """Attach per-site CIF metadata after molecule identification.
+
+        Bonding and component splitting use default full occupancies on the
+        transient ASE object; refined occupancies are restored here so they
+        cannot perturb graph-based molecule boundaries.
+        """
+        kept = [int(i) for i in independent_set]
+        dropped = (
+            list(disorder_provenance.dropped_indices) if disorder_provenance else None
+        )
+        for molecule in molecules:
+            flat_indices = [
+                int(i)
+                for i in molecule.info.get(
+                    "atom_indices", list(range(len(molecule)))
+                )
+            ]
+            source_indices = [kept[flat] for flat in flat_indices]
+            frac_coords = np.asarray(self.info.frac_coords, dtype=float)[source_indices]
+            molecule.set_array(
+                KEY_OCCUPANCY,
+                np.array(
+                    [
+                        self._resolved_occupancy_for_site(
+                            i, dropped_indices=dropped
+                        )
+                        for i in source_indices
+                    ],
+                    dtype=float,
+                ),
+            )
+            molecule.set_array(
+                KEY_DISORDER_GROUP,
+                np.array(
+                    [int(self.info.disorder_groups[i]) for i in source_indices],
+                    dtype=int,
+                ),
+            )
+            molecule.set_array(
+                KEY_ASSEMBLY,
+                np.array([self.info.assemblies[i] for i in source_indices]),
+            )
+            molecule.set_array(
+                KEY_LABEL, np.array([self.info.labels[i] for i in source_indices])
+            )
+            if self.info.atom_ids and len(self.info.atom_ids) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_ATOM_ID,
+                    np.asarray([self.info.atom_ids[i] for i in source_indices], dtype=str),
+                )
+            if (
+                self.info.molecule_ids
+                and len(self.info.molecule_ids) == len(self.info.labels)
+            ):
+                molecule.set_array(
+                    "mck_molecule_id",
+                    np.asarray(
+                        [self.info.molecule_ids[i] for i in source_indices], dtype=int
+                    ),
+                )
+            if self.info.sym_op_indices and len(self.info.sym_op_indices) >= len(
+                self.info.labels
+            ):
+                molecule.set_array(
+                    KEY_SYM_OP_INDEX,
+                    np.array(
+                        [int(self.info.sym_op_indices[i]) for i in source_indices],
+                        dtype=int,
+                    ),
+                )
+            if self.info.asym_id and len(self.info.asym_id) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_ASYM_ID,
+                    np.array([int(self.info.asym_id[i]) for i in source_indices], dtype=int),
+                )
+            if self.info.site_symmetry_order and len(
+                self.info.site_symmetry_order
+            ) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_SITE_SYMMETRY_ORDER,
+                    np.array(
+                        [
+                            int(self.info.site_symmetry_order[i])
+                            for i in source_indices
+                        ],
+                        dtype=int,
+                    ),
+                )
+            if self.info.uiso is not None and len(self.info.uiso) >= len(self.info.labels):
+                molecule.set_array(
+                    KEY_UISO,
+                    np.asarray([self.info.uiso[i] for i in source_indices], dtype=float),
+                )
+            if self.info.u_cart is not None and len(self.info.u_cart) >= len(
+                self.info.labels
+            ):
+                molecule.set_array(
+                    KEY_U_CART,
+                    np.asarray(self.info.u_cart, dtype=float).reshape(-1, 9)[
+                        source_indices
+                    ],
+                )
+            if self.info.isotopes and any(value > 0 for value in self.info.isotopes):
+                molecule.set_array(
+                    KEY_ISOTOPE,
+                    np.asarray([self.info.isotopes[i] for i in source_indices], dtype=int),
+                )
+            if (
+                self.info.source_asu_index
+                and len(self.info.source_asu_index) == len(self.info.labels)
+            ):
+                molecule.set_array(
+                    KEY_SOURCE_ASU_INDEX,
+                    np.asarray(
+                        [self.info.source_asu_index[i] for i in source_indices], dtype=int
+                    ),
+                )
+                molecule.set_array(
+                    KEY_SOURCE_ASU_FRAC,
+                    np.asarray(self.info.source_asu_fractional, dtype=float).reshape(
+                        -1, 3
+                    )[source_indices],
+                )
+            if self.info.atomic_masses and any(
+                value is not None for value in self.info.atomic_masses
+            ):
+                masses = np.asarray(molecule.get_masses(), dtype=float)
+                for local_index, source_index in enumerate(source_indices):
+                    mass = self.info.atomic_masses[source_index]
+                    if mass is not None and np.isfinite(float(mass)):
+                        masses[local_index] = float(mass)
+                molecule.set_masses(masses)
+            if self.info.site_formal_charges and any(
+                value is not None for value in self.info.site_formal_charges
+            ):
+                molecule.set_array(
+                    KEY_FORMAL_CHARGE,
+                    np.asarray(
+                        [
+                            0
+                            if self.info.site_formal_charges[i] is None
+                            else self.info.site_formal_charges[i]
+                            for i in source_indices
+                        ],
+                        dtype=int,
+                    ),
+                )
+                molecule.set_array(
+                    KEY_FORMAL_CHARGE_KNOWN,
+                    np.asarray(
+                        [
+                            self.info.site_formal_charges[i] is not None
+                            for i in source_indices
+                        ],
+                        dtype=bool,
+                    ),
+                )
+            molecule.set_array(KEY_FRAC_X, frac_coords[:, 0].copy())
+            molecule.set_array(KEY_FRAC_Y, frac_coords[:, 1].copy())
+            molecule.set_array(KEY_FRAC_Z, frac_coords[:, 2].copy())
+
     def _reconstruct_crystal(
         self,
         independent_set: List[int],
@@ -2464,6 +2703,11 @@ class DisorderSolver:
             pbc=pbc,
         )
         molecules = identify_molecules(atoms, disorder_policy="as_refined")
+        self._attach_source_metadata_to_molecules(
+            molecules,
+            independent_set,
+            disorder_provenance=disorder_provenance,
+        )
         crystal = MolecularCrystal(
             self.lattice,
             molecules,
