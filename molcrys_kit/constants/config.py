@@ -13,6 +13,15 @@ BFDH_GEOMETRY_TOLERANCE = 1e-10
 # Cartesian tolerance passed to periodic neighbor searches, in Angstrom.
 PERIODIC_NEIGHBOR_TOLERANCE_A = 1e-8
 
+# Exact minimum-image lattice search (Fincke–Pohst shell enumeration).
+LATTICE_MIC_CELL_DET_EPS = 1e-12
+LATTICE_MIC_ROW_NORM_EPS = 1e-12
+LATTICE_MIC_GRAM_SCHMIDT_EPS = 1e-24
+LATTICE_MIC_LENGTH_EPS = 1e-18
+LATTICE_MIC_SHELL_PADDING_A = PERIODIC_NEIGHBOR_TOLERANCE_A
+LATTICE_MIC_ENUM_EPS = 1e-8
+LATTICE_MIC_ENUM_MARGIN = 1e-9
+
 # Distances within this tolerance, in Angstrom, belong to one polyhedron
 # shell tier. Boundary checks also refuse a tier that sits closer than this
 # to the search radius, because that tier may be incomplete.
@@ -291,6 +300,15 @@ DISORDER_CONFIG = {
     # When random sampling yields too few valid solutions, enumerate up to this
     # many candidates and filter by formula before sampling.
     "FORMULA_FILTER_ENUM_CAP": 64,
+    # Cartesian tolerance (Angstrom) for parent-symmetry mapping audits on
+    # ordered disorder replicas.  Refinement noise and approximate images of
+    # split components commonly sit near 0.2–0.5 Å; 0.35 Å is a permissive
+    # default that still rejects clearly broken mappings.
+    "PARENT_SYMMETRY_AUDIT_TOLERANCE": 0.35,
+    # Pair-count times exact images. A larger proven box is refused instead
+    # of answered with a fixed 27-image window. This is a resource bound,
+    # not a distance approximation.
+    "PARENT_SYMMETRY_EXACT_PAIR_BUDGET": 250_000_000,
 }
 
 # Bonding thresholds for disorder analysis

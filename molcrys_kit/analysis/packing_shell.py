@@ -9,6 +9,11 @@ Molecule-level shells default to the ``major`` disorder policy: alternative
 orientations of one site are mutually exclusive, and the highest-occupancy
 component is the centre that is matched and drawn. See
 :mod:`molcrys_kit.analysis.disorder.policy`.
+
+A molecule-level centre is the centroid, centre of mass, or heavy-atom
+centroid of one unwrapped image. Atoms stored on opposite sides of a cell
+face are joined along bonds before that average. An already contiguous
+image is left as stored.
 """
 
 from __future__ import annotations
@@ -523,8 +528,152 @@ def _molecule_heavy_signature(molecule) -> Tuple[Tuple[str, int], ...]:
     return heavy_signature(dict(Counter(s for s in symbols if s != "H")))
 
 
+def _centre_periodicity(molecule):
+    """Lattice and PBC used to unwrap one molecule before averaging.
+
+    The parent crystal cell is authoritative because image shifts are
+    integers on that cell. A bare atoms object falls back to its own cell.
+    """
+    from ..constants.config import MIN_PERIODIC_CELL_VOLUME_A3
+
+    crystal = getattr(molecule, "crystal", None)
+    lattice = getattr(crystal, "lattice", None) if crystal is not None else None
+    pbc = getattr(crystal, "pbc", None) if crystal is not None else None
+    if lattice is None:
+        get_cell = getattr(molecule, "get_cell", None)
+        if get_cell is not None:
+            lattice = np.asarray(get_cell(), dtype=float)
+        get_pbc = getattr(molecule, "get_pbc", None)
+        if get_pbc is not None and pbc is None:
+            pbc = tuple(bool(flag) for flag in get_pbc())
+    if lattice is None:
+        return None, (False, False, False)
+    lattice = np.asarray(lattice, dtype=float)
+    if lattice.shape != (3, 3) or not np.all(np.isfinite(lattice)):
+        return None, (False, False, False)
+    if abs(float(np.linalg.det(lattice))) <= MIN_PERIODIC_CELL_VOLUME_A3:
+        return None, (False, False, False)
+    if pbc is None:
+        pbc = (True, True, True)
+    else:
+        try:
+            pbc = tuple(bool(flag) for flag in pbc)
+        except TypeError:
+            return None, (False, False, False)
+        if len(pbc) != 3:
+            return None, (False, False, False)
+    return lattice, pbc
+
+
+def _stored_image_matches_minimum_image(positions, lattice, pbc) -> bool:
+    """True when no atom is stored a lattice vector away from its nearest image.
+
+    This accepts a contiguous molecule that already fits inside one minimum
+    image of its first atom. A molecule that crosses a cell face does not.
+    """
+    from ..constants.config import SHELL_TIER_DISTANCE_TOLERANCE_A
+
+    positions = np.asarray(positions, dtype=float)
+    if len(positions) <= 1:
+        return True
+    fractional = positions @ np.linalg.inv(lattice)
+    delta = fractional - fractional[:1]
+    nearest = delta.copy()
+    periodic = np.asarray(pbc, dtype=bool)
+    nearest[:, periodic] -= np.rint(nearest[:, periodic])
+    mismatch = np.linalg.norm((delta - nearest) @ lattice, axis=1)
+    return bool(np.max(mismatch) <= SHELL_TIER_DISTANCE_TOLERANCE_A)
+
+
+def _unwrap_molecule_positions(molecule, positions, symbols) -> np.ndarray:
+    """Return one contiguous Cartesian image of ``positions``.
+
+    The walk follows the same bond vectors as
+    :meth:`MolecularCrystal.get_unwrapped_molecules` and keeps the first
+    atom fixed. When that walk cannot reach every atom, stored coordinates
+    are kept only if they are already one minimum image. Otherwise the
+    centre would average atoms on opposite sides of a cell face.
+    """
+    positions = np.asarray(positions, dtype=float)
+    if len(positions) <= 1:
+        return positions
+    lattice, pbc = _centre_periodicity(molecule)
+    if lattice is None or not any(pbc):
+        return positions
+
+    import networkx as nx
+    from ase import Atoms
+    from ase.neighborlist import neighbor_list
+
+    from ..analysis.interactions import get_bonding_threshold
+    from ..constants import (
+        DEFAULT_NEIGHBOR_CUTOFF,
+        get_atomic_radius,
+        has_atomic_radius,
+        is_metal_element,
+    )
+    from ..utils.geometry import unwrap_positions_along_bonds
+
+    bare = Atoms(
+        symbols=list(symbols),
+        positions=positions,
+        cell=lattice,
+        pbc=pbc,
+    )
+    i_list, j_list, d_list, d_vectors = neighbor_list(
+        "ijdD", bare, cutoff=DEFAULT_NEIGHBOR_CUTOFF
+    )
+    graph = nx.Graph()
+    graph.add_nodes_from(range(len(bare)))
+    for left, right, distance, vector in zip(i_list, j_list, d_list, d_vectors):
+        if left >= right:
+            continue
+        radius_left = (
+            get_atomic_radius(symbols[left])
+            if has_atomic_radius(symbols[left])
+            else 0.5
+        )
+        radius_right = (
+            get_atomic_radius(symbols[right])
+            if has_atomic_radius(symbols[right])
+            else 0.5
+        )
+        threshold = get_bonding_threshold(
+            radius_left,
+            radius_right,
+            is_metal_element(symbols[left]),
+            is_metal_element(symbols[right]),
+        )
+        if distance < threshold:
+            graph.add_edge(
+                int(left), int(right), vector=np.asarray(vector, dtype=float)
+            )
+
+    unwrapped, completed = unwrap_positions_along_bonds(
+        graph,
+        range(len(positions)),
+        positions,
+    )
+    if completed:
+        return unwrapped
+    if _stored_image_matches_minimum_image(positions, lattice, pbc):
+        return positions
+    raise ValueError(
+        "Cannot average a molecule centre from coordinates that cross a "
+        "periodic cell face. Unwrap the molecule along its bonds, or store "
+        "one contiguous image, before averaging."
+    )
+
+
 def _molecule_centre(molecule, kind: str, mask: np.ndarray = None) -> np.ndarray:
-    """Return the Cartesian centre of ``molecule`` according to ``kind``."""
+    """Return the Cartesian centre of one unwrapped image of ``molecule``.
+
+    ``centroid`` is the unweighted mean, ``com`` the mass-weighted mean, and
+    ``heavy_centroid`` the unweighted mean of the non-hydrogen atoms. All
+    three are evaluated after atoms stored across a cell face have been
+    joined along bonds. The first active atom stays fixed, so an already
+    contiguous molecule matches the mean of its stored coordinates.
+    """
     positions = np.asarray(molecule.get_positions(), dtype=float)
     if positions.size == 0:
         raise ValueError("Cannot compute molecule centre: empty molecule.")
@@ -537,6 +686,7 @@ def _molecule_centre(molecule, kind: str, mask: np.ndarray = None) -> np.ndarray
     if use_active_mask:
         positions = positions[active_mask]
         symbols = [sym for sym, keep in zip(symbols, active_mask) if bool(keep)]
+    positions = _unwrap_molecule_positions(molecule, positions, symbols)
     if kind == "centroid":
         return positions.mean(axis=0)
     if kind == "com":
@@ -548,10 +698,10 @@ def _molecule_centre(molecule, kind: str, mask: np.ndarray = None) -> np.ndarray
             return positions.mean(axis=0)
         return np.average(positions, axis=0, weights=masses)
     if kind == "heavy_centroid":
-        mask = np.array([s != "H" for s in symbols], dtype=bool)
-        if not mask.any():
+        heavy = np.array([symbol != "H" for symbol in symbols], dtype=bool)
+        if not heavy.any():
             return positions.mean(axis=0)
-        return positions[mask].mean(axis=0)
+        return positions[heavy].mean(axis=0)
     raise ValueError(
         f"center_kind must be one of {_MOLECULE_CENTRE_KINDS!r}, got {kind!r}."
     )
@@ -1181,7 +1331,9 @@ def find_polyhedra(
       composition matches the ``central`` moiety string, find the
       surrounding CrystalMolecules whose heavy composition matches the
       ``ligand`` moiety string, using molecule centroids (or centres of
-      mass, or heavy-atom centroids) under periodic boundary conditions.
+      mass, or heavy-atom centroids) of one unwrapped image under periodic
+      boundary conditions. Atoms stored across a cell face are joined
+      along bonds before that average.
       Internally this is the same gap+enclosure algorithm operating on
       centroid--centroid distances instead of atom--atom distances, which
       is the natural picture for hybrid molecular crystals such as the
@@ -1212,10 +1364,15 @@ def find_polyhedra(
         Either ``"atom"`` (default) or ``"molecule"``.
     center_kind
         How to compute molecule centres for ``level="molecule"``. One of
-        ``"centroid"`` (unweighted mean of all atoms; matches
-        ``CrystalMolecule.get_centroid``), ``"com"`` (mass-weighted), or
-        ``"heavy_centroid"`` (unweighted mean of non-H atoms). Ignored
-        when ``level="atom"``.
+        ``"centroid"`` (unweighted mean of all atoms), ``"com"``
+        (mass-weighted), or ``"heavy_centroid"`` (unweighted mean of non-H
+        atoms). The average is taken after unwrapping atoms that cross a
+        cell face; the first active atom stays fixed. An already contiguous
+        molecule therefore matches ``CrystalMolecule.get_centroid`` for
+        ``"centroid"``. ``get_centroid`` itself still averages stored
+        Cartesian positions and does not unwrap. Ignored when
+        ``level="atom"``. A wrapped molecule that cannot be unwrapped
+        raises ``ValueError``.
     cutoff
         See "Radial knobs" below; meaning depends on ``level``.
     search_cutoff

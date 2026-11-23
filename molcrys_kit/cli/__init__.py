@@ -12,9 +12,14 @@ from .skill_viewer import (
     emit_list,
     emit_show,
     emit_tree,
+    emit_trees,
     get_skill,
     json_payload,
+    list_skills,
 )
+
+_TREE_MISSING = "skills tree requires SKILL_NAME or --all"
+_TREE_BOTH = "skills tree accepts SKILL_NAME or --all, not both"
 
 try:
     from molcrys_kit._version import version as __version__
@@ -149,9 +154,38 @@ def _skill_error(exc: SkillError, *, as_json: bool) -> None:
     raise SystemExit(2) from exc
 
 
+def _skill_cli_error(
+    message: str,
+    *,
+    as_json: bool,
+    choices: list[str] | None = None,
+) -> None:
+    click.echo(f"Error: {message}", err=True)
+    if as_json:
+        payload: dict[str, object] = {
+            "schema": "mck.error/v1",
+            "ok": False,
+            "error": message,
+        }
+        if choices is not None:
+            payload["choices"] = choices
+        click.echo(json_payload(payload))
+    elif choices is not None:
+        click.echo("Bundled skill names:", err=True)
+        for name in choices:
+            click.echo(f"  {name}", err=True)
+        click.echo("Try: mck skills tree SKILL_NAME", err=True)
+        click.echo("     mck skills tree --all", err=True)
+    raise SystemExit(2)
+
+
 @main.group(name="skills")
 def skills_group() -> None:
-    """Discover and read bundled Agent Skills."""
+    """Discover and read bundled Agent Skills.
+
+    ``skills tree`` needs a skill name for one link map, or ``tree --all`` for
+    every bundled skill.
+    """
 
 
 @skills_group.command(name="list")
@@ -190,11 +224,28 @@ def skills_show(name: str, relative_path: str, all_files: bool, as_json: bool) -
 
 
 @skills_group.command(name="tree")
-@click.argument("name", metavar="SKILL_NAME")
+@click.option(
+    "--all",
+    "all_trees",
+    is_flag=True,
+    help="Show link trees for every bundled skill (aggregate view).",
+)
+@click.argument("name", required=False, default=None, metavar="SKILL_NAME")
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
-def skills_tree(name: str, as_json: bool) -> None:
-    """Show linked local resources without outputting document bodies."""
+def skills_tree(name: str | None, all_trees: bool, as_json: bool) -> None:
+    """Show one skill link tree (SKILL_NAME) or every skill with ``--all``.
+
+    Reports local links and assets without outputting document bodies.
+    """
     try:
+        if all_trees and name is not None:
+            _skill_cli_error(_TREE_BOTH, as_json=as_json)
+        if all_trees:
+            emit_trees(as_json=as_json)
+            return
+        if name is None:
+            choices = [skill.name for skill in list_skills()]
+            _skill_cli_error(_TREE_MISSING, as_json=as_json, choices=choices)
         emit_tree(get_skill(name), as_json=as_json)
     except SkillError as exc:
         _skill_error(exc, as_json=as_json)

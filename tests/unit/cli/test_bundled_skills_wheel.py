@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -16,6 +17,29 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILLS_ROOT = REPO_ROOT / "skills"
+
+
+def _assert_import_resolves_under_site(
+    site: Path, env: dict[str, str], cwd: Path
+) -> Path:
+    """Fail unless ``import molcrys_kit`` loads from the wheel ``--target`` tree."""
+    probe = subprocess.run(
+        [sys.executable, "-c", "import molcrys_kit; print(molcrys_kit.__file__)"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        cwd=cwd,
+    )
+    assert probe.returncode == 0, probe.stdout + probe.stderr
+    resolved = Path(probe.stdout.strip()).resolve()
+    site_root = site.resolve()
+    assert site_root in resolved.parents, (
+        f"molcrys_kit loaded from {resolved}, expected under install site {site_root}"
+    )
+    checkout_init = (REPO_ROOT / "molcrys_kit" / "__init__.py").resolve()
+    assert resolved != checkout_init, "wheel smoke must not resolve the source checkout"
+    return resolved
 
 
 def _canonical_skill_files() -> set[str]:
@@ -120,3 +144,67 @@ def test_wheel_contains_full_bundled_skills_tree() -> None:
         leftover = work / "molcrys_kit" / "_bundled_skills"
         assert leftover.is_dir()
         assert sorted(p.name for p in leftover.iterdir()) == ["__init__.py"]
+
+        site = Path(tmp) / "site"
+        install = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-deps",
+                "--target",
+                str(site),
+                str(wheels[0]),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        assert install.returncode == 0, install.stdout + install.stderr
+        # Host site-packages supplies core runtime deps; only the wheel payload
+        # lands in ``site``. Run CLI probes outside the repo so ``sys.path[0]``
+        # cannot pick up ``./molcrys_kit`` from the checkout.
+        isolated_env = dict(env)
+        isolated_env["PYTHONPATH"] = str(site)
+        cli_cwd = Path(tmp) / "cli_cwd"
+        cli_cwd.mkdir()
+        _assert_import_resolves_under_site(site, isolated_env, cli_cwd)
+
+        listed = subprocess.run(
+            [sys.executable, "-m", "molcrys_kit", "skills", "list", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=isolated_env,
+            cwd=cli_cwd,
+        )
+        assert listed.returncode == 0, listed.stdout + listed.stderr
+        names = [item["name"] for item in json.loads(listed.stdout)["skills"]]
+
+        missing = subprocess.run(
+            [sys.executable, "-m", "molcrys_kit", "skills", "tree"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=isolated_env,
+            cwd=cli_cwd,
+        )
+        assert missing.returncode == 2, missing.stdout + missing.stderr
+        assert "SKILL_NAME or --all" in missing.stderr
+        assert "Missing argument" not in missing.stderr
+
+        tree = subprocess.run(
+            [sys.executable, "-m", "molcrys_kit", "skills", "tree", "--all"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=isolated_env,
+            cwd=cli_cwd,
+        )
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        blocks = [b for b in tree.stdout.strip().split("\n\n") if b.strip()]
+        assert [block.splitlines()[0] for block in blocks] == names
+        assert "SKILL.md (markdown)" in tree.stdout
