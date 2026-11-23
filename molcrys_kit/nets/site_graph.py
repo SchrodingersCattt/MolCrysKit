@@ -79,7 +79,12 @@ class EdgeProvenance:
 
 @dataclass(frozen=True)
 class PeriodicSiteGraph:
-    """Quotient graph plus the crystal records that produced it."""
+    """Quotient graph plus the crystal records that produced it.
+
+    ``nodes`` contains provenance records. The quotient nodes, edges and PBC
+    flags are available on ``graph`` as ``graph.nodes``, ``graph.edges`` and
+    ``graph.pbc``. Pass ``graph`` to the periodic graph algorithms.
+    """
 
     graph: PeriodicQuotientGraph
     embedding: PeriodicEmbedding | None
