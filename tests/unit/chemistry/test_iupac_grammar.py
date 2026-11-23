@@ -374,6 +374,46 @@ def test_alkene_configuration_round_trip_checks_stereo() -> None:
     assert notations_equivalent("C/C=C/C(=O)O", "OC(=O)/C=C/C") is True
 
 
+def test_equivalent_traversals_keep_configuration() -> None:
+    """Bracket hydrogen and outward slashes do not depend on the SMILES walk."""
+    pairs = (
+        (
+            "CC(=O)N[C@@H](CSc1ccccc1)C(=O)O",
+            "[C@@H](NC(=O)C)(C(=O)O)CSc1ccccc1",
+            "(2R)-2-acetamido-3-(phenylsulfanyl)propanoic acid",
+        ),
+        (
+            "O=C(O)/C=C/C=C/CO",
+            r"C(=C\C(=O)O)/C=C/CO",
+            "(2E,4E)-6-hydroxyhexa-2,4-dienoic acid",
+        ),
+        (
+            "O=C(O)/C=C/C=C/C(=O)O",
+            r"C(=C\C=C\C(=O)O)/C(O)=O",
+            "(2E,4E)-hexa-2,4-dienedioic acid",
+        ),
+    )
+    for left, right, name in pairs:
+        assert smiles_to_iupac(left, strict=True).name == name
+        assert smiles_to_iupac(right, strict=True).name == name
+
+
+def test_alkyl_chains_share_the_stem_table() -> None:
+    """Formamide, sulfur, hydroperoxide, and isocyanate are not methyl/ethyl lists."""
+    pairs = (
+        ("CCCNC=O", "N-propylformamide"),
+        ("CCCCN(CCCC)C=O", "N,N-dibutylformamide"),
+        ("CCCSCCC", "(propylsulfanyl)propane"),
+        ("CCCCSCCCCC", "(butylsulfanyl)pentane"),
+        ("CCCOO", "propyl hydroperoxide"),
+        ("CCCCCCOO", "hexyl hydroperoxide"),
+        ("CCCN=C=O", "propyl isocyanate"),
+    )
+    for smiles, name in pairs:
+        assert smiles_to_iupac(smiles, strict=True).name == name
+        assert notations_equivalent(smiles, iupac_to_smiles(name).value) is True
+
+
 def test_bis_glutathione_carbonyl_stays_outside_the_grammar() -> None:
     smiles = (
         "O=C(SC[C@H](NC(=O)CC[C@H](N)C(=O)O)C(=O)NCC(=O)O)"

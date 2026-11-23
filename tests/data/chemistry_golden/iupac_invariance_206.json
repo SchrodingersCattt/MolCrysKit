@@ -1,0 +1,798 @@
+{
+  "seed": 20261031,
+  "traversals": 6,
+  "rdkit": "2026.09.1",
+  "method": "Six MolToRandomSmilesVect writings per diagram input, deduplicated, plus the Kekule SMILES.",
+  "probe_count": 389,
+  "parents": [
+    {
+      "id": "43",
+      "variants": [
+        "C(CC)CCC",
+        "C(CCC)CC",
+        "C(CCCC)C",
+        "CCCCCC"
+      ]
+    },
+    {
+      "id": "44",
+      "variants": [
+        "C(CCCC)CO",
+        "C(CO)CCCC",
+        "CCCCCCO"
+      ]
+    },
+    {
+      "id": "45",
+      "variants": [
+        "C(C(CC)O)CC",
+        "C(C(O)CC)CC",
+        "C(CC)C(O)CC",
+        "CCC(CCC)O",
+        "CCCC(O)CC"
+      ]
+    },
+    {
+      "id": "46",
+      "variants": [
+        "C(CC(C)O)CC",
+        "C(CC(O)C)CC",
+        "C(CC)CC(C)O",
+        "C(CC)CC(O)C",
+        "CC(CCCC)O",
+        "CC(O)CCCC",
+        "CCCCC(C)O"
+      ]
+    },
+    {
+      "id": "47",
+      "variants": [
+        "C(C(O)C)CC(C)O",
+        "C(C(O)C)CC(O)C",
+        "CC(CCC(C)O)O",
+        "CC(CCC(O)C)O",
+        "CC(O)CCC(C)O",
+        "OC(C)CCC(C)O"
+      ]
+    },
+    {
+      "id": "48",
+      "variants": [
+        "C(CC(=O)C)CC",
+        "C(CC(C)=O)CC",
+        "C(CC)CC(=O)C",
+        "C(CC)CC(C)=O",
+        "CC(=O)CCCC",
+        "CC(CCCC)=O",
+        "CCCCC(C)=O"
+      ]
+    },
+    {
+      "id": "49",
+      "variants": [
+        "C(C(=O)C)CC(C)O",
+        "C(C(O)C)CC(=O)C",
+        "C(C(O)C)CC(C)=O",
+        "CC(=O)CCC(C)O",
+        "CC(CCC(C)=O)O",
+        "CC(CCC(O)C)=O",
+        "OC(C)CCC(C)=O"
+      ]
+    },
+    {
+      "id": "50",
+      "variants": [
+        "C(C(=O)C)CC(=O)C",
+        "C(C(=O)C)CC(C)=O",
+        "CC(=O)CCC(C)=O",
+        "CC(CCC(=O)C)=O",
+        "CC(CCC(C)=O)=O",
+        "O=C(C)CCC(C)=O"
+      ]
+    },
+    {
+      "id": "1",
+      "variants": [
+        "C1=CC=CC=C1",
+        "c1ccccc1"
+      ]
+    },
+    {
+      "id": "2",
+      "variants": [
+        "C12C(C=CC=C2)O1",
+        "C1=CC2OC2C=C1",
+        "C1=CC=CC2OC12",
+        "C1=CC=CC2OC21",
+        "C1C2C(O2)C=CC=1",
+        "C1C=CC2C(C=1)O2",
+        "C1C=CC2OC2C=1"
+      ]
+    },
+    {
+      "id": "3",
+      "variants": [
+        "C1=CC=COC=C1",
+        "C1=COC=CC=C1",
+        "C1C=CC=COC=1",
+        "C1C=COC=CC=1",
+        "O1C=CC=CC=C1"
+      ]
+    },
+    {
+      "id": "4",
+      "variants": [
+        "C12OC1OC=CC=C2",
+        "C12OC=CC=CC2O1",
+        "C1=CC=COC2C1O2",
+        "C1=COC2C(O2)C=C1",
+        "C1=COC2OC2C=C1",
+        "C1C=COC2OC2C=1",
+        "O1C=CC=CC2OC12"
+      ]
+    },
+    {
+      "id": "5",
+      "variants": [
+        "C(/C(O)=O)=C\\C=C\\CO",
+        "C(=C\\C(=O)O)/C=C/CO",
+        "C(=C\\CO)/C=C/C(O)=O",
+        "C(=O)(/C=C/C=C/CO)O",
+        "C(O)(/C=C/C=C/CO)=O",
+        "O=C(O)/C=C/C=C/CO",
+        "OC(/C=C/C=C/CO)=O"
+      ]
+    },
+    {
+      "id": "6",
+      "variants": [
+        "C(=C\\C=C\\C(=O)O)/C(O)=O",
+        "C(=C\\C=C\\C(O)=O)/C(O)=O",
+        "C(O)(/C=C/C=C/C(O)=O)=O",
+        "O=C(O)/C=C/C=C/C(=O)O",
+        "OC(=O)/C=C/C=C/C(=O)O"
+      ]
+    },
+    {
+      "id": "7",
+      "variants": [
+        "CC(=O)N[C@@H](CSC1=CC=CC=C1)C(=O)O",
+        "CC(N[C@H](C(=O)O)CSc1ccccc1)=O",
+        "[C@@H](NC(=O)C)(C(=O)O)CSc1ccccc1",
+        "c1(ccccc1)SC[C@H](NC(=O)C)C(=O)O",
+        "c1(ccccc1)SC[C@H](NC(C)=O)C(=O)O",
+        "c1c(SC[C@@H](C(=O)O)NC(=O)C)cccc1",
+        "c1ccccc1SC[C@@H](C(=O)O)NC(=O)C"
+      ]
+    },
+    {
+      "id": "8",
+      "variants": [
+        "C1(CC=CC=C1)SC[C@H](NC(=O)C)C(=O)O",
+        "C1(CC=CC=C1)SC[C@H](NC(C)=O)C(=O)O",
+        "C1C(SC[C@@H](C(=O)O)NC(=O)C)C=CC=C1",
+        "C1C=CC=CC1SC[C@@H](C(=O)O)NC(=O)C",
+        "CC(=O)N[C@@H](CSC1C=CC=CC1)C(=O)O",
+        "CC(N[C@H](C(=O)O)CSC1C=CC=CC1)=O",
+        "[C@@H](NC(=O)C)(C(=O)O)CSC1C=CC=CC1"
+      ]
+    },
+    {
+      "id": "9",
+      "variants": [
+        "C1=CC(O)C(O)C=C1",
+        "C1C(C(O)C=CC=1)O",
+        "C1C(O)C(O)C=CC=1",
+        "OC1C(C=CC=C1)O",
+        "OC1C=CC=CC1O"
+      ]
+    },
+    {
+      "id": "10",
+      "variants": [
+        "OC1=CC=CC=C1O",
+        "Oc1c(O)cccc1",
+        "Oc1c(cccc1)O",
+        "c1(c(O)cccc1)O",
+        "c1cc(c(O)cc1)O",
+        "c1ccc(O)c(O)c1"
+      ]
+    },
+    {
+      "id": "11",
+      "variants": [
+        "C1(C(=O)C=CC=C1)=O",
+        "C1=CC(C(=O)C=C1)=O",
+        "C1C=CC(=O)C(=O)C=1",
+        "O=C1C(=O)C=CC=C1",
+        "O=C1C(C=CC=C1)=O",
+        "O=C1C=CC=CC1=O"
+      ]
+    },
+    {
+      "id": "12",
+      "variants": [
+        "OC1=CC=CC=C1",
+        "Oc1ccccc1",
+        "c1cc(ccc1)O",
+        "c1ccc(cc1)O",
+        "c1cccc(c1)O"
+      ]
+    },
+    {
+      "id": "13",
+      "variants": [
+        "OC1=CC=C(O)C=C1",
+        "Oc1ccc(cc1)O",
+        "c1(O)ccc(cc1)O",
+        "c1c(O)ccc(c1)O",
+        "c1cc(O)ccc1O",
+        "c1cc(ccc1O)O"
+      ]
+    },
+    {
+      "id": "14",
+      "variants": [
+        "C1(=O)C=CC(C=C1)=O",
+        "C1=CC(=O)C=CC1=O",
+        "C1=CC(C=CC1=O)=O",
+        "C1C(=O)C=CC(C=1)=O",
+        "O=C1C=CC(=O)C=C1",
+        "O=C1C=CC(C=C1)=O"
+      ]
+    },
+    {
+      "id": "15",
+      "variants": [
+        "OC1=CC(O)=C(O)C=C1",
+        "Oc1c(O)cc(cc1)O",
+        "Oc1c(O)ccc(c1)O",
+        "Oc1cc(O)ccc1O",
+        "c1(O)cc(c(cc1)O)O",
+        "c1(O)ccc(O)cc1O",
+        "c1(ccc(c(O)c1)O)O"
+      ]
+    },
+    {
+      "id": "18",
+      "variants": [
+        "[O]C1=CC=C([O-])C=C1",
+        "[O]c1ccc(cc1)[O-]",
+        "c1([O-])ccc(cc1)[O]",
+        "c1c([O])ccc(c1)[O-]",
+        "c1cc([O])ccc1[O-]",
+        "c1cc(ccc1[O-])[O]"
+      ]
+    },
+    {
+      "id": "19",
+      "variants": [
+        "[O-]C1=CC=C([O-])C=C1",
+        "[O-]c1ccc(cc1)[O-]",
+        "c1([O-])ccc(cc1)[O-]",
+        "c1c([O-])ccc(c1)[O-]",
+        "c1cc([O-])ccc1[O-]",
+        "c1cc(ccc1[O-])[O-]"
+      ]
+    },
+    {
+      "id": "20",
+      "variants": [
+        "[O]C1=CC=C(O)C=C1",
+        "[O]c1ccc(cc1)O",
+        "c1(O)ccc(cc1)[O]",
+        "c1c([O])ccc(c1)O",
+        "c1cc([O])ccc1O",
+        "c1cc(ccc1O)[O]"
+      ]
+    },
+    {
+      "id": "21",
+      "variants": [
+        "[O-]C1=CC=C(O)C=C1",
+        "[O-]c1ccc(cc1)O",
+        "c1(O)ccc(cc1)[O-]",
+        "c1c([O-])ccc(c1)O",
+        "c1cc([O-])ccc1O",
+        "c1cc(ccc1O)[O-]"
+      ]
+    },
+    {
+      "id": "16_HH",
+      "variants": [
+        "O(c1ccccc1)[C@@H]1O[C@H](C(=O)O)[C@H]([C@H](O)[C@H]1O)O",
+        "O=C(O)[C@@H]1[C@H]([C@@H]([C@@H](O)[C@@H](O1)Oc1ccccc1)O)O",
+        "O=C(O)[C@H]1O[C@@H](OC2=CC=CC=C2)[C@H](O)[C@@H](O)[C@@H]1O",
+        "[C@@H]1(O)[C@H](O[C@H]([C@@H]([C@H]1O)O)Oc1ccccc1)C(O)=O",
+        "[C@H]1(C(=O)O)O[C@H]([C@@H]([C@H]([C@@H]1O)O)O)Oc1ccccc1",
+        "[C@H]1([C@@H](O)[C@@H]([C@H]([C@@H](O1)Oc1ccccc1)O)O)C(=O)O",
+        "c1cccc(c1)O[C@@H]1O[C@@H]([C@H]([C@H](O)[C@H]1O)O)C(=O)O"
+      ]
+    },
+    {
+      "id": "17_HH",
+      "variants": [
+        "O(S(=O)(=O)[O-])c1ccccc1",
+        "O=S(=O)([O-])OC1=CC=CC=C1",
+        "O=S(=O)([O-])Oc1ccccc1",
+        "O=S(Oc1ccccc1)([O-])=O",
+        "c1c(OS(=O)([O-])=O)cccc1",
+        "c1cc(OS(=O)(=O)[O-])ccc1",
+        "c1cc(ccc1)OS(=O)([O-])=O"
+      ]
+    },
+    {
+      "id": "16_OH_H",
+      "variants": [
+        "O=C(O)[C@H]1O[C@@H](OC2=CC=CC=C2O)[C@H](O)[C@@H](O)[C@@H]1O",
+        "O[C@H]1[C@@H]([C@@H](C(=O)O)O[C@@H](Oc2ccccc2O)[C@@H]1O)O",
+        "O[C@H]1[C@@H]([C@@H](O)[C@H](Oc2c(O)cccc2)O[C@@H]1C(O)=O)O",
+        "O[C@H]1[C@H](O)[C@@H](C(=O)O)O[C@@H](Oc2c(O)cccc2)[C@@H]1O",
+        "c1c(c(ccc1)O)O[C@@H]1O[C@@H]([C@H]([C@H](O)[C@H]1O)O)C(O)=O",
+        "c1cc(c(O[C@@H]2O[C@@H]([C@@H](O)[C@@H]([C@H]2O)O)C(O)=O)cc1)O",
+        "c1ccc(O)c(c1)O[C@@H]1O[C@@H]([C@H]([C@@H]([C@H]1O)O)O)C(=O)O"
+      ]
+    },
+    {
+      "id": "17_OH_H",
+      "variants": [
+        "O(S(=O)([O-])=O)c1c(O)cccc1",
+        "O(S(=O)([O-])=O)c1c(cccc1)O",
+        "O=S(=O)([O-])OC1=CC=CC=C1O",
+        "[O-]S(=O)(=O)Oc1ccccc1O",
+        "[O-]S(Oc1ccccc1O)(=O)=O",
+        "c1(OS([O-])(=O)=O)c(cccc1)O",
+        "c1(ccccc1OS(=O)(=O)[O-])O"
+      ]
+    },
+    {
+      "id": "16_H_OH",
+      "variants": [
+        "O=C(O)[C@H]1O[C@@H](OC2=CC=C(O)C=C2)[C@H](O)[C@@H](O)[C@@H]1O",
+        "O[C@H]1[C@@H]([C@@H](C(=O)O)O[C@@H](Oc2ccc(cc2)O)[C@@H]1O)O",
+        "O[C@H]1[C@@H]([C@@H](O)[C@H](Oc2ccc(cc2)O)O[C@@H]1C(O)=O)O",
+        "O[C@H]1[C@H](O)[C@@H](C(=O)O)O[C@@H](Oc2ccc(O)cc2)[C@@H]1O",
+        "Oc1ccc(O[C@@H]2O[C@@H]([C@@H](O)[C@@H]([C@H]2O)O)C(O)=O)cc1",
+        "c1c(ccc(c1)O)O[C@@H]1O[C@@H]([C@H]([C@H](O)[C@H]1O)O)C(O)=O",
+        "c1c(ccc(c1)O[C@@H]1O[C@@H]([C@H]([C@@H]([C@H]1O)O)O)C(=O)O)O"
+      ]
+    },
+    {
+      "id": "17_H_OH",
+      "variants": [
+        "O(S(=O)([O-])=O)c1ccc(cc1)O",
+        "O=S(=O)([O-])OC1=CC=C(O)C=C1",
+        "[O-]S(=O)(=O)Oc1ccc(O)cc1",
+        "[O-]S(Oc1ccc(O)cc1)(=O)=O",
+        "c1(OS([O-])(=O)=O)ccc(cc1)O",
+        "c1cc(ccc1OS(=O)(=O)[O-])O"
+      ]
+    },
+    {
+      "id": "16_OH_OH",
+      "variants": [
+        "O(c1ccc(O)cc1O)[C@H]1[C@@H]([C@@H](O)[C@H](O)[C@@H](C(O)=O)O1)O",
+        "O1[C@H]([C@@H]([C@H]([C@H](O)[C@H]1C(=O)O)O)O)Oc1c(cc(O)cc1)O",
+        "O=C(O)[C@H]1O[C@@H](OC2=C(O)C=C(O)C=C2)[C@H](O)[C@@H](O)[C@@H]1O",
+        "[C@H]1(C(O)=O)O[C@H]([C@H](O)[C@@H](O)[C@@H]1O)Oc1ccc(O)cc1O",
+        "[C@H]1(O[C@H](C(O)=O)[C@@H](O)[C@H](O)[C@H]1O)Oc1ccc(cc1O)O",
+        "c1(O)ccc(O[C@H]2[C@H](O)[C@H]([C@@H]([C@H](O2)C(=O)O)O)O)c(c1)O",
+        "c1(c(O[C@@H]2O[C@H](C(=O)O)[C@H]([C@H](O)[C@H]2O)O)ccc(c1)O)O"
+      ]
+    },
+    {
+      "id": "17_OH_OH",
+      "variants": [
+        "O=S(=O)([O-])OC1=C(O)C=C(O)C=C1",
+        "Oc1ccc(c(O)c1)OS(=O)([O-])=O",
+        "c1(O)cc(c(cc1)OS([O-])(=O)=O)O",
+        "c1(OS(=O)([O-])=O)ccc(O)cc1O",
+        "c1(cc(ccc1OS(=O)([O-])=O)O)O",
+        "c1(ccc(cc1O)O)OS(=O)(=O)[O-]",
+        "c1c(c(cc(c1)O)O)OS(=O)(=O)[O-]"
+      ]
+    },
+    {
+      "id": "16_Me_Me",
+      "variants": [
+        "CC1=CC(C)=C(O[C@@H]2O[C@H](C(=O)O)[C@@H](O)[C@H](O)[C@H]2O)C=C1",
+        "O(c1ccc(C)cc1C)[C@H]1[C@@H]([C@@H](O)[C@H](O)[C@@H](C(O)=O)O1)O",
+        "O1[C@H]([C@@H]([C@H]([C@H](O)[C@H]1C(=O)O)O)O)Oc1c(cc(C)cc1)C",
+        "[C@H]1(C(O)=O)O[C@H]([C@H](O)[C@@H](O)[C@@H]1O)Oc1ccc(C)cc1C",
+        "[C@H]1(O[C@H](C(O)=O)[C@@H](O)[C@H](O)[C@H]1O)Oc1ccc(cc1C)C",
+        "c1(C)ccc(O[C@H]2[C@H](O)[C@H]([C@@H]([C@H](O2)C(=O)O)O)O)c(c1)C",
+        "c1(c(O[C@@H]2O[C@H](C(=O)O)[C@H]([C@H](O)[C@H]2O)O)ccc(c1)C)C"
+      ]
+    },
+    {
+      "id": "17_Me_Me",
+      "variants": [
+        "CC1=CC(C)=C(OS(=O)(=O)[O-])C=C1",
+        "Cc1ccc(c(C)c1)OS(=O)([O-])=O",
+        "c1(C)cc(c(cc1)OS([O-])(=O)=O)C",
+        "c1(OS(=O)([O-])=O)ccc(C)cc1C",
+        "c1(cc(ccc1OS(=O)([O-])=O)C)C",
+        "c1(ccc(cc1C)C)OS(=O)(=O)[O-]",
+        "c1c(c(cc(c1)C)C)OS(=O)(=O)[O-]"
+      ]
+    },
+    {
+      "id": "80",
+      "variants": [
+        "C(Cl)(Cl)(Cl)Cl",
+        "ClC(Cl)(Cl)Cl"
+      ]
+    },
+    {
+      "id": "81",
+      "variants": [
+        "Cl[C](Cl)Cl",
+        "[C](Cl)(Cl)Cl"
+      ]
+    },
+    {
+      "id": "82",
+      "variants": [
+        "C(Cl)(Cl)Cl",
+        "ClC(Cl)Cl"
+      ]
+    },
+    {
+      "id": "83",
+      "variants": [
+        "C(Cl)(Cl)(Cl)O[O]",
+        "ClC(Cl)(Cl)O[O]",
+        "ClC(Cl)(O[O])Cl",
+        "ClC(O[O])(Cl)Cl",
+        "[O]OC(Cl)(Cl)Cl"
+      ]
+    },
+    {
+      "id": "84",
+      "variants": [
+        "C(=O)(Cl)Cl",
+        "ClC(=O)Cl",
+        "ClC(Cl)=O",
+        "O=C(Cl)Cl"
+      ]
+    },
+    {
+      "id": "85",
+      "variants": [
+        "C(Cl)(Cl)(Cl)OO",
+        "ClC(Cl)(Cl)OO",
+        "ClC(Cl)(OO)Cl",
+        "ClC(OO)(Cl)Cl",
+        "OOC(Cl)(Cl)Cl"
+      ]
+    },
+    {
+      "id": "86",
+      "variants": [
+        "C(Cl)(Cl)(Cl)O",
+        "C(Cl)(Cl)(O)Cl",
+        "C(Cl)(O)(Cl)Cl",
+        "ClC(O)(Cl)Cl",
+        "OC(Cl)(Cl)Cl"
+      ]
+    },
+    {
+      "id": "87",
+      "variants": [
+        "C(C[C@@H](C(O)=O)N)C(N[C@@H](CSC(=O)SC[C@H](NC(CC[C@H](N)C(O)=O)=O)C(NCC(O)=O)=O)C(=O)NCC(O)=O)=O",
+        "C(NC([C@H](CSC(=O)SC[C@H](NC(CC[C@@H](C(O)=O)N)=O)C(NCC(O)=O)=O)NC(CC[C@@H](C(=O)O)N)=O)=O)C(=O)O",
+        "N(CC(=O)O)C(=O)[C@@H](NC(=O)CC[C@@H](C(O)=O)N)CSC(SC[C@@H](C(NCC(O)=O)=O)NC(=O)CC[C@H](N)C(O)=O)=O",
+        "N([C@@H](CSC(=O)SC[C@H](NC(=O)CC[C@@H](C(O)=O)N)C(=O)NCC(O)=O)C(NCC(=O)O)=O)C(=O)CC[C@@H](C(=O)O)N",
+        "N[C@@H](CCC(=O)N[C@@H](CSC(=O)SC[C@H](NC(=O)CC[C@H](N)C(=O)O)C(=O)NCC(=O)O)C(=O)NCC(=O)O)C(=O)O",
+        "O=C(CC[C@H](N)C(O)=O)N[C@H](C(=O)NCC(=O)O)CSC(=O)SC[C@@H](C(NCC(=O)O)=O)NC(CC[C@H](N)C(O)=O)=O",
+        "[C@@H](NC(=O)CC[C@@H](C(=O)O)N)(C(=O)NCC(=O)O)CSC(SC[C@@H](C(NCC(=O)O)=O)NC(CC[C@@H](C(=O)O)N)=O)=O"
+      ]
+    },
+    {
+      "id": "88",
+      "variants": [
+        "Cl[CH]Cl",
+        "[CH](Cl)Cl"
+      ]
+    },
+    {
+      "id": "89",
+      "variants": [
+        "C(Cl)Cl",
+        "ClCCl"
+      ]
+    },
+    {
+      "id": "138",
+      "variants": [
+        "C1CCCO1",
+        "C1CCOC1",
+        "C1COCC1",
+        "O1CCCC1"
+      ]
+    },
+    {
+      "id": "139",
+      "variants": [
+        "C1(O)CCCO1",
+        "C1CC(OC1)O",
+        "C1CCC(O)O1",
+        "C1COC(O)C1",
+        "OC1CCCO1"
+      ]
+    },
+    {
+      "id": "140",
+      "variants": [
+        "C1(=O)CCCO1",
+        "C1CC(OC1)=O",
+        "C1CCC(=O)O1",
+        "C1COC(=O)C1",
+        "O=C1CCCO1"
+      ]
+    },
+    {
+      "id": "141",
+      "variants": [
+        "C(=O)(CCCO)O",
+        "C(CCCO)(=O)O",
+        "C(O)(CCCO)=O",
+        "O=C(O)CCCO",
+        "OCCCC(=O)O",
+        "OCCCC(O)=O"
+      ]
+    },
+    {
+      "id": "142",
+      "variants": [
+        "C(=O)(CCC=O)O",
+        "C(CCC=O)(=O)O",
+        "C(O)(CCC=O)=O",
+        "O=CCCC(=O)O",
+        "O=CCCC(O)=O"
+      ]
+    },
+    {
+      "id": "143",
+      "variants": [
+        "C(C(=O)O)CC(=O)O",
+        "C(C(=O)O)CC(O)=O",
+        "C(C(O)=O)CC(O)=O",
+        "O=C(CCC(=O)O)O",
+        "O=C(O)CCC(=O)O",
+        "OC(CCC(=O)O)=O"
+      ]
+    },
+    {
+      "id": "144",
+      "variants": [
+        "C(C=O)CCO",
+        "C(CC=O)CO",
+        "C(CCCO)=O",
+        "C(CCO)C=O",
+        "O=CCCCO"
+      ]
+    },
+    {
+      "id": "145",
+      "variants": [
+        "C(CCCO)O",
+        "C(CCO)CO",
+        "C(CO)CCO",
+        "OCCCCO"
+      ]
+    },
+    {
+      "id": "146",
+      "variants": [
+        "C(C=O)CC=O",
+        "C(CC=O)C=O",
+        "C(CCC=O)=O",
+        "O=CCCC=O"
+      ]
+    },
+    {
+      "id": "165",
+      "variants": [
+        "CN(C)C=O",
+        "CN(C=O)C",
+        "N(C)(C=O)C",
+        "N(C=O)(C)C",
+        "O=CN(C)C"
+      ]
+    },
+    {
+      "id": "166",
+      "variants": [
+        "C(N(C)CO)=O",
+        "C(N(CO)C)=O",
+        "C(O)N(C=O)C",
+        "CN(C=O)CO",
+        "O=CN(CO)C",
+        "OCN(C)C=O",
+        "OCN(C=O)C"
+      ]
+    },
+    {
+      "id": "167",
+      "variants": [
+        "C(=O)NC",
+        "CNC=O",
+        "N(C)C=O",
+        "O=CNC"
+      ]
+    },
+    {
+      "id": "168",
+      "variants": [
+        "C(=O)NCO",
+        "C(NCO)=O",
+        "N(CO)C=O",
+        "O=CNCO",
+        "OCNC=O"
+      ]
+    },
+    {
+      "id": "169",
+      "variants": [
+        "C(=O)N",
+        "C(N)=O",
+        "NC=O",
+        "O=CN"
+      ]
+    },
+    {
+      "id": "170",
+      "variants": [
+        "C(=O)=NC",
+        "CN=C=O",
+        "N(C)=C=O",
+        "O=C=NC"
+      ]
+    },
+    {
+      "id": "171",
+      "variants": [
+        "C(O)([C@H](CCC(=O)N[C@H](C(NCC(O)=O)=O)CSC(N(C)O)=O)N)=O",
+        "C([C@@H](C(=O)NCC(O)=O)NC(=O)CC[C@@H](C(O)=O)N)SC(=O)N(O)C",
+        "CN(O)C(=O)SC[C@H](NC(=O)CC[C@H](N)C(=O)O)C(=O)NCC(=O)O",
+        "O=C(CNC([C@@H](NC(CC[C@H](N)C(O)=O)=O)CSC(=O)N(O)C)=O)O",
+        "O=C(O)[C@H](CCC(=O)N[C@H](C(NCC(O)=O)=O)CSC(=O)N(O)C)N",
+        "OC(=O)[C@@H](N)CCC(=O)N[C@H](C(=O)NCC(=O)O)CSC(N(C)O)=O",
+        "OC(CNC([C@H](CSC(N(C)O)=O)NC(CC[C@H](N)C(O)=O)=O)=O)=O"
+      ]
+    },
+    {
+      "id": "172",
+      "variants": [
+        "C(=O)(N[C@H](C(=O)O)CSC(=O)N(C)O)C",
+        "C(=O)(O)[C@@H](NC(=O)C)CSC(=O)N(O)C",
+        "C([C@H](CSC(=O)N(C)O)NC(C)=O)(=O)O",
+        "CC(=O)N[C@@H](CSC(=O)N(C)O)C(=O)O",
+        "O=C(N(O)C)SC[C@@H](C(=O)O)NC(C)=O",
+        "O=C(SC[C@H](NC(=O)C)C(O)=O)N(C)O",
+        "[C@@H](CSC(=O)N(O)C)(NC(C)=O)C(=O)O"
+      ]
+    },
+    {
+      "id": "173",
+      "variants": [
+        "CS(=O)C",
+        "CS(C)=O",
+        "O=S(C)C",
+        "S(C)(=O)C"
+      ]
+    },
+    {
+      "id": "174",
+      "variants": [
+        "CS(=O)(=O)C",
+        "CS(C)(=O)=O",
+        "O=S(C)(C)=O",
+        "S(=O)(C)(=O)C",
+        "S(=O)(C)(C)=O",
+        "S(C)(=O)(C)=O"
+      ]
+    },
+    {
+      "id": "175",
+      "variants": [
+        "CSC",
+        "S(C)C"
+      ]
+    },
+    {
+      "id": "GSH",
+      "variants": [
+        "N[C@@H](CCC(=O)N[C@@H](CS)C(=O)NCC(=O)O)C(=O)O",
+        "O=C(CC[C@H](N)C(=O)O)N[C@@H](CS)C(NCC(O)=O)=O",
+        "O=C(CNC([C@H](CS)NC(=O)CC[C@H](N)C(O)=O)=O)O",
+        "O=C([C@@H](N)CCC(N[C@H](C(NCC(O)=O)=O)CS)=O)O",
+        "OC(CNC([C@@H](NC(CC[C@H](N)C(O)=O)=O)CS)=O)=O",
+        "SC[C@@H](C(NCC(=O)O)=O)NC(=O)CC[C@H](N)C(O)=O",
+        "[C@H](NC(CC[C@@H](C(=O)O)N)=O)(CS)C(=O)NCC(=O)O"
+      ]
+    },
+    {
+      "id": "R_radical_Me",
+      "variants": [
+        "[CH3]"
+      ]
+    },
+    {
+      "id": "ROO_radical_Me",
+      "variants": [
+        "CO[O]",
+        "O(C)[O]",
+        "O([O])C",
+        "[O]OC"
+      ]
+    },
+    {
+      "id": "ROOH_Me",
+      "variants": [
+        "COO",
+        "O(C)O",
+        "O(O)C",
+        "OOC"
+      ]
+    },
+    {
+      "id": "RH_Me",
+      "variants": [
+        "C"
+      ]
+    },
+    {
+      "id": "formaldehyde",
+      "variants": [
+        "C=O",
+        "O=C"
+      ]
+    },
+    {
+      "id": "CO2",
+      "variants": [
+        "C(=O)=O",
+        "O=C=O"
+      ]
+    },
+    {
+      "id": "water",
+      "variants": [
+        "O"
+      ]
+    },
+    {
+      "id": "HCl",
+      "variants": [
+        "Cl"
+      ]
+    },
+    {
+      "id": "oxygen",
+      "variants": [
+        "O=O"
+      ]
+    },
+    {
+      "id": "superoxide",
+      "variants": [
+        "[O-][O]",
+        "[O][O-]"
+      ]
+    },
+    {
+      "id": "hydroxyl",
+      "variants": [
+        "[OH]"
+      ]
+    },
+    {
+      "id": "proton",
+      "variants": [
+        "[H+]"
+      ]
+    }
+  ]
+}

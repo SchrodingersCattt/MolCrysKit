@@ -1,0 +1,316 @@
+{
+  "timeout_seconds": 5.0,
+  "timeouts": 0,
+  "max_seconds_cap_note": "Wall-clock samples are not frozen. Every timed call must finish within timeout_seconds.",
+  "diagram_rows": 80,
+  "diagram": {
+    "certified": 78,
+    "uncertified_round_trip": 1,
+    "unsupported": 1,
+    "wrong": 0
+  },
+  "seed_rows": {
+    "certified": 20,
+    "uncertified_round_trip": 0,
+    "unsupported": 0,
+    "wrong": 0
+  },
+  "held_out_rows": {
+    "certified": 37,
+    "uncertified_round_trip": 0,
+    "unsupported": 0,
+    "wrong": 0
+  },
+  "by_family": {
+    "alkane": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "alcohol": {
+      "certified": 4,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "polyol": {
+      "certified": 5,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "ketone": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "hydroxyketone": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "diketone": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "arene": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "epoxide": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "heterocycle": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "unsaturated-acid": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "mercapturate": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "cyclohexadiene": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "quinone": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "phenol": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "radical-anion": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "phenolate": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "radical": {
+      "certified": 5,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "glucuronide": {
+      "certified": 5,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "sulfate": {
+      "certified": 5,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "haloalkane": {
+      "certified": 3,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "peroxyl": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "acyl-halide": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "hydroperoxide": {
+      "certified": 2,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "bis-conjugate": {
+      "certified": 0,
+      "uncertified_round_trip": 0,
+      "unsupported": 1,
+      "wrong": 0
+    },
+    "lactol": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "lactone": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "hydroxyacid": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "oxoacid": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "diacid": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "hydroxyaldehyde": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "dialdehyde": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "formamide": {
+      "certified": 5,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "isocyanate": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "carbamothioate": {
+      "certified": 1,
+      "uncertified_round_trip": 1,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "sulfoxide": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "sulfone": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "sulfide": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "peptide": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "aldehyde": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "oxide": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "retained": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "hydrogen-halide": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "element": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    },
+    "ion": {
+      "certified": 1,
+      "uncertified_round_trip": 0,
+      "unsupported": 0,
+      "wrong": 0
+    }
+  },
+  "by_direction": {
+    "forward_strict": {
+      "certified": 78,
+      "uncertified_round_trip": 1,
+      "unsupported": 1,
+      "wrong": 0
+    },
+    "inverse_of_reference_name": {
+      "matched_graph": 78,
+      "refused": 0,
+      "not_applicable": 2
+    },
+    "emitted_name_round_trip": {
+      "opensmiles": 67,
+      "mck_ln": 12,
+      "failed": 0,
+      "no_strict_name": 1
+    }
+  },
+  "aliases_accepted": 14,
+  "malformed_spellings_rejected": 7,
+  "invariance_probes": 389,
+  "invariance_identity_failures": 0,
+  "invariance_support_changes": 0,
+  "invariance_name_changes": 0,
+  "note": "Certified counts are standard-name matches against the independent manifest. Emitted-name round trips, including row 171, are not certified IUPAC names."
+}
