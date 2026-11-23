@@ -36,6 +36,7 @@ class NetAnalysisLimits:
     contact_borderline_margin_A: float
     fraction_residual_A: float
     fraction_denominator_limit: int
+    tiling_assembly_limit: int
 
     @classmethod
     def from_config(cls) -> NetAnalysisLimits:
@@ -58,6 +59,7 @@ class NetAnalysisLimits:
             contact_borderline_margin_A=float(config["CONTACT_BORDERLINE_MARGIN_A"]),
             fraction_residual_A=float(config["FRACTION_RESIDUAL_A"]),
             fraction_denominator_limit=int(config["FRACTION_DENOMINATOR_LIMIT"]),
+            tiling_assembly_limit=int(config["TILING_ASSEMBLY_LIMIT"]),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -78,6 +80,7 @@ class NetAnalysisLimits:
             "contact_borderline_margin_A": self.contact_borderline_margin_A,
             "fraction_residual_A": self.fraction_residual_A,
             "fraction_denominator_limit": self.fraction_denominator_limit,
+            "tiling_assembly_limit": self.tiling_assembly_limit,
         }
 
 
