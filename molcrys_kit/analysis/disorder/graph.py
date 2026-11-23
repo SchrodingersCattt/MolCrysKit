@@ -29,6 +29,55 @@ from ...utils.geometry import (
 logger = logging.getLogger(__name__)
 
 
+def _complete_linkage_maxclust(dist: np.ndarray, n_clusters: int) -> np.ndarray:
+    """Complete-linkage clustering cut like SciPy's ``maxclust`` criterion.
+
+    Equivalent to ``fcluster(linkage(squareform(dist), "complete"), t=n_clusters,
+    criterion="maxclust")`` without importing SciPy. ``dist`` is a symmetric
+    ``(n, n)`` distance matrix. The cut height is that of the merge that leaves
+    ``n_clusters`` clusters; every merge at or below that height is applied, so
+    tied heights can yield fewer clusters, as in SciPy. Returns 1-based labels.
+    Group membership matches SciPy; label numbering is not guaranteed to.
+    """
+    dist = np.asarray(dist, dtype=float)
+    n = dist.shape[0]
+    if n_clusters >= n:
+        return np.arange(1, n + 1)
+    work = dist.copy()
+    np.fill_diagonal(work, np.inf)
+    active = np.ones(n, dtype=bool)
+    merges = []  # (height, kept, absorbed)
+    for _ in range(n - 1):
+        masked = np.where(active[:, None] & active[None, :], work, np.inf)
+        flat = int(np.argmin(masked))
+        a, b = divmod(flat, n)
+        if a > b:
+            a, b = b, a
+        merges.append((float(masked[a, b]), a, b))
+        row = np.maximum(work[a], work[b])
+        work[a, :] = row
+        work[:, a] = row
+        work[a, a] = np.inf
+        active[b] = False
+    cut = merges[n - n_clusters - 1][0]
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for height, a, b in merges:
+        if height <= cut:
+            parent[find(b)] = find(a)
+    roots = {}
+    labels = np.empty(n, dtype=int)
+    for k in range(n):
+        labels[k] = roots.setdefault(find(k), len(roots) + 1)
+    return labels
+
+
 class DisorderGraphBuilder:
     """
     Builds an exclusion graph from DisorderInfo data.
@@ -47,9 +96,12 @@ class DisorderGraphBuilder:
         ----------
         coupled:
             When True, preserve the legacy behaviour where symmetry copies
-            sharing one disorder assembly are locked to the same PART choice.
-            The default treats each symmetry copy as an independent disorder
-            decision when symmetry provenance is available.
+            that share a disorder group are locked to the same PART choice.
+            The lock is skipped for a pair of distinct assemblies only when
+            both labels already contain more than one disorder group, or when
+            ``independent_assemblies=True``. The default treats each symmetry
+            copy as an independent disorder decision when symmetry provenance
+            is available.
         """
         self.info = info
         self.lattice = lattice
@@ -837,18 +889,10 @@ class DisorderGraphBuilder:
                 sub_dists[ii, jj] = d
                 sub_dists[jj, ii] = d
 
-        from scipy.cluster.hierarchy import linkage, fcluster
-        condensed = []
-        for ii in range(n_copies):
-            for jj in range(ii + 1, n_copies):
-                condensed.append(sub_dists[ii, jj])
-        condensed = np.array(condensed)
-        if len(condensed) == 0:
-            return
-
-        Z = linkage(condensed, method='complete')
-        labels = fcluster(Z, t=n_sites, criterion='maxclust')
-
+        # NumPy-only equivalent of scipy.cluster.hierarchy
+        # linkage(method="complete") + fcluster(criterion="maxclust"), so the
+        # phone profile (NumPy + NetworkX) needs no SciPy here.
+        labels = _complete_linkage_maxclust(sub_dists, n_sites)
         for cluster_id in set(labels):
             cluster_members = [indices[k] for k in range(n_copies)
                                if labels[k] == cluster_id]
