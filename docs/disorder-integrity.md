@@ -112,6 +112,24 @@ Build or repair the loop before resolving disorder:
   disorder assembly. Atoms that differ between orientations are the partial
   sites, and the occupancies inside one assembly sum to 1. Do not also list
   the symmetry copies of those bridges in the asymmetric unit.
+- After disorder resolution, site arrays are copied from the source CIF
+  indices that survive in the independent set, once molecule boundaries are
+  fixed. Bonding therefore still runs on default full occupancies; only the
+  exported replica carries refined values. **Occupancy on the replica defaults
+  to the refined CIF value.** It is promoted to 1.0 only when a dropped
+  neighbour was a genuine occupancy alternative: an ``explicit`` assembly/PART
+  conflict between different groups, a ``logical_alternative`` edge between two
+  non-zero groups, an ``implicit_sp`` special-position cluster pick, or a
+  ``symmetry_clash`` between copies of the same asymmetric-unit site. Pure
+  geometric, valence, or valence-geometry clashes that merely remove overlaps
+  do **not** normalize occupancy. Lone partial sites (including lone non-zero
+  disorder groups without a competing component) stay at their refined occupancy.
+- Void carving and nanocluster sidecars set ``input_disorder.all_atom_ordered``
+  when the crystal has solver ``disorder_provenance`` (incompatible alternative
+  sites were removed). Retained ``disorder_group`` / ``assembly`` labels and
+  partial site occupancies are source metadata on the replica, not unresolved
+  disorder. Stats also expose ``retained_disorder_group_label_count`` and
+  ``nonunit_occupancy_count`` for review.
 - `strict_formula=True` rejects candidates that do not match
   `_chemical_formula_moiety` times `_cell_formula_units_Z`. The default warns
   and still returns a best-effort crystal. Write the moiety as discrete
@@ -124,6 +142,44 @@ Build or repair the loop before resolving disorder:
   and a molecular rotamer, both numbered 1 and 2) need
   `independent_assemblies=True`. Legacy mode can tie those assemblies
   together by group number and warns when several multi-group assemblies
-  are present. `coupled=True` locks symmetry copies of one assembly to the
-  same orientation, which is a single-domain replica. `coupled=False` lets
-  each copy choose separately.
+  are present. `coupled=True` locks symmetry copies that share a disorder
+  group number. That lock still reaches a distinct assembly when at least one
+  of the two labels is not a multi-group assembly; `independent_assemblies=True`
+  is what separates those assemblies. It does not force approximate
+  parent-symmetry images into one component choice. `coupled=False` lets each
+  symmetry copy choose separately.
+
+## Parent-symmetry audit
+
+Every ordered replica carries `disorder_provenance` with kept and dropped
+source indices. By default the resolver also attaches a parent-symmetry
+audit (`symmetry_audit=True`):
+
+- for each parent operation: mapping residual, unmapped atom count, and which
+  disorder component each kept component maps onto. The residual is the exact
+  closest lattice image inside the audit tolerance. The integer box is fixed
+  by the cell metric's least eigenvalue, not by a 27-image window. An
+  orthogonal metric uses fractional rounding. A missing parent symmetry, a
+  degenerate metric, or a proven box that exceeds
+  `PARENT_SYMMETRY_EXACT_PAIR_BUDGET`, leaves `respects_parent_group` null and
+  records that closure was not assessed. That null is not a report that the
+  replica breaks the parent group. `symmetry_consistent` and `symmetry_audit`
+  share one audit per candidate when both are requested.
+- for each disordered asymmetric-unit parent: declared versus kept occupancy
+  bookkeeping
+- `respects_parent_group` is true only when every parent operation closes and
+  occupancy bookkeeping succeeds
+
+`mck operate disorder ... --report audit.json` writes that provenance as JSON.
+`--symmetry-consistent` keeps only generated candidates whose completed
+audit closes. An unassessed cell is not kept. If the beam is then empty, the
+error says whether every candidate was unassessed, every candidate was
+assessed and does not close, or the beam mixed those two. An unassessed
+metric is never described as a proved failure. A positive `--count` on
+`enumerate` limits that beam before the filter; count `0` enumerates
+exhaustively first. The filter does not claim that no parent-closed packing
+exists outside the beam.
+`method=optimal` may still return a subgroup packing; the audit and provenance
+notes make that explicit. `--no-symmetry-audit` skips the audit object.
+`--report` still runs the audit, because the JSON is the audit. The
+`method=optimal` note is attached either way.

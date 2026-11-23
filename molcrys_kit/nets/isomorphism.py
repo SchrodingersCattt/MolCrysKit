@@ -3,9 +3,9 @@
 Two quotient graphs describe the same abstract net when their connected covers
 are isomorphic by a node bijection, an integer gauge, and a unimodular change
 of the translation lattice, after supercell copies have been folded. The proof
-is the Hermite form of one tree-gauged voltage matrix. Coordination sequences
-and degrees are computed and may prove two nets different. They never prove
-two nets the same.
+is the Hermite form of one tree-gauged voltage matrix. Coordination sequences,
+degrees, point symbols, and vertex symbols are computed and may be reported.
+They never prove two nets the same. Symbols are not part of the canonical key.
 
 The canonical search is finite. If the quotient is larger than the node cap,
 or the labeling budget is exhausted, the status is ``undetermined``.
@@ -43,7 +43,13 @@ from ._exact import (
     solve_pinned_system,
     sub_f,
 )
-from .invariants import coordination_census, degree_sequence, directed_adjacency
+from .invariants import (
+    NetSymbols,
+    coordination_census,
+    degree_sequence,
+    directed_adjacency,
+    periodic_net_symbols,
+)
 from .limits import NetAnalysisLimits
 
 
@@ -94,6 +100,7 @@ class TopologyCharacterization:
     quotient_cycle_rank: int
     components: tuple[ComponentTopology, ...]
     coordination_census: tuple[tuple[tuple[int, ...], int], ...] | None
+    symbols: NetSymbols
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -104,6 +111,7 @@ class TopologyCharacterization:
             "quotient_cycle_rank": self.quotient_cycle_rank,
             "components": [component.to_dict() for component in self.components],
             "coordination_census": _census_to_json(self.coordination_census),
+            "symbols": self.symbols.to_dict(),
         }
 
 
@@ -142,6 +150,7 @@ def characterize_periodic_net(
     """Return a canonical key when the bounded exact search finishes."""
     limits = limits or NetAnalysisLimits.from_config()
     analysis = analyze_periodic_graph(graph)
+    symbols = periodic_net_symbols(graph, limits)
     components: list[ComponentTopology] = []
     if not graph.nodes:
         empty = ComponentTopology(
@@ -166,6 +175,7 @@ def characterize_periodic_net(
             0,
             (empty,),
             (),
+            symbols,
         )
     for component, family in zip(
         analysis.quotient_components, analysis.cover_families, strict=True
@@ -181,7 +191,12 @@ def characterize_periodic_net(
             )
         )
     return _assemble(
-        components, analysis.periodic_rank, analysis.quotient_cycle_rank, graph, limits
+        components,
+        analysis.periodic_rank,
+        analysis.quotient_cycle_rank,
+        graph,
+        limits,
+        symbols,
     )
 
 
@@ -271,6 +286,7 @@ def _assemble(
     cycle_rank: int,
     graph: PeriodicQuotientGraph,
     limits: NetAnalysisLimits,
+    symbols: NetSymbols,
 ) -> TopologyCharacterization:
     census = coordination_census(graph, limits)
     if any(component.status != "identified" for component in components):
@@ -285,6 +301,7 @@ def _assemble(
             cycle_rank,
             tuple(components),
             census,
+            symbols,
         )
     # Sort by each component key. Source-node order changes under a relabel
     # when the components are different, and that order is not an invariant.
@@ -300,6 +317,7 @@ def _assemble(
         cycle_rank,
         ordered,
         census,
+        symbols,
     )
 
 

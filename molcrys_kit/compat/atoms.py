@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import copy
-from itertools import product
 
 import numpy as np
+
+from ..utils.lattice_mic import (
+    minimum_image_cartesian,
+    periodic_mask as _periodic_mask,
+    translations_within_cartesian as _translations_within,
+)
+
+_minimum_image_vector = minimum_image_cartesian
 
 _ATOMIC_NUMBERS = {
     "H": 1,
@@ -262,6 +269,29 @@ class Atoms:
             raise ValueError(f"{name} must contain one value per atom")
         self.arrays[name] = array
 
+    def get_distance(self, a0, a1, mic: bool = False, vector: bool = False):
+        """Distance from atom ``a0`` to atom ``a1``.
+
+        ``mic=True`` uses the minimum image. ``vector=True`` returns the
+        Cartesian vector from ``a0`` to ``a1`` instead of its length. This is
+        the one pair call ``io/cif.py`` makes for an explicit bond that did
+        not carry an image shift.
+        """
+        return self.get_distances(a0, [a1], mic=mic, vector=vector)[0]
+
+    def get_distances(self, a, indices, mic: bool = False, vector: bool = False):
+        """Distances from atom ``a`` to each index in ``indices``."""
+        positions = self.get_positions()
+        chosen = np.asarray(indices, dtype=int).reshape(-1)
+        cell = self.get_cell() if mic else None
+        periodic = self.get_pbc() if mic else None
+        vectors, lengths = get_distances(
+            positions[int(a)], positions[chosen], cell=cell, pbc=periodic
+        )
+        if vector:
+            return np.asarray(vectors, dtype=float).reshape(-1, 3)
+        return np.asarray(lengths, dtype=float).reshape(-1)
+
     def get_chemical_formula(self) -> str:
         counts: dict[str, int] = {}
         for symbol in self._symbols:
@@ -294,15 +324,20 @@ def neighbor_list(
     vectors = []
     shifts = []
     if count and max_cutoff > 0.0:
-        for shift in _image_shifts(cell, pbc, max_cutoff):
-            offset = shift @ cell
-            for i in range(count):
-                for j in range(count):
+        # Search every periodic image inside the cutoff, including atoms that
+        # already sit several cells away from the origin. The shift is the
+        # original-cell image: ``r_j + S @ cell - r_i``.
+        for i in range(count):
+            for j in range(count):
+                limit = float(pair_cutoff[i, j])
+                if limit <= 0.0:
+                    continue
+                delta = positions[j] - positions[i]
+                for shift in _translations_within(delta, cell, pbc, limit + 1e-8):
                     if not self_interaction and i == j and not np.any(shift):
                         continue
-                    vector = positions[j] + offset - positions[i]
+                    vector = delta + shift @ cell
                     distance = float(np.linalg.norm(vector))
-                    limit = pair_cutoff[i, j]
                     if distance < limit and distance > 1e-12:
                         indices_i.append(i)
                         indices_j.append(j)
@@ -320,7 +355,13 @@ def neighbor_list(
 
 
 def get_distances(p1, p2, cell=None, pbc=None):
-    """Return ``(vectors, distances)`` with ASE's pair-matrix layout."""
+    """Return ``(vectors, distances)`` with ASE's pair-matrix layout.
+
+    Periodic distances are minimum images on a general cell. A coordinate-wise
+    ``rint`` of the fractional difference is not that minimum once the cell is
+    skewed, so each Cartesian difference is replaced by the shortest lattice
+    image inside a ball that is known to contain it.
+    """
     left = np.asarray(p1, dtype=float)
     right = np.asarray(p2, dtype=float)
     if left.ndim == 1:
@@ -328,16 +369,13 @@ def get_distances(p1, p2, cell=None, pbc=None):
     if right.ndim == 1:
         right = right.reshape(1, 3)
     delta = right[None, :, :] - left[:, None, :]
-    matrix = None if cell is None else np.asarray(cell, dtype=float)
-    periodic = np.zeros(3, dtype=bool) if pbc is None else np.asarray(pbc, dtype=bool)
-    if (
-        matrix is not None
-        and abs(float(np.linalg.det(matrix))) > 1e-12
-        and np.any(periodic)
-    ):
-        fractional = delta @ np.linalg.inv(matrix)
-        fractional[..., periodic] -= np.rint(fractional[..., periodic])
-        delta = fractional @ matrix
+    matrix = None if cell is None else np.asarray(cell, dtype=float).reshape(3, 3)
+    periodic = _periodic_mask(pbc)
+    if matrix is not None and np.any(periodic):
+        flat = delta.reshape(-1, 3)
+        for index, vector in enumerate(flat):
+            flat[index] = _minimum_image_vector(vector, matrix, periodic)
+        delta = flat.reshape(delta.shape)
     distances = np.linalg.norm(delta, axis=-1)
     return delta, distances
 
@@ -358,7 +396,9 @@ def _integer_indices(index, count: int) -> np.ndarray:
     array = np.asarray(index)
     if array.ndim == 0:
         item = array.item()
-        if isinstance(item, (int, np.integer)) and not isinstance(item, (bool, np.bool_)):
+        if isinstance(item, (int, np.integer)) and not isinstance(
+            item, (bool, np.bool_)
+        ):
             return _integer_indices(int(item), count)
         raise IndexError("atom index must be integers, a slice, or a boolean mask")
     if array.dtype == bool:
@@ -416,18 +456,3 @@ def _pair_cutoff(symbols: list[str], cutoff) -> np.ndarray:
     return result
 
 
-def _image_shifts(cell: np.ndarray, pbc: np.ndarray, cutoff: float):
-    if abs(float(np.linalg.det(cell))) < 1e-12:
-        return [np.zeros(3, dtype=int)]
-    ranges = []
-    for axis in range(3):
-        if not pbc[axis]:
-            ranges.append([0])
-            continue
-        other = np.cross(cell[(axis + 1) % 3], cell[(axis + 2) % 3])
-        height = abs(float(np.dot(cell[axis], other))) / (
-            float(np.linalg.norm(other)) + 1e-15
-        )
-        count = int(np.ceil(cutoff / max(height, 1e-8)))
-        ranges.append(range(-count, count + 1))
-    return [np.array(shift, dtype=int) for shift in product(*ranges)]

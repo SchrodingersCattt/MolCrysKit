@@ -34,12 +34,21 @@ def _snapshot(path: Path):
             rows.append(
                 {
                     "symbol": symbol,
-                    "occ": None if occupancy is None else round(float(occupancy[index]), 5),
+                    "occ": None
+                    if occupancy is None
+                    else round(float(occupancy[index]), 5),
                     "group": None if groups is None else int(groups[index]),
                     "frac": [round(float(value), 3) for value in fractional[index]],
                 }
             )
-    rows.sort(key=lambda row: (row["symbol"], row["occ"], row["group"], tuple(round(v, 2) for v in row["frac"])))
+    rows.sort(
+        key=lambda row: (
+            row["symbol"],
+            row["occ"],
+            row["group"],
+            tuple(round(v, 2) for v in row["frac"]),
+        )
+    )
     return rows
 
 
@@ -100,3 +109,59 @@ def test_cif_snapshot_matches_without_desktop_dependencies(path: Path):
         assert got["occ"] == want["occ"]
         assert got["group"] == want["group"]
         assert got["frac"] == pytest.approx(want["frac"], abs=0.002)
+
+
+def test_explicit_bonds_use_carrier_minimum_image_without_ase():
+    """``identify_molecules(..., explicit_bonds=[(0, 1)])`` must not need ASE.
+
+    The two sites are the same contact after a two-cell translation. The
+    carrier has to expose ``get_distance`` and report image shift (-2, 0, 0).
+    """
+    script = textwrap.dedent(
+        """
+        import json
+        import sys
+
+        class _Blocker:
+            _prefixes = ("pymatgen", "ase", "scipy", "spglib")
+
+            def find_spec(self, name, path, target=None):
+                if name in ("numpy", "networkx") or name.startswith(("numpy.", "networkx.")):
+                    return None
+                if name in self._prefixes or any(name.startswith(prefix + ".") for prefix in self._prefixes):
+                    raise ImportError(name)
+                return None
+
+        sys.meta_path.insert(0, _Blocker())
+        import numpy as np
+        from molcrys_kit.compat.atoms import Atoms
+        from molcrys_kit.io.cif import identify_molecules
+
+        atoms = Atoms(
+            symbols=["C", "C"],
+            positions=[[0.0, 0.0, 0.0], [20.5, 0.0, 0.0]],
+            cell=np.diag([10.0, 10.0, 10.0]),
+            pbc=True,
+        )
+        molecules = identify_molecules(atoms, explicit_bonds=[(0, 1)])
+        assert len(molecules) == 1, len(molecules)
+        records = molecules[0].info["bond_records"]
+        assert len(records) == 1
+        record = records[0]
+        print(json.dumps({
+            "shift": [int(value) for value in record["right_image_shift"]],
+            "length": float(np.linalg.norm(record["vector"])),
+        }))
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["shift"] == [-2, 0, 0]
+    assert payload["length"] == pytest.approx(0.5)

@@ -7,7 +7,7 @@
 ## Core Concepts
 
 - `MolecularCrystal` is the central object for most workflows.
-- The core install is NumPy, NetworkX, and Click (`pip install molcrys-kit`). `pip install "molcrys-kit[desktop]"` adds SciPy, ASE, pymatgen, spglib, and defusedxml. CIF reading, special-position clustering, and structure export run on the core install. Mercury `.mryx` import needs the desktop extra. `molcrys_kit.compat` is a private fallback for the core install, not a public ASE or pymatgen API.
+- The core install is NumPy, NetworkX, and Click (`pip install molcrys-kit`). `pip install "molcrys-kit[desktop]"` adds SciPy, ASE, pymatgen, spglib, and defusedxml. CIF reading, special-position clustering, and structure export run on the core install. Mercury `.mryx` import needs the desktop extra. `molcrys_kit.compat` is a private fallback for the core install, not a public ASE or pymatgen API. Its periodic distances and neighbor images are minimum images on a general cell, including coordinates that already lie several cells from the origin.
 - Typical flow: CIF/ASE → `MolecularCrystal` → operation or analysis → writer.
 - Operations return new objects; treat inputs as immutable unless a docstring says otherwise.
 - Use `import molcrys_kit as mck`; common entry point: `mck.read_mol_crystal(path)`.
@@ -32,7 +32,7 @@
 | Calibrate aromaticity geometry | `calibrate_aromaticity_geometry` | CSD-exported ring and bond observations | reviewable calibration snapshot with pair coverage and uncertainty bands | [Chemistry perception design](chemistry_perception_design.md) |
 | Classify 0D--3D chemical topology | `analyze_periodic_topology` | atom ids + periodic bonds | `PeriodicTopology` | source docstring |
 | Adapt a periodic graph and measure its rank | `to_periodic_quotient_graph`, `periodic_rank`, `adapt_periodic_graph` | fragment graph, chemical entity, polyhedron network, or caller edges | immutable quotient graph and integer periodic rank | [Periodic quotient graphs](periodic-graph.md) |
-| Analyze periodic nets, linking, and duality | `build_periodic_site_graph`, `decompose_periodic_nets`, `analyze_periodic_net_system` | crystal plus node/edge/disorder policies, or an existing quotient graph | typed report `mck.net_topology/v1` with proof status | [Periodic net topology](net-topology.md) |
+| Analyze periodic nets, linking, and duality | `build_periodic_site_graph`, `decompose_periodic_nets`, `analyze_periodic_net_system`; symbols via `molcrys_kit.nets.periodic_net_symbols` | crystal plus node/edge/disorder policies, an existing quotient graph, or a caller-supplied tiling | typed report `mck.net_topology/v1` with proof status, point and vertex symbols, and space-filling duality | [Periodic net topology](net-topology.md) |
 | Assign coordinate stereochemistry | `assign_stereochemistry` | chemical entity + embedding | `StereoReport` | source docstring |
 | Aggregate crystal stereochemistry | `analyze_crystal_stereochemistry` | crystal + chemistry + entity stereo reports | `CrystalStereoReport` | source docstring |
 | Convert chemical line notation | `to_line_notation`, `from_line_notation` | chemical entity / OpenSMILES or MCK-LN | `LineNotation` / chemical entity | source docstring |
@@ -49,7 +49,7 @@
 | Write structures | `write_cif`, `write_poscar`, `write_xyz`, `write_extxyz` | `MolecularCrystal` / frames | file | source docstring |
 | Typed chemical edits / packing transfer | `apply_chemical_edit`, `transfer_packing`, `write_cf0`, `RelaxationProtocol`, `StoichiometryPolicy` | ordered full cell + arbitrary roles/charges + explicit mapping/placement; cross-stoichiometry needs `StoichiometryPolicy` | atomic CF0 result or typed refusal, normalized inventory provenance, external relaxation constraints | [Chemical editing](chemical_edit.md) |
 | Forward crystal construction | `prepare_construction_context`, `analyze_molecular_pose`, `construct_molecular_crystal`, `construct_statistical_disorder`, `read_statistical_disorder_companion` | cell + complete symmetry + rigid pose(s), optional typed bonds, joint constraints, formula/Z/charge contracts | ordered crystal, true-ASU or P1 CIF, versioned disorder companion | Issue #172/#198 forward contract |
-| Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` | [Architecture](architecture.md) |
+| Resolve disorder | `generate_ordered_replicas_from_disordered_sites` | `MolecularCrystal` | `list[MolecularCrystal]` with `DisorderProvenance` / parent-symmetry audit | [Architecture](architecture.md), [Disorder integrity](disorder-integrity.md) |
 | Assemble disorder replicas | `assemble_replica_supercell` | ordered replicas + per-cell indices | `MolecularCrystal` supercell | source docstring |
 | Add hydrogens | `add_hydrogens` | `MolecularCrystal` | `MolecularCrystal` | [Tutorials](tutorials.md) |
 | Generate slabs | `generate_topological_slab`, `generate_slabs_with_terminations` | crystal + Miller plane | slab(s) | [Tutorials](tutorials.md) |
@@ -99,7 +99,8 @@ Core crystal data model.
 
 ### `mck.chemistry`
 Independent immutable chemistry records and crystal-to-chemistry mapping.
-Implemented rule families and strict refusal boundaries are tracked in
+Implemented rule families, the bidirectional naming acceptance totals, and
+strict refusal boundaries are tracked in
 [Chemistry coverage and release gates](chemistry_coverage.md).
 
 - Models: `ChemicalAtom`, `ChemicalBond`, `ChemicalEntity`, `FiniteChemicalEntity`, `PeriodicChemicalEntity`, `PolymerChemicalEntity`, `MulticomponentEntity`, `Embedding`, `CrystalChemistry`, `PeriodicTopology`, `StereoDescriptor`, `StereoKind`, `StereoReport`, `CrystalStereoClass`, `CrystalStereoReport`, `EntityRelationship`, `EntityStereoSummary`, `EnantiomerCount`, `AbsoluteStructureParameter`, `LineNotation`, `NamingKind`, `NamingResult`, `BondOrderOptions`, `BondOrderResult`
@@ -186,9 +187,12 @@ Van der Waals volume estimation and solvent-accessible boundary computation.
 ### `mck.analysis.disorder`
 Disorder metadata, solving, and ordered-replica generation.
 
-- `DisorderInfo`, `DisorderSolver`, `generate_ordered_replicas_from_disordered_sites`, `is_minor_site`, `DisorderProvenance`
+- `DisorderInfo`, `DisorderSolver`, `generate_ordered_replicas_from_disordered_sites`, `is_minor_site`, `DisorderProvenance`, `ParentSymmetryAudit`, `ParentSymmetryOperationAudit`, `OccupancyClosureAudit`, `audit_parent_symmetry`, `replica_parent_symmetry_closure`, `replica_respects_parent_symmetry`
   - `generate_ordered_replicas_from_disordered_sites(..., strict_formula=True)` requires a parseable, verified formula moiety and Z and rejects generated candidates that do not match. The default warns on mismatch and retains legacy best-effort output. Formula validation cannot establish graph identity, charge or protonation; verify these separately. Missing or inaccurate CIF formulas require independent review.
   - `independent_assemblies=True` (CLI `--independent-assemblies`) treats distinct multi-group assemblies as independent despite differing local group IDs. Enable only when source metadata establish that interpretation; the default preserves legacy geometry heuristics for CIFs using assembly labels as alternative fragments.
+  - `coupled=True` is the legacy lock: symmetry copies that share a disorder group use one PART choice, including across assemblies unless both labels are multi-group or `independent_assemblies=True`. It does not treat approximate parent-symmetry images as one component. Default `coupled=False` lets each copy choose independently. `symmetry_consistent=True` keeps only candidates whose completed audit closes. `replica_respects_parent_symmetry` stays a bool and is true only for that case; a false return also covers an unassessed cell, so the tri-state is `replica_parent_symmetry_closure`. An empty beam says whether every candidate was unassessed, every candidate was assessed and open, or the beam mixed those two. A positive enumerate count is a top-N beam.
+  - `method="optimal"` returns one occupancy-favoured packing and may lower the detected space group below the parent group; provenance notes and the respects_parent_group field record that.
+  - `symmetry_audit=True` (default) attaches `DisorderProvenance.symmetry_audit` with per-operation residuals, component maps, and occupancy closure. Residuals use every lattice image that can fall inside the tolerance; the box comes from the metric's least eigenvalue. Missing parent symmetry, a degenerate cell, or a box past the exact pair budget in the disorder config sets the parent-closure flag to null instead of a proved failure. When symmetry-consistent filtering is also requested, that filter's audit is reused for the provenance object. CLI: `mck operate disorder --report PATH`. `symmetry_consistent=True` / `--symmetry-consistent` keeps only candidates whose completed audit is parent-closed.
 - `DEFAULT_DISORDER_POLICY`, `DISORDER_POLICIES`, `DisorderRealization`, `disorder_realizations`, `normalize_disorder_policy`
   - major keeps the highest-occupancy component of each mutually exclusive family and is the default for shell centres. exclusive returns one realization per alternative orientation (other families stay on their major component). as_refined keeps every refined site and is the default for identify_molecules, identify_molecule_indices, and structure readers, so identification does not drop atoms. Labelled assemblies are exclusive even when groups are far apart. Unlabelled PART labels are split into local clusters first; only clusters that approach each other compete. Occupancy-only classes compete when their values sum to at most 1.10 and they cannot share one covalent shell. Metal–ligand contacts do not count toward that shell. At or below an occupancy sum of 1.10 an acute angle splits the pair even when the atoms are bonded; above that sum they coexist. Equal occupancies are split into whole orientations that share one element composition. Radii are distance divided by the pair bond cutoff (standard deviation at most 0.08), so mixed elements stay together and an all-hydrogen subset of that shell does not. A shifted shell stays when its angle spread is within 10° of the best. A wider shift keeps the one regular orientation and warns. The tie prefers the tighter shell, then the smaller radius, then geometry. A class with no ordered anchor is split only into whole connected copies, never a centre plus its nearest atoms. A short mirror keeps one full copy. If the copies cannot be separated, the class stays whole. exclusive flips one family at a time, not the Cartesian product of independent sites. UnresolvedDisorderWarning is one per disorder_realizations call; shell searches and structure reads group those into one warning, and fully ordered structures do not warn. Shell size uses the element maximum only as an upper bound; equal occupancy 1/k uses the pool divided by k when that is smaller. Directions within 35 degrees are one vertex. Negative PART shells, including one labelled assembly group, are split around the ordered centre. The same major component is used for shell vertices at atom and molecule level. Defaults live in DISORDER_CONFIG: OCCUPANCY_SUM_TOLERANCE 0.10, OCCUPANCY_MIN_SIMULTANEOUS_ANGLE_DEG 80, OCCUPANCY_ORIENTATION_STD_SLACK_DEG 10, OCCUPANCY_ORIENTATION_STD_GAP_DEG 6, OCCUPANCY_ORIENTATION_RADIUS_STD_FRACTION 0.08, OCCUPANCY_SAME_VERTEX_ANGLE_DEG 35, OCCUPANCY_MAX_ORIENTATION_COMBINATIONS 20000.
 - Warning category: `UnresolvedDisorderWarning`
@@ -214,7 +218,7 @@ Element data and bond-detection thresholds.
 Geometry, rigid-body math helpers, and graph utilities.
 
 - Graph: `graph_invariant`
-- Coordinates/PBC: `frac_to_cart`, `cart_to_frac`, `minimum_image_distance`, `minimum_image_vector`, `unwrap_positions_along_bonds`, `volume_of_cell`
+- Coordinates/PBC: `frac_to_cart`, `cart_to_frac`, `minimum_image_distance`, `minimum_image_vector` (exact Fincke–Pohst search on general cells; skew or unwrapped displacements may visit many integer images), `unwrap_positions_along_bonds`, `volume_of_cell`
 - Fractional affine: `apply_fractional_affine`, `fractional_linear_to_cartesian`
 - Vector/angles: `normalize_vector`, `distance_between_points`, `angle_between_vectors`, `dihedral_angle`
 - Rotations/alignment: `skew_matrix`, `unskew_matrix`, `kabsch_align`, `rotation_to_axis_angle`, `rotation_log_vector`, `rotation_exp_vector`, `rotation_matrix_to_quaternion`, `quaternion_to_rotation_matrix`, `quaternion_slerp`
@@ -237,6 +241,7 @@ Material-agnostic net topology, linking, and duality on the shared quotient grap
 - Site graph: `EdgeProvenance`, `NodeProvenance`, `PeriodicSiteGraph`, `build_periodic_site_graph`, `site_graph_from_quotient`
 - Decomposition: `NetCandidate`, `NetDecomposition`, `NetProposal`, `decompose_periodic_nets`
 - Equivalence: `ComponentTopology`, `NetEquivalence`, `TopologyCharacterization`, `characterize_periodic_net`, `compare_periodic_nets`, `verify_topology_witness`
+- Symbols: `NetSymbols`, `NodeSymbols`, `periodic_net_symbols`
 - Embedding and duality: `LinkingAssessment`, `assess_linking`, `DualityAssessment`, `PeriodicTiling`, `TilingAdjacency`, `TilingFace`, `assess_duality`
 - Report: `SCHEMA`, `NetAnalysisLimits`, `NetTopologyReport`, `analyze_periodic_net_system`, `limits_from_mapping`
 

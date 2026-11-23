@@ -84,7 +84,9 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Coverage + xdist on 3.12 routinely needs more than a short matrix slot
+    # once disorder provenance audits run on every ordered replica.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
