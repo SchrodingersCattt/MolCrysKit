@@ -65,6 +65,8 @@ def test_provenance_records_method_and_coupled():
 
         assert provenance.method == method
         assert provenance.coupled is coupled
+        assert provenance.symmetry_audit is not None
+        assert provenance.respects_parent_group is not None
 
 
 def test_provenance_supercell_drops_provenance():

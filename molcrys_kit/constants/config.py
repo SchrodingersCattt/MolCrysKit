@@ -300,6 +300,15 @@ DISORDER_CONFIG = {
     # When random sampling yields too few valid solutions, enumerate up to this
     # many candidates and filter by formula before sampling.
     "FORMULA_FILTER_ENUM_CAP": 64,
+    # Cartesian tolerance (Angstrom) for parent-symmetry mapping audits on
+    # ordered disorder replicas.  Refinement noise and approximate images of
+    # split components commonly sit near 0.2–0.5 Å; 0.35 Å is a permissive
+    # default that still rejects clearly broken mappings.
+    "PARENT_SYMMETRY_AUDIT_TOLERANCE": 0.35,
+    # Pair-count times exact images. A larger proven box is refused instead
+    # of answered with a fixed 27-image window. This is a resource bound,
+    # not a distance approximation.
+    "PARENT_SYMMETRY_EXACT_PAIR_BUDGET": 250_000_000,
 }
 
 # Bonding thresholds for disorder analysis
