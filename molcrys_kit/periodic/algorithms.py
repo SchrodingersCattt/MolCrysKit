@@ -143,7 +143,8 @@ class CoverComponentFamily:
 class PeriodicGraphAnalysis:
     """Quotient components and infinite-cover families of one graph.
 
-    ``periodic_rank`` is the largest component rank. ``quotient_cycle_rank``
+    ``quotient_components`` holds the finite-quotient components and
+    ``periodic_rank`` is their largest component rank. ``quotient_cycle_rank``
     is the cyclomatic number of the finite quotient. They are equal only by
     coincidence.
     """

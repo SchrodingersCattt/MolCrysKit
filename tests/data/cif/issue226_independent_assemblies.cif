@@ -1,0 +1,22 @@
+data_issue226_independent_asm
+_symmetry_space_group_name_H-M 'P 1'
+_symmetry_Int_Tables_number 1
+_cell_length_a 10.0
+_cell_length_b 10.0
+_cell_length_c 10.0
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_occupancy
+_atom_site_disorder_group
+_atom_site_disorder_assembly
+C1 C 0.0 0.0 0.0 0.65 1 ANION
+C2 C 0.3 0.0 0.0 0.35 2 ANION
+C3 C 0.5 0.5 0.5 0.60 1 ROT
+C4 C 0.8 0.5 0.5 0.40 2 ROT

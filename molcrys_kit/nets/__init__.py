@@ -18,6 +18,7 @@ from .duality import (
     TilingFace,
     assess_duality,
 )
+from .invariants import NetSymbols, NodeSymbols, periodic_net_symbols
 from .isomorphism import (
     ComponentTopology,
     NetEquivalence,
@@ -70,7 +71,9 @@ __all__ = [
     "NetDecomposition",
     "NetEquivalence",
     "NetProposal",
+    "NetSymbols",
     "NetTopologyReport",
+    "NodeSymbols",
     "NodePolicy",
     "NodeProvenance",
     "PartitionPolicy",
@@ -87,6 +90,7 @@ __all__ = [
     "compare_periodic_nets",
     "decompose_periodic_nets",
     "limits_from_mapping",
+    "periodic_net_symbols",
     "policies_from_mapping",
     "site_graph_from_quotient",
     "verify_topology_witness",

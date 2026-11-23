@@ -33,8 +33,8 @@ from molcrys_kit.constants.config import (
     KEY_OCCUPANCY,
     SHELL_TIER_DISTANCE_TOLERANCE_A,
 )
-from molcrys_kit.io import write_extxyz
-from molcrys_kit.structures import MolecularCrystal
+from molcrys_kit.io import read_extxyz, write_extxyz
+from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -1202,3 +1202,349 @@ def test_orphan_partial_occupancy_is_not_a_resolved_network():
     )
     assert refined.configuration_status == "unresolved"
     assert any("undetermined occupancy" in warning for warning in refined.warnings)
+
+
+_STRADDLE_LATTICE = np.eye(3) * 10.0
+_STRADDLE_CENTRE = np.array([[0.95, 0.30, 1.0], [-0.15, -0.30, 1.0]], dtype=float)
+_STRADDLE_LIGAND = np.array([[5.95, 0.30, 1.0], [4.85, -0.30, 1.0]], dtype=float)
+
+
+def _wrap_points(points, lattice) -> np.ndarray:
+    fractional = np.asarray(points, dtype=float) @ np.linalg.inv(lattice)
+    fractional = fractional - np.floor(fractional + 1e-12)
+    return fractional @ np.asarray(lattice, dtype=float)
+
+
+def _placed_molecule(symbols, positions, lattice, *, keep_wrapped: bool):
+    atoms = Atoms(
+        symbols=list(symbols),
+        positions=np.asarray(positions, dtype=float),
+        cell=np.asarray(lattice, dtype=float),
+        pbc=True,
+    )
+    if keep_wrapped:
+        return CrystalMolecule(atoms, check_pbc=False)
+    return atoms
+
+
+def _straddling_chain(*, wrapped: bool) -> MolecularCrystal:
+    """CO centre and NF ligand, each with one atom across a cell face."""
+    lattice = _STRADDLE_LATTICE
+    centre = _wrap_points(_STRADDLE_CENTRE, lattice) if wrapped else _STRADDLE_CENTRE
+    ligand = _wrap_points(_STRADDLE_LIGAND, lattice) if wrapped else _STRADDLE_LIGAND
+    return _crystal(
+        [
+            _placed_molecule(["C", "O"], centre, lattice, keep_wrapped=wrapped),
+            _placed_molecule(["N", "F"], ligand, lattice, keep_wrapped=wrapped),
+        ],
+        lattice=lattice,
+    )
+
+
+def _straddle_report(crystal: MolecularCrystal, **kwargs):
+    return molecular_polyhedron_network(
+        crystal,
+        "C O",
+        "N F",
+        cutoff=6.0,
+        hard_cutoff=6.0,
+        **kwargs,
+    )
+
+
+def _asymmetric_centre_crystal():
+    """CHF centre whose centroid, centre of mass, and heavy centroid differ."""
+    lattice = np.eye(3) * 18.0
+    centre = Atoms(
+        symbols=["C", "F", "H"],
+        positions=[[3.0, 3.0, 3.0], [4.3, 3.0, 3.0], [2.1, 3.55, 3.15]],
+        cell=lattice,
+        pbc=True,
+    )
+    ligand = _atom("Cl", [3.1, 8.2, 3.0], lattice)
+    crystal = _crystal([centre, ligand], lattice=lattice)
+    molecule = crystal.molecules[0]
+    positions = np.asarray(molecule.get_positions(), dtype=float)
+    symbols = np.array(molecule.get_chemical_symbols())
+    masses = np.asarray(molecule.get_masses(), dtype=float)
+    expected = {
+        "centroid": positions.mean(axis=0),
+        "com": np.average(positions, axis=0, weights=masses),
+        "heavy_centroid": positions[symbols != "H"].mean(axis=0),
+    }
+    ligand_position = np.asarray(crystal.molecules[1].get_positions()[0], dtype=float)
+    return crystal, expected, ligand_position
+
+
+def _origin_invariant(network):
+    """Rank, contact relation, and Cartesian image-shift geometry."""
+    lattice = np.asarray(network.lattice_A, dtype=float)
+
+    def _rounded(vector):
+        return tuple(np.round(np.asarray(vector, dtype=float), 6))
+
+    relatives = []
+    for shell in network.shells:
+        centre = np.asarray(shell.center_position_A, dtype=float)
+        for vertex in shell.vertices:
+            relatives.append(
+                (
+                    int(shell.molecule_index),
+                    int(vertex.molecule_index),
+                    _rounded(np.asarray(vertex.position_A, dtype=float) - centre),
+                )
+            )
+    contacts = []
+    for contact in network.contacts:
+        displacement = np.asarray(contact.right_image_shift, dtype=float) @ lattice
+        contacts.append(
+            (
+                int(contact.left.molecule_index),
+                int(contact.right.molecule_index),
+                contact.relation,
+                contact.ambiguity,
+                _rounded(displacement),
+                tuple(
+                    sorted(
+                        int(vertex.molecule_index) for vertex in contact.shared_vertices
+                    )
+                ),
+            )
+        )
+    components = tuple(
+        sorted(
+            (
+                int(component.rank),
+                tuple(sorted(component.translation_generators)),
+            )
+            for component in network.components
+        )
+    )
+    return components, tuple(sorted(relatives)), tuple(sorted(contacts))
+
+
+def _shift_crystal_origin(crystal: MolecularCrystal, origin_frac):
+    """Translate by a fractional origin and wrap every atom into the cell."""
+    lattice = np.asarray(crystal.lattice, dtype=float)
+    origin = np.asarray(origin_frac, dtype=float) @ lattice
+    inverse = np.linalg.inv(lattice)
+    wrapped_any = False
+    molecules = []
+    for molecule in crystal.molecules:
+        shifted = np.asarray(molecule.get_positions(), dtype=float) + origin
+        fractional = shifted @ inverse
+        outside = (fractional < -1e-8) | (fractional >= 1.0 - 1e-8)
+        wrapped_any = wrapped_any or bool(np.any(outside))
+        fractional = fractional - np.floor(fractional + 1e-12)
+        atoms = Atoms(
+            symbols=molecule.get_chemical_symbols(),
+            positions=fractional @ lattice,
+            cell=lattice,
+            pbc=True,
+        )
+        molecules.append(CrystalMolecule(atoms, check_pbc=False))
+    return MolecularCrystal(lattice, molecules, pbc=tuple(crystal.pbc)), wrapped_any
+
+
+def test_wrapped_molecule_centre_matches_unwrapped_reference():
+    """A multi-atom centre and ligand stored across a cell face.
+
+    The network centre, integer images, rank, and contact match the same
+    crystal stored as one contiguous image. The mean of the wrapped
+    coordinates is a different point.
+    """
+    reference = _straddle_report(_straddling_chain(wrapped=False)).networks[0]
+    wrapped_crystal = _straddling_chain(wrapped=True)
+    wrapped = _straddle_report(wrapped_crystal).networks[0]
+
+    expected_centre = _STRADDLE_CENTRE.mean(axis=0)
+    expected_ligand = _STRADDLE_LIGAND.mean(axis=0)
+    stored_centre = np.asarray(
+        wrapped_crystal.molecules[0].get_positions(), dtype=float
+    )
+    stored_ligand = np.asarray(
+        wrapped_crystal.molecules[1].get_positions(), dtype=float
+    )
+    assert not np.allclose(stored_centre.mean(axis=0), expected_centre, atol=0.5)
+    assert not np.allclose(stored_ligand.mean(axis=0), expected_ligand, atol=0.5)
+
+    assert reference.components[0].rank == wrapped.components[0].rank == 1
+    assert reference.components[0].translation_generators == ((1, 0, 0),)
+    assert wrapped.components[0].translation_generators == ((1, 0, 0),)
+    for network in (reference, wrapped):
+        shell = network.shells[0]
+        assert shell.center_kind == "centroid"
+        assert shell.center_position_A == pytest.approx(tuple(expected_centre))
+        by_shift = {vertex.image_shift: vertex.position_A for vertex in shell.vertices}
+        assert set(by_shift) == {(0, 0, 0), (-1, 0, 0)}
+        assert by_shift[(0, 0, 0)] == pytest.approx(tuple(expected_ligand))
+        assert by_shift[(-1, 0, 0)] == pytest.approx(
+            tuple(expected_ligand + np.array([-10.0, 0.0, 0.0]))
+        )
+        contact = network.contacts[0]
+        assert contact.left.molecule_index == contact.right.molecule_index == 0
+        assert contact.right_image_shift == (1, 0, 0)
+        assert contact.relation == "corner"
+        assert contact.ambiguity is None
+
+
+def test_center_kinds_differ_for_an_asymmetric_molecule():
+    crystal, expected, ligand_position = _asymmetric_centre_crystal()
+    centres = list(expected.values())
+    assert np.linalg.norm(centres[0] - centres[1]) > 0.05
+    assert np.linalg.norm(centres[0] - centres[2]) > 0.05
+    assert np.linalg.norm(centres[1] - centres[2]) > 0.05
+
+    distances = []
+    for kind, centre in expected.items():
+        shell = (
+            molecular_polyhedron_network(
+                crystal,
+                "C F",
+                "Cl",
+                center_kind=kind,
+                cutoff=7.0,
+                hard_cutoff=7.0,
+            )
+            .networks[0]
+            .shells[0]
+        )
+        assert shell.center_kind == kind
+        assert shell.center_position_A == pytest.approx(tuple(centre))
+        assert len(shell.vertices) == 1
+        vertex = shell.vertices[0]
+        assert vertex.image_shift == (0, 0, 0)
+        assert vertex.distance_A == pytest.approx(
+            float(np.linalg.norm(ligand_position - centre))
+        )
+        distances.append(vertex.distance_A)
+    assert len({round(distance, 5) for distance in distances}) == 3
+
+
+def test_center_kind_cli_reports_unwrapped_and_selected_centres(tmp_path):
+    runner = CliRunner()
+    crystal, expected, _ligand = _asymmetric_centre_crystal()
+    asymmetric_path = tmp_path / "asymmetric.extxyz"
+    write_extxyz(crystal, asymmetric_path)
+    for kind, centre in expected.items():
+        rendered = runner.invoke(
+            main,
+            [
+                "analyze",
+                "polyhedron-network",
+                str(asymmetric_path),
+                "--central",
+                "C F",
+                "--ligand",
+                "Cl",
+                "--center-kind",
+                kind,
+                "--cutoff",
+                "7",
+                "--hard-cutoff",
+                "7",
+                "--json",
+            ],
+        )
+        assert rendered.exit_code == 0, rendered.output
+        shell = json.loads(rendered.output)["networks"][0]["shells"][0]
+        assert shell["center_kind"] == kind
+        assert shell["center_position_A"] == pytest.approx(centre.tolist())
+
+    wrapped_crystal = _straddling_chain(wrapped=True)
+    wrapped_path = tmp_path / "wrapped.extxyz"
+    write_extxyz(wrapped_crystal, wrapped_path)
+    reloaded = read_extxyz(wrapped_path)
+    assert np.asarray(reloaded.molecules[0].get_positions())[1, 0] > 9.0
+    rendered = runner.invoke(
+        main,
+        [
+            "analyze",
+            "polyhedron-network",
+            str(wrapped_path),
+            "--central",
+            "C O",
+            "--ligand",
+            "N F",
+            "--center-kind",
+            "centroid",
+            "--cutoff",
+            "6",
+            "--hard-cutoff",
+            "6",
+            "--json",
+        ],
+    )
+    assert rendered.exit_code == 0, rendered.output
+    network = json.loads(rendered.output)["networks"][0]
+    shell = network["shells"][0]
+    assert shell["center_kind"] == "centroid"
+    assert shell["center_position_A"] == pytest.approx(
+        _STRADDLE_CENTRE.mean(axis=0).tolist()
+    )
+    assert network["components"][0]["rank"] == 1
+    assert {tuple(vertex["image_shift"]) for vertex in shell["vertices"]} == {
+        (0, 0, 0),
+        (-1, 0, 0),
+    }
+    assert network["contacts"][0]["right_image_shift"] == [1, 0, 0]
+    assert network["contacts"][0]["relation"] == "corner"
+
+
+def test_wrapped_unbonded_molecule_is_not_averaged():
+    lattice = np.eye(3) * 10.0
+    centre = CrystalMolecule(
+        Atoms(
+            symbols=["C", "C"],
+            positions=[[1.0, 1.0, 1.0], [-5.0, 1.0, 1.0]],
+            cell=lattice,
+            pbc=True,
+        ),
+        check_pbc=False,
+    )
+    crystal = _crystal(
+        [centre, _atom("Cl", [1.0, 6.0, 1.0], lattice)],
+        lattice=lattice,
+    )
+    with pytest.raises(ValueError, match="cell face"):
+        molecular_polyhedron_network(
+            crystal,
+            "C2",
+            "Cl",
+            cutoff=6.0,
+            hard_cutoff=6.0,
+        )
+
+
+def test_crystal_origin_shift_preserves_network_geometry():
+    """Fractional origin shift that wraps molecules back into the cell.
+
+    Component rank, contact relations, and Cartesian image-shift geometry
+    match the unshifted crystal. This is a change of crystal origin, not a
+    rigid translation of one contact facet.
+    """
+    origin = (0.75, 0.75, 0.75)
+    cases = (
+        (_chain(), 1, 1),
+        (_bridge_crystal((0, 1, 2)), 3, 3),
+    )
+    for crystal, rank, contact_count in cases:
+        original = molecular_polyhedron_network(
+            crystal,
+            "N",
+            "Cl",
+            cutoff=6.0,
+            hard_cutoff=6.0,
+        ).networks[0]
+        shifted, wrapped = _shift_crystal_origin(crystal, origin)
+        assert wrapped
+        moved = molecular_polyhedron_network(
+            shifted,
+            "N",
+            "Cl",
+            cutoff=6.0,
+            hard_cutoff=6.0,
+        ).networks[0]
+        assert original.components[0].rank == moved.components[0].rank == rank
+        assert len(original.contacts) == len(moved.contacts) == contact_count
+        assert _origin_invariant(original) == _origin_invariant(moved)

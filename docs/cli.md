@@ -4,7 +4,7 @@ MolCrysKit's command-line interface (`mck`) provides tools for reading, analyzin
 
 ## Installation & Usage
 
-Installing MolCrysKit via `pip install molcrys-kit` automatically installs the `mck` command. All commands are self-documenting; use `--help` at any level to see details:
+Installing MolCrysKit via `pip install molcrys-kit` installs the `mck` command with the core profile. Structure subcommands that need ASE, pymatgen, SciPy, or spglib require `pip install "molcrys-kit[desktop]"`. All commands are self-documenting; use `--help` at any level to see details:
 
 ```bash
 mck --help
@@ -43,7 +43,9 @@ The read-only `skills` viewer exposes the installed Agent Skills without
 requiring a repository checkout. `list` returns entrypoint names and
 frontmatter descriptions; `show NAME` prints only the raw `SKILL.md`; and
 `show NAME --file PATH` reads one resource relative to that skill. `tree NAME`
-reports local links and assets without outputting their bodies. Use
+reports one skill's local links and assets without outputting bodies; omitting
+the name prints a usage error listing bundled skill names. Use `tree --all` only
+when every bundled skill's link map is needed explicitly. Use
 `show NAME --all` only when the reachable Markdown pages should be expanded in
 deterministic link order. Scripts, binaries, and external URLs are never
 executed or expanded. Add `--json` to any subcommand for machine-readable
@@ -53,6 +55,7 @@ metadata and text.
 mck skills list --json
 mck skills show operate-molecular-crystal
 mck skills tree query-csd-structures
+mck skills tree --all
 mck skills show analyze-molecular-crystal --all
 ```
 
@@ -65,20 +68,27 @@ mck skills show analyze-molecular-crystal --all
 | `mck io info INPUT` | Print molecular-crystal summary | `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
 | `mck io molecules INPUT` | List molecule inventory | `--json`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
 | `mck io extract-molecule INPUT` | Extract molecule(s) to separate file(s) | `-o/--output OUTPUT` (required), `--index INT`, `--formula STR`, `--species-id STR`, `--largest`, `--all`, `--center-vacuum FLOAT`, `--pbc BOOL`, `--json-sidecar PATH`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
-| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+| `mck io convert INPUT` | Convert crystal structure format | `-o/--output OUTPUT` (required), `--structure-index INT` (MRYX only), `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--bond-scale FLOAT` |
+
+Mercury `.mryx` is accepted by the shared IO loader (first stored structure by default).
+`mck io convert document.mryx -o stored.extxyz --structure-index 1` selects a
+zero-based structure; negative indices count from the end. This flag applies only
+to MRYX. CIF/POSCAR/XYZ/ExtXYZ output uses existing writers. Imported sites are
+**not symmetry-expanded**, and occupancy/bond/disorder semantics are not decoded;
+see [Mercury import limitations](mryx.md). `--resolve-disorder` is rejected for MRYX.
 
 ### `mck operate` — Generate modified structures
 
 | Command | Description | Key Options |
 |---------|-------------|-------------|
-| `mck operate disorder INPUT` | Resolve CIF disorder into ordered replicas | `-o/--output OUTPUT`, `--method {optimal,random,enumerate}`, `--count INT`, `--seed INT`, `--coupled`, `--strict-formula`, `--independent-assemblies` |
+| `mck operate disorder INPUT` | Resolve CIF disorder into ordered replicas | `-o/--output OUTPUT`, `--method {optimal,random,enumerate}`, `--count INT`, `--seed INT`, `--coupled`, `--report PATH`, `--symmetry-consistent`, `--no-symmetry-audit`, `--strict-formula`, `--independent-assemblies` |
 | `mck operate add-h INPUT` | Add missing hydrogen atoms | `-o/--output OUTPUT`, `--bond-scale FLOAT`, `--target-elements STR` (repeatable), `--rule STR` (repeatable), `--optimize-torsion`, `--no-formula-moiety` |
 | `mck operate slab INPUT` | Generate surface slab models | `-o/--output OUTPUT`, `--miller H K L`, `--layers INT`, `--min-thickness FLOAT`, `--vacuum FLOAT`, `--terminations {single,tasker_preferred,all,INDEX}` |
 | `mck operate cluster INPUT` | Carve molecular clusters | `-o/--output OUTPUT`, `--mode {bond_shells,rcut}`, `--seed-element STR`, `--seed-index INT` (repeatable), `--max-atoms INT`, `--cut-cc-bonds I,J;K,L`, `--rcut FLOAT`, `--freeze-shell {0,1,2}`, `--cap-distance FLOAT`, `--cap-bond-length ELEM=DIST` (repeatable), `--seed-merge-radius FLOAT`, `--convention-reference STR`, `--no-stop-at-non-seed-metals` |
 | `mck operate nanocluster INPUT` | Carve a finite nanocluster without cutting molecules | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,bfdh}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--max-dimension FLOAT`, `--max-index INT`, `--miller H K L` (repeatable), `--extinction-filter/--no-extinction-filter`, `--topology-unit {molecule,unit_cell}`, `--target-units INT`, `--center X Y Z`, `--center-frac U V W`, `--center-kind {centroid,com}`, `--vacuum FLOAT`, `--batch-size INT`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--json-sidecar PATH` |
 | `mck operate void INPUT` | Remove complete molecular/ionic units to form a shaped void | `-o/--output OUTPUT`, `--shape {sphere,box,ellipsoid,cylinder,through-cylinder}`, `--size X Y Z`, `--radius FLOAT`, `--semi-axes A B C`, `--height FLOAT`, `--axis {x,y,z}`, `--axis-vector X Y Z`, `--direction-hkl H K L`, `--center X Y Z`, `--center-frac U V W`, `--hit-mode {centroid,any_atom,all_atoms}`, `--boundary-policy {inside,cover}`, `--target-units INT`, `--species SPECIES_ID COUNT`, `--species-charge SPECIES_ID CHARGE`, `--periodic-images/--no-periodic-images`, `--batch-size INT`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies`, `--json-sidecar PATH` |
 | `mck operate supercell INPUT` | Create supercells | `-o/--output OUTPUT`, `--scale A B C`, `--resolve-disorder`, `--strict-formula`, `--independent-assemblies` |
-| `mck operate disorder-supercell INPUT` | Assemble selected disorder replicas into translated cells | `-o/--output OUTPUT`, `--scale A B C`, `--replica-index INT` (repeat once per cell), `--method {optimal,random,enumerate}`, `--seed INT`, `--coupled`, `--strict-formula`, `--independent-assemblies` |
+| `mck operate disorder-supercell INPUT` | Assemble selected disorder replicas into translated cells | `-o/--output OUTPUT`, `--scale A B C`, `--replica-index INT` (repeat once per cell), `--method {optimal,random,enumerate}`, `--seed INT`, `--coupled`, `--symmetry-consistent`, `--strict-formula`, `--independent-assemblies` |
 | `mck operate vacancy INPUT` | Generate vacancy defects | `-o/--output OUTPUT`, `--species SPECIES_ID COUNT` (repeatable), `--seed-index INT`, `--method STR`, `--random-seed INT` |
 | `mck operate desolvate INPUT` | Remove solvent molecules | `-o/--output OUTPUT`, `--targets STR` (repeatable, required) |
 | `mck operate interpolate START END` | Interpolate between structures | `-o/--output OUTPUT`, `--method {se3_screw,com_so3,slerp}`, `--n-images INT`, `--include-endpoints/--exclude-endpoints` |
@@ -97,9 +107,11 @@ mck skills show analyze-molecular-crystal --all
 | `mck analyze polyhedra INPUT` | Enumerate coordination polyhedra | `--central STR` (required), `--ligand STR` (required), `--level {atom,molecule}`, `--cutoff FLOAT`, `--json` |
 | `mck analyze polyhedron-network INPUT` | Periodic coordination-polyhedron network for one centre type | `--central STR` (required), `--ligand STR` (required), `--center-kind {centroid,com,heavy_centroid}`, `--cutoff FLOAT`, `--hard-cutoff FLOAT`, `--central-species STR`, `--ligand-species STR`, `--central-index INT` (repeatable), `--ligand-index INT` (repeatable), `--disorder-policy {major,exclusive,as_refined}`, `--json` |
 | `mck analyze sanity-check INPUT` | Run structural sanity checks | `--checks STR`, `--profile {complete-crystal,fragment}`, `--skip-check NAME` (repeatable), `--hard-clash-scale FLOAT`, `--hard-clash-tolerance FLOAT`, `--intermolecular-clash-scale FLOAT`, `--intermolecular-clash-tolerance FLOAT`, `--ignore-hh/--no-ignore-hh`, `--max-clashes INT`, `--bond-min-factor FLOAT`, `--bond-max-factor FLOAT`, `--isolated-elements STR`, `-o/--output OUTPUT`, `--json` |
-| `mck analyze net-topology [INPUT]` | Report periodic rank, topology proof, linking, and duality | `--graph PATH`, `--policy PATH`, `--nodes {atom_sites,molecular_units,coordination_centres,explicit_nodes}`, `--edges {supplied,coordination_shell,contacts,hydrogen_bonds,user_edges}`, `--cutoff FLOAT`, `--disorder {major,as_refined,explicit}`, `--independent-assemblies`, `--ring-length INT`, `--coordination-depth INT`, `--json` |
+| `mck analyze net-topology [INPUT]` | Report periodic rank, topology proof, point and vertex symbols, linking, and duality | `--graph PATH`, `--policy PATH`, `--nodes {atom_sites,molecular_units,coordination_centres,explicit_nodes}`, `--edges {supplied,coordination_shell,contacts,hydrogen_bonds,user_edges}`, `--cutoff FLOAT`, `--disorder {major,as_refined,explicit}`, `--independent-assemblies`, `--ring-length INT`, `--coordination-depth INT`, `--json` |
 
-`mck analyze polyhedron-network --json` includes `occupancy_sum` and `competes_for_site` on each shell and ligand vertex. `configuration_status` is `unresolved` when one of those sites has partial occupancy and no exclusive alternative; the report warning says the contacts and dimensionality are conditional on that occupancy.
+`mck analyze net-topology --json` uses schema `mck.net_topology/v1`. An identified candidate includes `symbols` (point and vertex symbols, or `not_computed`). The CLI does not read a caller-supplied tiling, so its duality field stays `not_assessed` unless a later Python call passes `duality=`. That argument can add a witness of kind `space_filling_tiling` or `tiling_dual`. The field meanings are in [Periodic net topology](net-topology.md).
+
+`mck analyze polyhedron-network --json` includes `occupancy_sum` and `competes_for_site` on each shell and ligand vertex. `configuration_status` is `unresolved` when one of those sites has partial occupancy and no exclusive alternative; the report warning says the contacts and dimensionality are conditional on that occupancy. `--center-kind` selects the geometric centroid, centre of mass, or heavy-atom centroid after atoms stored across a cell face are unwrapped along bonds.
 
 `mck io info` is the human-readable molecular-crystal inventory: it reports
 recognized molecular units alongside cell and disorder details. Use
@@ -120,6 +132,15 @@ mck operate disorder structure.cif -o ordered.cif
 # Generate 10 random configurations
 mck operate disorder structure.cif -o replicas.cif --method random --count 10
 
+# Write a parent-symmetry audit JSON beside the replicas
+mck operate disorder structure.cif -o replicas.cif --method enumerate --count 8 \
+  --report disorder_audit.json
+
+# Keep parent-closed replicas from an exhaustive enumerate. A positive
+# --count limits the beam before this filter.
+mck operate disorder structure.cif -o consistent.cif --method enumerate \
+  --count 0 --symmetry-consistent
+
 # Map replicas 0, 1, 2, 3 to a 2 x 2 x 1 supercell. Translation order is
 # (0,0,0), (0,1,0), (1,0,0), (1,1,0): k varies fastest, then j, then i.
 mck operate disorder-supercell structure.cif -o supercell.cif \
@@ -127,7 +148,14 @@ mck operate disorder-supercell structure.cif -o supercell.cif \
   --replica-index 0 --replica-index 1 --replica-index 2 --replica-index 3
 ```
 
-`--strict-formula` and `--independent-assemblies` are opt-in on
+`--coupled` is the legacy group lock described in
+[Disorder integrity](disorder-integrity.md); it is not a parent-group filter.
+Use `--report` / `--symmetry-consistent` for parent
+closure. The filter keeps a replica only when its completed audit closes.
+An empty beam says whether every candidate was unassessed, every candidate
+was assessed and does not close, or the beam mixed those two. An unassessed
+cell is not reported as a proved failure. `--strict-formula` and
+`--independent-assemblies` are opt-in on
 `disorder`, `disorder-supercell`, and on any command that loads a CIF with
 `--resolve-disorder` (`io info`, `io molecules`, `io extract-molecule`,
 `io convert`, `operate nanocluster`, `operate void`, `operate supercell`).

@@ -78,22 +78,87 @@ def _parse_cap_bond_lengths(entries: tuple[str, ...]) -> dict[str, float]:
 @click.option("--method", type=click.Choice(["optimal", "random", "enumerate"]), default="optimal", show_default=True)
 @click.option("--count", type=int, default=1, show_default=True, help="Number of structures for random/enumerate modes.")
 @click.option("--seed", type=int, default=None, help="Random seed for random mode.")
-@click.option("--coupled", is_flag=True, help="Couple symmetry-expanded copies of the same disorder assembly.")
+@click.option(
+    "--coupled",
+    is_flag=True,
+    help=(
+        "Lock symmetry-expanded copies of one labelled disorder assembly to "
+        "the same PART/orientation. Does not couple distinct assemblies or "
+        "sites that only share a local group number."
+    ),
+)
+@click.option(
+    "--report",
+    "report_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write a JSON parent-symmetry audit for each replica.",
+)
+@click.option(
+    "--symmetry-consistent",
+    is_flag=True,
+    help=(
+        "Keep only replicas whose completed parent-symmetry audit closes. "
+        "An unassessed cell is not kept and is not reported as a proved failure."
+    ),
+)
+@click.option(
+    "--no-symmetry-audit",
+    is_flag=True,
+    help="Skip parent-symmetry audit attachment on disorder_provenance.",
+)
 @STRICT_FORMULA
 @INDEPENDENT_ASSEMBLIES
-def disorder(input: Path, output: Path, method: str, count: int, seed: int | None, coupled: bool, strict_formula: bool, independent_assemblies: bool) -> None:
+def disorder(
+    input: Path,
+    output: Path,
+    method: str,
+    count: int,
+    seed: int | None,
+    coupled: bool,
+    report_path: Path | None,
+    symmetry_consistent: bool,
+    no_symmetry_audit: bool,
+    strict_formula: bool,
+    independent_assemblies: bool,
+) -> None:
     """Resolve CIF disorder into ordered replica structures."""
+    import json
+
     from molcrys_kit.analysis.disorder import generate_ordered_replicas_from_disordered_sites
 
     try:
         replicas = generate_ordered_replicas_from_disordered_sites(
-            str(input), generate_count=count, method=method, random_seed=seed,
-            coupled=coupled, strict_formula=strict_formula,
-            independent_assemblies=independent_assemblies
+            str(input),
+            generate_count=count,
+            method=method,
+            random_seed=seed,
+            coupled=coupled,
+            strict_formula=strict_formula,
+            independent_assemblies=independent_assemblies,
+            symmetry_audit=not no_symmetry_audit or report_path is not None,
+            symmetry_consistent=symmetry_consistent,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     crystals = [item[0] if isinstance(item, tuple) else item for item in replicas]
+    if report_path is not None:
+        rows = []
+        for index, crystal in enumerate(crystals):
+            provenance = crystal.disorder_provenance
+            if provenance is None:
+                rows.append({"replica_index": index, "symmetry_audit": None})
+                continue
+            if hasattr(provenance, "to_dict"):
+                payload = provenance.to_dict()
+            elif isinstance(provenance, dict):
+                payload = dict(provenance)
+            else:
+                payload = {"repr": str(provenance)}
+            rows.append({"replica_index": index, **payload})
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        click.echo(f"Wrote {report_path}")
     echo_paths(write_crystal_sequence(crystals, output))
 
 
@@ -766,7 +831,19 @@ def supercell(
 @click.option(
     "--coupled",
     is_flag=True,
-    help="Couple symmetry-expanded copies of the same disorder assembly.",
+    help=(
+        "Lock symmetry-expanded copies of one labelled disorder assembly to "
+        "the same PART/orientation. Does not couple distinct assemblies or "
+        "sites that only share a local group number."
+    ),
+)
+@click.option(
+    "--symmetry-consistent",
+    is_flag=True,
+    help=(
+        "Keep only replicas whose completed parent-symmetry audit closes. "
+        "An unassessed cell is not kept and is not reported as a proved failure."
+    ),
 )
 @STRICT_FORMULA
 @INDEPENDENT_ASSEMBLIES
@@ -778,6 +855,7 @@ def disorder_supercell(
     method: str,
     seed: int | None,
     coupled: bool,
+    symmetry_consistent: bool,
     strict_formula: bool,
     independent_assemblies: bool,
 ) -> None:
@@ -802,6 +880,7 @@ def disorder_supercell(
             coupled=coupled,
             strict_formula=strict_formula,
             independent_assemblies=independent_assemblies,
+            symmetry_consistent=symmetry_consistent,
         )
     except ValueError as exc:
         if strict_formula or independent_assemblies:
