@@ -20,6 +20,66 @@ payload = report.to_dict()
 `payload["schema"]` is `mck.net_topology/v1`. The same object is printed by
 `mck analyze net-topology --json`.
 
+## From a crystal to a periodic rank
+
+This synthetic cell defines a one-dimensional contact graph. The cutoff is an
+explicit part of the model: it is not a general chemical bonding criterion.
+The single-site example demonstrates graph construction; it is not a
+chemically validated crystal structure. The assertions describe only this
+cell and must be changed for other inputs.
+
+<!-- crystal-to-rank example -->
+```python
+from ase import Atoms
+from molcrys_kit import periodic_rank
+from molcrys_kit.nets import (
+    DisorderPolicy, EdgePolicy, NodePolicy, build_periodic_site_graph,
+)
+from molcrys_kit.structures import MolecularCrystal
+
+
+def rank_with_disorder_status(site_graph):
+    if site_graph.disorder_status not in {"resolved", "conditional"}:
+        raise ValueError("select a determinate disorder model before computing rank")
+    return (
+        periodic_rank(site_graph.graph),
+        site_graph.disorder_status,
+        site_graph.disorder_reason,
+    )
+
+
+atoms = Atoms("C", positions=[[0, 0, 0]], cell=[2, 10, 10], pbc=True)
+crystal = MolecularCrystal.from_ase(atoms)
+site_graph = build_periodic_site_graph(
+    crystal,
+    node_policy=NodePolicy("atom_sites"),
+    edge_policy=EdgePolicy("contacts", cutoff_A=2.1),
+    disorder_policy=DisorderPolicy("as_refined"),
+)
+rank, disorder_status, disorder_reason = rank_with_disorder_status(site_graph)
+assert disorder_status == "resolved"
+assert len(site_graph.graph.node_ids) == 1
+assert len(site_graph.graph.edges) == 1
+edge = site_graph.graph.edges[0]
+assert edge.source == edge.target == site_graph.graph.node_ids[0]
+assert edge.image_shift == (1, 0, 0)
+assert rank == 1
+```
+
+The result is the largest rank among connected components of the **selected
+graph**, not an unconditional property of the crystal. Select nodes, bonds or
+contacts and disorder handling for the scientific question. The example's
+crystal is ordered, so its status is `resolved`. A `conditional` result can
+also have a rank, but report its status and reason: the rank applies only to
+the selected or retained sites and occupancy model. For example, `major` or
+`explicit` may select a conditional realization; `as_refined` can retain
+partial occupancy without competing sites. An `indeterminate` model needs a
+determinate disorder policy before using the rank as a topology result.
+
+The default `supplied` policy uses supplied bond records; it does not infer the
+desired chemical network. `site_graph.nodes` contains provenance records;
+the graph edges are `site_graph.graph.edges`.
+
 ## What a status means
 
 Topology, embedding, and duality are separate fields.
