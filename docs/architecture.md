@@ -1,5 +1,32 @@
 # MolCrysKit Architecture
 
+## Composable geometry-path architecture
+
+Path construction and physical path optimization are separate concerns. The
+geometry layer accepts caller-mapped endpoints or explicit image sequences and
+does not infer a reaction mechanism, electronic state, or chemical target.
+
+1. The shared `_path_core` provides rigid-motion, image and frame primitives.
+   `interpolate_reactive_path` applies them to general atom groups and optional
+   free-atom arcs; group unwrapping choices and contact diagnostics are explicit.
+2. `interpolate_molecule_with_internal_dofs` can generate an independent
+   fragment path. `PathLayer` and `compose_path_images` map arbitrary disjoint
+   atom subsets onto a base path while retaining frame and endpoint identity.
+   The layer does not guess atom correspondence or recompute bond metadata; it
+   removes the known coordinate-derived bond-record cache on changed images.
+3. `interpolate_periodic_paths` supplies bounded periodic-graph candidates;
+   `refine_idpp_path` refines explicitly initialized images independently.
+   Both accept the same `PathRestraint` objects. `PathCoordinate` is a general
+   scalar-and-gradient protocol, and `LinearCombinationCoordinate` can couple
+   coordinates without a reaction-specific builder.
+4. Callers own coordinate targets, weights, periodic image choices, and
+   electronic assumptions. Soft-residual diagnostics do not certify physical
+   correctness or even exact restraint satisfaction. An external physical
+   potential and path optimizer remain necessary for energy-based conclusions.
+
+See [path coordinates](path-coordinates.md), [periodic paths](periodic-path.md),
+and [IDPP refinement](idpp-refinement.md) for contracts and limitations.
+
 ## Symmetry-path architecture
 
 Crystallographic path construction is split into four layers:
