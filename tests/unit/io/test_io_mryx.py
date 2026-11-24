@@ -2,6 +2,9 @@
 
 import gzip
 import json
+import subprocess
+import sys
+import textwrap
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -92,6 +95,13 @@ def _save(tmp_path, root, compressed=True):
 def _read(path, **kwargs):
     with pytest.warns(UserWarning, match="MRYX conservative import"):
         return read_mryx_atoms(path, **kwargs)
+
+
+def test_stored_spacegroup_metadata_is_passed_through_uninterpreted(tmp_path):
+    atoms = _read(_save(tmp_path, _document()))
+    meta = atoms.info["mryx"]
+    assert meta["stored_spacegroup_name"] == "P 1"
+    assert meta["stored_spacegroup_number"] == 1
 
 
 @pytest.mark.parametrize("compressed", [True, False])
@@ -346,3 +356,42 @@ def test_cli_convert_selection_and_existing_dispatch(tmp_path):
     )
     assert result.exit_code != 0
     assert "not supported" in result.output
+
+
+def test_core_import_does_not_load_mryx_and_the_reader_names_the_desktop_extra():
+    script = textwrap.dedent(
+        """
+        import sys
+
+        class _Blocker:
+            _prefixes = ("pymatgen", "ase", "scipy", "spglib", "defusedxml")
+
+            def find_spec(self, name, path, target=None):
+                if name in ("numpy", "networkx") or name.startswith(("numpy.", "networkx.")):
+                    return None
+                if name in self._prefixes or any(name.startswith(prefix + ".") for prefix in self._prefixes):
+                    raise ImportError(name)
+                return None
+
+        sys.meta_path.insert(0, _Blocker())
+        import molcrys_kit.io as io
+
+        assert "ase" not in sys.modules
+        assert "defusedxml" not in sys.modules
+        try:
+            io.read_mryx_atoms
+        except ImportError as exc:
+            text = str(exc)
+            assert "desktop" in text
+            assert "defusedxml" in text or "ase" in text
+        else:
+            raise SystemExit("read_mryx_atoms imported without the desktop extra")
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
