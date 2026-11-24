@@ -34,7 +34,9 @@ write_extxyz(crystal, "stored-sites.extxyz")
 - **No automatic symmetry expansion.** The imported periodic lattice contains
   exactly the stored sites, possibly only an asymmetric unit. It is not a claim
   of full-cell composition or a complete crystal packing. Space-group fields and
-  symmetry operators are preserved in raw cell metadata, not applied.
+  symmetry operators are preserved in raw cell metadata, not applied. When the
+  export carries them, ``stored_spacegroup_name`` and ``stored_spacegroup_number``
+  mirror the Mercury XML labels and are not validated symmetry assignments.
 - Elements are inferred from conventional case-sensitive element-prefixed atom
   labels (for example `C12` or `Cl3`). Internal `element/code` values are **not
   atomic numbers**. Conflicting label/code associations fail; custom labels that
@@ -79,7 +81,49 @@ provenance; each other item is validated and discarded before the next item
 is kept. `index=":"` still builds the full list before returning. The bounded
 document bytes remain available for that one call.
 
-These checks use independently constructed documents. They do not certify
-every Mercury version. Someone with Mercury can compare one local export
-(cell, stored sites, labels, and structure index) with this reader. This
-package does not ship sample exports.
+Synthetic unit tests use independently constructed XML. They prove parser
+contracts only; they are not Mercury exports.
+
+**Real-format status:** tier **(A)** has been run on pinned public Mercury
+exports (see below): the reader ingests authentic `.mryx` bytes and the stored
+geometry survives cross-format export. That is **not** the same as tier **(B)**
+(CIF → Mercury save → this reader) and does **not** certify every Mercury
+version, multi-structure bundles, disorder exports, or session fidelity.
+Compare against a reliable independent structure reference only when one exists
+for the **same** stored sites; do not treat an unrelated CIF from the same
+dataset as a paired reference.
+
+## Public-format validation (tier A)
+
+`tests/data/mryx/public_manifest.json` pins traceable Mercury exports (currently
+one CC-BY-4.0 Zenodo deposit from `10.1021/acs.joc.4c02538`). The tier-(A) case
+is vendored as an **anonymized** gzip export under `tests/data/mryx/fixtures/`;
+see `tests/data/mryx/ATTRIBUTION.md` for upstream SHA-256, derived SHA-256, and
+licence notice. CI and default validation read bundled bytes only — no runtime
+download from Zenodo. Optional manual refresh from authentic upstream bytes:
+`scripts/maintain_mryx_anonymized_fixture.py` and `derive_fixture.py`
+(`stable_gzip_compress` with fixed gzip header bytes; portable on CPython
+3.10–3.12 CI; not used in CI for downloads).
+
+```bash
+python scripts/validate_mryx_public_roundtrip.py
+pytest tests/integration/test_mryx_public_roundtrip.py
+pytest tests/unit/io/test_mryx_public_manifest.py
+```
+
+Tier **(A)** checks: real `.mryx` → `read_mryx` / `read_mryx_atoms` (stored
+sites, no symmetry expansion) → `write_extxyz` → ASE ExtXYZ read, comparing
+element identities, cell parameters, and Cartesian coordinates within
+`MRYX_COORDINATE_TOLERANCE_A`. This validates cross-format geometry transfer,
+not a second independent interpretation of the Mercury XML tree.
+
+Tier **(B)** (public CIF → Mercury save → this reader) is **not** run in CI:
+Mercury needs a desktop install and CSD-Community activation. Coordinators with
+Mercury: install [Free Mercury](https://www.ccdc.cam.ac.uk/support-and-resources/downloads/),
+activate **CSD-Community**, open a public CIF, save `.mryx`, and compare cell,
+site count, labels, and structure index with `read_mryx_atoms` or `mck io convert`.
+
+**Current manifest coverage:** single-structure triclinic periodic crystal; not
+multi-structure, disordered, or version-tagged. ACS/RSC supplementary `.mryx`
+bundles named in the literature are listed under `investigated_but_blocked` in
+the manifest (publisher bot protection from this environment).

@@ -30,11 +30,20 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
-from ase import Atoms
-from ase.cell import Cell
-from ase.data import atomic_numbers
-from defusedxml import ElementTree as SafeET
-from defusedxml.common import DefusedXmlException
+
+try:
+    from ase import Atoms
+    from ase.cell import Cell
+    from ase.data import atomic_numbers
+    from defusedxml import ElementTree as SafeET
+    from defusedxml.common import DefusedXmlException
+except ImportError as exc:
+    missing = getattr(exc, "name", None) or str(exc)
+    raise ImportError(
+        "Mercury .mryx import needs the desktop extra "
+        '(pip install "molcrys-kit[desktop]"); '
+        f"missing dependency {missing}"
+    ) from exc
 
 from ..constants.mryx import (
     MRYX_CELL_TOLERANCE,
@@ -66,6 +75,17 @@ def _number(node, path):
     if not np.isfinite(value):
         raise ValueError(f"MRYX non-finite numeric field: {path}")
     return value
+
+
+def _stored_spacegroup(cell):
+    """Return Mercury-export spacegroup fields without interpreting them."""
+    node = cell.find("spacegroup")
+    if node is None:
+        return None, None
+    name = _text(node, "name", required=False)
+    number_text = _text(node, "number", required=False)
+    number = int(number_text) if number_text is not None else None
+    return name, number
 
 
 def _vector(node, size):
@@ -256,6 +276,7 @@ def _structure(item, index, *, materialize=True):
     if molecule is None:
         raise ValueError("MRYX structure has no supported Molecule3d")
     cell, matrix, has_transform = _cell(structure)
+    stored_spacegroup_name, stored_spacegroup_number = _stored_spacegroup(cell)
     symbols, labels, positions = [], [], []
     raw_atoms = []
     serials, codes = set(), {}
@@ -346,6 +367,8 @@ def _structure(item, index, *, materialize=True):
         "site_scope": "stored_sites",
         "occupancy_semantics": "unspecified",
         "diagnostics": diagnostics,
+        "stored_spacegroup_name": stored_spacegroup_name,
+        "stored_spacegroup_number": stored_spacegroup_number,
         "cell": _raw(cell),
         "crystal_symmetry_match": _raw(structure.find("crystal_symmetry_match")),
         "atoms": raw_atoms,

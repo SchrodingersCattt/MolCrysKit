@@ -1,0 +1,81 @@
+{
+  "schema": "molcrys-kit.mryx-public-fixtures.v2",
+  "description": "Traceable Mercury .mryx exports for independent format validation. Derived anonymized fixtures are vendored under tests/data/mryx/fixtures/; CI and default tests use bundled bytes only (no runtime download).",
+  "fixtures": [
+    {
+      "id": "zenodo-5aa-triclinic",
+      "bundled_path": "fixtures/zenodo-5aa-triclinic-anonymized.mryx",
+      "derived_sha256": "dc8ae7c7360c3836643a297c64fe10ac1df85bc268e37cb97667c9446b07eb53",
+      "derivation": {
+        "module": "tests/data/mryx/derive_fixture.py",
+        "algorithm": "stable_gzip_compress",
+        "gzip_mtime": 0,
+        "gzip_xfl": 2,
+        "gzip_os": 255,
+        "gzip_compresslevel": 9,
+        "deflate_wbits": -15,
+        "deflate_method": "zlib.compressobj(level, zlib.DEFLATED, wbits=-15)",
+        "python_contract": "Not stdlib gzip.compress: header OS differs across CPython minors. derive_fixture pins mtime=0/OS=255/XFL=2 and raw deflate via compressobj(wbits=-15) for CPython 3.10–3.12 byte identity."
+      },
+      "anonymization": {
+        "schema": "molcrys-kit.mryx-anonymization.v1",
+        "replaces_structure_label": "mck_tier_a_triclinic_anon",
+        "removed_identifiers": ["GSA_o372_ACN"],
+        "atom_site_labels_unchanged": true,
+        "byte_identical_to_upstream": false
+      },
+      "upstream": {
+        "filename": "Crystal structure,5aa.mryx",
+        "source_url": "https://zenodo.org/records/14614827/files/Crystal%20structure%2C5aa.mryx?download=1",
+        "record_url": "https://zenodo.org/records/14614827",
+        "doi": "10.5281/zenodo.14614827",
+        "article_doi": "10.1021/acs.joc.4c02538",
+        "title": "1,4-Dihydropyrrolo[3,2-b]pyrroles with Two Embedded Heptagons via Alkyne Annulation",
+        "creators": [
+          "Gana Sanil",
+          "Łukasz Dobrzycki",
+          "Michał K. Cyrański",
+          "Denis Jacquemin",
+          "Wojciech Chaładaj",
+          "Daniel T. Gryko"
+        ],
+        "creators_source": "Crossref metadata for 10.1021/acs.joc.4c02538 (article linked from Zenodo deposit)",
+        "license": "CC-BY-4.0",
+        "sha256": "645ed350f516e7cfc94a21cbfed021084cf5ba5689d371cd4149f08800ee188c",
+        "md5": "bd2c4070b1e5f48cd1034cb53d61fcd4"
+      },
+      "provenance_notes": [
+        "Gzip-compressed CCDC_XML; upstream structure label GSA_o372_ACN replaced in bundled copy.",
+        "No Mercury/CCDC build or version string in decompressed XML.",
+        "P-1 triclinic cell; 116 stored sites; disorder_assemblies container empty.",
+        "Same Zenodo record includes Crystal structure,7ac.cif for a different compound; do not use it as a cross-check for this .mryx."
+      ],
+      "tier_a_scope": "authentic Mercury-derived bytes and cross-format ExtXYZ/ASE geometry; not tier (B) and not independent Mercury reinterpretation",
+      "tier_a_expectations": {
+        "n_atoms": 116,
+        "structure_label": "mck_tier_a_triclinic_anon",
+        "cellpar_deg": [13.2345, 13.302, 13.8564, 75.237, 85.009, 81.63],
+        "cellpar_atol": 0.01,
+        "position_atol_A": 0.0001
+      }
+    }
+  ],
+  "investigated_but_blocked": [
+    {
+      "id": "acs-jchemed-jc9b01085",
+      "description": "J. Chem. Educ. 2020 SI bundle with multiple teaching .mryx files and centroids",
+      "url": "https://doi.org/10.1021/acs.jchemed.9b01085",
+      "blocker": "pubs.acs.org supporting-information download returned HTTP 403 (Cloudflare) from this environment"
+    },
+    {
+      "id": "rsc-crystengcomm-c1ce06096a",
+      "description": "CrystEngComm 2012 supplementary Mercury MRYX figures",
+      "url": "https://pubs.rsc.org/en/content/articlelanding/2012/ce/c1ce06096a",
+      "blocker": "pubs.rsc.org supplementary paths returned HTTP 403 (Cloudflare) from this environment"
+    }
+  ],
+  "tier_b_status": {
+    "mercury_installed_in_cloud_agent": false,
+    "notes": "CCDC Mercury requires GUI activation (CSD-Community). Tier (B) CIF→Mercury→MRYX is not executed here; see docs/mryx.md for coordinator desktop steps."
+  }
+}
