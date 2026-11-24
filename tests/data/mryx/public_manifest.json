@@ -14,7 +14,8 @@
         "gzip_os": 255,
         "gzip_compresslevel": 9,
         "deflate_wbits": -15,
-        "python_contract": "Not stdlib gzip.compress: CPython 3.11/3.12 set header OS=3 while 3.10 uses OS=255 for otherwise identical deflate. derive_fixture pins OS=255 and mtime=0 with zlib raw deflate; CI asserts byte identity on 3.10–3.12."
+        "deflate_method": "zlib.compressobj(level, zlib.DEFLATED, wbits=-15)",
+        "python_contract": "Not stdlib gzip.compress: header OS differs across CPython minors. derive_fixture pins mtime=0/OS=255/XFL=2 and raw deflate via compressobj(wbits=-15) for CPython 3.10–3.12 byte identity."
       },
       "anonymization": {
         "schema": "molcrys-kit.mryx-anonymization.v1",

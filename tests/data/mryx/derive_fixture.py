@@ -19,12 +19,14 @@ def stable_gzip_compress(payload: bytes) -> bytes:
     CPython minor releases: recent 3.11/3.12 builds set header byte 9 (OS) to 3
     (Unix), while 3.10 ``GzipFile`` uses 255 (unknown). Payload deflate and
     trailer still match; only the header OS octet differs. This helper pins
-    mtime, XFL, and OS and uses raw deflate (``zlib.compress(..., wbits=-15)``).
+    mtime, XFL, and OS and raw deflate via ``zlib.compressobj(..., wbits=-15)``
+    (CPython 3.10-compatible; ``zlib.compress`` does not accept ``wbits`` there).
     """
     level = GZIP_COMPRESSLEVEL
     xfl = GZIP_XFL_BEST_COMPRESSION if level == 9 else 0x00
     header = b"\x1f\x8b\x08\x00" + struct.pack("<I", GZIP_MTIME) + bytes([xfl, GZIP_OS_UNKNOWN])
-    body = zlib.compress(payload, level=level, wbits=-15)
+    compressor = zlib.compressobj(level, zlib.DEFLATED, -15)
+    body = compressor.compress(payload) + compressor.flush()
     crc = zlib.crc32(payload) & 0xFFFFFFFF
     isize = len(payload) & 0xFFFFFFFF
     trailer = struct.pack("<II", crc, isize)
