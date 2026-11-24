@@ -1,12 +1,17 @@
 # Public Mercury `.mryx` validation fixtures
 
-These entries support **independent** Mercury format checks for PR #228. They are
-not checked into git.
+Tier-(A) validation uses **git-tracked, anonymized** Mercury exports. CI and
+default tests read bundled files only; they do not download from Zenodo or other
+hosts at runtime.
 
-`public_manifest.json` lists download URLs, hashes, licenses, and provenance.
-`scripts/validate_mryx_public_roundtrip.py` and
-`tests/unit/io/test_mryx_public_roundtrip.py` fetch fixtures on demand (Zenodo
-is CC-BY-4.0 and allows redistribution when attributed).
+- `public_manifest.json` — fixture ids, derived/upstream hashes, tier-(A) expectations, provenance.
+- `fixtures/` — gzip Mercury `.mryx` bytes (derived from CC-BY Zenodo deposits).
+- `ATTRIBUTION.md` — required licence and source citation for vendored data.
+- `fixture_paths.py` — offline path resolution and SHA-256 verification.
+
+Maintainers may refresh the anonymized copy from an upstream file with matching
+upstream SHA-256 using `scripts/maintain_mryx_anonymized_fixture.py` (local/manual;
+not part of CI).
 
 Synthetic XML in `tests/unit/io/test_io_mryx.py` remains contract coverage only;
-it does not satisfy the real-format P1 gate.
+it does not satisfy the real-format tier-(A) gate.

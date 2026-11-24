@@ -95,16 +95,19 @@ dataset as a paired reference.
 
 ## Public-format validation (tier A)
 
-`tests/data/mryx/public_manifest.json` pins traceable Mercury exports that can
-be downloaded under stated licenses (currently one CC-BY-4.0 Zenodo deposit from
-`10.1021/acs.joc.4c02538`). Run:
+`tests/data/mryx/public_manifest.json` pins traceable Mercury exports (currently
+one CC-BY-4.0 Zenodo deposit from `10.1021/acs.joc.4c02538`). The tier-(A) case
+is vendored as an **anonymized** gzip export under `tests/data/mryx/fixtures/`;
+see `tests/data/mryx/ATTRIBUTION.md` for upstream SHA-256, derived SHA-256, and
+licence notice. CI and default validation read bundled bytes only — no runtime
+download from Zenodo. Optional manual refresh from authentic upstream bytes:
+`scripts/maintain_mryx_anonymized_fixture.py` (not used in CI).
 
 ```bash
 python scripts/validate_mryx_public_roundtrip.py
 pytest tests/integration/test_mryx_public_roundtrip.py
+pytest tests/unit/io/test_mryx_public_manifest.py
 ```
-
-Offline manifest contracts (no network): `pytest tests/unit/io/test_mryx_public_manifest.py`
 
 Tier **(A)** checks: real `.mryx` → `read_mryx` / `read_mryx_atoms` (stored
 sites, no symmetry expansion) → `write_extxyz` → ASE ExtXYZ read, comparing

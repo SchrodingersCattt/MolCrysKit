@@ -1,30 +1,39 @@
 {
-  "schema": "molcrys-kit.mryx-public-fixtures.v1",
-  "description": "Traceable Mercury .mryx exports for independent format validation. Files are not vendored in git; pytest and scripts/validate_mryx_public_roundtrip.py download them on demand.",
+  "schema": "molcrys-kit.mryx-public-fixtures.v2",
+  "description": "Traceable Mercury .mryx exports for independent format validation. Derived anonymized fixtures are vendored under tests/data/mryx/fixtures/; CI and default tests use bundled bytes only (no runtime download).",
   "fixtures": [
     {
       "id": "zenodo-5aa-triclinic",
-      "filename": "Crystal_structure,5aa.mryx",
-      "url": "https://zenodo.org/records/14614827/files/Crystal%20structure%2C5aa.mryx?download=1",
-      "sha256": "645ed350f516e7cfc94a21cbfed021084cf5ba5689d371cd4149f08800ee188c",
-      "md5": "bd2c4070b1e5f48cd1034cb53d61fcd4",
-      "license": "CC-BY-4.0",
-      "source": {
-        "repository": "Zenodo",
+      "bundled_path": "fixtures/zenodo-5aa-triclinic-anonymized.mryx",
+      "derived_sha256": "4abfc3161d38af846fda5dd577445374b5f518e1e5bc963045b10baea71532c3",
+      "anonymization": {
+        "schema": "molcrys-kit.mryx-anonymization.v1",
+        "replaces_structure_label": "mck_tier_a_triclinic_anon",
+        "removed_identifiers": ["GSA_o372_ACN"],
+        "atom_site_labels_unchanged": true,
+        "byte_identical_to_upstream": false
+      },
+      "upstream": {
+        "filename": "Crystal structure,5aa.mryx",
+        "source_url": "https://zenodo.org/records/14614827/files/Crystal%20structure%2C5aa.mryx?download=1",
         "record_url": "https://zenodo.org/records/14614827",
         "doi": "10.5281/zenodo.14614827",
         "article_doi": "10.1021/acs.joc.4c02538",
-        "title": "1,4-Dihydropyrrolo[3,2-b]pyrroles with Two Embedded Heptagons via Alkyne Annulation"
+        "title": "1,4-Dihydropyrrolo[3,2-b]pyrroles with Two Embedded Heptagons via Alkyne Annulation",
+        "license": "CC-BY-4.0",
+        "sha256": "645ed350f516e7cfc94a21cbfed021084cf5ba5689d371cd4149f08800ee188c",
+        "md5": "bd2c4070b1e5f48cd1034cb53d61fcd4"
       },
       "provenance_notes": [
-        "Gzip-compressed CCDC_XML; structure label GSA_o372_ACN inside the export.",
-        "No Mercury/CCDC build or version string was found in the decompressed XML.",
+        "Gzip-compressed CCDC_XML; upstream structure label GSA_o372_ACN replaced in bundled copy.",
+        "No Mercury/CCDC build or version string in decompressed XML.",
         "P-1 triclinic cell; 116 stored sites; disorder_assemblies container empty.",
         "Same Zenodo record includes Crystal structure,7ac.cif for a different compound; do not use it as a cross-check for this .mryx."
       ],
-      "tier_a_scope": "authentic Mercury bytes and cross-format ExtXYZ/ASE geometry; not tier (B) and not independent Mercury reinterpretation",
+      "tier_a_scope": "authentic Mercury-derived bytes and cross-format ExtXYZ/ASE geometry; not tier (B) and not independent Mercury reinterpretation",
       "tier_a_expectations": {
         "n_atoms": 116,
+        "structure_label": "mck_tier_a_triclinic_anon",
         "cellpar_deg": [13.2345, 13.302, 13.8564, 75.237, 85.009, 81.63],
         "cellpar_atol": 0.01,
         "position_atol_A": 0.0001

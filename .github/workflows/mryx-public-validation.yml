@@ -10,6 +10,7 @@ on:
       - "tests/unit/io/test_mryx_public_manifest.py"
       - "tests/unit/io/test_io_mryx.py"
       - "scripts/validate_mryx_public_roundtrip.py"
+      - "scripts/maintain_mryx_anonymized_fixture.py"
       - ".github/workflows/mryx-public-validation.yml"
   workflow_dispatch:
 
@@ -33,7 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[test,desktop]"
 
-      - name: Tier (A) public Mercury round-trip (fail closed on download)
+      - name: Tier (A) bundled Mercury round-trip (offline)
         run: |
           python scripts/validate_mryx_public_roundtrip.py
           pytest tests/integration/test_mryx_public_roundtrip.py -q --timeout=180

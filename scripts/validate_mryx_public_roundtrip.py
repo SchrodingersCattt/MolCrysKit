@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Download public Mercury .mryx exports and run tier-(A) round-trip validation."""
+"""Run tier-(A) round-trip validation on git-bundled public Mercury exports."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+import importlib.util
 import json
 import sys
-import urllib.error
-import urllib.request
 import warnings
 from pathlib import Path
 
@@ -23,33 +21,14 @@ MANIFEST = (
 )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _download(url: str, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers={"User-Agent": "MolCrysKit-mryx-validation/1.0"})
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            dest.write_bytes(response.read())
-    except urllib.error.URLError as exc:
-        raise SystemExit(f"download failed: {url}\n{exc}") from exc
-
-
-def _load_fixture(entry: dict, cache_dir: Path) -> Path:
-    filename = entry["filename"].replace(",", "_")
-    path = cache_dir / filename
-    if path.exists() and _sha256(path) == entry["sha256"]:
-        return path
-    _download(entry["url"], path)
-    if _sha256(path) != entry["sha256"]:
-        raise SystemExit(f"sha256 mismatch for {entry['id']}: {path}")
-    return path
+def _fixture_paths_module():
+    paths_file = MANIFEST.parent / "fixture_paths.py"
+    spec = importlib.util.spec_from_file_location("mryx_fixture_paths", paths_file)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load fixture resolver from {paths_file}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _tier_a(path: Path, expectations: dict) -> dict:
@@ -68,6 +47,9 @@ def _tier_a(path: Path, expectations: dict) -> dict:
     )
 
     meta = atoms.info["mryx"]
+    expected_label = expectations.get("structure_label")
+    if expected_label is not None:
+        assert meta.get("label") == expected_label
 
     out = path.with_suffix(".extxyz")
     write_extxyz(crystal, str(out))
@@ -102,12 +84,6 @@ def main(argv: list[str] | None = None) -> int:
         help="public_manifest.json path",
     )
     parser.add_argument(
-        "--cache-dir",
-        type=Path,
-        default=Path("/tmp/molcrys_kit_mryx_cache"),
-        help="directory for downloaded .mryx files",
-    )
-    parser.add_argument(
         "--fixture-id",
         default=None,
         help="run one manifest id (default: all fixtures)",
@@ -115,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    resolve = _fixture_paths_module().resolve_bundled_fixture
+
     entries = manifest["fixtures"]
     if args.fixture_id:
         entries = [item for item in entries if item["id"] == args.fixture_id]
@@ -123,10 +101,10 @@ def main(argv: list[str] | None = None) -> int:
 
     reports = []
     for entry in entries:
-        path = _load_fixture(entry, args.cache_dir)
+        path = resolve(entry)
         reports.append({"id": entry["id"], **_tier_a(path, entry["tier_a_expectations"])})
 
-    print(json.dumps({"tier": "A", "results": reports}, indent=2))
+    print(json.dumps({"tier": "A", "bundled_only": True, "results": reports}, indent=2))
     return 0
 
 
