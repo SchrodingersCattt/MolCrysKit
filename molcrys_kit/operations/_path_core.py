@@ -142,6 +142,89 @@ def copy_crystal_with_molecule_positions(
     return frame
 
 
+_DERIVED_GEOMETRY_INFO = ("_molcrys_bond_records",)
+
+
+def invalidate_path_geometry_caches(atoms) -> tuple[str, ...]:
+    """Drop coordinate-derived payloads after a path mutates geometry.
+
+    Connectivity the caller stored under other names is left in place.
+    The returned names are the keys that were actually present.
+    """
+    removed = []
+    atoms.calc = None
+    for key in _DERIVED_GEOMETRY_INFO:
+        if key in atoms.info:
+            atoms.info.pop(key)
+            removed.append(key)
+    for key in (KEY_FRAC_X, KEY_FRAC_Y, KEY_FRAC_Z):
+        if key in atoms.arrays:
+            del atoms.arrays[key]
+            removed.append(key)
+    return tuple(removed)
+
+
+def validate_path_frames(frames, *, label: str = "path") -> dict[str, object]:
+    """Check the minimum public invariants of one mapped image sequence.
+
+    Frames share atom count, element order, periodic directions, and optional
+    ``atom_id`` values. Each cell and position array must be finite. Cells may
+    differ between frames. Only ASE ``FixAtoms`` constraints are accepted.
+    """
+    from ase.constraints import FixAtoms
+
+    sequence = tuple(frames)
+    if len(sequence) < 2 or any(not isinstance(frame, Atoms) for frame in sequence):
+        raise ValueError(f"{label} must contain at least two ASE Atoms images")
+    count = len(sequence[0])
+    if count == 0:
+        raise ValueError(f"{label} images must not be empty")
+    numbers = sequence[0].numbers
+    periodic = np.asarray(sequence[0].pbc, dtype=bool)
+    identity = sequence[0].arrays.get("atom_id")
+    if identity is not None and np.asarray(identity).shape != (count,):
+        raise ValueError(f"{label} atom_id must contain one scalar per atom")
+    if identity is not None and len(np.unique(identity)) != count:
+        raise ValueError(f"{label} atom_id values must be unique")
+    for frame in sequence:
+        if len(frame) != count or not np.array_equal(frame.numbers, numbers):
+            raise ValueError(f"{label} images must have identical atom order and elements")
+        if not np.array_equal(np.asarray(frame.pbc, dtype=bool), periodic):
+            raise ValueError(f"{label} images must have identical periodic directions")
+        if not np.all(np.isfinite(frame.positions)) or not np.all(np.isfinite(frame.cell)):
+            raise ValueError(f"{label} positions and cells must be finite")
+        current = frame.arrays.get("atom_id")
+        if (identity is None) != (current is None):
+            raise ValueError(
+                f"{label} atom_id arrays must be present in all images or none"
+            )
+        if identity is not None and not np.array_equal(identity, current):
+            raise ValueError(f"{label} atom_id order must be identical in all images")
+        if any(not isinstance(constraint, FixAtoms) for constraint in frame.constraints):
+            raise ValueError(f"{label} supports only ASE FixAtoms constraints")
+    return {
+        "frame_count": len(sequence),
+        "atom_count": count,
+        "pbc": [bool(value) for value in periodic],
+        "atom_identity": "atom_id" if identity is not None else "row order",
+    }
+
+
+def require_same_cell_and_pbc(reference: Atoms, other: Atoms, *, label: str) -> None:
+    """Reject a frame that is not already in the reference cell and PBC.
+
+    Composition does not rotate, rescale, or rewrap a layer into the base
+    cell. Callers who need that change apply it before composition.
+    """
+    if not np.array_equal(np.asarray(other.pbc, dtype=bool), np.asarray(reference.pbc, dtype=bool)):
+        raise ValueError(f"{label} PBC must match the corresponding base image")
+    if not np.allclose(np.asarray(other.cell, dtype=float), np.asarray(reference.cell, dtype=float), atol=1e-8, rtol=0.0):
+        raise ValueError(
+            f"{label} cell must match the corresponding base image; "
+            "compose_path_images does not transform cells"
+        )
+
+
 def materialize_atoms_frame(
     reference: Atoms,
     positions: np.ndarray,
@@ -151,8 +234,8 @@ def materialize_atoms_frame(
 ) -> Atoms:
     """Copy a flat atom-ordered frame and replace geometry-dependent payloads."""
     frame = reference.copy()
-    frame.calc = None
     frame.positions[:] = np.asarray(positions, dtype=float)
+    invalidate_path_geometry_caches(frame)
     for key in drop_arrays:
         if key in frame.arrays:
             del frame.arrays[key]

@@ -100,10 +100,31 @@ from .reorientation import reorient_crystal, ReorientationInfo
 
 from .reactive_path import (
     BondChange,
+    FreeAtomArc,
     ReactivePathConfig,
     ReactivePathResult,
     RigidGroup,
     interpolate_reactive_path,
+    write_reactive_path,
+)
+from .path_composition import ComposedPathResult, PathLayer, compose_path_images
+from .path_constraints import (
+    AngleCoordinate,
+    DistanceCoordinate,
+    LinearCombinationCoordinate,
+    PathCoordinate,
+    PathRestraint,
+    SignedPlaneDistanceCoordinate,
+    SignedVolumeCoordinate,
+)
+from .idpp import IDPPRefinementResult, refine_idpp_path
+
+from .periodic_path import (
+    PeriodicPathCandidate,
+    PeriodicPathConfig,
+    PeriodicPathError,
+    PeriodicPathResult,
+    interpolate_periodic_paths,
 )
 from .periodic_chain import build_periodic_chains
 
@@ -246,10 +267,29 @@ __all__ = [
     "reorient_crystal",
     "ReorientationInfo",
     "BondChange",
+    "FreeAtomArc",
     "ReactivePathConfig",
     "ReactivePathResult",
     "RigidGroup",
     "interpolate_reactive_path",
+    "write_reactive_path",
+    "ComposedPathResult",
+    "PathLayer",
+    "compose_path_images",
+    "AngleCoordinate",
+    "DistanceCoordinate",
+    "LinearCombinationCoordinate",
+    "PathCoordinate",
+    "PathRestraint",
+    "SignedPlaneDistanceCoordinate",
+    "SignedVolumeCoordinate",
+    "IDPPRefinementResult",
+    "refine_idpp_path",
+    "PeriodicPathCandidate",
+    "PeriodicPathConfig",
+    "PeriodicPathError",
+    "PeriodicPathResult",
+    "interpolate_periodic_paths",
     "build_periodic_chains",
     "AverageAtomSite",
     "ConstructionValidationError",
