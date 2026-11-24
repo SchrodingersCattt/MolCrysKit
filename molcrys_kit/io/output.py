@@ -2109,6 +2109,15 @@ def write_poscar(
     str
         POSCAR format string.
     """
+    try:
+        from ase.io.vasp import write_vasp
+    except ModuleNotFoundError as error:
+        if error.name != "ase":
+            raise
+        raise ImportError(
+            'POSCAR export requires ASE. Install with: python -m pip install "molcrys-kit[desktop]"'
+        ) from error
+
     from ..constants.config import (
         KEY_ASSEMBLY,
         KEY_DISORDER_GROUP,
@@ -2215,8 +2224,6 @@ def write_poscar(
     line1 = base_comment
     if lossy_summary:
         line1 = f"{base_comment} | MolCrysKit lossy export: dropped {lossy_summary}"
-
-    from ase.io.vasp import write_vasp
 
     buffer = StringIO()
     write_vasp(buffer, atoms, direct=direct, sort=sort, vasp5=True)

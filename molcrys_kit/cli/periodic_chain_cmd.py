@@ -4,9 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import click
-from ..analysis.periodic_validation import validate_periodic_bundle
-from ..io.periodic_bundle import read_periodic_bundle, write_periodic_bundle
-from ..operations.periodic_chain import build_periodic_chains
 from ..structures.periodic_geometry import (
     BoundaryPort,
     ChainSpec,
@@ -14,6 +11,7 @@ from ..structures.periodic_geometry import (
     FragmentTemplate,
     ScrewSpec,
 )
+from ._common import require_ase
 
 
 def load_chain_request(config: str | Path):
@@ -124,6 +122,10 @@ def build_group():
 )
 @click.option("--overwrite", is_flag=True)
 def build_chain(config: Path, output: Path, format_name: str | None, overwrite: bool):
+    require_ase("Periodic chain build")
+    from ..io.periodic_bundle import write_periodic_bundle
+    from ..operations.periodic_chain import build_periodic_chains
+
     try:
         payload, templates, rules, spec = load_chain_request(config)
     except (OSError, UnicodeError, TypeError, ValueError) as error:
@@ -150,6 +152,10 @@ def build_chain(config: Path, output: Path, format_name: str | None, overwrite: 
 @click.argument("input", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--json", "as_json", is_flag=True)
 def validate_bundle(input: Path, as_json: bool):
+    require_ase("Periodic bundle validation")
+    from ..analysis.periodic_validation import validate_periodic_bundle
+    from ..io.periodic_bundle import read_periodic_bundle
+
     atoms, metadata = read_periodic_bundle(input)
     report = validate_periodic_bundle(atoms, metadata)
     click.echo(

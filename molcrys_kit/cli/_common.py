@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -33,6 +34,18 @@ INDEPENDENT_ASSEMBLIES = click.option(
 )
 
 
+def require_ase(operation: str) -> None:
+    """Fail explicitly only when the selected operation needs unavailable ASE."""
+    try:
+        import_module("ase")
+    except ModuleNotFoundError as error:
+        if error.name != "ase":
+            raise
+        raise click.ClickException(
+            f'{operation} requires ASE. Install with: python -m pip install "molcrys-kit[desktop]"'
+        ) from error
+
+
 def load_crystal(
     path: str | Path,
     *,
@@ -48,7 +61,7 @@ def load_crystal(
     ``resolve_disorder`` is true, so callers that omit them keep legacy
     coupling, geometry heuristics, and soft formula filtering.
     """
-    from molcrys_kit.io import read_extxyz, read_mol_crystal, read_poscar, read_mryx
+    from molcrys_kit.io import read_mol_crystal
 
     if (strict_formula or independent_assemblies) and not resolve_disorder:
         raise click.UsageError(
@@ -61,6 +74,8 @@ def load_crystal(
     name = file_path.name.lower()
 
     if suffix == ".mryx":
+        from molcrys_kit.io import read_mryx
+
         if resolve_disorder:
             raise click.UsageError("MRYX disorder resolution is not supported; raw groups are retained as metadata.")
         return read_mryx(file_path, bond_scale=bond_scale)
@@ -81,8 +96,14 @@ def load_crystal(
                 raise click.ClickException(str(exc)) from exc
             raise
     if suffix in {".vasp", ".poscar"} or name in {"poscar", "contcar"}:
+        require_ase("POSCAR input")
+        from molcrys_kit.io import read_poscar
+
         return read_poscar(str(file_path), bond_scale=bond_scale)
     if suffix == ".extxyz":
+        require_ase("ExtXYZ input")
+        from molcrys_kit.io import read_extxyz
+
         crystal = read_extxyz(str(file_path), bond_scale=bond_scale)
         if isinstance(crystal, list):
             if not crystal:
@@ -97,10 +118,9 @@ def load_crystal(
 
 def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[MolecularCrystal], path: str | Path) -> None:
     """Write a crystal, molecule, or frame sequence using the output suffix."""
-    import ase.io
     import numpy as np
 
-    from molcrys_kit.io import write_cif, write_extxyz, write_poscar, write_xyz
+    from molcrys_kit.io import write_cif, write_xyz
     from molcrys_kit.structures import CrystalMolecule, MolecularCrystal
 
     file_path = Path(path)
@@ -130,6 +150,9 @@ def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[Molecular
         raise click.ClickException("CIF output requires a MolecularCrystal")
     if suffix in {".vasp", ".poscar"} or name in {"poscar", "contcar"}:
         if isinstance(obj, MolecularCrystal):
+            require_ase("POSCAR output")
+            from molcrys_kit.io import write_poscar
+
             write_poscar(obj, str(file_path))
             return
         raise click.ClickException("POSCAR output requires a MolecularCrystal")
@@ -137,15 +160,23 @@ def write_structure(obj: MolecularCrystal | CrystalMolecule | Iterable[Molecular
         if isinstance(obj, MolecularCrystal):
             # Whole-crystal XYZ output is a flattened ASE Atoms view.  The
             # project writer below is intentionally molecule/cluster oriented.
-            ase.io.write(str(file_path), obj.to_ase(), format="xyz")
+            require_ase("Whole-crystal XYZ output")
+            from ase.io import write
+
+            write(str(file_path), obj.to_ase(), format="xyz")
             return
         if isinstance(obj, CrystalMolecule):
             write_xyz(obj, str(file_path))
             return
         raise click.ClickException("XYZ output requires a MolecularCrystal or CrystalMolecule")
     if suffix == ".extxyz":
+        require_ase("ExtXYZ output")
+        from molcrys_kit.io import write_extxyz
+
         if isinstance(obj, CrystalMolecule):
-            ase.io.write(str(file_path), obj.to_ase(), format="extxyz")
+            from ase.io import write
+
+            write(str(file_path), obj.to_ase(), format="extxyz")
             return
         write_extxyz(obj, str(file_path))
         return
