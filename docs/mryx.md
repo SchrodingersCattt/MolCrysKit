@@ -102,7 +102,8 @@ see `tests/data/mryx/ATTRIBUTION.md` for upstream SHA-256, derived SHA-256, and
 licence notice. CI and default validation read bundled bytes only — no runtime
 download from Zenodo. Optional manual refresh from authentic upstream bytes:
 `scripts/maintain_mryx_anonymized_fixture.py` and `derive_fixture.py`
-(`gzip.compress` with `mtime=0` for byte-stable derivations; not used in CI).
+(`stable_gzip_compress` with fixed gzip header bytes; portable on CPython
+3.10–3.12 CI; not used in CI for downloads).
 
 ```bash
 python scripts/validate_mryx_public_roundtrip.py

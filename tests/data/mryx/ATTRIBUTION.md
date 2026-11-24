@@ -24,10 +24,10 @@ notice and `public_manifest.json` (`upstream` block).
 | Field | Value |
 |-------|-------|
 | Bundled path | `fixtures/zenodo-5aa-triclinic-anonymized.mryx` |
-| Derived SHA-256 | `fc552f1915aa95c5a73dd917d523269c2408f4b3d3f6a33ee00dcafbb693ce53` |
+| Derived SHA-256 | `dc8ae7c7360c3836643a297c64fe10ac1df85bc268e37cb97667c9446b07eb53` |
 | Creators (upstream work) | Gana Sanil; Łukasz Dobrzycki; Michał K. Cyrański; Denis Jacquemin; Wojciech Chaładaj; Daniel T. Gryko (Crossref, `10.1021/acs.joc.4c02538`) |
 | Anonymization | Replaced structure display label `GSA_o372_ACN` → `mck_tier_a_triclinic_anon`; atom site labels, coordinates, cell, and symmetry metadata unchanged |
-| Deterministic re-derive | `gzip.compress(..., compresslevel=9, mtime=0)` via `derive_fixture.py` (no wall-clock gzip header) |
+| Deterministic re-derive | `derive_fixture.stable_gzip_compress` (fixed mtime/OS header + zlib raw deflate; portable 3.10–3.12) |
 
 Anonymization reduces gratuitous dataset-specific naming in tracked bytes; it
 does **not** remove the obligation to cite the upstream Zenodo deposit when

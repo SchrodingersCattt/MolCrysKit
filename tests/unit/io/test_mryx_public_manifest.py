@@ -43,8 +43,13 @@ def test_public_mryx_manifest_lists_bundled_fixtures_with_hashes():
         assert upstream["license"]
         assert entry["anonymization"]["byte_identical_to_upstream"] is False
         derivation = entry["derivation"]
+        assert derivation["algorithm"] == "stable_gzip_compress"
         assert derivation["gzip_mtime"] == 0
+        assert derivation["gzip_xfl"] == 2
+        assert derivation["gzip_os"] == 255
+        assert derivation["deflate_wbits"] == -15
         assert derivation["gzip_compresslevel"] == 9
+        assert "Not stdlib gzip.compress" in derivation["python_contract"]
         tier = entry["tier_a_expectations"]
         assert tier["n_atoms"] > 0
         assert len(tier["cellpar_deg"]) == 6
@@ -75,6 +80,20 @@ def test_resolve_bundled_fixture_fails_closed_on_checksum_mismatch():
     _fixture_paths().resolve_bundled_fixture(entry)
     with pytest.raises(ValueError, match="derived sha256 mismatch"):
         _fixture_paths().resolve_bundled_fixture({**entry, "derived_sha256": "0" * 64})
+
+
+def test_stable_gzip_portable_header_bytes():
+    import struct
+
+    derive = _derive_module()
+    payload = b"portable-gzip-header-contract"
+    blob = derive.stable_gzip_compress(payload)
+    assert blob[:2] == b"\x1f\x8b"
+    assert blob[2] == 8
+    assert blob[3] == 0
+    assert struct.unpack("<I", blob[4:8])[0] == 0
+    assert blob[8] == 2
+    assert blob[9] == 255
 
 
 def test_stable_gzip_derivation_is_independent_of_wall_clock(monkeypatch):

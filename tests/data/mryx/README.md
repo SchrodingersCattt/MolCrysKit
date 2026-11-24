@@ -11,8 +11,8 @@ hosts at runtime.
 
 Maintainers may refresh the anonymized copy from an upstream file with matching
 upstream SHA-256 using `scripts/maintain_mryx_anonymized_fixture.py` and
-`derive_fixture.py` (`gzip.compress` with `mtime=0` for byte-stable output;
-local/manual; not part of CI).
+`derive_fixture.py` (`stable_gzip_compress` portable header; local/manual;
+not part of CI).
 
 Synthetic XML in `tests/unit/io/test_io_mryx.py` remains contract coverage only;
 it does not satisfy the real-format tier-(A) gate.

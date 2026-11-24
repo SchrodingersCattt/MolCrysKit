@@ -5,12 +5,16 @@
     {
       "id": "zenodo-5aa-triclinic",
       "bundled_path": "fixtures/zenodo-5aa-triclinic-anonymized.mryx",
-      "derived_sha256": "fc552f1915aa95c5a73dd917d523269c2408f4b3d3f6a33ee00dcafbb693ce53",
+      "derived_sha256": "dc8ae7c7360c3836643a297c64fe10ac1df85bc268e37cb97667c9446b07eb53",
       "derivation": {
         "module": "tests/data/mryx/derive_fixture.py",
+        "algorithm": "stable_gzip_compress",
         "gzip_mtime": 0,
+        "gzip_xfl": 2,
+        "gzip_os": 255,
         "gzip_compresslevel": 9,
-        "python_contract": "CPython gzip.compress(..., mtime=0) uses zlib.compress(..., wbits=31); identical across wall-clock times on supported CPython 3.10–3.12 CI interpreters"
+        "deflate_wbits": -15,
+        "python_contract": "Not stdlib gzip.compress: CPython 3.11/3.12 set header OS=3 while 3.10 uses OS=255 for otherwise identical deflate. derive_fixture pins OS=255 and mtime=0 with zlib raw deflate; CI asserts byte identity on 3.10–3.12."
       },
       "anonymization": {
         "schema": "molcrys-kit.mryx-anonymization.v1",
