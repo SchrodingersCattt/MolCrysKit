@@ -22,6 +22,8 @@ mck skills show analyze-molecular-crystal --file references/cli-analyses.md
 
 ### `mck validate-periodic-bundle`
 
+`mck build chain` and `mck validate-periodic-bundle` require the `desktop` extra to run. Their help remains available in a core-only install.
+
 Validate a periodic structure bundle and its JSON sidecar before downstream use.
 
 ```bash

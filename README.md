@@ -60,10 +60,10 @@ pip install "molcrys-kit[desktop]"
 
 `pip install molcrys-kit` installs the core profile: NumPy, NetworkX, and
 Click. That profile reads CIF structures, resolves special-position disorder,
-and exports CIF, POSCAR, and XYZ without SciPy, ASE, pymatgen, or spglib.
-The `[desktop]` extra adds SciPy, ASE, pymatgen, spglib, and defusedxml. It is
-the install to use for the rest of the toolkit, including Mercury `.mryx`
-import.
+and exports CIF and plain molecular XYZ without SciPy, ASE, pymatgen, or
+spglib. The `[desktop]` extra adds SciPy, ASE, pymatgen, spglib, and defusedxml.
+It is the install to use for the rest of the toolkit, including POSCAR and ExtXYZ
+export and Mercury `.mryx` import.
 
 Pymatgen users who want the namespace import path
 (`from pymatgen.analysis.molcrys import ...`) can also install the thin addon
