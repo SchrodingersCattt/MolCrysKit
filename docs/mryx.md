@@ -101,7 +101,8 @@ is vendored as an **anonymized** gzip export under `tests/data/mryx/fixtures/`;
 see `tests/data/mryx/ATTRIBUTION.md` for upstream SHA-256, derived SHA-256, and
 licence notice. CI and default validation read bundled bytes only — no runtime
 download from Zenodo. Optional manual refresh from authentic upstream bytes:
-`scripts/maintain_mryx_anonymized_fixture.py` (not used in CI).
+`scripts/maintain_mryx_anonymized_fixture.py` and `derive_fixture.py`
+(`gzip.compress` with `mtime=0` for byte-stable derivations; not used in CI).
 
 ```bash
 python scripts/validate_mryx_public_roundtrip.py

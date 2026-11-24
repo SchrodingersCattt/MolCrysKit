@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def _fixture_paths_module():
     return module
 
 
-def _tier_a(path: Path, expectations: dict) -> dict:
+def _tier_a(path: Path, expectations: dict, scratch_dir: Path) -> dict:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         atoms = read_mryx_atoms(path)
@@ -51,7 +52,7 @@ def _tier_a(path: Path, expectations: dict) -> dict:
     if expected_label is not None:
         assert meta.get("label") == expected_label
 
-    out = path.with_suffix(".extxyz")
+    out = scratch_dir / f"{path.stem}.extxyz"
     write_extxyz(crystal, str(out))
     ase_atoms = ase_read(str(out))
     rt = read_extxyz(str(out)).to_ase()
@@ -100,9 +101,16 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"unknown fixture id: {args.fixture_id}")
 
     reports = []
-    for entry in entries:
-        path = resolve(entry)
-        reports.append({"id": entry["id"], **_tier_a(path, entry["tier_a_expectations"])})
+    with tempfile.TemporaryDirectory(prefix="mck_mryx_tier_a_") as scratch:
+        scratch_dir = Path(scratch)
+        for entry in entries:
+            path = resolve(entry)
+            reports.append(
+                {
+                    "id": entry["id"],
+                    **_tier_a(path, entry["tier_a_expectations"], scratch_dir),
+                }
+            )
 
     print(json.dumps({"tier": "A", "bundled_only": True, "results": reports}, indent=2))
     return 0

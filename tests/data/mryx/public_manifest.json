@@ -5,7 +5,13 @@
     {
       "id": "zenodo-5aa-triclinic",
       "bundled_path": "fixtures/zenodo-5aa-triclinic-anonymized.mryx",
-      "derived_sha256": "4abfc3161d38af846fda5dd577445374b5f518e1e5bc963045b10baea71532c3",
+      "derived_sha256": "fc552f1915aa95c5a73dd917d523269c2408f4b3d3f6a33ee00dcafbb693ce53",
+      "derivation": {
+        "module": "tests/data/mryx/derive_fixture.py",
+        "gzip_mtime": 0,
+        "gzip_compresslevel": 9,
+        "python_contract": "CPython gzip.compress(..., mtime=0) uses zlib.compress(..., wbits=31); identical across wall-clock times on supported CPython 3.10–3.12 CI interpreters"
+      },
       "anonymization": {
         "schema": "molcrys-kit.mryx-anonymization.v1",
         "replaces_structure_label": "mck_tier_a_triclinic_anon",
@@ -20,6 +26,15 @@
         "doi": "10.5281/zenodo.14614827",
         "article_doi": "10.1021/acs.joc.4c02538",
         "title": "1,4-Dihydropyrrolo[3,2-b]pyrroles with Two Embedded Heptagons via Alkyne Annulation",
+        "creators": [
+          "Gana Sanil",
+          "Łukasz Dobrzycki",
+          "Michał K. Cyrański",
+          "Denis Jacquemin",
+          "Wojciech Chaładaj",
+          "Daniel T. Gryko"
+        ],
+        "creators_source": "Crossref metadata for 10.1021/acs.joc.4c02538 (article linked from Zenodo deposit)",
         "license": "CC-BY-4.0",
         "sha256": "645ed350f516e7cfc94a21cbfed021084cf5ba5689d371cd4149f08800ee188c",
         "md5": "bd2c4070b1e5f48cd1034cb53d61fcd4"

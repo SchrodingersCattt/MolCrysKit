@@ -6,6 +6,7 @@ on:
       - "molcrys_kit/io/mryx.py"
       - "docs/mryx.md"
       - "tests/data/mryx/**"
+      - "tests/data/mryx/derive_fixture.py"
       - "tests/integration/test_mryx_public_roundtrip.py"
       - "tests/unit/io/test_mryx_public_manifest.py"
       - "tests/unit/io/test_io_mryx.py"

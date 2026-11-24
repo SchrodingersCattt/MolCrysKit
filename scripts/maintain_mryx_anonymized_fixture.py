@@ -8,9 +8,10 @@ Not invoked in CI. Requires a local upstream ``.mryx`` whose SHA-256 matches
 from __future__ import annotations
 
 import argparse
-import gzip
 import hashlib
+import importlib.util
 import json
+import sys
 from pathlib import Path
 
 MANIFEST = (
@@ -19,22 +20,22 @@ MANIFEST = (
 DEFAULT_FIXTURE_ID = "zenodo-5aa-triclinic"
 
 
+def _load_derive_module():
+    derive_file = MANIFEST.parent / "derive_fixture.py"
+    spec = importlib.util.spec_from_file_location("mryx_derive_fixture", derive_file)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {derive_file}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _anonymize_upstream_bytes(data: bytes, old_label: str, new_label: str) -> bytes:
-    text = gzip.decompress(data).decode("utf-8")
-    if old_label not in text:
-        raise ValueError(f"upstream missing expected structure label {old_label!r}")
-    if text.count(old_label) != 1:
-        raise ValueError(f"expected exactly one occurrence of {old_label!r}")
-    text = text.replace(old_label, new_label)
-    return gzip.compress(text.encode("utf-8"), compresslevel=9)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    derive = _load_derive_module()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     entry = next(item for item in manifest["fixtures"] if item["id"] == args.fixture_id)
     upstream = entry["upstream"]
@@ -70,12 +72,17 @@ def main(argv: list[str] | None = None) -> int:
     new_label = entry["anonymization"]["replaces_structure_label"]
     out_path = args.manifest.parent / entry["bundled_path"]
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    derived = _anonymize_upstream_bytes(args.upstream_mryx.read_bytes(), old_label, new_label)
+    derived = derive.anonymize_upstream_bytes(
+        args.upstream_mryx.read_bytes(),
+        old_label,
+        new_label,
+    )
     out_path.write_bytes(derived)
     derived_sha = _sha256(out_path)
     print(f"wrote {out_path}")
     print(f"derived_sha256={derived_sha}")
-    print("Update public_manifest.json derived_sha256 if this value changed.")
+    if derived_sha != entry["derived_sha256"]:
+        print("Update public_manifest.json, ATTRIBUTION.md, and docs if this value changed.")
     return 0
 
 
