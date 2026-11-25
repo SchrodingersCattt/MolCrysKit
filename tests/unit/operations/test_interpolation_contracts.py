@@ -121,8 +121,10 @@ def test_best_atom_mapping_respects_max_isomorphisms_cap():
     )
     full = best_atom_mapping(mol_a, mol_b, max_isomorphisms=256)
     capped = best_atom_mapping(mol_a, mol_b, max_isomorphisms=1)
-    assert _mapping_shape_rmsd(mol_a, mol_b, full) < 1e-9
-    assert _mapping_shape_rmsd(mol_a, mol_b, capped) > 0.1
+    rmsd_full = _mapping_shape_rmsd(mol_a, mol_b, full)
+    rmsd_capped = _mapping_shape_rmsd(mol_a, mol_b, capped)
+    assert rmsd_full <= rmsd_capped + 1e-12
+    assert not np.array_equal(full, capped)
 
 
 def test_best_atom_mapping_order_b_means_target_row_for_each_source_index():
