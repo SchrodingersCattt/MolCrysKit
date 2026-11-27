@@ -91,20 +91,7 @@ def _iter_isomorphism_mappings(
     return matcher.isomorphisms_iter()
 
 
-def best_atom_mapping(
-    mol_a: CrystalMolecule,
-    mol_b: CrystalMolecule,
-    *,
-    max_isomorphisms: int = 256,
-) -> np.ndarray:
-    """Return the atom order in ``mol_b`` that best corresponds to ``mol_a``.
-
-    The mapping is an integer array ``order_b`` such that
-    ``mol_b.get_positions()[order_b]`` is atom-by-atom comparable to
-    ``mol_a.get_positions()``. Candidate graph isomorphisms are element-aware;
-    if a molecule has multiple symmetrically equivalent atom mappings, the one
-    with the lowest Kabsch RMSD is selected.
-    """
+def _validate_mapping_molecules(mol_a: CrystalMolecule, mol_b: CrystalMolecule) -> None:
     if len(mol_a) != len(mol_b):
         raise ValueError("Cannot map molecules with different atom counts")
     if mol_a.get_chemical_formula() != mol_b.get_chemical_formula():
@@ -112,9 +99,44 @@ def best_atom_mapping(
             "Cannot map molecules with different formulas: "
             f"{mol_a.get_chemical_formula()} vs {mol_b.get_chemical_formula()}"
         )
-    if len(mol_a) == 0:
-        return np.array([], dtype=int)
 
+
+def _require_equal_molecule_count(
+    crystal_a: MolecularCrystal,
+    crystal_b: MolecularCrystal,
+    *,
+    context: str,
+) -> None:
+    if len(crystal_a.molecules) != len(crystal_b.molecules):
+        raise ValueError(
+            f"{context} requires the same number of molecules; "
+            f"got {len(crystal_a.molecules)} and {len(crystal_b.molecules)}"
+        )
+
+
+def _unused_molecule_candidates(
+    crystal_b: MolecularCrystal,
+    mol_a: CrystalMolecule,
+    used_b: set[int],
+) -> List[int]:
+    formula = mol_a.get_chemical_formula()
+    n_atoms = len(mol_a)
+    return [
+        idx_b
+        for idx_b, mol_b in enumerate(crystal_b.molecules)
+        if idx_b not in used_b
+        and len(mol_b) == n_atoms
+        and mol_b.get_chemical_formula() == formula
+    ]
+
+
+def _best_isomorphism_order(
+    mol_a: CrystalMolecule,
+    mol_b: CrystalMolecule,
+    *,
+    max_isomorphisms: int,
+) -> np.ndarray:
+    """Pick the element-graph isomorphism with lowest centered Kabsch RMSD."""
     graph_a = mol_a.get_graph()
     graph_b = mol_b.get_graph()
     best_order = None
@@ -148,6 +170,28 @@ def best_atom_mapping(
     return best_order
 
 
+def best_atom_mapping(
+    mol_a: CrystalMolecule,
+    mol_b: CrystalMolecule,
+    *,
+    max_isomorphisms: int = 256,
+) -> np.ndarray:
+    """Return the atom order in ``mol_b`` that best corresponds to ``mol_a``.
+
+    The mapping is an integer array ``order_b`` such that
+    ``mol_b.get_positions()[order_b]`` is atom-by-atom comparable to
+    ``mol_a.get_positions()``. Candidate graph isomorphisms are element-aware;
+    if a molecule has multiple symmetrically equivalent atom mappings, the one
+    with the lowest Kabsch RMSD is selected. Search stops after
+    ``max_isomorphisms`` candidates (the first candidates are not guaranteed to
+    be optimal).
+    """
+    _validate_mapping_molecules(mol_a, mol_b)
+    if len(mol_a) == 0:
+        return np.array([], dtype=int)
+    return _best_isomorphism_order(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
+
+
 def _minimum_image_translation(
     point_a: np.ndarray,
     point_b: np.ndarray,
@@ -170,11 +214,9 @@ def match_molecules(
     Kabsch-derived relative rotation and the minimum-image COM translation from
     replica A to B.
     """
-    if len(crystal_a.molecules) != len(crystal_b.molecules):
-        raise ValueError(
-            "Replica interpolation requires the same number of molecules; "
-            f"got {len(crystal_a.molecules)} and {len(crystal_b.molecules)}"
-        )
+    _require_equal_molecule_count(
+        crystal_a, crystal_b, context="Replica interpolation"
+    )
 
     lattice_a = np.asarray(crystal_a.lattice, dtype=float)
     lattice_b = np.asarray(crystal_b.lattice, dtype=float)
@@ -186,13 +228,7 @@ def match_molecules(
 
     for idx_a, mol_a in enumerate(crystal_a.molecules):
         formula = mol_a.get_chemical_formula()
-        candidates = [
-            idx_b
-            for idx_b, mol_b in enumerate(crystal_b.molecules)
-            if idx_b not in used_b
-            and len(mol_b) == len(mol_a)
-            and mol_b.get_chemical_formula() == formula
-        ]
+        candidates = _unused_molecule_candidates(crystal_b, mol_a, used_b)
         if not candidates:
             raise ValueError(
                 f"No unmatched molecule in replica B matches molecule {idx_a} "
@@ -221,7 +257,7 @@ def match_molecules(
         image_shift_cart = frac_to_cart(np.asarray(image_shift), lattice_a)
         com_b_unwrapped = com_b + image_shift_cart
 
-        order_b = best_atom_mapping(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
+        order_b = _best_isomorphism_order(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
         pos_a = np.asarray(mol_a.get_positions(), dtype=float)
         pos_b = np.asarray(mol_b.get_positions(), dtype=float)[order_b] + image_shift_cart
         centered_a = pos_a - com_a
@@ -438,11 +474,9 @@ def match_molecules_vc(
     -------
     list of VCMoleculeMatch
     """
-    if len(crystal_a.molecules) != len(crystal_b.molecules):
-        raise ValueError(
-            "Variable-cell interpolation requires the same number of molecules; "
-            f"got {len(crystal_a.molecules)} and {len(crystal_b.molecules)}"
-        )
+    _require_equal_molecule_count(
+        crystal_a, crystal_b, context="Variable-cell interpolation"
+    )
 
     lattice_a = np.asarray(crystal_a.lattice, dtype=float)
     lattice_b = np.asarray(crystal_b.lattice, dtype=float)
@@ -454,13 +488,7 @@ def match_molecules_vc(
 
     for idx_a, mol_a in enumerate(crystal_a.molecules):
         formula = mol_a.get_chemical_formula()
-        candidates = [
-            idx_b
-            for idx_b, mol_b in enumerate(crystal_b.molecules)
-            if idx_b not in used_b
-            and len(mol_b) == len(mol_a)
-            and mol_b.get_chemical_formula() == formula
-        ]
+        candidates = _unused_molecule_candidates(crystal_b, mol_a, used_b)
         if not candidates:
             raise ValueError(
                 f"No unmatched molecule in replica B matches molecule {idx_a} "
@@ -489,7 +517,7 @@ def match_molecules_vc(
         frac_com_b = cart_to_frac(com_b_cart, lattice_b)
 
         # Atom mapping and Kabsch on centered coords
-        order_b = best_atom_mapping(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
+        order_b = _best_isomorphism_order(mol_a, mol_b, max_isomorphisms=max_isomorphisms)
         pos_a = np.asarray(mol_a.get_positions(), dtype=float)
         pos_b = np.asarray(mol_b.get_positions(), dtype=float)[order_b]
         centered_a = pos_a - com_a_cart
@@ -531,7 +559,15 @@ def interpolate_crystal_vc(
     Lattice interpolation uses the GL⁺(3) geodesic (matrix log/exp of the
     deformation gradient).  Molecular COMs are linearly interpolated in
     fractional coordinates.  Molecular orientations are interpolated via
-    quaternion SLERP on the Kabsch-derived rotation.
+    quaternion SLERP on the Kabsch-derived rotation relative to the identity.
+
+    **Endpoint geometry (current contract).** With ``include_endpoints=True``,
+    the first image matches ``crystal_a`` and the final image lattice matches
+    ``crystal_b``. Molecular positions at :math:`\\lambda=1` follow the *rigid*
+    model (replica-A internal coordinates carried by the Kabsch rotation), not a
+    full conformational relaxation onto replica-B internal coordinates. When
+    replica B differs by internal deformation, the last molecular positions
+    can differ from ``crystal_b`` even though lattice endpoints are exact.
 
     The output images are suitable as initial guesses for variable-cell NEB
     calculations.
